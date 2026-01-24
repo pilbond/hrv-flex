@@ -1,0 +1,11 @@
+# Crear nixpacks.toml en la raíz del proyecto
+@"
+[phases.setup]
+nixPkgs = ["python39", "pip"]
+
+[phases.install]
+cmds = ["pip install -r requirements_web.txt"]
+
+[start]
+cmd = "python web_ui.py"
+"@ | Out-File -FilePath nixpacks.toml -Encoding UTF8
