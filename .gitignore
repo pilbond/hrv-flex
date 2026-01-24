@@ -1,0 +1,77 @@
+# ⚠️ CRÍTICO: SECRETS - NUNCA SUBIR
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+*.env
+
+# OAuth tokens y credenciales
+.polar_tokens.json
+.oauth_code.txt
+tokens.json
+credentials.json
+secrets.json
+
+# API Keys (por si acaso)
+*_api_key.txt
+*_secret.txt
+
+# Data files
+*.csv
+rr_downloads/
+ENDURANCE_HRV_master_ALL_backup_*.csv
+ENDURANCE_HRV_eval_P1P2_ALL_backup_*.csv
+ENDURANCE_HRV_QA_*.md
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Railway
+.railway/
+
+# Backups
+bak/
+*.bak
+backup/
+*_backup/
