@@ -65,15 +65,25 @@ else:
 CLIENT_ID = os.environ.get("POLAR_CLIENT_ID") or os.getenv("POLAR_CLIENT_ID")
 CLIENT_SECRET = os.environ.get("POLAR_CLIENT_SECRET") or os.getenv("POLAR_CLIENT_SECRET")
 
-# REDIRECT_URI (solo relevante para OAuth interactivo en local).
-# En producción (Railway/Render/Heroku) el OAuth debe hacerse vía Web UI (/auth -> /auth/callback).
+# REDIRECT_URI adaptativo (local vs producción)
 if IS_PRODUCTION:
+    # En producción, construir URL pública
     PUBLIC_URL = os.environ.get('PUBLIC_URL') or os.environ.get('RAILWAY_PUBLIC_DOMAIN')
-    if PUBLIC_URL and not PUBLIC_URL.startswith('http'):
-        PUBLIC_URL = f"https://{PUBLIC_URL}"
-    # Mantener consistente con web_ui.py
-    REDIRECT_URI = f"{PUBLIC_URL}/auth/callback" if PUBLIC_URL else "http://localhost:8080/auth/callback"
+    if PUBLIC_URL:
+        if not PUBLIC_URL.startswith('http'):
+            PUBLIC_URL = f"https://{PUBLIC_URL}"
+        REDIRECT_URI = f"{PUBLIC_URL}/oauth/callback"
+    else:
+        # Fallback: intentar construir desde variables Railway
+        if IS_RAILWAY:
+            service_name = os.environ.get('RAILWAY_SERVICE_NAME', 'app')
+            project_name = os.environ.get('RAILWAY_PROJECT_NAME', 'polar-hrv')
+            REDIRECT_URI = f"https://{service_name}.up.railway.app/oauth/callback"
+        else:
+            REDIRECT_URI = "http://localhost:5050/oauth2/callback"
+            print("⚠️  PUBLIC_URL no configurado, usando localhost")
 else:
+    # En local, usar localhost
     REDIRECT_URI = "http://localhost:5050/oauth2/callback"
 
 print(f"🔗 OAuth Redirect URI: {REDIRECT_URI}")
@@ -87,7 +97,8 @@ TOKEN_URL = "https://polarremote.com/v2/oauth2/token"
 # Configuración nombres archivo
 POLAR_USER_NAME = os.environ.get("POLAR_USER_NAME") or os.getenv("POLAR_USER_NAME", "Polar_User")
 
-TOKEN_FILE = Path(".polar_tokens.json")
+# Permite persistir tokens en un volumen (Railway) con POLAR_TOKEN_PATH=/data/polar_tokens.json
+TOKEN_FILE = Path(os.environ.get("POLAR_TOKEN_PATH", ".polar_tokens.json"))
 OUTDIR = Path("rr_downloads")
 
 # Filtros
@@ -181,9 +192,7 @@ class OAuthCallbackHandler(BaseHTTPRequestHandler):
 
 def start_callback_server(redirect_uri: str, state_obj: _CallbackState, timeout_s: int = 180):
     u = urlparse(redirect_uri)
-    # Evitar intentar bindear a dominios públicos (p.ej. Railway) que no existen como interfaz local.
-    # Para el flujo interactivo local, basta con escuchar en localhost.
-    host = "127.0.0.1"
+    host = u.hostname or "localhost"
     port = u.port or 80
 
     OAuthCallbackHandler.state = state_obj
@@ -422,11 +431,6 @@ def parse_duration_to_minutes(duration_str):
 
 def do_oauth_flow():
     """Ejecuta flujo OAuth completo"""
-    if IS_PRODUCTION:
-        raise RuntimeError(
-            "OAuth interactivo (webbrowser + servidor callback local) no es compatible en Railway/Render. "
-            "Abre /auth en la Web UI para autorizar y generar .polar_tokens.json, y luego vuelve a sincronizar."
-        )
     if not CLIENT_ID or not CLIENT_SECRET:
         print("❌ Faltan credenciales en .env", file=sys.stderr)
         sys.exit(2)
@@ -754,12 +758,28 @@ def main():
     print("="*60)
 
     # Autenticación
-    if args.auth or not TOKEN_FILE.exists():
+    # En PRODUCCIÓN (Railway/Render/Heroku) NO se puede abrir navegador ni levantar callback server local.
+    # La autorización debe hacerse vía Web UI: /auth -> /auth/callback, que guarda TOKEN_FILE.
+    if args.auth:
+        if IS_PRODUCTION:
+            public_url = os.environ.get('PUBLIC_URL') or os.environ.get('RAILWAY_PUBLIC_DOMAIN') or ''
+            if public_url and not str(public_url).startswith('http'):
+                public_url = f"https://{public_url}"
+            hint = f"{str(public_url).rstrip('/')}/auth" if public_url else "/auth"
+            print(f"❌ En producción no se admite --auth interactivo. Abre {hint} para autorizar.", file=sys.stderr)
+            sys.exit(3)
         access_token, x_user_id = do_oauth_flow()
     else:
         access_token, x_user_id = load_tokens()
         if not access_token:
-            print("⚠️  Token expirado")
+            if IS_PRODUCTION:
+                public_url = os.environ.get('PUBLIC_URL') or os.environ.get('RAILWAY_PUBLIC_DOMAIN') or ''
+                if public_url and not str(public_url).startswith('http'):
+                    public_url = f"https://{public_url}"
+                hint = f"{str(public_url).rstrip('/')}/auth" if public_url else "/auth"
+                print(f"❌ Falta autorización. Abre {hint} para iniciar sesión en Polar y autorizar la app.", file=sys.stderr)
+                sys.exit(3)
+            print("⚠️  Token ausente/expirado, iniciando OAuth local...")
             access_token, x_user_id = do_oauth_flow()
 
     # Registrar usuario (obligatorio)
