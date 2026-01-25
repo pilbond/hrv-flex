@@ -99,7 +99,7 @@ SCOPE = "accesslink.read_all"
 API_BASE = "https://www.polaraccesslink.com/v3"
 AUTH_URL = "https://flow.polar.com/oauth2/authorization"
 TOKEN_URL = "https://polarremote.com/v2/oauth2/token"
-
+p
 # Configuración nombres archivo
 POLAR_USER_NAME = os.environ.get("POLAR_USER_NAME") or os.getenv("POLAR_USER_NAME", "Polar_User")
 
@@ -593,9 +593,9 @@ def show_last_daily_summary():
         # Obtener última medición
         last_row = df.sort_values('Fecha').iloc[-1]
         
-        print("\n" + "="*70)
+        print("\n" + "="*20)
         print("💓 DAILY SUMMARY - Última Medición HRV")
-        print("="*70)
+        print(770)
         
         # Formatear y mostrar - USAR NOMBRES CORRECTOS DE COLUMNAS
         fecha = last_row.get('Fecha', 'N/A')
@@ -648,7 +648,7 @@ def show_last_daily_summary():
         if pd.notna(flags) and flags:
             print(f"   🚩 Flags:          {flags}")
         
-        print("="*70)
+        print("="*25)
         
     except Exception as e:
         print(f"⚠️  Error mostrando último summary: {e}")
@@ -674,9 +674,9 @@ def show_last_3_days_summary():
         if len(last_3) == 0:
             return
         
-        print("\n" + "="*70)
+        print("\n" + "="*25)
         print("📊 RESUMEN ÚLTIMOS 3 DÍAS")
-        print("="*70)
+        print("="*25)
         
         for _, row in last_3.iterrows():
             fecha = row.get('Fecha', 'N/A')
@@ -709,7 +709,7 @@ def show_last_3_days_summary():
             # Una línea por día - SEMÁFORO + 3 COLORES
             print(f"📅 {fecha_str} | 💓 {hr_str:>5} | 📊 {rmssd_str:>5} | 🎯 {crmssd_str:>5} | 🚦 {p2_emoji} {trend_emoji} {tiebreak_emoji}")
         
-        print("="*70)
+        print("="*25)
         
     except Exception as e:
         print(f"⚠️  Error mostrando resumen 3 días: {e}")
@@ -834,7 +834,7 @@ def main():
         
         if days_missing == 0:
             print(f"\n✅ SINCRONIZACIÓN COMPLETADA")
-            print("="*70)
+            print("="*25)
             print(f"📊 Master CSV actualizado hasta hoy ({datetime.now().date()})")
             print(f"💡 No hay nuevas sesiones que descargar")
             print(f"   • Sincronización automática: Todo al día ✅")
@@ -846,7 +846,7 @@ def main():
             show_last_3_days_summary()
             
             print(f"\n💡 Para re-procesar: python {sys.argv[0]} --days 1 --process")
-            print("="*70 + "\n")
+            print("="*25 + "\n")
             return
         
         to_d = datetime.now().date()
@@ -870,7 +870,7 @@ def main():
         
         if days_missing == 0:
             print(f"\n✅ SINCRONIZACIÓN COMPLETADA")
-            print("="*70)
+            print("="*25)
             print(f"📊 Master CSV actualizado hasta hoy")
             print(f"💡 No hay nuevas sesiones que descargar")
             print(f"   • Sincronización automática: Todo al día ✅")
@@ -882,7 +882,7 @@ def main():
             show_last_3_days_summary()
             
             print(f"\n💡 Para re-procesar: python {sys.argv[0]} --days 1 --process")
-            print("="*70 + "\n")
+            print("="*25 + "\n")
             return
         
         # Limitar a 30 días en modo auto para evitar descargas masivas
@@ -975,9 +975,9 @@ def main():
         print("   O con --debug-sports para ver todas las sesiones")
         
         # Mostrar último daily summary disponible aunque no haya nuevos datos
-        print("\n" + "="*70)
+        print("\n" + "="*25)
         print("📊 Aunque no hay nuevos datos, aquí está tu última medición:")
-        print("="*70)
+        print("="*25)
         show_last_daily_summary()
         
         # Mostrar resumen últimos 3 días
