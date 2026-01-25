@@ -47,10 +47,7 @@ def _public_url() -> str:
 
 
 def _redirect_uri() -> str:
-   redirect_path = (os.environ.get("POLAR_REDIRECT_PATH") or "/auth/callback").strip()
-    if not redirect_path.startswith("/"):
-        redirect_path = f"/{redirect_path}"
-    return f"{_public_url()}{redirect_path}"
+    return f"{_public_url()}/auth/callback"
 
 
 def _basic_auth_header(client_id: str, client_secret: str) -> str:
@@ -602,7 +599,6 @@ def auth():
 
 @app.route('/auth/callback', methods=['GET'], strict_slashes=False)
 @app.route('/oauth/callback', methods=['GET'], strict_slashes=False)
-@app.route('/oauth2/callback', methods=['GET'], strict_slashes=False)
 def oauth_callback():
     """
     Manejar callback OAuth de Polar AccessLink
