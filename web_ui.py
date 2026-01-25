@@ -545,18 +545,31 @@ def get_status():
 @app.route('/auth')
 def auth():
     """Iniciar flujo OAuth con Polar"""
-    if not CLIENT_ID:
+    # Leer variables AQUÍ, no al inicio del archivo
+    client_id = os.environ.get("POLAR_CLIENT_ID")
+    public_url = os.environ.get("PUBLIC_URL", "https://web-production-92f43.up.railway.app")
+    
+    if not client_id:
         return jsonify({
-            'error': 'POLAR_CLIENT_ID no configurado en variables de entorno'
+            'error': 'POLAR_CLIENT_ID no configurado en variables de entorno',
+            'debug': {
+                'has_env_var': 'POLAR_CLIENT_ID' in os.environ,
+                'value': client_id
+            }
         }), 500
+    
+    # Construir redirect_uri
+    if not public_url.startswith('http'):
+        public_url = f"https://{public_url}"
+    redirect_uri = f"{public_url}/oauth/callback"
     
     # URL de autorización de Polar
     auth_url = "https://flow.polar.com/oauth2/authorization"
     
     params = {
         'response_type': 'code',
-        'client_id': CLIENT_ID,
-        'redirect_uri': REDIRECT_URI
+        'client_id': client_id,
+        'redirect_uri': redirect_uri
     }
     
     authorization_url = f"{auth_url}?{urlencode(params)}"
