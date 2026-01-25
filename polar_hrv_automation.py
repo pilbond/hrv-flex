@@ -27,6 +27,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs, urlencode
 from datetime import datetime, timedelta
 
+from typing import Optional
 import requests
 import base64
 
@@ -216,7 +217,7 @@ def build_auth_url(client_id: str, redirect_uri: str, scope: str):
     return f"{AUTH_URL}?{urlencode(params)}"
 
 
-def exchange_code_for_token(code: str, client_id: str, client_secret: str, redirect_uri: str | None = None) -> dict:
+def exchange_code_for_token(code: str, client_id: str, client_secret: str, redirect_uri: Optional[str] = None) -> dict:
     basic = base64.b64encode(f"{client_id}:{client_secret}".encode("utf-8")).decode("ascii")
     headers = {
         "Authorization": f"Basic {basic}",
