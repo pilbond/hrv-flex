@@ -546,78 +546,38 @@ def get_status():
 
 @app.route('/auth')
 def auth():
-    """Iniciar flujo OAuth con Polar - CON REGISTRO DE USUARIO"""
+    """Iniciar flujo OAuth con Polar - SIN registro (puede no ser necesario)"""
     # Leer variables
     client_id = os.environ.get("POLAR_CLIENT_ID")
     client_secret = os.environ.get("POLAR_CLIENT_SECRET")
-    user_name = os.environ.get("POLAR_USER_NAME", "Franz_Dunn")
     public_url = os.environ.get("PUBLIC_URL", "https://web-production-92f43.up.railway.app")
     
     if not client_id or not client_secret:
         return jsonify({
-            'error': 'POLAR_CLIENT_ID o POLAR_CLIENT_SECRET no configurados',
-            'debug': {
-                'has_client_id': 'POLAR_CLIENT_ID' in os.environ,
-                'has_client_secret': 'POLAR_CLIENT_SECRET' in os.environ
-            }
+            'error': 'POLAR_CLIENT_ID o POLAR_CLIENT_SECRET no configurados'
         }), 500
     
-    # PASO CRÍTICO: Registrar usuario en Polar ANTES de autorizar
-    # Este paso es necesario o Polar rechazará la autorización
-    member_id = user_name.replace(" ", "_").replace("-", "_")
-    
-    try:
-        # Crear Authorization header (Basic Auth)
-        basic_auth = base64.b64encode(f"{client_id}:{client_secret}".encode("utf-8")).decode("ascii")
-        headers = {
-            "Authorization": f"Basic {basic_auth}",
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-        }
-        
-        # Registrar usuario
-        registration_data = {"member-id": member_id}
-        registration_response = requests.post(
-            "https://www.polaraccesslink.com/v3/users",
-            headers=headers,
-            json=registration_data,
-            timeout=10
-        )
-        
-        # 200 = nuevo registro exitoso
-        # 409 = usuario ya registrado (esto es OK)
-        # Cualquier otro código = error
-        if registration_response.status_code == 200:
-            print(f"✅ Usuario {member_id} registrado exitosamente en Polar")
-        elif registration_response.status_code == 409:
-            print(f"✅ Usuario {member_id} ya estaba registrado en Polar")
-        else:
-            error_detail = registration_response.text
-            print(f"❌ Error registrando usuario: {registration_response.status_code}")
-            print(f"   Detalle: {error_detail}")
-            return jsonify({
-                'error': 'Error registrando usuario en Polar',
-                'status_code': registration_response.status_code,
-                'detail': error_detail
-            }), 500
-            
-    except requests.exceptions.Timeout:
-        return jsonify({'error': 'Timeout conectando con Polar AccessLink'}), 500
-    except Exception as e:
-        print(f"❌ Excepción registrando usuario: {e}")
-        return jsonify({'error': f'Error conectando con Polar: {str(e)}'}), 500
-    
-    # Ahora SÍ, redirigir a página de autorización
+    # Construir redirect_uri
     if not public_url.startswith('http'):
         public_url = f"https://{public_url}"
     redirect_uri = f"{public_url}/auth/callback"
     
+    print(f"🔐 Iniciando OAuth con Polar")
+    print(f"   Client ID: {client_id[:20]}...")
+    print(f"   Redirect URI: {redirect_uri}")
+    
+    # Redirigir a página de autorización de Polar
     auth_url = "https://flow.polar.com/oauth2/authorization"
     params = {
         'response_type': 'code',
         'client_id': client_id,
         'redirect_uri': redirect_uri
     }
+    
+    authorization_url = f"{auth_url}?{urlencode(params)}"
+    
+    print(f"📤 Redirigiendo a: {authorization_url[:100]}...")
+    return redirect(authorization_url)
     
     authorization_url = f"{auth_url}?{urlencode(params)}"
     
