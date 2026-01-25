@@ -62,7 +62,11 @@ else:
 # =========================
 # CONFIG
 # =========================
-CLIENT_ID = os.environ.get("POLAR_CLIENT_ID") or os.getenv("POLAR_CLIENT_ID")
+CLIENT_ID = (
+    os.environ.get("POLAR_CLIENT_ID2")
+    or os.environ.get("POLAR_CLIENT_ID")
+    or os.getenv("POLAR_CLIENT_ID")
+)
 CLIENT_SECRET = os.environ.get("POLAR_CLIENT_SECRET") or os.getenv("POLAR_CLIENT_SECRET")
 
 # REDIRECT_URI adaptativo (local vs producción)
@@ -87,6 +91,8 @@ else:
     REDIRECT_URI = "http://localhost:5050/oauth2/callback"
 
 print(f"🔗 OAuth Redirect URI: {REDIRECT_URI}")
+if CLIENT_ID:
+    print(f"🔑 client_id_len: {len(CLIENT_ID)} | client_id_tail: {CLIENT_ID[-4:]}")
 
 SCOPE = "accesslink.read_all"
 
