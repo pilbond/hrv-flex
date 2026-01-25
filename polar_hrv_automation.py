@@ -65,25 +65,15 @@ else:
 CLIENT_ID = os.environ.get("POLAR_CLIENT_ID") or os.getenv("POLAR_CLIENT_ID")
 CLIENT_SECRET = os.environ.get("POLAR_CLIENT_SECRET") or os.getenv("POLAR_CLIENT_SECRET")
 
-# REDIRECT_URI adaptativo (local vs producción)
+# REDIRECT_URI (solo relevante para OAuth interactivo en local).
+# En producción (Railway/Render/Heroku) el OAuth debe hacerse vía Web UI (/auth -> /auth/callback).
 if IS_PRODUCTION:
-    # En producción, construir URL pública
     PUBLIC_URL = os.environ.get('PUBLIC_URL') or os.environ.get('RAILWAY_PUBLIC_DOMAIN')
-    if PUBLIC_URL:
-        if not PUBLIC_URL.startswith('http'):
-            PUBLIC_URL = f"https://{PUBLIC_URL}"
-        REDIRECT_URI = f"{PUBLIC_URL}/oauth/callback"
-    else:
-        # Fallback: intentar construir desde variables Railway
-        if IS_RAILWAY:
-            service_name = os.environ.get('RAILWAY_SERVICE_NAME', 'app')
-            project_name = os.environ.get('RAILWAY_PROJECT_NAME', 'polar-hrv')
-            REDIRECT_URI = f"https://{service_name}.up.railway.app/oauth/callback"
-        else:
-            REDIRECT_URI = "http://localhost:5050/oauth2/callback"
-            print("⚠️  PUBLIC_URL no configurado, usando localhost")
+    if PUBLIC_URL and not PUBLIC_URL.startswith('http'):
+        PUBLIC_URL = f"https://{PUBLIC_URL}"
+    # Mantener consistente con web_ui.py
+    REDIRECT_URI = f"{PUBLIC_URL}/auth/callback" if PUBLIC_URL else "http://localhost:8080/auth/callback"
 else:
-    # En local, usar localhost
     REDIRECT_URI = "http://localhost:5050/oauth2/callback"
 
 print(f"🔗 OAuth Redirect URI: {REDIRECT_URI}")
@@ -191,7 +181,9 @@ class OAuthCallbackHandler(BaseHTTPRequestHandler):
 
 def start_callback_server(redirect_uri: str, state_obj: _CallbackState, timeout_s: int = 180):
     u = urlparse(redirect_uri)
-    host = u.hostname or "localhost"
+    # Evitar intentar bindear a dominios públicos (p.ej. Railway) que no existen como interfaz local.
+    # Para el flujo interactivo local, basta con escuchar en localhost.
+    host = "127.0.0.1"
     port = u.port or 80
 
     OAuthCallbackHandler.state = state_obj
@@ -430,6 +422,11 @@ def parse_duration_to_minutes(duration_str):
 
 def do_oauth_flow():
     """Ejecuta flujo OAuth completo"""
+    if IS_PRODUCTION:
+        raise RuntimeError(
+            "OAuth interactivo (webbrowser + servidor callback local) no es compatible en Railway/Render. "
+            "Abre /auth en la Web UI para autorizar y generar .polar_tokens.json, y luego vuelve a sincronizar."
+        )
     if not CLIENT_ID or not CLIENT_SECRET:
         print("❌ Faltan credenciales en .env", file=sys.stderr)
         sys.exit(2)

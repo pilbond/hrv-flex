@@ -17,23 +17,75 @@ import json
 from urllib.parse import urlencode
 import requests
 import base64
+import time
 
 app = Flask(__name__)
 CORS(app)
 
-# Configuración Polar OAuth
-CLIENT_ID = os.environ.get("POLAR_CLIENT_ID", "")
-CLIENT_SECRET = os.environ.get("POLAR_CLIENT_SECRET", "")
-PUBLIC_URL = os.environ.get("PUBLIC_URL", "")
+# Polar endpoints
+AUTH_URL = "https://flow.polar.com/oauth2/authorization"
+TOKEN_URL = "https://polarremote.com/v2/oauth2/token"
+API_BASE = "https://www.polaraccesslink.com/v3"
+SCOPE = "accesslink.read_all"
+TOKEN_FILE = Path('.polar_tokens.json')
 
-# Construir REDIRECT_URI
-if PUBLIC_URL:
-    if not PUBLIC_URL.startswith('http'):
-        PUBLIC_URL = f"https://{PUBLIC_URL}"
-    REDIRECT_URI = f"{PUBLIC_URL}/oauth/callback"
-else:
-    # Fallback para Railway
-    REDIRECT_URI = "http://localhost:8080/oauth/callback"
+
+def _get_public_url_from_env_or_request() -> str:
+    """Determina la URL pública para construir redirect_uri de forma consistente."""
+    public_url = os.environ.get("PUBLIC_URL")
+    if public_url:
+        if not public_url.startswith("http"):
+            public_url = f"https://{public_url}"
+        return public_url.rstrip("/")
+    # Fallback: usar host recibido (puede ser http detrás de proxy)
+    # En Railway normalmente hay https en la URL pública, pero Flask puede ver http.
+    # Preferimos no inventar: si el usuario no define PUBLIC_URL, usaremos lo que llega.
+    return request.host_url.rstrip("/")
+
+
+def _build_redirect_uri(public_url: str) -> str:
+    return f"{public_url}/auth/callback"
+
+
+def _exchange_code_for_token(code: str, client_id: str, client_secret: str, redirect_uri: str) -> dict:
+    basic = base64.b64encode(f"{client_id}:{client_secret}".encode("utf-8")).decode("ascii")
+    headers = {
+        "Authorization": f"Basic {basic}",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept": "application/json;charset=UTF-8",
+    }
+    data = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": redirect_uri,
+    }
+    r = requests.post(TOKEN_URL, headers=headers, data=data, timeout=30)
+    if r.status_code >= 400:
+        raise RuntimeError(f"Token exchange fallo: {r.status_code} {r.reason}\n{r.text}")
+    token_json = r.json()
+    token_json["obtained_at"] = time.time()
+    return token_json
+
+
+def _register_user_if_needed(access_token: str, member_id: str) -> dict:
+    """Registro AccessLink: obligatorio la primera vez. 409 = ya registrado."""
+    xml = f"<register><member-id>{member_id}</member-id></register>"
+    url = f"{API_BASE}/users"
+    r = requests.post(
+        url,
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/json",
+            "Content-Type": "application/xml",
+        },
+        data=xml.encode("utf-8"),
+        timeout=30,
+    )
+    if r.status_code == 409:
+        return {"status": "already_registered"}
+    if r.status_code >= 400:
+        raise RuntimeError(f"register_user fallo: {r.status_code} {r.reason}\n{r.text}")
+    return {"status": "registered", "response": r.text}
 
 # Estado global de ejecución
 execution_state = {
@@ -476,6 +528,12 @@ def sync():
             'success': False,
             'error': 'Ya hay una sincronización en curso'
         })
+
+    if not TOKEN_FILE.exists():
+        return jsonify({
+            'success': False,
+            'error': 'Falta autorización. Abre /auth para iniciar sesión en Polar y autorizar la app.'
+        }), 400
     
     # Ejecutar en thread separado para no bloquear
     thread = threading.Thread(target=run_sync)
@@ -546,44 +604,32 @@ def get_status():
 
 @app.route('/auth')
 def auth():
-    """Iniciar flujo OAuth con Polar - SIN registro (puede no ser necesario)"""
-    # Leer variables
+    """Iniciar flujo OAuth con Polar (Authorization Code)."""
     client_id = os.environ.get("POLAR_CLIENT_ID")
     client_secret = os.environ.get("POLAR_CLIENT_SECRET")
-    public_url = os.environ.get("PUBLIC_URL", "https://web-production-92f43.up.railway.app")
     
     if not client_id or not client_secret:
         return jsonify({
             'error': 'POLAR_CLIENT_ID o POLAR_CLIENT_SECRET no configurados'
         }), 500
     
-    # Construir redirect_uri
-    if not public_url.startswith('http'):
-        public_url = f"https://{public_url}"
-    redirect_uri = f"{public_url}/auth/callback"
+    public_url = _get_public_url_from_env_or_request()
+    redirect_uri = _build_redirect_uri(public_url)
     
     print(f"🔐 Iniciando OAuth con Polar")
     print(f"   Client ID: {client_id[:20]}...")
     print(f"   Redirect URI: {redirect_uri}")
     
     # Redirigir a página de autorización de Polar
-    auth_url = "https://flow.polar.com/oauth2/authorization"
     params = {
         'response_type': 'code',
         'client_id': client_id,
-        'redirect_uri': redirect_uri
+        'redirect_uri': redirect_uri,
+        'scope': SCOPE,
     }
     
-    authorization_url = f"{auth_url}?{urlencode(params)}"
-    
-    print(f"📤 Redirigiendo a: {authorization_url[:100]}...")
-    return redirect(authorization_url)
-    
-    authorization_url = f"{auth_url}?{urlencode(params)}"
-    
-    print(f"🔐 Redirigiendo a Polar para autorización...")
-    print(f"   redirect_uri: {redirect_uri}")
-    
+    authorization_url = f"{AUTH_URL}?{urlencode(params)}"
+    print(f"📤 Redirigiendo a: {authorization_url[:120]}...")
     return redirect(authorization_url)
 
 
@@ -599,7 +645,7 @@ def oauth_callback():
     error_description = request.args.get('error_description')
     
     if error:
-        return f"""
+        return """
         <html>
         <head>
             <meta charset="UTF-8">
@@ -631,11 +677,32 @@ def oauth_callback():
         </html>
         """, 400
     
-    # Guardar código en archivo temporal
-    # polar_hrv_automation.py lo leerá cuando se ejecute
+    # Intercambiar code -> token y persistir tokens.
+    # En Railway no podemos abrir navegador desde el backend ni arrancar un callback server aparte.
+    # Este endpoint es el lugar correcto para completar OAuth.
     try:
-        with open('.oauth_code.txt', 'w') as f:
-            f.write(code)
+        client_id = os.environ.get("POLAR_CLIENT_ID")
+        client_secret = os.environ.get("POLAR_CLIENT_SECRET")
+        if not client_id or not client_secret:
+            raise RuntimeError("POLAR_CLIENT_ID/POLAR_CLIENT_SECRET no configurados")
+
+        public_url = _get_public_url_from_env_or_request()
+        redirect_uri = _build_redirect_uri(public_url)
+
+        token_json = _exchange_code_for_token(code, client_id, client_secret, redirect_uri)
+        access_token = token_json.get("access_token")
+        x_user_id = token_json.get("x_user_id")
+        if not access_token:
+            raise RuntimeError(f"No vino access_token: {json.dumps(token_json, indent=2)}")
+
+        # Guardar tokens a disco (recomendación: montar un Volume en Railway si quieres persistencia tras redeploy)
+        TOKEN_FILE.write_text(json.dumps(token_json, indent=2), encoding="utf-8")
+
+        # Registrar usuario AccessLink (409 = ya estaba)
+        member_name = os.environ.get("POLAR_USER_NAME", "polar_user")
+        member_id = f"railway_{member_name}_{x_user_id or 'user'}"
+        reg = _register_user_if_needed(access_token, member_id)
+        reg_status = reg.get("status", "unknown")
         
         return """
         <html>
@@ -694,7 +761,8 @@ def oauth_callback():
             <div class="card">
                 <h1>✅ Autorización Exitosa</h1>
                 <p>Polar AccessLink ha sido autorizado correctamente.</p>
-                <p>Ya puedes usar la sincronización automática.</p>
+                <p>Tokens guardados en <code>.polar_tokens.json</code>.</p>
+                <p>Registro usuario: <strong>__REG_STATUS__</strong></p>
                 <a href="/" class="btn">Volver a la App</a>
                 <p class="countdown">Esta ventana se cerrará en <span id="counter">5</span> segundos...</p>
             </div>
@@ -716,14 +784,14 @@ def oauth_callback():
             </script>
         </body>
         </html>
-        """
+        """.replace("__REG_STATUS__", reg_status)
     
     except Exception as e:
         return f"""
         <html>
         <body style="font-family: Arial; text-align: center; padding: 50px;">
             <h1>⚠️ Error</h1>
-            <p>No se pudo guardar el código de autorización: {str(e)}</p>
+            <p>No se pudo completar OAuth: {str(e)}</p>
             <br>
             <a href="/" style="color: #667eea; text-decoration: none;">← Volver a la app</a>
         </body>

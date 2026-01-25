@@ -41,7 +41,7 @@ BASE_EVAL   = Path("ENDURANCE_HRV_eval_P1P2_ALL.csv")
 
 # Lista de archivos a procesar (esto normalmente lo cargarías con glob)
 RR_FILES = [
-    Path("Franz_Dunn_2026-01-18_08-58-55_RR.CSV"),
+    Path("rr_downloads/Franz_Dunn_2026-01-25_08-42-27_RR.CSV"),
 ]
 
 # Definición directa de constantes (Evita leer el MD)
