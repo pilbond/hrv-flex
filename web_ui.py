@@ -5,7 +5,7 @@ Web UI para Polar HRV Automation
 Accesible desde cualquier dispositivo (móvil, tablet, PC)
 """
 
-from flask import Flask, render_template_string, jsonify, request
+from flask import Flask, render_template_string, jsonify, request, redirect
 from flask_cors import CORS
 import subprocess
 import sys
@@ -14,9 +14,24 @@ from pathlib import Path
 from datetime import datetime
 import threading
 import json
+from urllib.parse import urlencode
 
 app = Flask(__name__)
 CORS(app)
+
+# Configuración Polar OAuth
+CLIENT_ID = os.environ.get("POLAR_CLIENT_ID", "")
+CLIENT_SECRET = os.environ.get("POLAR_CLIENT_SECRET", "")
+PUBLIC_URL = os.environ.get("PUBLIC_URL", "")
+
+# Construir REDIRECT_URI
+if PUBLIC_URL:
+    if not PUBLIC_URL.startswith('http'):
+        PUBLIC_URL = f"https://{PUBLIC_URL}"
+    REDIRECT_URI = f"{PUBLIC_URL}/oauth/callback"
+else:
+    # Fallback para Railway
+    REDIRECT_URI = "http://localhost:8080/oauth/callback"
 
 # Estado global de ejecución
 execution_state = {
@@ -525,6 +540,29 @@ def run_sync():
 def get_status():
     """Obtener estado actual"""
     return jsonify(execution_state)
+
+
+@app.route('/auth')
+def auth():
+    """Iniciar flujo OAuth con Polar"""
+    if not CLIENT_ID:
+        return jsonify({
+            'error': 'POLAR_CLIENT_ID no configurado en variables de entorno'
+        }), 500
+    
+    # URL de autorización de Polar
+    auth_url = "https://flow.polar.com/oauth2/authorization"
+    
+    params = {
+        'response_type': 'code',
+        'client_id': CLIENT_ID,
+        'redirect_uri': REDIRECT_URI
+    }
+    
+    authorization_url = f"{auth_url}?{urlencode(params)}"
+    
+    # Redirigir a Polar para autorización
+    return redirect(authorization_url)
 
 
 @app.route('/oauth/callback', methods=['GET'])
