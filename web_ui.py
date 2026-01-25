@@ -582,7 +582,7 @@ def get_status():
 @app.route('/auth', strict_slashes=False)
 def auth():
     """Iniciar flujo OAuth (web) con Polar"""
-    client_id = (os.environ.get("POLAR_CLIENT_ID") or "").strip()
+    client_id = (os.environ.get("POLAR_CLIENT_ID2") or os.environ.get("POLAR_CLIENT_ID") or "").strip()
     client_secret = (os.environ.get("POLAR_CLIENT_SECRET") or "").strip()
     if not client_id or not client_secret:
         return jsonify({'error': 'POLAR_CLIENT_ID o POLAR_CLIENT_SECRET no configurados'}), 500
@@ -653,7 +653,7 @@ def oauth_callback():
     
     # Intercambiar code por token y guardarlo (Railway-friendly)
     try:
-        client_id = (os.environ.get("POLAR_CLIENT_ID") or "").strip()
+        client_id = (os.environ.get("POLAR_CLIENT_ID2") or os.environ.get("POLAR_CLIENT_ID") or "").strip()
         client_secret = (os.environ.get("POLAR_CLIENT_SECRET") or "").strip()
         if not client_id or not client_secret:
             raise RuntimeError("Credenciales POLAR_CLIENT_ID / POLAR_CLIENT_SECRET no configuradas")
