@@ -681,9 +681,9 @@ def main():
         out_qa = DATA_DIR / f"ENDURANCE_HRV_QA_rolling_30_90_{ts}.md"
         out_qa.write_text(qa_rolling_md(master, asof=master["Fecha"].max()), encoding="utf-8")
         
-        print("\n" + "="*70)
+        print("\n" + "="*20)
         print("💓 DAILY SUMMARIES - Resumen Diario HRV")
-        print("="*70)
+        print("="*20)
         for s in summaries:
             # Formatear el diccionario de manera más legible
             fecha = s.get('Fecha', 'N/A')
@@ -715,7 +715,7 @@ def main():
             
             print(f"   ✅ Calidad:      {calidad}")
             print(f"   📈 Estabilidad:  {stab}")
-        print("="*70)
+        print("="*20)
         
         print("\n=== OUTPUTS GENERATED ===")
         print(f"✅ {BASE_MASTER} (actualizado)")

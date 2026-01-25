@@ -824,12 +824,12 @@ if __name__ == '__main__':
     
     print("\n" + "="*60)
     print("  POLAR HRV - WEB UI")
-    print("="*60)
+    print("="*20)
     print(f"\n🌐 Servidor iniciado en puerto {port}")
     print(f"\n📱 Accede desde:")
     print(f"   - Local: http://localhost:{port}")
     print(f"   - Railway: https://tu-app.up.railway.app")
     print("\n💡 Abre desde cualquier dispositivo (móvil, tablet, PC)")
-    print("="*60 + "\n")
+    print("="*20 + "\n")
     
     app.run(host='0.0.0.0', port=port, debug=False)
