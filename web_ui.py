@@ -582,7 +582,10 @@ def get_status():
 @app.route('/auth', strict_slashes=False)
 def auth():
     """Iniciar flujo OAuth (web) con Polar"""
-    client_id = (os.environ.get("POLAR_CLIENT_ID2") or os.environ.get("POLAR_CLIENT_ID") or "").strip()
+    raw_client_id2 = os.environ.get("POLAR_CLIENT_ID2")
+    raw_client_id = os.environ.get("POLAR_CLIENT_ID")
+    client_id_source = "POLAR_CLIENT_ID2" if raw_client_id2 else "POLAR_CLIENT_ID"
+    client_id = (raw_client_id2 or raw_client_id or "").strip()
     client_secret = (os.environ.get("POLAR_CLIENT_SECRET") or "").strip()
     if not client_id or not client_secret:
         return jsonify({'error': 'POLAR_CLIENT_ID o POLAR_CLIENT_SECRET no configurados'}), 500
@@ -602,6 +605,9 @@ def auth():
     authorization_url = f"https://flow.polar.com/oauth2/authorization?{urlencode(params)}"
 
     print("🔐 OAuth /auth")
+    print(f"   client_id_source: {client_id_source}")
+    print(f"   client_id_len: {len(client_id)}")
+    print(f"   client_id_tail: {client_id[-4:] if len(client_id) >= 4 else client_id}")
     print(f"   redirect_uri: {redirect_uri}")
     return redirect(authorization_url)
 
