@@ -579,7 +579,7 @@ def get_existing_dates_from_master():
 
 def show_last_daily_summary():
     """Muestra el último daily summary del master CSV de forma destacada"""
-    master_file = Path("ENDURANCE_HRV_master_ALL.csv")
+    master_file = MASTER_PATH
     
     if not master_file.exists() or not PANDAS_AVAILABLE:
         return
@@ -656,7 +656,7 @@ def show_last_daily_summary():
 
 def show_last_3_days_summary():
     """Muestra resumen compacto de los últimos 3 días"""
-    master_file = Path("ENDURANCE_HRV_master_ALL.csv")
+    master_file = MASTER_PATH
     
     if not master_file.exists() or not PANDAS_AVAILABLE:
         return
