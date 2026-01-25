@@ -72,13 +72,13 @@ if IS_PRODUCTION:
     if PUBLIC_URL:
         if not PUBLIC_URL.startswith('http'):
             PUBLIC_URL = f"https://{PUBLIC_URL}"
-        REDIRECT_URI = f"{PUBLIC_URL}/oauth/callback"
+        REDIRECT_URI = f"{PUBLIC_URL}/auth/callback"
     else:
         # Fallback: intentar construir desde variables Railway
         if IS_RAILWAY:
             service_name = os.environ.get('RAILWAY_SERVICE_NAME', 'app')
             project_name = os.environ.get('RAILWAY_PROJECT_NAME', 'polar-hrv')
-            REDIRECT_URI = f"https://{service_name}.up.railway.app/oauth/callback"
+            REDIRECT_URI = f"https://{service_name}.up.railway.app/auth/callback"
         else:
             REDIRECT_URI = "http://localhost:5050/oauth2/callback"
             print("⚠️  PUBLIC_URL no configurado, usando localhost")
@@ -470,7 +470,15 @@ def do_oauth_flow():
 
     # Guardar tokens
     token_json['obtained_at'] = time.time()
-    TOKEN_FILE.write_text(json.dumps(token_json, indent=2))
+    # Guardar tokens (soporta Railway Volume via POLAR_TOKEN_PATH=/data/polar_tokens.json)
+    TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = TOKEN_FILE.with_suffix(TOKEN_FILE.suffix + '.tmp')
+    tmp_path.write_text(json.dumps(token_json, indent=2), encoding='utf-8')
+    tmp_path.replace(TOKEN_FILE)
+    try:
+        os.chmod(TOKEN_FILE, 0o600)
+    except Exception:
+        pass
 
     return access_token, x_user_id
 
@@ -479,16 +487,19 @@ def load_tokens():
     """Carga tokens guardados"""
     if not TOKEN_FILE.exists():
         return None, None
-    
-    tokens = json.loads(TOKEN_FILE.read_text())
-    
-    # Verificar expiración
-    obtained_at = tokens.get('obtained_at', 0)
-    expires_in = tokens.get('expires_in', 0)
-    
-    if time.time() - obtained_at > expires_in:
+
+    try:
+        tokens = json.loads(TOKEN_FILE.read_text(encoding='utf-8'))
+    except Exception:
         return None, None
-    
+
+    obtained_at = float(tokens.get('obtained_at', 0) or 0)
+    expires_in = float(tokens.get('expires_in', 0) or 0)
+
+    # Si no tenemos expires_in, devolvemos el token igualmente (Polar puede no informarlo en algunos casos)
+    if expires_in > 0 and (time.time() - obtained_at) > expires_in:
+        return None, None
+
     return tokens.get('access_token'), tokens.get('x_user_id')
 
 

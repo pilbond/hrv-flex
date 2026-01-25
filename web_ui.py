@@ -691,7 +691,15 @@ def oauth_callback():
                 raise RuntimeError(f"Registro usuario falló: {reg.status_code} {reg.reason} | {reg.text}")
 
         # Guardar tokens
-        TOKEN_PATH.write_text(json.dumps(token_json, indent=2), encoding='utf-8')
+        # Guardar tokens (soporta Railway Volume via POLAR_TOKEN_PATH=/data/polar_tokens.json)
+        TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = TOKEN_PATH.with_suffix(TOKEN_PATH.suffix + '.tmp')
+        tmp_path.write_text(json.dumps(token_json, indent=2), encoding='utf-8')
+        tmp_path.replace(TOKEN_PATH)
+        try:
+            os.chmod(TOKEN_PATH, 0o600)
+        except Exception:
+            pass
         
         return """
         <html>
