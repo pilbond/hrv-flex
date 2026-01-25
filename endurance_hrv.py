@@ -26,6 +26,7 @@ Edit the INPUTS block below to point to your files.
 # endurance_hrv_batch.py
 # Requiere: python 3.10+ ; pip install pandas numpy
 
+import os
 import re
 import time
 import shutil
@@ -36,13 +37,45 @@ import pandas as pd
 # ----------------------------
 # 1. INPUTS Y CONSTANTES (PUNTO 4.1 - ROBUSTEZ)
 # ----------------------------
-BASE_MASTER = Path("ENDURANCE_HRV_master_ALL.csv")
-BASE_EVAL   = Path("ENDURANCE_HRV_eval_P1P2_ALL.csv")
+DATA_DIR = Path((os.environ.get("HRV_DATA_DIR") or ".").strip() or ".")
+BASE_MASTER = DATA_DIR / "ENDURANCE_HRV_master_ALL.csv"
+BASE_EVAL = DATA_DIR / "ENDURANCE_HRV_eval_P1P2_ALL.csv"
+
+_rr_env = (os.environ.get("RR_DOWNLOAD_DIR") or "").strip()
+RR_BASE_DIR = Path(_rr_env) if _rr_env else (DATA_DIR / "rr_downloads" if str(DATA_DIR) not in (".", "") else Path("rr_downloads"))
+
+_REPO_MASTER = Path("ENDURANCE_HRV_master_ALL.csv")
+_REPO_EVAL = Path("ENDURANCE_HRV_eval_P1P2_ALL.csv")
+
+def seed_volume_once():
+    if str(DATA_DIR) in (".", ""):
+        return
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        RR_BASE_DIR.mkdir(parents=True, exist_ok=True)
+        if not BASE_MASTER.exists() and _REPO_MASTER.exists():
+            shutil.copy2(_REPO_MASTER, BASE_MASTER)
+            print(f"🌱 Seed master en {BASE_MASTER}")
+        if not BASE_EVAL.exists() and _REPO_EVAL.exists():
+            shutil.copy2(_REPO_EVAL, BASE_EVAL)
+            print(f"🌱 Seed eval en {BASE_EVAL}")
+    except Exception as e:
+        print(f"⚠️  Seed volume falló: {e}")
 
 # Lista de archivos a procesar (esto normalmente lo cargarías con glob)
 RR_FILES = [
-    Path("rr_downloads/Franz_Dunn_2026-01-25_08-42-27_RR.CSV"),
+
 ]
+
+def _resolve_rr_path(p: Path) -> Path:
+    if p.exists():
+        return p
+    if p.is_absolute():
+        return p
+    parts = p.parts
+    if parts and parts[0] == "rr_downloads":
+        return RR_BASE_DIR / Path(*parts[1:])
+    return RR_BASE_DIR / p
 
 # Definición directa de constantes (Evita leer el MD)
 CONSTANTS = {
@@ -559,6 +592,7 @@ def qa_rolling_md(master: pd.DataFrame, asof: str) -> str:
 # 6. MAIN EXECUTION
 # ----------------------------
 def main():
+    seed_volume_once()
     # Estructuras de columnas explícitas para Inicialización Segura
     COLS_MASTER = [
         "Fecha", "Calidad", "HRV_Stability", "Artifact_pct", "Tiempo_Estabilizacion",
@@ -588,6 +622,7 @@ def main():
     summaries = []
 
     for rr_path in rr_sorted:
+        rr_path = _resolve_rr_path(rr_path)
         if not rr_path.exists():
             print(f"Skipping missing file: {rr_path}")
             continue
@@ -629,12 +664,12 @@ def main():
     if not master.empty:
         # Crear backups de archivos existentes
         if BASE_MASTER.exists():
-            backup_master = Path(f"ENDURANCE_HRV_master_ALL_backup_{ts}.csv")
+            backup_master = DATA_DIR / f"ENDURANCE_HRV_master_ALL_backup_{ts}.csv"
             shutil.copy2(BASE_MASTER, backup_master)
             print(f"\n📦 Backup creado: {backup_master}")
         
         if BASE_EVAL.exists():
-            backup_eval = Path(f"ENDURANCE_HRV_eval_P1P2_ALL_backup_{ts}.csv")
+            backup_eval = DATA_DIR / f"ENDURANCE_HRV_eval_P1P2_ALL_backup_{ts}.csv"
             shutil.copy2(BASE_EVAL, backup_eval)
             print(f"📦 Backup creado: {backup_eval}")
         
@@ -643,7 +678,7 @@ def main():
         evalp.to_csv(BASE_EVAL, index=False)
         
         # QA con timestamp (opcional, puedes cambiar a nombre fijo)
-        out_qa = Path(f"ENDURANCE_HRV_QA_rolling_30_90_{ts}.md")
+        out_qa = DATA_DIR / f"ENDURANCE_HRV_QA_rolling_30_90_{ts}.md"
         out_qa.write_text(qa_rolling_md(master, asof=master["Fecha"].max()), encoding="utf-8")
         
         print("\n" + "="*70)

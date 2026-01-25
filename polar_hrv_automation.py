@@ -105,7 +105,15 @@ POLAR_USER_NAME = os.environ.get("POLAR_USER_NAME") or os.getenv("POLAR_USER_NAM
 
 # Permite persistir tokens en un volumen (Railway) con POLAR_TOKEN_PATH=/data/polar_tokens.json
 TOKEN_FILE = Path(os.environ.get("POLAR_TOKEN_PATH", ".polar_tokens.json"))
-OUTDIR = Path("rr_downloads")
+
+_data_dir = (os.environ.get("HRV_DATA_DIR") or "").strip()
+_rr_dir = (os.environ.get("RR_DOWNLOAD_DIR") or "").strip()
+if _rr_dir:
+    OUTDIR = Path(_rr_dir)
+elif _data_dir:
+    OUTDIR = Path(_data_dir) / "rr_downloads"
+else:
+    OUTDIR = Path("rr_downloads")
 
 # Filtros
 SPORTS_FILTER = ["BODY_AND_MIND"]  # Comparación EXACTA
