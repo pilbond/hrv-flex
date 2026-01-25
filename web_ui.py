@@ -7,6 +7,7 @@ Accesible desde cualquier dispositivo (móvil, tablet, PC)
 
 from flask import Flask, render_template_string, jsonify, request, redirect
 from flask_cors import CORS
+from werkzeug.middleware.proxy_fix import ProxyFix
 import subprocess
 import sys
 import os
@@ -22,6 +23,9 @@ import base64
 
 app = Flask(__name__)
 CORS(app)
+# Respeta headers X-Forwarded-* cuando corre detrás de Railway/Proxy
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+app.config["PREFERRED_URL_SCHEME"] = "https"
 
 # =========================
 # Polar OAuth (web flow)
@@ -33,7 +37,12 @@ TOKEN_PATH = Path(os.environ.get("POLAR_TOKEN_PATH", ".polar_tokens.json"))
 def _public_url() -> str:
     """URL pública base (https://<dominio>)"""
     # Prioridad: PUBLIC_URL explícita → Railway domain → request host
-    pu = (os.environ.get("PUBLIC_URL") or os.environ.get("RAILWAY_PUBLIC_DOMAIN") or "").strip()
+    pu = (
+        os.environ.get("PUBLIC_URL")
+        or os.environ.get("RAILWAY_PUBLIC_URL")
+        or os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+        or ""
+    ).strip()
     if pu:
         if not pu.startswith("http"):
             pu = f"https://{pu}"
