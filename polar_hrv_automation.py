@@ -99,7 +99,7 @@ SCOPE = "accesslink.read_all"
 API_BASE = "https://www.polaraccesslink.com/v3"
 AUTH_URL = "https://flow.polar.com/oauth2/authorization"
 TOKEN_URL = "https://polarremote.com/v2/oauth2/token"
-p
+
 # Configuración nombres archivo
 POLAR_USER_NAME = os.environ.get("POLAR_USER_NAME") or os.getenv("POLAR_USER_NAME", "Polar_User")
 
@@ -127,9 +127,9 @@ DEBUG_JSON = False  # True = guarda JSON debug de sesiones sin RR
 
 # Verificar credenciales al inicio
 if not CLIENT_ID or not CLIENT_SECRET:
-    print("\n" + "="*60)
+    print("\n" + "="*25)
     print("❌ ERROR: Credenciales Polar no configuradas")
-    print("="*60 + "\n")
+    print("="*25 + "\n")
     
     if IS_PRODUCTION:
         print("En Railway/Render, configura variables de entorno:")
@@ -593,9 +593,9 @@ def show_last_daily_summary():
         # Obtener última medición
         last_row = df.sort_values('Fecha').iloc[-1]
         
-        print("\n" + "="*20)
+        print("\n" + "="*25)
         print("💓 DAILY SUMMARY - Última Medición HRV")
-        print(770)
+        print("="*25)
         
         # Formatear y mostrar - USAR NOMBRES CORRECTOS DE COLUMNAS
         fecha = last_row.get('Fecha', 'N/A')
@@ -781,9 +781,9 @@ def main():
     parser.add_argument('--debug-sports', action='store_true', help='Mostrar deportes de todas las sesiones encontradas')
     args = parser.parse_args()
 
-    print("\n" + "="*60)
+    print("\n" + "="*25)
     print("  POLAR HRV AUTOMATION")
-    print("="*60)
+    print("="*25)
 
     # Autenticación
     # En PRODUCCIÓN (Railway/Render/Heroku) NO se puede abrir navegador ni levantar callback server local.
@@ -906,9 +906,9 @@ def main():
 
     # Debug: Mostrar deportes si --debug-sports
     if args.debug_sports:
-        print("\n" + "="*60)
+        print("\n" + "="*25)
         print("🔍 DEBUG: TODAS LAS SESIONES ENCONTRADAS")
-        print("="*60)
+        print("="*25)
         for i, e in enumerate(exercises):
             st = e.get("start-time") or e.get("start_time") or "N/A"
             sport = e.get("detailed-sport-info") or e.get("detailed_sport_info") or e.get("sport") or "N/A"
@@ -917,7 +917,7 @@ def main():
             date_str = dt.strftime("%Y-%m-%d") if dt else "N/A"
             
             print(f"  [{i}] {date_str} | Sport: '{sport}' | Duration: {duration}")
-        print("="*60 + "\n")
+        print("="*25 + "\n")
     
     # Aplicar filtros
     sports_set = set(SPORTS_FILTER) if SPORTS_FILTER else None
@@ -937,7 +937,7 @@ def main():
         # Mostrar debug automáticamente
         if not args.debug_sports and exercises:
             print("\n🔍 Mostrando TODAS las sesiones encontradas para debug:")
-            print("="*60)
+            print("="*25)
             for i, e in enumerate(exercises[:10]):  # Solo primeras 10
                 st = e.get("start-time") or e.get("start_time") or "N/A"
                 sport = e.get("detailed-sport-info") or e.get("detailed_sport_info") or e.get("sport") or "N/A"
@@ -952,20 +952,20 @@ def main():
             
             if len(exercises) > 10:
                 print(f"  ... y {len(exercises) - 10} más")
-            print("="*60)
+            print("="*25)
             print(f"\n💡 Buscando: Sport EXACTO = '{SPORTS_FILTER[0] if SPORTS_FILTER else 'N/A'}'")
             print(f"   En rango: {from_d} a {to_d}")
             
             # DEBUG DETALLADO: Re-evaluar con debug activado
             print("\n🔍 DEBUG DETALLADO de cada sesión en rango:")
-            print("="*60)
+            print("="*25)
             for i, e in enumerate(exercises[:10]):
                 st = e.get("start-time") or e.get("start_time") or "N/A"
                 dt = _iso_to_dt(st)
                 if dt and from_d and to_d and from_d <= dt.date() <= to_d:
                     print(f"\n  Sesión [{i}] - {dt.date()}:")
                     passes_filters(e, from_d, to_d, sports_set, MAX_DURATION_MINUTES, debug=True)
-            print("="*60)
+            print("="*25)
         
         print("\n💡 Esto es normal si:")
         print("   - Algunos días no grabaste sesión")
@@ -1070,9 +1070,9 @@ def main():
         print(f"  [{idx}] ✅ {out_name} | {len(rr)} RR | offline: {offline_pct:.1f}%")
 
     # Resumen
-    print("\n" + "="*60)
+    print("\n" + "="*25)
     print("✅ EXPORT COMPLETADO")
-    print("="*60)
+    print("="*25)
     
     total_to_process = len(rr_files)
     
@@ -1102,9 +1102,9 @@ def main():
 
     # Procesar con endurance_hrv.py
     if args.process:
-        print("\n" + "="*60)
+        print("\n" + "="*25)
         print("🔧 PROCESANDO CON ENDURANCE_HRV.PY")
-        print("="*60)
+        print("="*25)
         
         if not Path("endurance_hrv.py").exists():
             print("\n❌ endurance_hrv.py no encontrado")
