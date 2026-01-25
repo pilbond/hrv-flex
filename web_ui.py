@@ -558,10 +558,10 @@ def auth():
             }
         }), 500
     
-    # Construir redirect_uri
+    # Construir redirect_uri - DEBE COINCIDIR CON POLAR ACCESSLINK
     if not public_url.startswith('http'):
         public_url = f"https://{public_url}"
-    redirect_uri = f"{public_url}/oauth/callback"
+    redirect_uri = f"{public_url}/auth/callback"  # ✅ Cambiado de /oauth/callback a /auth/callback
     
     # URL de autorización de Polar
     auth_url = "https://flow.polar.com/oauth2/authorization"
@@ -578,7 +578,7 @@ def auth():
     return redirect(authorization_url)
 
 
-@app.route('/oauth/callback', methods=['GET'])
+@app.route('/auth/callback', methods=['GET'])
 def oauth_callback():
     """
     Manejar callback OAuth de Polar AccessLink
