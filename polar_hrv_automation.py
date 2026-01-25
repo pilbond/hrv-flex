@@ -115,6 +115,9 @@ elif _data_dir:
 else:
     OUTDIR = Path("rr_downloads")
 
+DATA_DIR = Path(_data_dir) if _data_dir else Path(".")
+MASTER_PATH = DATA_DIR / "ENDURANCE_HRV_master_ALL.csv"
+
 # Filtros
 SPORTS_FILTER = ["BODY_AND_MIND"]  # Comparación EXACTA
 MAX_DURATION_MINUTES = 10
@@ -519,7 +522,7 @@ def load_tokens():
 
 def get_last_date_from_master():
     """Lee última fecha registrada en ENDURANCE_HRV_master_ALL.csv"""
-    master_file = Path("ENDURANCE_HRV_master_ALL.csv")
+    master_file = MASTER_PATH
     
     if not master_file.exists():
         return None
@@ -547,7 +550,7 @@ def get_last_date_from_master():
 
 def get_existing_dates_from_master():
     """Obtiene set de fechas ya existentes en master CSV"""
-    master_file = Path("ENDURANCE_HRV_master_ALL.csv")
+    master_file = MASTER_PATH
     
     if not master_file.exists() or not PANDAS_AVAILABLE:
         return set()
