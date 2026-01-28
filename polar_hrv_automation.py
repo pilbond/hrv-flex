@@ -123,6 +123,11 @@ SPORTS_FILTER = ["BODY_AND_MIND"]  # Comparación EXACTA
 MAX_DURATION_MINUTES = 10
 MAX_EXERCISES = 50
 
+# Rangos fisiológicos válidos para RR intervals (ms)
+# Basado en rango de FC humano: 30-200 bpm
+RR_MIN_MS = 300.0   # ~200 bpm (máximo fisiológico)
+RR_MAX_MS = 2000.0  # ~30 bpm (mínimo fisiológico)
+
 DEBUG_JSON = False  # True = guarda JSON debug de sesiones sin RR
 
 # Verificar credenciales al inicio
@@ -158,7 +163,6 @@ def _iso_to_dt(s: str):
         dt_utc = datetime.fromisoformat(s)
         
         # Convertir a hora local del sistema
-        import time
         utc_timestamp = dt_utc.timestamp()
         local_dt = datetime.fromtimestamp(utc_timestamp)
         
@@ -174,6 +178,15 @@ def _parse_yyyy_mm_dd(s: str):
         return datetime.strptime(s, "%Y-%m-%d").date()
     except Exception:
         return None
+
+
+def _get_field_variant(data: dict, *keys, default=None):
+    """Obtiene el primer valor no-None de múltiples variantes de clave."""
+    for key in keys:
+        val = data.get(key)
+        if val is not None:
+            return val
+    return default
 
 
 def _print_header(title: str, width: int = 25, leading_blank: bool = True, trailing_blank: bool = False):
@@ -373,7 +386,7 @@ def extract_rr_ms(exercise_json: dict):
     rr = []
     samples = exercise_json.get("samples") or []
     for s in samples:
-        st = s.get("sample-type") or s.get("sample_type")
+        st = _get_field_variant(s, "sample-type", "sample_type")
         if str(st) != "11":
             continue
 
@@ -386,7 +399,7 @@ def extract_rr_ms(exercise_json: dict):
                 v = float(tok)  # ms
             except ValueError:
                 continue
-            offline = 0 if 300.0 <= v <= 2000.0 else 1
+            offline = 0 if RR_MIN_MS <= v <= RR_MAX_MS else 1
             rr.append((v, offline))
     return rr
 
@@ -407,7 +420,7 @@ def passes_filters(ex_item: dict, from_d, to_d, sports_set, max_duration_min, de
         print(f"\n  🔍 Evaluando: {ex_item.get('id', 'N/A')}")
     
     # Filtro fecha
-    st = ex_item.get("start-time") or ex_item.get("start_time") or ex_item.get("startTime")
+    st = _get_field_variant(ex_item, "start-time", "start_time", "startTime")
     dt = _iso_to_dt(st)
     if dt:
         d = dt.date()
@@ -431,7 +444,7 @@ def passes_filters(ex_item: dict, from_d, to_d, sports_set, max_duration_min, de
 
     # Filtro deporte (comparación EXACTA)
     if sports_set:
-        sp = ex_item.get("detailed-sport-info") or ex_item.get("detailed_sport_info") or ex_item.get("sport") or ""
+        sp = _get_field_variant(ex_item, "detailed-sport-info", "detailed_sport_info", "sport", default="")
         
         if debug:
             print(f"     Sport: '{sp}' | Buscando: {sports_set}")
@@ -473,8 +486,6 @@ def parse_duration_to_minutes(duration_str):
     PT506.615S -> 8.44
     PT1H30M -> 90
     """
-    import re
-    
     # Soportar decimales en cada componente
     hours = re.search(r'([\d.]+)H', duration_str)
     minutes = re.search(r'([\d.]+)M', duration_str)
@@ -552,7 +563,7 @@ def load_tokens():
 
     try:
         tokens = json.loads(TOKEN_FILE.read_text(encoding='utf-8'))
-    except Exception:
+    except (json.JSONDecodeError, OSError, ValueError, UnicodeDecodeError):
         return None, None
 
     obtained_at = float(tokens.get('obtained_at', 0) or 0)
@@ -588,7 +599,7 @@ def get_last_date_from_master():
         
         return last_date
         
-    except Exception as e:
+    except (FileNotFoundError, pd.errors.EmptyDataError, ValueError, KeyError) as e:
         print(f"⚠️  Error leyendo master CSV: {e}")
         return None
 
@@ -617,7 +628,7 @@ def get_existing_dates_from_master():
         
         return dates
         
-    except Exception as e:
+    except (FileNotFoundError, pd.errors.EmptyDataError, KeyError) as e:
         print(f"⚠️  Error leyendo fechas del master: {e}")
         return set()
 
@@ -693,7 +704,7 @@ def show_last_daily_summary():
         
         # print("="*25)
         
-    except Exception as e:
+    except (FileNotFoundError, pd.errors.EmptyDataError, KeyError, IndexError) as e:
         print(f"⚠️  Error mostrando último summary: {e}")
 
 
@@ -939,8 +950,8 @@ def main():
     if args.debug_sports:
         _print_header("🔍 DEBUG: TODAS LAS SESIONES ENCONTRADAS")
         for i, e in enumerate(exercises):
-            st = e.get("start-time") or e.get("start_time") or "N/A"
-            sport = e.get("detailed-sport-info") or e.get("detailed_sport_info") or e.get("sport") or "N/A"
+            st = _get_field_variant(e, "start-time", "start_time", "startTime", default="N/A")
+            sport = _get_field_variant(e, "detailed-sport-info", "detailed_sport_info", "sport", default="N/A")
             duration = e.get("duration", "N/A")
             dt = _iso_to_dt(st)
             date_str = dt.strftime("%Y-%m-%d") if dt else "N/A"
@@ -968,8 +979,8 @@ def main():
             print("\n🔍 Mostrando TODAS las sesiones encontradas para debug:")
             _print_divider()
             for i, e in enumerate(exercises[:10]):  # Solo primeras 10
-                st = e.get("start-time") or e.get("start_time") or "N/A"
-                sport = e.get("detailed-sport-info") or e.get("detailed_sport_info") or e.get("sport") or "N/A"
+                st = _get_field_variant(e, "start-time", "start_time", "startTime", default="N/A")
+                sport = _get_field_variant(e, "detailed-sport-info", "detailed_sport_info", "sport", default="N/A")
                 duration = e.get("duration", "N/A")
                 dt = _iso_to_dt(st)
                 date_str = dt.strftime("%Y-%m-%d") if dt else "N/A"
@@ -988,7 +999,7 @@ def main():
             # DEBUG DETALLADO: Re-evaluar con debug activado
             _print_header("🔍 DEBUG DETALLADO de cada sesión en rango:", leading_blank=True)
             for i, e in enumerate(exercises[:10]):
-                st = e.get("start-time") or e.get("start_time") or "N/A"
+                st = _get_field_variant(e, "start-time", "start_time", "startTime", default="N/A")
                 dt = _iso_to_dt(st)
                 if dt and from_d and to_d and from_d <= dt.date() <= to_d:
                     print(f"\n  Sesión [{i}] - {dt.date()}:")
@@ -1015,8 +1026,8 @@ def main():
     if filtered:
         print("\n📊 Preview:")
         for i, e in enumerate(filtered[:5]):
-            start = e.get('start-time', 'N/A')
-            sport = e.get('detailed-sport-info', 'N/A')
+            start = _get_field_variant(e, "start-time", "start_time", "startTime", default="N/A")
+            sport = _get_field_variant(e, "detailed-sport-info", "detailed_sport_info", "sport", default="N/A")
             dur = e.get('duration', 'N/A')
             print(f"  [{i}] {start} | {sport} | {dur}")
 
@@ -1046,12 +1057,12 @@ def main():
             continue
 
         # Obtener start-time del ejercicio completo
-        st = ex_full.get("start-time") or ex_full.get("start_time") or ""
+        st = _get_field_variant(ex_full, "start-time", "start_time", "startTime", default="")
         
         if not st:
             print(f"  [{idx}] ⚠️ Sin start-time, usando del índice previo")
             # Intentar con el del listado original
-            st = e.get("start-time") or e.get("start_time") or ""
+            st = _get_field_variant(e, "start-time", "start_time", "startTime", default="")
         
         if not st:
             print(f"  [{idx}] ⚠️ No se puede determinar fecha/hora, usando ID")
