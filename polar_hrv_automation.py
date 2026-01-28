@@ -127,9 +127,7 @@ DEBUG_JSON = False  # True = guarda JSON debug de sesiones sin RR
 
 # Verificar credenciales al inicio
 if not CLIENT_ID or not CLIENT_SECRET:
-    print("\n" + "="*25)
-    print("❌ ERROR: Credenciales Polar no configuradas")
-    print("="*25 + "\n")
+    _print_header("❌ ERROR: Credenciales Polar no configuradas", trailing_blank=True)
     
     if IS_PRODUCTION:
         print("En Railway/Render, configura variables de entorno:")
@@ -176,6 +174,53 @@ def _parse_yyyy_mm_dd(s: str):
         return datetime.strptime(s, "%Y-%m-%d").date()
     except Exception:
         return None
+
+
+def _print_header(title: str, width: int = 25, leading_blank: bool = True, trailing_blank: bool = False):
+    line = "=" * width
+    if leading_blank:
+        print("\n" + line)
+    else:
+        print(line)
+    print(title)
+    if trailing_blank:
+        print(line + "\n")
+    else:
+        print(line)
+
+
+def _print_divider(width: int = 25, leading_blank: bool = False, trailing_blank: bool = False):
+    line = "=" * width
+    if leading_blank:
+        print("\n" + line)
+    else:
+        print(line)
+    if trailing_blank:
+        print("")
+
+
+def _print_sync_completed(updated_date=None, checkmark=False):
+    print("\n✅ SINCRONIZACIÓN COMPLETADA")
+    print("=" * 25)
+    if updated_date:
+        print(f"📊 Master CSV actualizado hasta hoy ({updated_date})")
+    else:
+        print("📊 Master CSV actualizado hasta hoy")
+    print("💡 No hay nuevas sesiones que descargar")
+    tail = " ✅" if checkmark else "."
+    print(f"   • Todo al día{tail}")
+
+
+def _print_no_rr_files():
+    print("\n⚠️  No hay archivos RR para procesar")
+    print("Causas típicas:")
+    print("   - Sesiones sin RR en el periodo")
+    print("   - Sesiones aún no sincronizadas con Polar Flow")
+
+
+def _print_master_already_updated():
+    print("\n✅ Master CSV ya está actualizado con todas las sesiones")
+    print("   No hay nada nuevo que procesar")
 
 
 class _CallbackState:
@@ -593,9 +638,7 @@ def show_last_daily_summary():
         # Obtener última medición
         last_row = df.sort_values('Fecha').iloc[-1]
         
-        print("\n" + "="*25)
-        print("💓 Última Medición HRV")
-        print("="*25)
+        _print_header("💓 Última Medición HRV")
         
         # Formatear y mostrar - USAR NOMBRES CORRECTOS DE COLUMNAS
         fecha = last_row.get('Fecha', 'N/A')
@@ -646,7 +689,7 @@ def show_last_daily_summary():
         # Flags si existen
         flags = last_row.get('Flags', '')
         if pd.notna(flags) and flags:
-            print(f"   🚩 Flags:          {flags}")
+            print(f"🚩 Flags:          {flags}")
         
         # print("="*25)
         
@@ -674,9 +717,7 @@ def show_last_3_days_summary():
         if len(last_3) == 0:
             return
         
-        print("\n" + "="*25)
-        print("📊 RESUMEN ÚLTIMOS 3 DÍAS")
-        print("="*25)
+        _print_header("📊 RESUMEN ÚLTIMOS 3 DÍAS")
         
         for _, row in last_3.iterrows():
             fecha = row.get('Fecha', 'N/A')
@@ -707,9 +748,9 @@ def show_last_3_days_summary():
             tiebreak_emoji = "🟢" if tiebreak == "Verde" else "🟡" if tiebreak in ["Amarillo", "Ámbar"] else "🔴" if tiebreak == "Rojo" else "⚪"
             
             # Una línea por día - SEMÁFORO + 3 COLORES
-            print(f"{fecha_str}  💓 {hr_str:>5}  📊 {rmssd_str:>5}  🎯 {crmssd_str:>5}  🚦 {p2_emoji} {trend_emoji} {tiebreak_emoji}")
+            print(f"{fecha_str}  💓{hr_str:>5}  📊 {rmssd_str:>5}  🎯 {crmssd_str:>5}  🚦 {p2_emoji} {trend_emoji} {tiebreak_emoji}")
         
-        print("="*25)
+        _print_divider()
         
     except Exception as e:
         print(f"⚠️  Error mostrando resumen 3 días: {e}")
@@ -781,9 +822,7 @@ def main():
     parser.add_argument('--debug-sports', action='store_true', help='Mostrar deportes de todas las sesiones encontradas')
     args = parser.parse_args()
 
-    print("\n" + "="*25)
-    print("  POLAR HRV AUTOMATION")
-    print("="*25)
+    _print_header("  POLAR HRV AUTOMATION")
 
     # Autenticación
     # En PRODUCCIÓN (Railway/Render/Heroku) NO se puede abrir navegador ni levantar callback server local.
@@ -833,11 +872,7 @@ def main():
         days_missing, last_date = calculate_missing_days()
         
         if days_missing == 0:
-            print(f"\n✅ SINCRONIZACIÓN COMPLETADA")
-            print("="*25)
-            print(f"📊 Master CSV actualizado hasta hoy ({datetime.now().date()})")
-            print(f"💡 No hay nuevas sesiones que descargar")
-            print(f"   • Todo al día.")
+            _print_sync_completed(updated_date=datetime.now().date(), checkmark=False)
             
             # Mostrar último daily summary
             show_last_daily_summary()
@@ -869,11 +904,7 @@ def main():
         days_missing, last_date = calculate_missing_days()
         
         if days_missing == 0:
-            print(f"\n✅ SINCRONIZACIÓN COMPLETADA")
-            print("="*25)
-            print(f"📊 Master CSV actualizado hasta hoy")
-            print(f"💡 No hay nuevas sesiones que descargar")
-            print(f"   • Sincronización automática: Todo al día ✅")
+            _print_sync_completed(updated_date=None, checkmark=True)
             
             # Mostrar último daily summary
             show_last_daily_summary()
@@ -882,7 +913,7 @@ def main():
             show_last_3_days_summary()
             
             # print(f"\n💡 Para re-procesar: python {sys.argv[0]} --days 1 --process")
-            print("="*25 + "\n")
+            _print_divider(trailing_blank=True)
             return
         
         # Limitar a 30 días en modo auto para evitar descargas masivas
@@ -906,9 +937,7 @@ def main():
 
     # Debug: Mostrar deportes si --debug-sports
     if args.debug_sports:
-        print("\n" + "="*25)
-        print("🔍 DEBUG: TODAS LAS SESIONES ENCONTRADAS")
-        print("="*25)
+        _print_header("🔍 DEBUG: TODAS LAS SESIONES ENCONTRADAS")
         for i, e in enumerate(exercises):
             st = e.get("start-time") or e.get("start_time") or "N/A"
             sport = e.get("detailed-sport-info") or e.get("detailed_sport_info") or e.get("sport") or "N/A"
@@ -917,7 +946,7 @@ def main():
             date_str = dt.strftime("%Y-%m-%d") if dt else "N/A"
             
             print(f"  [{i}] {date_str} | Sport: '{sport}' | Duration: {duration}")
-        print("="*25 + "\n")
+        _print_divider(trailing_blank=True)
     
     # Aplicar filtros
     sports_set = set(SPORTS_FILTER) if SPORTS_FILTER else None
@@ -937,7 +966,7 @@ def main():
         # Mostrar debug automáticamente
         if not args.debug_sports and exercises:
             print("\n🔍 Mostrando TODAS las sesiones encontradas para debug:")
-            print("="*25)
+            _print_divider()
             for i, e in enumerate(exercises[:10]):  # Solo primeras 10
                 st = e.get("start-time") or e.get("start_time") or "N/A"
                 sport = e.get("detailed-sport-info") or e.get("detailed_sport_info") or e.get("sport") or "N/A"
@@ -952,20 +981,19 @@ def main():
             
             if len(exercises) > 10:
                 print(f"  ... y {len(exercises) - 10} más")
-            print("="*25)
+            _print_divider()
             print(f"\n💡 Buscando: Sport EXACTO = '{SPORTS_FILTER[0] if SPORTS_FILTER else 'N/A'}'")
             print(f"   En rango: {from_d} a {to_d}")
             
             # DEBUG DETALLADO: Re-evaluar con debug activado
-            print("\n🔍 DEBUG DETALLADO de cada sesión en rango:")
-            print("="*25)
+            _print_header("🔍 DEBUG DETALLADO de cada sesión en rango:", leading_blank=True)
             for i, e in enumerate(exercises[:10]):
                 st = e.get("start-time") or e.get("start_time") or "N/A"
                 dt = _iso_to_dt(st)
                 if dt and from_d and to_d and from_d <= dt.date() <= to_d:
                     print(f"\n  Sesión [{i}] - {dt.date()}:")
                     passes_filters(e, from_d, to_d, sports_set, MAX_DURATION_MINUTES, debug=True)
-            print("="*25)
+            _print_divider()
         
         print("\n💡 Esto es normal si:")
         print("   - Algunos días no grabaste sesión")
@@ -975,9 +1003,7 @@ def main():
         print("   O con --debug-sports para ver todas las sesiones")
         
         # Mostrar último daily summary disponible aunque no haya nuevos datos
-        print("\n" + "="*25)
-        print("📊 Aunque no hay nuevos datos, aquí está tu última medición:")
-        print("="*25)
+        _print_header("📊 Aunque no hay nuevos datos, aquí está tu última medición:")
         show_last_daily_summary()
         
         # Mostrar resumen últimos 3 días
@@ -1070,9 +1096,7 @@ def main():
         print(f"  [{idx}] ✅ {out_name} | {len(rr)} RR | offline: {offline_pct:.1f}%")
 
     # Resumen
-    print("\n" + "="*25)
-    print("✅ EXPORT COMPLETADO")
-    print("="*25)
+    _print_header("✅ EXPORT COMPLETADO")
     
     total_to_process = len(rr_files)
     
@@ -1089,22 +1113,16 @@ def main():
     print(f"\n📊 {total_to_process} archivos totales para procesar en {OUTDIR}/")
 
     if total_to_process == 0 and skipped_in_master == 0:
-        print("\n⚠️  No hay archivos RR para procesar")
-        print("Causas típicas:")
-        print("   - Sesiones sin RR en el periodo")
-        print("   - Sesiones aún no sincronizadas con Polar Flow")
+        _print_no_rr_files()
         return
     
     if total_to_process == 0 and skipped_in_master > 0:
-        print("\n✅ Master CSV ya está actualizado con todas las sesiones")
-        print("   No hay nada nuevo que procesar")
+        _print_master_already_updated()
         return
 
     # Procesar con endurance_hrv.py
     if args.process:
-        print("\n" + "="*25)
-        print("🔧 PROCESANDO CON ENDURANCE_HRV.PY")
-        print("="*25)
+        _print_header("🔧 PROCESANDO CON ENDURANCE_HRV.PY")
         
         if not Path("endurance_hrv.py").exists():
             print("\n❌ endurance_hrv.py no encontrado")
