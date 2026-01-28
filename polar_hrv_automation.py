@@ -189,7 +189,7 @@ def _print_header(title: str, width: int = 25, leading_blank: bool = True, trail
         print(line)
 
 
-def _print_divider(width: int = 25, leading_blank: bool = False, trailing_blank: bool = False):
+def _print_divider(width: int = 30, leading_blank: bool = False, trailing_blank: bool = False):
     line = "=" * width
     if leading_blank:
         print("\n" + line)
@@ -206,9 +206,9 @@ def _print_sync_completed(updated_date=None, checkmark=False):
         print(f"📊 Master CSV actualizado hasta hoy ({updated_date})")
     else:
         print("📊 Master CSV actualizado hasta hoy")
-    print("💡 No hay nuevas sesiones que descargar")
+    print("💡 No nuevas sesiones")
     tail = " ✅" if checkmark else "."
-    print(f"   • Todo al día{tail}")
+    # print(f"   • Todo al día{tail}")
 
 
 def _print_no_rr_files():
@@ -750,7 +750,7 @@ def show_last_3_days_summary():
             # Una línea por día - SEMÁFORO + 3 COLORES
             print(f"{fecha_str} \n💓{hr_str:>5}  📊{rmssd_str:>5}  🎯{crmssd_str:>5}  {p2_emoji} {trend_emoji} {tiebreak_emoji}\n")
         
-        _print_divider()
+        # _print_divider()
         
     except Exception as e:
         print(f"⚠️  Error mostrando resumen 3 días: {e}")
