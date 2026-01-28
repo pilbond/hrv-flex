@@ -682,7 +682,7 @@ def main():
         out_qa.write_text(qa_rolling_md(master, asof=master["Fecha"].max()), encoding="utf-8")
         
         print("\n" + "="*20)
-        print("💓 DAILY SUMMARIES - Resumen Diario HRV")
+        print("💓 Resumen Diario HRV")
         print("="*20)
         for s in summaries:
             # Formatear el diccionario de manera más legible
@@ -697,9 +697,9 @@ def main():
             stab = s.get('Stab', 'N/A')
             
             print(f"\n📅 Fecha: {fecha}")
-            print(f"   💓 HR promedio:  {hr:.1f} bpm" if isinstance(hr, (int, float)) else f"   💓 HR promedio:  {hr}")
-            print(f"   📊 RMSSD:        {rmssd:.1f} ms" if isinstance(rmssd, (int, float)) else f"   📊 RMSSD:        {rmssd}")
-            print(f"   🎯 cRMSSD:       {crmssd:.1f} ms" if isinstance(crmssd, (int, float)) else f"   🎯 cRMSSD:       {crmssd}")
+            print(f"💓 HR promedio:  {hr:.1f} bpm" if isinstance(hr, (int, float)) else f"  💓 HR promedio: {hr}")
+            print(f"📊 RMSSD:        {rmssd:.1f} ms" if isinstance(rmssd, (int, float)) else f"  📊 RMSSD:       {rmssd}")
+            print(f"🎯 cRMSSD:       {crmssd:.1f} ms" if isinstance(crmssd, (int, float)) else f"  🎯 cRMSSD:    web  {crmssd}")
             
             # P2 con emoji
             p2_emoji = "🟢" if p2 == "Verde" else "🟡" if p2 == "Amarillo" else "🔴" if p2 == "Rojo" else "⚪"
@@ -713,8 +713,8 @@ def main():
             tiebreak_emoji = "🟢" if tiebreak == "Verde" else "🟡" if tiebreak in ["Amarillo", "Ámbar"] else "🔴" if tiebreak == "Rojo" else "⚪"
             print(f"   {tiebreak_emoji} Tiebreak:     {tiebreak}")
             
-            print(f"   ✅ Calidad:      {calidad}")
-            print(f"   📈 Estabilidad:  {stab}")
+            print(f"✅ Calidad:      {calidad}")
+            print(f"📈 Estabilidad:  {stab}")
         print("="*20)
         
         print("\n=== OUTPUTS GENERATED ===")

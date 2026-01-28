@@ -297,8 +297,8 @@ def register_user_if_needed(token: str, member_id: str):
         timeout=30,
     )
 
-    if r.status_code == 409:
-        return {"status": "already_registered"}
+    #if r.status_code == 409:
+    #    return {"status": "already_registered"}
 
     if r.status_code == 403:
         raise RuntimeError(f"register_user 403 (no autorizado / consents):\n{r.text}")
@@ -594,7 +594,7 @@ def show_last_daily_summary():
         last_row = df.sort_values('Fecha').iloc[-1]
         
         print("\n" + "="*25)
-        print("💓 DAILY SUMMARY - Última Medición HRV")
+        print("💓 Última Medición HRV")
         print("="*25)
         
         # Formatear y mostrar - USAR NOMBRES CORRECTOS DE COLUMNAS
@@ -612,43 +612,43 @@ def show_last_daily_summary():
         
         # HR
         if pd.notna(hr) and hr != 'N/A':
-            print(f"   💓 HR promedio:    {float(hr):.1f} bpm")
+            print(f"💓 HR promedio:    {float(hr):.1f} bpm")
         else:
-            print(f"   💓 HR promedio:    N/A")
+            print(f"💓 HR promedio:    N/A")
         
         # RMSSD
         if pd.notna(rmssd) and rmssd != 'N/A':
-            print(f"   📊 RMSSD:          {float(rmssd):.1f} ms")
+            print(f"📊 RMSSD:          {float(rmssd):.1f} ms")
         else:
-            print(f"   📊 RMSSD:          N/A")
+            print(f"📊 RMSSD:          N/A")
         
         # cRMSSD
         if pd.notna(crmssd) and crmssd != 'N/A':
-            print(f"   🎯 cRMSSD:         {float(crmssd):.1f} ms")
+            print(f"🎯 cRMSSD:         {float(crmssd):.1f} ms")
         else:
-            print(f"   🎯 cRMSSD:         N/A")
+            print(f"🎯 cRMSSD:         N/A")
         
         # Estado (Color_Agudo_Diario) - SOLO EMOJI DE COLOR
         p2_emoji = "🟢" if p2 == "Verde" else "🟡" if p2 == "Amarillo" else "🔴" if p2 == "Rojo" else "⚪"
-        print(f"   🚦 Estado:         {p2_emoji}")
+        print(f"🚦 Estado:         {p2_emoji}")
         
         # Tendencia - SOLO EMOJI DE COLOR (NO FLECHA)
         trend_emoji = "🟢" if trend == "Verde" else "🟡" if trend == "Amarillo" else "🔴" if trend == "Rojo" else "⚪"
-        print(f"   📈 Tendencia:      {trend_emoji}")
+        print(f"📈 Tendencia:      {trend_emoji}")
         
         # Tiebreak - SOLO EMOJI DE COLOR
         tiebreak_emoji = "🟢" if tiebreak == "Verde" else "🟡" if tiebreak in ["Amarillo", "Ámbar"] else "🔴" if tiebreak == "Rojo" else "⚪"
-        print(f"   🟢 Tiebreak:       {tiebreak_emoji}")
+        print(f"🟢 Tiebreak:       {tiebreak_emoji}")
         
-        print(f"   ✅ Calidad:        {calidad}")
-        print(f"   📈 Estabilidad:    {stab}")
+        print(f"✅ Calidad:        {calidad}")
+        print(f"📈 Estabilidad:    {stab}")
         
         # Flags si existen
         flags = last_row.get('Flags', '')
         if pd.notna(flags) and flags:
             print(f"   🚩 Flags:          {flags}")
         
-        print("="*25)
+        # print("="*25)
         
     except Exception as e:
         print(f"⚠️  Error mostrando último summary: {e}")
@@ -707,7 +707,7 @@ def show_last_3_days_summary():
             tiebreak_emoji = "🟢" if tiebreak == "Verde" else "🟡" if tiebreak in ["Amarillo", "Ámbar"] else "🔴" if tiebreak == "Rojo" else "⚪"
             
             # Una línea por día - SEMÁFORO + 3 COLORES
-            print(f"📅 {fecha_str} | 💓 {hr_str:>5} | 📊 {rmssd_str:>5} | 🎯 {crmssd_str:>5} | 🚦 {p2_emoji} {trend_emoji} {tiebreak_emoji}")
+            print(f"{fecha_str}  💓 {hr_str:>5}  📊 {rmssd_str:>5}  🎯 {crmssd_str:>5}  🚦 {p2_emoji} {trend_emoji} {tiebreak_emoji}")
         
         print("="*25)
         
@@ -813,7 +813,7 @@ def main():
     # Registrar usuario (obligatorio)
     member_id = f"local_{x_user_id or 'user'}"
     reg = register_user_if_needed(access_token, member_id)
-    print(f"📝 Usuario: {reg.get('status')}")
+    # print(f"📝 Usuario: {reg.get('status')}")
 
     # Listar ejercicios
     print("\n🔍 Obteniendo ejercicios...")
@@ -837,7 +837,7 @@ def main():
             print("="*25)
             print(f"📊 Master CSV actualizado hasta hoy ({datetime.now().date()})")
             print(f"💡 No hay nuevas sesiones que descargar")
-            print(f"   • Sincronización automática: Todo al día ✅")
+            print(f"   • Todo al día.")
             
             # Mostrar último daily summary
             show_last_daily_summary()
@@ -845,8 +845,8 @@ def main():
             # Mostrar resumen últimos 3 días
             show_last_3_days_summary()
             
-            print(f"\n💡 Para re-procesar: python {sys.argv[0]} --days 1 --process")
-            print("="*25 + "\n")
+            #print(f"\n💡 Para re-procesar: python {sys.argv[0]} --days 1 --process")
+            #print("="*25 + "\n")
             return
         
         to_d = datetime.now().date()
@@ -881,7 +881,7 @@ def main():
             # Mostrar resumen últimos 3 días
             show_last_3_days_summary()
             
-            print(f"\n💡 Para re-procesar: python {sys.argv[0]} --days 1 --process")
+            # print(f"\n💡 Para re-procesar: python {sys.argv[0]} --days 1 --process")
             print("="*25 + "\n")
             return
         
@@ -1023,19 +1023,19 @@ def main():
         st = ex_full.get("start-time") or ex_full.get("start_time") or ""
         
         if not st:
-            print(f"  [{idx}] ⚠️  Sin start-time, usando del índice previo")
+            print(f"  [{idx}] ⚠️ Sin start-time, usando del índice previo")
             # Intentar con el del listado original
             st = e.get("start-time") or e.get("start_time") or ""
         
         if not st:
-            print(f"  [{idx}] ⚠️  No se puede determinar fecha/hora, usando ID")
+            print(f"  [{idx}] ⚠️ No se puede determinar fecha/hora, usando ID")
             out_name = f"{POLAR_USER_NAME}_unknown_{ex_id}_RR.CSV"
             session_date = None
         else:
             st_dt = _iso_to_dt(st)
             
             if not st_dt:
-                print(f"  [{idx}] ⚠️  Error parseando fecha, usando ID")
+                print(f"  [{idx}] ⚠️ Error parseando fecha, usando ID")
                 out_name = f"{POLAR_USER_NAME}_unknown_{ex_id}_RR.CSV"
                 session_date = None
             else:

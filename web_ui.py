@@ -91,7 +91,7 @@ HTML_TEMPLATE = """
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
-            padding: 20px;
+            padding: 10px;
         }
         
         .container {
@@ -104,7 +104,7 @@ HTML_TEMPLATE = """
             border-radius: 20px;
             padding: 30px;
             box-shadow: 0 10px 40px rgba(0,0,0,0.1);
-            margin-bottom: 20px;
+            margin-bottom: 12px;
         }
         
         h1 {
@@ -113,9 +113,13 @@ HTML_TEMPLATE = """
             font-size: 28px;
         }
         
+        h3 {
+            margin-bottom: 10px; 
+            color: #667eea;
+        }
         .subtitle {
             color: #666;
-            margin-bottom: 30px;
+            margin-bottom: 20px;
             font-size: 14px;
         }
         
@@ -158,8 +162,8 @@ HTML_TEMPLATE = """
         }
         
         .status {
-            margin-top: 20px;
-            padding: 15px;
+            margin-top: 12px;
+            padding: 10px 15px;
             border-radius: 10px;
             font-size: 14px;
             display: none;
@@ -200,7 +204,7 @@ HTML_TEMPLATE = """
         }
         
         .output {
-            margin-top: 20px;
+            margin-top: 10px;
             padding: 15px;
             background: #f5f5f5;
             border-radius: 10px;
@@ -216,14 +220,16 @@ HTML_TEMPLATE = """
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 15px;
-            margin-top: 20px;
+            margin-top: 10px;
         }
         
         .info-item {
-            text-align: center;
-            padding: 15px;
+            padding: 10px 20px;
             background: #f8f9fa;
             border-radius: 10px;
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
         }
         
         .info-label {
@@ -259,6 +265,7 @@ HTML_TEMPLATE = """
             
             h1 {
                 font-size: 24px;
+                margin-bottom: 6px;
             }
             
             .sync-button {
@@ -293,7 +300,7 @@ HTML_TEMPLATE = """
         </div>
         
         <div id="outputCard" class="card" style="display: none;">
-            <h3 style="margin-bottom: 15px; color: #667eea;">📊 Detalles</h3>
+            <h3>📊 Detalles</h3>
             <div id="output" class="output"></div>
         </div>
     </div>
@@ -604,11 +611,12 @@ def auth():
 
     authorization_url = f"https://flow.polar.com/oauth2/authorization?{urlencode(params)}"
 
-    print("🔐 OAuth /auth")
-    print(f"   client_id_source: {client_id_source}")
-    print(f"   client_id_len: {len(client_id)}")
-    print(f"   client_id_tail: {client_id[-4:] if len(client_id) >= 4 else client_id}")
-    print(f"   redirect_uri: {redirect_uri}")
+#    print("🔐 OAuth /auth")
+#    print(f"   client_id_source: {client_id_source}")
+#    print(f"   client_id_len: {len(client_id)}")
+#    print(f"   client_id_tail: {client_id[-4:] if len(client_id) >= 4 else client_id}")
+#    print(f"   redirect_uri: {redirect_uri}")
+
     return redirect(authorization_url)
 
 
