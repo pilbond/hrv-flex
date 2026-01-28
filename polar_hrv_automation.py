@@ -297,8 +297,8 @@ def register_user_if_needed(token: str, member_id: str):
         timeout=30,
     )
 
-    #if r.status_code == 409:
-    #    return {"status": "already_registered"}
+    if r.status_code == 409:
+        return {"status": "already_registered"}
 
     if r.status_code == 403:
         raise RuntimeError(f"register_user 403 (no autorizado / consents):\n{r.text}")
