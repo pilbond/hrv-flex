@@ -748,7 +748,7 @@ def show_last_3_days_summary():
             tiebreak_emoji = "🟢" if tiebreak == "Verde" else "🟡" if tiebreak in ["Amarillo", "Ámbar"] else "🔴" if tiebreak == "Rojo" else "⚪"
             
             # Una línea por día - SEMÁFORO + 3 COLORES
-            print(f"{fecha_str} \n 💓{hr_str:>5}  📊 {rmssd_str:>5}  🎯 {crmssd_str:>5}  🚦 {p2_emoji} {trend_emoji} {tiebreak_emoji}")
+            print(f"{fecha_str} \n💓{hr_str:>5}  📊{rmssd_str:>5}  🎯{crmssd_str:>5}  {p2_emoji}{trend_emoji}{tiebreak_emoji}")
         
         _print_divider()
         
