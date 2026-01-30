@@ -1060,12 +1060,8 @@ def main():
                     passes_filters(e, from_d, to_d, sports_set, MAX_DURATION_MINUTES, debug=True)
             _print_divider()
         
-        print("\n💡 Esto es normal si:")
-        print("   - Algunos días no grabaste sesión")
-        print("   - Las sesiones aún no se sincronizaron con Polar Flow")
-        print(f"   - El nombre del deporte en Polar no es exactamente '{SPORTS_FILTER[0] if SPORTS_FILTER else 'N/A'}'")
-        print("\n   Ejecuta con --days N para probar con más días")
-        print("   O con --debug-sports para ver todas las sesiones")
+        print(f"\n💡 No se encontraron sesiones '{SPORTS_FILTER[0] if SPORTS_FILTER else 'N/A'}' en el periodo.")
+        print(f"   Usa --days N para más días o --debug-sports para ver todas las sesiones.")
         
         # Mostrar último daily summary disponible aunque no haya nuevos datos
         _print_header("📊 Aunque no hay nuevos datos, aquí está tu última medición:")
@@ -1075,15 +1071,6 @@ def main():
         show_last_3_days_summary()
         
         return
-
-    # Preview
-    if filtered:
-        print("\n📊 Preview:")
-        for i, e in enumerate(filtered[:5]):
-            start = _get_field_variant(e, *FIELD_START_TIME, default="N/A")
-            sport = _get_field_variant(e, *FIELD_SPORT, default="N/A")
-            dur = e.get('duration', 'N/A')
-            print(f"  [{i}] {start} | {sport} | {dur}")
 
     # Export RR
     print("\n📥 Descargando datos RR...")
@@ -1195,7 +1182,6 @@ def main():
             return
         
         # Actualizar RR_FILES en endurance_hrv.py
-        print("\n📝 Actualizando RR_FILES...")
         if not update_endurance_hrv_files(rr_files):
             print("❌ Error actualizando endurance_hrv.py")
             return
@@ -1236,11 +1222,6 @@ def main():
                 print(e.stderr)
         except (FileNotFoundError, PermissionError, OSError) as e:
             print(f"\n❌ Error inesperado ejecutando script: {e}")
-    else:
-        print("\n💡 Para procesar automáticamente:")
-        print("   python polar_hrv_final.py --process")
-        print("\n   O manualmente:")
-        print("   python endurance_hrv.py")
 
 
 if __name__ == "__main__":
