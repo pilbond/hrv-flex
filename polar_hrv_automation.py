@@ -51,13 +51,13 @@ if not IS_PRODUCTION:
     try:
         from dotenv import load_dotenv
         load_dotenv()
-        print("📝 Modo LOCAL: cargando credenciales desde .env")
+        # print("📝 Modo LOCAL: cargando credenciales desde .env")
     except ImportError:
         print("⚠️  python-dotenv no instalado, usando variables de entorno del sistema")
 else:
     env_name = 'Railway' if IS_RAILWAY else 'Render' if IS_RENDER else 'Heroku'
-    print(f"🌐 Modo PRODUCCIÓN: {env_name}")
-    print("📝 Cargando credenciales desde variables de entorno")
+    # print(f"🌐 Modo PRODUCCIÓN: {env_name}")
+    # print("📝 Cargando credenciales desde variables de entorno")
 
 # =========================
 # CONFIG
@@ -889,6 +889,7 @@ def main():
     parser.add_argument('--auto', action='store_true', help='Detectar automáticamente días faltantes desde último registro')
     parser.add_argument('--process', action='store_true', help='Ejecutar endurance_hrv.py después')
     parser.add_argument('--debug-sports', action='store_true', help='Mostrar deportes de todas las sesiones encontradas')
+    parser.add_argument('--verbose', action='store_true', help='Mostrar detalles de cada archivo procesado')
     args = parser.parse_args()
 
     _print_header("  POLAR HRV AUTOMATION")
@@ -920,13 +921,13 @@ def main():
     # print(f"📝 Usuario: {reg.get('status')}")
 
     # Listar ejercicios
-    print("\n🔍 Obteniendo ejercicios...")
+    # print("\n🔍 Obteniendo ejercicios...")
     exercises = list_exercises(access_token)
-    
+
     if not isinstance(exercises, list):
         raise RuntimeError(f"Respuesta inesperada: {type(exercises)}")
 
-    print(f"📋 {len(exercises)} ejercicios totales")
+    # print(f"📋 {len(exercises)} ejercicios totales")
 
     # Determinar rango fechas
     if args.all:
@@ -1078,7 +1079,7 @@ def main():
     
     # Obtener fechas ya existentes en master CSV
     existing_dates = get_existing_dates_from_master()
-    if existing_dates:
+    if existing_dates and args.verbose:
         print(f"📋 {len(existing_dates)} fechas ya en master CSV")
     
     exported = 0
@@ -1125,15 +1126,17 @@ def main():
         
         # Verificar si fecha ya existe en master CSV
         if session_date and session_date in existing_dates:
-            print(f"  [{idx}] ⏭️  {date_part} ya en master CSV, omitiendo")
+            if args.verbose:
+                print(f"  [{idx}] ⏭️  {date_part} ya en master CSV, omitiendo")
             skipped_in_master += 1
             continue
-        
+
         out_path = OUTDIR / out_name
-        
+
         # Si archivo existe pero fecha NO está en master, procesarlo
         if out_path.exists():
-            print(f"  [{idx}] ♻️  {out_name} existe, se procesará (no en master)")
+            if args.verbose:
+                print(f"  [{idx}] ♻️  {out_name} existe, se procesará (no en master)")
             rr_files.append(out_path)
             continue
 
@@ -1145,7 +1148,8 @@ def main():
         exported += 1
 
         offline_pct = 100.0 * sum(1 for _, off in rr if off == 1) / max(1, len(rr))
-        print(f"  [{idx}] ✅ {out_name} | {len(rr)} RR | offline: {offline_pct:.1f}%")
+        if args.verbose:
+            print(f"  [{idx}] ✅ {out_name} | {len(rr)} RR | offline: {offline_pct:.1f}%")
 
     # Resumen
     _print_header("✅ EXPORT COMPLETADO")
