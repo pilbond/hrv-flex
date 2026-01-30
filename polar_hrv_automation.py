@@ -195,13 +195,13 @@ def _iso_to_dt(s: str):
         if s.endswith("Z"):
             s = s[:-1] + "+00:00"
         dt_utc = datetime.fromisoformat(s)
-        
+
         # Convertir a hora local del sistema
         utc_timestamp = dt_utc.timestamp()
         local_dt = datetime.fromtimestamp(utc_timestamp)
-        
+
         return local_dt
-    except Exception:
+    except (ValueError, TypeError, OverflowError, OSError):
         return None
 
 
@@ -210,7 +210,7 @@ def _parse_yyyy_mm_dd(s: str):
         return None
     try:
         return datetime.strptime(s, "%Y-%m-%d").date()
-    except Exception:
+    except ValueError:
         return None
 
 
@@ -627,8 +627,8 @@ def do_oauth_flow():
     tmp_path.replace(TOKEN_FILE)
     try:
         os.chmod(TOKEN_FILE, 0o600)
-    except Exception:
-        pass
+    except OSError:
+        pass  # chmod may not be supported on Windows
 
     return access_token, x_user_id
 
@@ -700,8 +700,8 @@ def get_existing_dates_from_master():
             try:
                 date_obj = datetime.strptime(str(date_str), '%Y-%m-%d').date()
                 dates.add(date_obj)
-            except:
-                pass
+            except (ValueError, TypeError):
+                pass  # Skip invalid date formats
         
         return dates
         
@@ -820,8 +820,8 @@ def show_last_3_days_summary():
             print(f"{fecha_str} \n💓{hr_str:>5}  📊{rmssd_str:>5}  🎯{crmssd_str:>5}  {p2_emoji} {trend_emoji} {tiebreak_emoji}\n")
         
         # _print_divider()
-        
-    except Exception as e:
+
+    except (FileNotFoundError, pd.errors.EmptyDataError, KeyError, IndexError) as e:
         print(f"⚠️  Error mostrando resumen 3 días: {e}")
 
 
@@ -1106,7 +1106,7 @@ def main():
         try:
             # Descargar ejercicio completo con samples
             ex_full = get_exercise_with_samples(access_token, ex_id)
-        except Exception as ex:
+        except (requests.RequestException, RuntimeError) as ex:
             print(f"  [{idx}] ❌ Error descargando: {ex}")
             continue
 
@@ -1234,8 +1234,8 @@ def main():
             if e.stderr:
                 print("\nError:")
                 print(e.stderr)
-        except Exception as e:
-            print(f"\n❌ Error inesperado: {e}")
+        except (FileNotFoundError, PermissionError, OSError) as e:
+            print(f"\n❌ Error inesperado ejecutando script: {e}")
     else:
         print("\n💡 Para procesar automáticamente:")
         print("   python polar_hrv_final.py --process")
@@ -1249,5 +1249,7 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n\nInterrumpido por el usuario.")
     except Exception as e:
-        print(f"\n❌ ERROR: {e}", file=sys.stderr)
+        print(f"\n❌ ERROR INESPERADO: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
         sys.exit(1)

@@ -246,12 +246,13 @@ HTML_TEMPLATE = """
         
         .spinner {
             display: inline-block;
-            width: 20px;
-            height: 20px;
+            width: 16px;
+            height: 16px;
             border: 3px solid rgba(255,255,255,.3);
             border-radius: 50%;
             border-top-color: white;
             animation: spin 1s ease-in-out infinite;
+            vertical-align: text-top;
         }
         
         @keyframes spin {
