@@ -128,6 +128,40 @@ MAX_EXERCISES = 50
 RR_MIN_MS = 300.0   # ~200 bpm (máximo fisiológico)
 RR_MAX_MS = 2000.0  # ~30 bpm (mínimo fisiológico)
 
+# Nombres de campos API Polar (variantes inconsistentes)
+FIELD_START_TIME = ("start-time", "start_time", "startTime")
+FIELD_SPORT = ("detailed-sport-info", "detailed_sport_info", "sport")
+FIELD_SAMPLE_TYPE = ("sample-type", "sample_type")
+
+# Nombres de columnas del Master CSV (ENDURANCE_HRV_master_ALL.csv)
+MASTER_CSV_COLS = {
+    'fecha': 'Fecha',
+    'hr': 'HR_stable',
+    'rmssd': 'RMSSD_stable',
+    'crmssd': 'cRMSSD',
+    'color_agudo': 'Color_Agudo_Diario',
+    'color_tendencia': 'Color_Tendencia',
+    'color_tiebreak': 'Color_Tiebreak',
+    'calidad': 'Calidad',
+    'estabilidad': 'HRV_Stability',
+    'flags': 'Flags',
+}
+
+# Mapeo de colores de estado a emojis
+COLOR_EMOJI = {
+    'Verde': '🟢',
+    'Amarillo': '🟡',
+    'Ámbar': '🟡',  # Alias para Amarillo
+    'Rojo': '🔴',
+    'N/A': '⚪',
+}
+
+# Límites de visualización y procesamiento
+DEBUG_PREVIEW_LIMIT = 10      # Sesiones a mostrar en modo debug
+MAX_AUTO_DAYS = 30            # Días máximo en modo --auto
+DATE_STRING_LENGTH = 10       # Longitud de "YYYY-MM-DD"
+UNKNOWN_SESSION_ID = "unknown"  # ID para sesiones sin fecha
+
 DEBUG_JSON = False  # True = guarda JSON debug de sesiones sin RR
 
 # Verificar credenciales al inicio
@@ -187,6 +221,36 @@ def _get_field_variant(data: dict, *keys, default=None):
         if val is not None:
             return val
     return default
+
+
+def _get_color_emoji(color_value, default='⚪'):
+    """Convierte valor de color ('Verde', 'Amarillo', 'Rojo') a emoji."""
+    return COLOR_EMOJI.get(color_value, default)
+
+
+def _format_metric(value, decimals=1):
+    """
+    Formatea métrica numérica o devuelve 'N/A'.
+
+    Args:
+        value: Valor a formatear
+        decimals: Número de decimales (default: 1)
+
+    Returns:
+        String formateado o 'N/A'
+    """
+    # Si pandas no está disponible, verificar None directamente
+    if PANDAS_AVAILABLE:
+        is_valid = pd.notna(value) and value != 'N/A'
+    else:
+        is_valid = value is not None and value != 'N/A'
+
+    if is_valid:
+        try:
+            return f"{float(value):.{decimals}f}"
+        except (ValueError, TypeError):
+            return 'N/A'
+    return 'N/A'
 
 
 def _print_header(title: str, width: int = 25, leading_blank: bool = True, trailing_blank: bool = False):
@@ -293,6 +357,19 @@ def build_auth_url(client_id: str, redirect_uri: str, scope: str):
     return f"{AUTH_URL}?{urlencode(params)}"
 
 
+def get_production_url():
+    """
+    Obtiene y normaliza la URL pública en producción.
+
+    Returns:
+        URL normalizada con https:// o string vacío si no existe
+    """
+    public_url = os.environ.get('PUBLIC_URL') or os.environ.get('RAILWAY_PUBLIC_DOMAIN') or ''
+    if public_url and not str(public_url).startswith('http'):
+        return f"https://{public_url}"
+    return public_url
+
+
 def exchange_code_for_token(code: str, client_id: str, client_secret: str, redirect_uri: Optional[str] = None) -> dict:
     basic = base64.b64encode(f"{client_id}:{client_secret}".encode("utf-8")).decode("ascii")
     headers = {
@@ -386,7 +463,7 @@ def extract_rr_ms(exercise_json: dict):
     rr = []
     samples = exercise_json.get("samples") or []
     for s in samples:
-        st = _get_field_variant(s, "sample-type", "sample_type")
+        st = _get_field_variant(s, *FIELD_SAMPLE_TYPE)
         if str(st) != "11":
             continue
 
@@ -420,7 +497,7 @@ def passes_filters(ex_item: dict, from_d, to_d, sports_set, max_duration_min, de
         print(f"\n  🔍 Evaluando: {ex_item.get('id', 'N/A')}")
     
     # Filtro fecha
-    st = _get_field_variant(ex_item, "start-time", "start_time", "startTime")
+    st = _get_field_variant(ex_item, *FIELD_START_TIME)
     dt = _iso_to_dt(st)
     if dt:
         d = dt.date()
@@ -444,8 +521,8 @@ def passes_filters(ex_item: dict, from_d, to_d, sports_set, max_duration_min, de
 
     # Filtro deporte (comparación EXACTA)
     if sports_set:
-        sp = _get_field_variant(ex_item, "detailed-sport-info", "detailed_sport_info", "sport", default="")
-        
+        sp = _get_field_variant(ex_item, *FIELD_SPORT, default="")
+
         if debug:
             print(f"     Sport: '{sp}' | Buscando: {sports_set}")
         
@@ -651,54 +728,39 @@ def show_last_daily_summary():
         
         _print_header("💓 Última Medición HRV")
         
-        # Formatear y mostrar - USAR NOMBRES CORRECTOS DE COLUMNAS
-        fecha = last_row.get('Fecha', 'N/A')
-        hr = last_row.get('HR_stable', 'N/A')  # CORREGIDO
-        rmssd = last_row.get('RMSSD_stable', 'N/A')  # CORREGIDO
-        crmssd = last_row.get('cRMSSD', 'N/A')
-        p2 = last_row.get('Color_Agudo_Diario', 'N/A')  # CORREGIDO
-        calidad = last_row.get('Calidad', 'N/A')
-        stab = last_row.get('HRV_Stability', 'N/A')  # CORREGIDO
-        trend = last_row.get('Color_Tendencia', 'N/A')  # CORREGIDO
-        tiebreak = last_row.get('Color_Tiebreak', 'N/A')
-        
+        # Formatear y mostrar - usando constantes
+        fecha = last_row.get(MASTER_CSV_COLS['fecha'], 'N/A')
+        hr = last_row.get(MASTER_CSV_COLS['hr'], 'N/A')
+        rmssd = last_row.get(MASTER_CSV_COLS['rmssd'], 'N/A')
+        crmssd = last_row.get(MASTER_CSV_COLS['crmssd'], 'N/A')
+        p2 = last_row.get(MASTER_CSV_COLS['color_agudo'], 'N/A')
+        calidad = last_row.get(MASTER_CSV_COLS['calidad'], 'N/A')
+        stab = last_row.get(MASTER_CSV_COLS['estabilidad'], 'N/A')
+        trend = last_row.get(MASTER_CSV_COLS['color_tendencia'], 'N/A')
+        tiebreak = last_row.get(MASTER_CSV_COLS['color_tiebreak'], 'N/A')
+
         print(f"\n📅 Fecha:          {fecha}")
-        
-        # HR
-        if pd.notna(hr) and hr != 'N/A':
-            print(f"💓 HR promedio:    {float(hr):.1f} bpm")
-        else:
-            print(f"💓 HR promedio:    N/A")
-        
-        # RMSSD
-        if pd.notna(rmssd) and rmssd != 'N/A':
-            print(f"📊 RMSSD:          {float(rmssd):.1f} ms")
-        else:
-            print(f"📊 RMSSD:          N/A")
-        
-        # cRMSSD
-        if pd.notna(crmssd) and crmssd != 'N/A':
-            print(f"🎯 cRMSSD:         {float(crmssd):.1f} ms")
-        else:
-            print(f"🎯 cRMSSD:         N/A")
-        
+        print(f"💓 HR promedio:    {_format_metric(hr)} bpm")
+        print(f"📊 RMSSD:          {_format_metric(rmssd)} ms")
+        print(f"🎯 cRMSSD:         {_format_metric(crmssd)} ms")
+
         # Estado (Color_Agudo_Diario) - SOLO EMOJI DE COLOR
-        p2_emoji = "🟢" if p2 == "Verde" else "🟡" if p2 == "Amarillo" else "🔴" if p2 == "Rojo" else "⚪"
+        p2_emoji = _get_color_emoji(p2)
         print(f"🚦 Estado:         {p2_emoji}")
-        
+
         # Tendencia - SOLO EMOJI DE COLOR (NO FLECHA)
-        trend_emoji = "🟢" if trend == "Verde" else "🟡" if trend == "Amarillo" else "🔴" if trend == "Rojo" else "⚪"
+        trend_emoji = _get_color_emoji(trend)
         print(f"📈 Tendencia:      {trend_emoji}")
-        
+
         # Tiebreak - SOLO EMOJI DE COLOR
-        tiebreak_emoji = "🟢" if tiebreak == "Verde" else "🟡" if tiebreak in ["Amarillo", "Ámbar"] else "🔴" if tiebreak == "Rojo" else "⚪"
+        tiebreak_emoji = _get_color_emoji(tiebreak)
         print(f"🟢 Tiebreak:       {tiebreak_emoji}")
-        
+
         print(f"✅ Calidad:        {calidad}")
         print(f"📈 Estabilidad:    {stab}")
-        
+
         # Flags si existen
-        flags = last_row.get('Flags', '')
+        flags = last_row.get(MASTER_CSV_COLS['flags'], '')
         if pd.notna(flags) and flags:
             print(f"🚩 Flags:          {flags}")
         
@@ -731,33 +793,29 @@ def show_last_3_days_summary():
         _print_header("📊 RESUMEN ÚLTIMOS 3 DÍAS")
         
         for _, row in last_3.iterrows():
-            fecha = row.get('Fecha', 'N/A')
-            hr = row.get('HR_stable', 'N/A')
-            rmssd = row.get('RMSSD_stable', 'N/A')
-            crmssd = row.get('cRMSSD', 'N/A')
-            p2 = row.get('Color_Agudo_Diario', 'N/A')
-            trend = row.get('Color_Tendencia', 'N/A')
-            tiebreak = row.get('Color_Tiebreak', 'N/A')
-            
+            fecha = row.get(MASTER_CSV_COLS['fecha'], 'N/A')
+            hr = row.get(MASTER_CSV_COLS['hr'], 'N/A')
+            rmssd = row.get(MASTER_CSV_COLS['rmssd'], 'N/A')
+            crmssd = row.get(MASTER_CSV_COLS['crmssd'], 'N/A')
+            p2 = row.get(MASTER_CSV_COLS['color_agudo'], 'N/A')
+            trend = row.get(MASTER_CSV_COLS['color_tendencia'], 'N/A')
+            tiebreak = row.get(MASTER_CSV_COLS['color_tiebreak'], 'N/A')
+
             # Formatear fecha a YY-MM-DD
             fecha_str = fecha
-            if isinstance(fecha, str) and len(fecha) == 10:  # YYYY-MM-DD
+            if isinstance(fecha, str) and len(fecha) == DATE_STRING_LENGTH:  # YYYY-MM-DD
                 fecha_str = fecha[2:]  # Quitar "20" del año → YY-MM-DD
-            
-            # Formatear HR (sin unidad)
-            hr_str = f"{float(hr):.1f}" if pd.notna(hr) and hr != 'N/A' else "N/A"
-            
-            # Formatear RMSSD (sin unidad)
-            rmssd_str = f"{float(rmssd):.1f}" if pd.notna(rmssd) and rmssd != 'N/A' else "N/A"
-            
-            # Formatear cRMSSD (sin unidad)
-            crmssd_str = f"{float(crmssd):.1f}" if pd.notna(crmssd) and crmssd != 'N/A' else "N/A"
-            
+
+            # Formatear métricas (sin unidad)
+            hr_str = _format_metric(hr)
+            rmssd_str = _format_metric(rmssd)
+            crmssd_str = _format_metric(crmssd)
+
             # Emojis DE COLOR (no flechas)
-            p2_emoji = "🟢" if p2 == "Verde" else "🟡" if p2 == "Amarillo" else "🔴" if p2 == "Rojo" else "⚪"
-            trend_emoji = "🟢" if trend == "Verde" else "🟡" if trend == "Amarillo" else "🔴" if trend == "Rojo" else "⚪"
-            tiebreak_emoji = "🟢" if tiebreak == "Verde" else "🟡" if tiebreak in ["Amarillo", "Ámbar"] else "🔴" if tiebreak == "Rojo" else "⚪"
-            
+            p2_emoji = _get_color_emoji(p2)
+            trend_emoji = _get_color_emoji(trend)
+            tiebreak_emoji = _get_color_emoji(tiebreak)
+
             # Una línea por día - SEMÁFORO + 3 COLORES
             print(f"{fecha_str} \n💓{hr_str:>5}  📊{rmssd_str:>5}  🎯{crmssd_str:>5}  {p2_emoji} {trend_emoji} {tiebreak_emoji}\n")
         
@@ -840,10 +898,8 @@ def main():
     # La autorización debe hacerse vía Web UI: /auth -> /auth/callback, que guarda TOKEN_FILE.
     if args.auth:
         if IS_PRODUCTION:
-            public_url = os.environ.get('PUBLIC_URL') or os.environ.get('RAILWAY_PUBLIC_DOMAIN') or ''
-            if public_url and not str(public_url).startswith('http'):
-                public_url = f"https://{public_url}"
-            hint = f"{str(public_url).rstrip('/')}/auth" if public_url else "/auth"
+            public_url = get_production_url()
+            hint = f"{public_url.rstrip('/')}/auth" if public_url else "/auth"
             print(f"❌ En producción no se admite --auth interactivo. Abre {hint} para autorizar.", file=sys.stderr)
             sys.exit(3)
         access_token, x_user_id = do_oauth_flow()
@@ -851,10 +907,8 @@ def main():
         access_token, x_user_id = load_tokens()
         if not access_token:
             if IS_PRODUCTION:
-                public_url = os.environ.get('PUBLIC_URL') or os.environ.get('RAILWAY_PUBLIC_DOMAIN') or ''
-                if public_url and not str(public_url).startswith('http'):
-                    public_url = f"https://{public_url}"
-                hint = f"{str(public_url).rstrip('/')}/auth" if public_url else "/auth"
+                public_url = get_production_url()
+                hint = f"{public_url.rstrip('/')}/auth" if public_url else "/auth"
                 print(f"❌ Falta autorización. Abre {hint} para iniciar sesión en Polar y autorizar la app.", file=sys.stderr)
                 sys.exit(3)
             print("⚠️  Token ausente/expirado, iniciando OAuth local...")
@@ -928,7 +982,7 @@ def main():
             return
         
         # Limitar a 30 días en modo auto para evitar descargas masivas
-        if days_missing > 30:
+        if days_missing > MAX_AUTO_DAYS:
             print(f"⚠️  Faltan {days_missing} días (>30)")
             print(f"   Limitando a últimos 30 días")
             print(f"   Usa --all para descargar todo")
@@ -950,8 +1004,8 @@ def main():
     if args.debug_sports:
         _print_header("🔍 DEBUG: TODAS LAS SESIONES ENCONTRADAS")
         for i, e in enumerate(exercises):
-            st = _get_field_variant(e, "start-time", "start_time", "startTime", default="N/A")
-            sport = _get_field_variant(e, "detailed-sport-info", "detailed_sport_info", "sport", default="N/A")
+            st = _get_field_variant(e, *FIELD_START_TIME, default="N/A")
+            sport = _get_field_variant(e, *FIELD_SPORT, default="N/A")
             duration = e.get("duration", "N/A")
             dt = _iso_to_dt(st)
             date_str = dt.strftime("%Y-%m-%d") if dt else "N/A"
@@ -978,9 +1032,9 @@ def main():
         if not args.debug_sports and exercises:
             print("\n🔍 Mostrando TODAS las sesiones encontradas para debug:")
             _print_divider()
-            for i, e in enumerate(exercises[:10]):  # Solo primeras 10
-                st = _get_field_variant(e, "start-time", "start_time", "startTime", default="N/A")
-                sport = _get_field_variant(e, "detailed-sport-info", "detailed_sport_info", "sport", default="N/A")
+            for i, e in enumerate(exercises[:DEBUG_PREVIEW_LIMIT]):
+                st = _get_field_variant(e, *FIELD_START_TIME, default="N/A")
+                sport = _get_field_variant(e, *FIELD_SPORT, default="N/A")
                 duration = e.get("duration", "N/A")
                 dt = _iso_to_dt(st)
                 date_str = dt.strftime("%Y-%m-%d") if dt else "N/A"
@@ -991,7 +1045,7 @@ def main():
                 print(f"  [{i}] {date_str} {in_range} | Sport: '{sport}' | Duration: {duration}")
             
             if len(exercises) > 10:
-                print(f"  ... y {len(exercises) - 10} más")
+                print(f"  ... y {len(exercises) - DEBUG_PREVIEW_LIMIT} más")
             _print_divider()
             print(f"\n💡 Buscando: Sport EXACTO = '{SPORTS_FILTER[0] if SPORTS_FILTER else 'N/A'}'")
             print(f"   En rango: {from_d} a {to_d}")
@@ -999,7 +1053,7 @@ def main():
             # DEBUG DETALLADO: Re-evaluar con debug activado
             _print_header("🔍 DEBUG DETALLADO de cada sesión en rango:", leading_blank=True)
             for i, e in enumerate(exercises[:10]):
-                st = _get_field_variant(e, "start-time", "start_time", "startTime", default="N/A")
+                st = _get_field_variant(e, *FIELD_START_TIME, default="N/A")
                 dt = _iso_to_dt(st)
                 if dt and from_d and to_d and from_d <= dt.date() <= to_d:
                     print(f"\n  Sesión [{i}] - {dt.date()}:")
@@ -1026,8 +1080,8 @@ def main():
     if filtered:
         print("\n📊 Preview:")
         for i, e in enumerate(filtered[:5]):
-            start = _get_field_variant(e, "start-time", "start_time", "startTime", default="N/A")
-            sport = _get_field_variant(e, "detailed-sport-info", "detailed_sport_info", "sport", default="N/A")
+            start = _get_field_variant(e, *FIELD_START_TIME, default="N/A")
+            sport = _get_field_variant(e, *FIELD_SPORT, default="N/A")
             dur = e.get('duration', 'N/A')
             print(f"  [{i}] {start} | {sport} | {dur}")
 
@@ -1057,7 +1111,7 @@ def main():
             continue
 
         # Obtener start-time del ejercicio completo
-        st = _get_field_variant(ex_full, "start-time", "start_time", "startTime", default="")
+        st = _get_field_variant(ex_full, *FIELD_START_TIME, default="")
         
         if not st:
             print(f"  [{idx}] ⚠️ Sin start-time, usando del índice previo")
@@ -1066,14 +1120,14 @@ def main():
         
         if not st:
             print(f"  [{idx}] ⚠️ No se puede determinar fecha/hora, usando ID")
-            out_name = f"{POLAR_USER_NAME}_unknown_{ex_id}_RR.CSV"
+            out_name = f"{POLAR_USER_NAME}_{UNKNOWN_SESSION_ID}_{ex_id}_RR.CSV"
             session_date = None
         else:
             st_dt = _iso_to_dt(st)
             
             if not st_dt:
                 print(f"  [{idx}] ⚠️ Error parseando fecha, usando ID")
-                out_name = f"{POLAR_USER_NAME}_unknown_{ex_id}_RR.CSV"
+                out_name = f"{POLAR_USER_NAME}_{UNKNOWN_SESSION_ID}_{ex_id}_RR.CSV"
                 session_date = None
             else:
                 # Usar hora LOCAL de la sesión
