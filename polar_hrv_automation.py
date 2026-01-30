@@ -278,7 +278,7 @@ def _print_divider(width: int = 30, leading_blank: bool = False, trailing_blank:
 
 def _print_sync_completed(updated_date=None, checkmark=False):
     print("\n✅ SINCRONIZACIÓN COMPLETADA")
-    print("=" * 25)
+    #print("=" * 25)
     if updated_date:
         print(f"📊 Master CSV actualizado hasta hoy ({updated_date})")
     else:
@@ -892,7 +892,7 @@ def main():
     parser.add_argument('--verbose', action='store_true', help='Mostrar detalles de cada archivo procesado')
     args = parser.parse_args()
 
-    _print_header("  POLAR HRV AUTOMATION")
+    # _print_header("  POLAR HRV AUTOMATION")
 
     # Autenticación
     # En PRODUCCIÓN (Railway/Render/Heroku) NO se puede abrir navegador ni levantar callback server local.
