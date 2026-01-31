@@ -22,14 +22,16 @@ import json
 import argparse
 import subprocess
 import webbrowser
+import csv
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs, urlencode
 from datetime import datetime, timedelta
 
-from typing import Optional
+from typing import Optional, Dict, Any
 import requests
 import base64
+from requests.auth import _basic_auth_str
 
 # pandas es opcional, solo para --auto
 try:
@@ -164,6 +166,19 @@ UNKNOWN_SESSION_ID = "unknown"  # ID para sesiones sin fecha
 
 DEBUG_JSON = False  # True = guarda JSON debug de sesiones sin RR
 
+# =========================
+# Intervals.icu wellness sync
+# =========================
+INTERVALS_BASE_URL = (os.environ.get("INTERVALS_BASE_URL") or "https://intervals.icu").strip()
+INTERVALS_FIELD_MAP = {
+    "CRMSSD": "cRMSSD",
+    "HRPolar": "HR_stable",
+    "HRVScore": "RMSSD_stable",
+    "ColorDiario": "Color_Agudo_Diario",
+    "ColorTiebreak": "Color_Tiebreak",
+    "ColorTendencia": "Color_Tendencia",
+}
+
 # Verificar credenciales al inicio
 if not CLIENT_ID or not CLIENT_SECRET:
     _print_header("❌ ERROR: Credenciales Polar no configuradas", trailing_blank=True)
@@ -251,6 +266,124 @@ def _format_metric(value, decimals=1):
         except (ValueError, TypeError):
             return 'N/A'
     return 'N/A'
+
+
+def _normalize_color_value(raw_value: str) -> Optional[int]:
+    if raw_value is None:
+        return None
+    value = str(raw_value).strip().lower()
+    if not value or value in {"nan", "none", "n/a"}:
+        return None
+    value = (
+        value.replace("á", "a")
+        .replace("é", "e")
+        .replace("í", "i")
+        .replace("ó", "o")
+        .replace("ú", "u")
+    )
+    if value in {"verde", "green"}:
+        return 3
+    if value in {"ambar", "amber", "amarillo", "yellow"}:
+        return 2
+    if value in {"rojo", "red"}:
+        return 1
+    if value in {"indef", "indefinido", "na", "n/a"}:
+        return 0
+    try:
+        return int(float(value))
+    except ValueError:
+        return None
+
+
+def _parse_float(value: str) -> Optional[float]:
+    if value is None:
+        return None
+    value_str = str(value).strip()
+    if not value_str or value_str.lower() in {"nan", "none", "n/a"}:
+        return None
+    try:
+        return float(value_str)
+    except ValueError:
+        return None
+
+
+def _read_latest_master_row(master_path: Path) -> Optional[Dict[str, Any]]:
+    if not master_path.exists():
+        print(f"⚠️  Intervals: no se encontró {master_path}")
+        return None
+
+    latest_row: Optional[Dict[str, Any]] = None
+    latest_date = None
+    with master_path.open("r", encoding="utf-8", newline="") as csvfile:
+        reader = csv.DictReader(csvfile)
+        for row in reader:
+            raw_date = (row.get(MASTER_CSV_COLS["fecha"]) or "").strip()
+            parsed = _parse_yyyy_mm_dd(raw_date)
+            if parsed is None:
+                continue
+            if latest_date is None or parsed > latest_date:
+                latest_date = parsed
+                latest_row = row
+    if not latest_row or not latest_date:
+        print("⚠️  Intervals: no se pudo determinar la última fecha del master CSV")
+        return None
+    latest_row["_date"] = latest_date.isoformat()
+    return latest_row
+
+
+def _build_intervals_payload(row: Dict[str, Any]) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {}
+    for field_id, source_key in INTERVALS_FIELD_MAP.items():
+        master_key = MASTER_CSV_COLS.get(source_key, source_key)
+        raw_value = row.get(master_key)
+        if source_key.startswith("Color_"):
+            mapped = _normalize_color_value(raw_value)
+        else:
+            mapped = _parse_float(raw_value)
+        if mapped is not None:
+            payload[field_id] = mapped
+    return payload
+
+
+def _send_intervals_wellness_from_master(master_path: Path) -> None:
+    _print_header("🌐 INTERVALS SYNC")
+    api_key = (os.environ.get("INTERVALS_API_KEY") or "").strip()
+    athlete_id = (os.environ.get("INTERVALS_ATHLETE_ID") or "").strip()
+    if not api_key or not athlete_id:
+        print("⏭️  Intervals: faltan INTERVALS_API_KEY o INTERVALS_ATHLETE_ID, se omite sync")
+        return
+
+    row = _read_latest_master_row(master_path)
+    if not row:
+        return
+
+    payload = _build_intervals_payload(row)
+    if not payload:
+        print("⚠️  Intervals: no hay datos válidos para enviar")
+        return
+
+    date_value = row.get("_date")
+    url = f"{INTERVALS_BASE_URL.rstrip('/')}/api/v1/athlete/{athlete_id}/wellness/{date_value}"
+    headers = {
+        "Authorization": _basic_auth_str("API_KEY", api_key),
+        "Content-Type": "application/json",
+    }
+
+    try:
+        response = requests.put(url, headers=headers, json=payload, timeout=30)
+    except requests.RequestException as exc:
+        print(f"❌ Intervals: error de red: {exc}")
+        return
+
+    if response.ok:
+        print(f"✅ Intervals: wellness actualizado para {date_value}")
+        return
+
+    print(f"⚠️  Intervals: error {response.status_code}")
+    try:
+        print(response.json())
+    except ValueError:
+        print(response.text)
 
 
 def _print_header(title: str, width: int = 25, leading_blank: bool = True, trailing_blank: bool = False):
@@ -1071,6 +1204,7 @@ def main():
         # Mostrar resumen últimos 3 días
         show_last_3_days_summary()
         
+        _send_intervals_wellness_from_master(MASTER_PATH)
         return
 
     # Export RR
@@ -1170,10 +1304,12 @@ def main():
 
     if total_to_process == 0 and skipped_in_master == 0:
         _print_no_rr_files()
+        _send_intervals_wellness_from_master(MASTER_PATH)
         return
     
     if total_to_process == 0 and skipped_in_master > 0:
         _print_master_already_updated()
+        _send_intervals_wellness_from_master(MASTER_PATH)
         return
 
     # Procesar con endurance_hrv.py
@@ -1215,6 +1351,7 @@ def main():
             print("\n📄 Archivos actualizados:")
             print("   - ENDURANCE_HRV_master_ALL.csv")
             print("   - ENDURANCE_HRV_eval_P1P2_ALL.csv")
+            _send_intervals_wellness_from_master(MASTER_PATH)
             
         except subprocess.CalledProcessError as e:
             print(f"\n❌ Error ejecutando endurance_hrv.py (código: {e.returncode})")
@@ -1226,6 +1363,8 @@ def main():
                 print(e.stderr)
         except (FileNotFoundError, PermissionError, OSError) as e:
             print(f"\n❌ Error inesperado ejecutando script: {e}")
+    else:
+        _send_intervals_wellness_from_master(MASTER_PATH)
 
 
 if __name__ == "__main__":
