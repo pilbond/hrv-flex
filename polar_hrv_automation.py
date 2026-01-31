@@ -346,6 +346,7 @@ def _build_intervals_payload(row: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _send_intervals_wellness_from_master(master_path: Path) -> None:
+    _print_header("🌐 INTERVALS SYNC")
     api_key = (os.environ.get("INTERVALS_API_KEY") or "").strip()
     athlete_id = (os.environ.get("INTERVALS_ATHLETE_ID") or "").strip()
     if not api_key or not athlete_id:
@@ -1203,6 +1204,7 @@ def main():
         # Mostrar resumen últimos 3 días
         show_last_3_days_summary()
         
+        _send_intervals_wellness_from_master(MASTER_PATH)
         return
 
     # Export RR
@@ -1302,10 +1304,12 @@ def main():
 
     if total_to_process == 0 and skipped_in_master == 0:
         _print_no_rr_files()
+        _send_intervals_wellness_from_master(MASTER_PATH)
         return
     
     if total_to_process == 0 and skipped_in_master > 0:
         _print_master_already_updated()
+        _send_intervals_wellness_from_master(MASTER_PATH)
         return
 
     # Procesar con endurance_hrv.py
@@ -1360,7 +1364,6 @@ def main():
         except (FileNotFoundError, PermissionError, OSError) as e:
             print(f"\n❌ Error inesperado ejecutando script: {e}")
     else:
-        _print_header("🌐 INTERVALS SYNC (SIN --process)")
         _send_intervals_wellness_from_master(MASTER_PATH)
 
 
