@@ -1079,6 +1079,9 @@ def main():
             # Mostrar resumen últimos 3 días
             show_last_3_days_summary()
             
+            # Aun sin nuevas sesiones, actualizar wellness en intervals (solo para test)
+            _send_intervals_wellness_from_master(MASTER_PATH)
+            
             #print(f"\n💡 Para re-procesar: python {sys.argv[0]} --days 1 --process")
             #print("="*25 + "\n")
             return
@@ -1110,6 +1113,9 @@ def main():
             
             # Mostrar resumen últimos 3 días
             show_last_3_days_summary()
+            
+            # Aun sin nuevas sesiones, actualizar wellness en intervals (solo para test)
+            _send_intervals_wellness_from_master(MASTER_PATH)
             
             # print(f"\n💡 Para re-procesar: python {sys.argv[0]} --days 1 --process")
             _print_divider(trailing_blank=True)
