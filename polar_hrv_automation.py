@@ -170,6 +170,7 @@ DEBUG_JSON = False  # True = guarda JSON debug de sesiones sin RR
 # Intervals.icu wellness sync
 # =========================
 INTERVALS_BASE_URL = (os.environ.get("INTERVALS_BASE_URL") or "https://intervals.icu").strip()
+INTERVALS_SYNC_ALWAYS = (os.environ.get("INTERVALS_SYNC_ALWAYS") or "").strip().lower() in {"1", "true", "yes"}
 INTERVALS_FIELD_MAP = {
     "CRMSSD": "cRMSSD",
     "HRPolar": "HR_stable",
@@ -1359,6 +1360,9 @@ def main():
                 print(e.stderr)
         except (FileNotFoundError, PermissionError, OSError) as e:
             print(f"\n❌ Error inesperado ejecutando script: {e}")
+    elif INTERVALS_SYNC_ALWAYS:
+        _print_header("🌐 INTERVALS SYNC (SIN --process)")
+        _send_intervals_wellness_from_master(MASTER_PATH)
 
 
 if __name__ == "__main__":
