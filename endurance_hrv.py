@@ -34,6 +34,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+QUIET = os.environ.get("HRV_QUIET", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _qprint(*args, **kwargs):
+    if not QUIET:
+        print(*args, **kwargs)
+
 # ----------------------------
 # 1. INPUTS Y CONSTANTES (PUNTO 4.1 - ROBUSTEZ)
 # ----------------------------
@@ -55,10 +62,10 @@ def seed_volume_once():
         RR_BASE_DIR.mkdir(parents=True, exist_ok=True)
         if not BASE_MASTER.exists() and _REPO_MASTER.exists():
             shutil.copy2(_REPO_MASTER, BASE_MASTER)
-            print(f"🌱 Seed master en {BASE_MASTER}")
+            _qprint(f"🌱 Seed master en {BASE_MASTER}")
         if not BASE_EVAL.exists() and _REPO_EVAL.exists():
             shutil.copy2(_REPO_EVAL, BASE_EVAL)
-            print(f"🌱 Seed eval en {BASE_EVAL}")
+            _qprint(f"🌱 Seed eval en {BASE_EVAL}")
     except Exception as e:
         print(f"⚠️  Seed volume falló: {e}")
 
@@ -66,7 +73,7 @@ def seed_volume_once():
 RR_FILES = [
 
 ]
-
+s
 def _resolve_rr_path(p: Path) -> Path:
     if p.exists():
         return p
@@ -179,7 +186,7 @@ def get_or_create_df(path: Path, columns: list) -> pd.DataFrame:
             print(f"Advertencia: No se pudo leer {path} ({e}). Creando nuevo.")
             return pd.DataFrame(columns=columns)
     else:
-        print(f"Info: {path} no existe. Creando archivo nuevo.")
+        _qprint(f"Info: {path} no existe. Creando archivo nuevo.")
         return pd.DataFrame(columns=columns)
 
 # ----------------------------
@@ -658,20 +665,24 @@ def main():
         except Exception as e:
             print(f"ERROR procesando {rr_path.name}: {e}")
 
-    # Crear backups antes de sobrescribir
-    ts = time.strftime("%Y%m%d_%H%M%S")
-    
     if not master.empty:
-        # Crear backups de archivos existentes
-        if BASE_MASTER.exists():
-            backup_master = DATA_DIR / f"ENDURANCE_HRV_master_ALL_backup_{ts}.csv"
-            shutil.copy2(BASE_MASTER, backup_master)
-            print(f"\n📦 Backup creado: {backup_master}")
-        
-        if BASE_EVAL.exists():
-            backup_eval = DATA_DIR / f"ENDURANCE_HRV_eval_P1P2_ALL_backup_{ts}.csv"
-            shutil.copy2(BASE_EVAL, backup_eval)
-            print(f"📦 Backup creado: {backup_eval}")
+        # Crear backups antes de sobrescribir (se puede desactivar con HRV_DISABLE_BACKUP=1)
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        disable_backup = os.environ.get("HRV_DISABLE_BACKUP", "").strip().lower() in {"1", "true", "yes", "on"}
+
+        if not disable_backup:
+            # Crear backups de archivos existentes
+            if BASE_MASTER.exists():
+                backup_master = DATA_DIR / f"ENDURANCE_HRV_master_ALL_backup_{ts}.csv"
+                shutil.copy2(BASE_MASTER, backup_master)
+                _qprint(f"\n📦 Backup creado: {backup_master}")
+            
+            if BASE_EVAL.exists():
+                backup_eval = DATA_DIR / f"ENDURANCE_HRV_eval_P1P2_ALL_backup_{ts}.csv"
+                shutil.copy2(BASE_EVAL, backup_eval)
+                _qprint(f"📦 Backup creado: {backup_eval}")
+        else:
+            _qprint("\n⚠️ Backups deshabilitados (HRV_DISABLE_BACKUP=1)")
         
         # Sobrescribir archivos originales
         master.to_csv(BASE_MASTER, index=False)
@@ -717,12 +728,12 @@ def main():
             print(f"📈 Estabilidad:  {stab}")
         print("="*20)
         
-        print("\n=== OUTPUTS GENERATED ===")
-        print(f"✅ {BASE_MASTER} (actualizado)")
-        print(f"✅ {BASE_EVAL} (actualizado)")
-        print(f"📄 {out_qa}")
+        _qprint("\n=== OUTPUTS GENERATED ===")
+        _qprint(f"✅ {BASE_MASTER} (actualizado)")
+        _qprint(f"✅ {BASE_EVAL} (actualizado)")
+        _qprint(f"📄 {out_qa}")
     else:
-        print("\nNo data processed.")
+        _qprint("\nNo data processed.")
 
 if __name__ == "__main__":
     main()

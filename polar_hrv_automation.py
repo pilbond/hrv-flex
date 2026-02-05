@@ -64,6 +64,13 @@ else:
 # =========================
 # CONFIG
 # =========================
+QUIET = os.environ.get("HRV_QUIET", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _qprint(*args, **kwargs):
+    if not QUIET:
+        print(*args, **kwargs)
+
 CLIENT_ID = (
     os.environ.get("POLAR_CLIENT_ID2")
     or os.environ.get("POLAR_CLIENT_ID")
@@ -387,29 +394,36 @@ def _send_intervals_wellness_from_master(master_path: Path) -> None:
 
 
 def _print_header(title: str, width: int = 25, leading_blank: bool = True, trailing_blank: bool = False):
+    if QUIET:
+        return
     line = "=" * width
     if leading_blank:
-        print("\n" + line)
+        _qprint("\n" + line)
     else:
-        print(line)
-    print(title)
+        _qprint(line)
+    _qprint(title)
     if trailing_blank:
-        print(line + "\n")
+        _qprint(line + "\n")
     else:
-        print(line)
+        _qprint(line)
 
 
 def _print_divider(width: int = 30, leading_blank: bool = False, trailing_blank: bool = False):
+    if QUIET:
+        return
     line = "=" * width
     if leading_blank:
-        print("\n" + line)
+        _qprint("\n" + line)
     else:
-        print(line)
+        _qprint(line)
     if trailing_blank:
-        print("")
+        _qprint("")
 
 
 def _print_sync_completed(updated_date=None, checkmark=False):
+    if QUIET:
+        print("✅ Sync OK: sin novedades")
+        return
     print("\n✅ SINCRONIZACIÓN COMPLETADA")
     #print("=" * 25)
     if updated_date:
@@ -422,6 +436,9 @@ def _print_sync_completed(updated_date=None, checkmark=False):
 
 
 def _print_no_rr_files():
+    if QUIET:
+        print("⚠️  No hay RR para procesar")
+        return
     print("\n⚠️  No hay archivos RR para procesar")
     print("Causas típicas:")
     print("   - Sesiones sin RR en el periodo")
@@ -429,6 +446,9 @@ def _print_no_rr_files():
 
 
 def _print_master_already_updated():
+    if QUIET:
+        print("✅ Sync OK: sin novedades")
+        return
     print("\n✅ Master CSV ya está actualizado con todas las sesiones")
     print("   No hay nada nuevo que procesar")
 
@@ -904,7 +924,7 @@ def show_last_daily_summary():
 
 
 def show_last_3_days_summary():
-    """Muestra resumen compacto de los últimos 3 días"""
+    """Muestra resumen compacto de los últimos 5 días"""
     master_file = MASTER_PATH
     
     if not master_file.exists() or not PANDAS_AVAILABLE:
@@ -916,14 +936,14 @@ def show_last_3_days_summary():
         if df.empty or 'Fecha' not in df.columns:
             return
         
-        # Obtener últimos 3 días
+        # Obtener últimos 5 días
         df_sorted = df.sort_values('Fecha')
-        last_3 = df_sorted.tail(3)
+        last_3 = df_sorted.tail(5)
         
         if len(last_3) == 0:
             return
         
-        _print_header("📊 RESUMEN ÚLTIMOS 3 DÍAS")
+        _print_header("📊 RESUMEN ÚLTIMOS 5 DÍAS")
         
         for _, row in last_3.iterrows():
             fecha = row.get(MASTER_CSV_COLS['fecha'], 'N/A')
@@ -955,7 +975,7 @@ def show_last_3_days_summary():
         # _print_divider()
 
     except (FileNotFoundError, pd.errors.EmptyDataError, KeyError, IndexError) as e:
-        print(f"⚠️  Error mostrando resumen 3 días: {e}")
+        print(f"⚠️  Error mostrando resumen 5 días: {e}")
 
 
 def calculate_missing_days():
@@ -1066,7 +1086,7 @@ def main():
     if args.all:
         from_d = None
         to_d = None
-        print("📅 Procesando TODAS las sesiones")
+        _qprint("📅 Procesando TODAS las sesiones")
     elif args.auto:
         days_missing, last_date = calculate_missing_days()
         
@@ -1076,7 +1096,7 @@ def main():
             # Mostrar último daily summary
             show_last_daily_summary()
             
-            # Mostrar resumen últimos 3 días
+            # Mostrar resumen últimos 5 días
             show_last_3_days_summary()
             
             #print(f"\n💡 Para re-procesar: python {sys.argv[0]} --days 1 --process")
@@ -1088,16 +1108,16 @@ def main():
         if last_date:
             # Descargar desde el día SIGUIENTE a la última medición
             from_d = last_date + timedelta(days=1)
-            print(f"📅 Última medición: {last_date}")
-            print(f"   Descargando desde {from_d} hasta {to_d}")
+            _qprint(f"📅 Última medición: {last_date}")
+            _qprint(f"   Descargando desde {from_d} hasta {to_d}")
         else:
             # Sin master, descargar últimos N días
             from_d = (datetime.now() - timedelta(days=days_missing)).date()
-            print(f"📅 Master sin datos, descargando últimos {days_missing} días")
+            _qprint(f"📅 Master sin datos, descargando últimos {days_missing} días")
     elif args.days:
         to_d = datetime.now().date()
         from_d = (datetime.now() - timedelta(days=args.days)).date()
-        print(f"📅 Últimos {args.days} días: {from_d} → {to_d}")
+        _qprint(f"📅 Últimos {args.days} días: {from_d} → {to_d}")
     else:
         # Default: modo auto
         days_missing, last_date = calculate_missing_days()
@@ -1108,7 +1128,7 @@ def main():
             # Mostrar último daily summary
             show_last_daily_summary()
             
-            # Mostrar resumen últimos 3 días
+            # Mostrar resumen últimos 5 días
             show_last_3_days_summary()
             
             # print(f"\n💡 Para re-procesar: python {sys.argv[0]} --days 1 --process")
@@ -1127,12 +1147,12 @@ def main():
         if last_date:
             # Descargar desde el día SIGUIENTE a la última medición
             from_d = last_date + timedelta(days=1)
-            print(f"📅 Última medición: {last_date}")
-            print(f"   Descargando desde {from_d} hasta {to_d} ({days_missing} días)")
+            _qprint(f"📅 Última medición: {last_date}")
+            _qprint(f"   Descargando desde {from_d} hasta {to_d} ({days_missing} días)")
         else:
             # Sin master, descargar últimos N días
             from_d = (datetime.now() - timedelta(days=days_missing)).date()
-            print(f"📅 Descargando últimos {days_missing} días (default)")
+            _qprint(f"📅 Descargando últimos {days_missing} días (default)")
 
     # Debug: Mostrar deportes si --debug-sports
     if args.debug_sports:
@@ -1157,9 +1177,15 @@ def main():
         if len(filtered) >= MAX_EXERCISES:
             break
 
-    print(f"✅ {len(filtered)} sesiones tras filtros (max {MAX_EXERCISES})")
+    _qprint(f"✅ {len(filtered)} sesiones tras filtros (max {MAX_EXERCISES})")
 
     if not filtered:
+        if QUIET:
+            print("⚠️  No hay sesiones Body&Mind en el periodo")
+            show_last_daily_summary()
+            show_last_3_days_summary()
+            _send_intervals_wellness_from_master(MASTER_PATH)
+            return
         print("\n⚠️  No hay sesiones Body&Mind en el periodo")
         
         # Mostrar debug automáticamente
@@ -1201,14 +1227,14 @@ def main():
         _print_header("📊 Aunque no hay nuevos datos, aquí está tu última medición:")
         show_last_daily_summary()
         
-        # Mostrar resumen últimos 3 días
+        # Mostrar resumen últimos 5 días
         show_last_3_days_summary()
         
         _send_intervals_wellness_from_master(MASTER_PATH)
         return
 
     # Export RR
-    print("\n📥 Descargando datos RR...")
+    _qprint("\n📥 Descargando datos RR...")
     OUTDIR.mkdir(exist_ok=True)
     
     # Obtener fechas ya existentes en master CSV
@@ -1289,18 +1315,18 @@ def main():
     _print_header("✅ EXPORT COMPLETADO")
     
     total_to_process = len(rr_files)
+    existing = max(total_to_process - exported, 0)
     
     if exported > 0:
-        print(f"\n📥 {exported} archivos nuevos descargados")
+        _qprint(f"\n📥 {exported} archivos nuevos descargados")
     
     if skipped_in_master > 0:
-        print(f"⏭️  {skipped_in_master} sesiones omitidas (ya en master CSV)")
+        _qprint(f"⏭️  {skipped_in_master} sesiones omitidas (ya en master CSV)")
     
     if total_to_process > exported:
-        existing = total_to_process - exported
-        print(f"♻️  {existing} archivos existentes para reprocesar")
+        _qprint(f"♻️  {existing} archivos existentes para reprocesar")
     
-    print(f"\n📊 {total_to_process} archivos totales para procesar en {OUTDIR}/")
+    _qprint(f"\n📊 {total_to_process} archivos totales para procesar en {OUTDIR}/")
 
     if total_to_process == 0 and skipped_in_master == 0:
         _print_no_rr_files()
@@ -1327,7 +1353,7 @@ def main():
             return
         
         # Ejecutar
-        print("\n▶️  Ejecutando endurance_hrv.py...\n")
+        _qprint("\n▶️  Ejecutando endurance_hrv.py...\n")
         try:
             # Configurar environment para UTF-8
             env = os.environ.copy()
@@ -1347,10 +1373,14 @@ def main():
             if result.stdout:
                 print(result.stdout)
             
-            print("\n✅ Procesamiento HRV completado")
-            print("\n📄 Archivos actualizados:")
-            print("   - ENDURANCE_HRV_master_ALL.csv")
-            print("   - ENDURANCE_HRV_eval_P1P2_ALL.csv")
+            if QUIET:
+                print(f"✅ Sync OK: {exported} nuevos, {existing} reprocesados, {skipped_in_master} omitidos")
+                print("✅ HRV procesado: ENDURANCE_HRV_master_ALL.csv, ENDURANCE_HRV_eval_P1P2_ALL.csv")
+            else:
+                print("\n✅ Procesamiento HRV completado")
+                print("\n📄 Archivos actualizados:")
+                print("   - ENDURANCE_HRV_master_ALL.csv")
+                print("   - ENDURANCE_HRV_eval_P1P2_ALL.csv")
             _send_intervals_wellness_from_master(MASTER_PATH)
             
         except subprocess.CalledProcessError as e:

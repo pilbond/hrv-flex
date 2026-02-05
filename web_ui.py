@@ -565,7 +565,12 @@ def run_sync():
             encoding='utf-8',
             errors='replace',
             timeout=300,  # 5 minutos máximo
-            env={**os.environ, 'PYTHONIOENCODING': 'utf-8'}
+            env={
+                **os.environ,
+                'PYTHONIOENCODING': 'utf-8',
+                'HRV_DISABLE_BACKUP': '1',
+                'HRV_QUIET': '1',
+            }
         )
         
         execution_state['last_output'] = result.stdout
