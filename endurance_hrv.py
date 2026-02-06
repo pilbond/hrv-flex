@@ -714,15 +714,15 @@ def main():
             
             # P2 con emoji
             p2_emoji = "🟢" if p2 == "Verde" else "🟡" if p2 == "Amarillo" else "🔴" if p2 == "Rojo" else "⚪"
-            print(f"   🚦 Estado P2:    {p2_emoji} {p2}")
+            print(f"🚦 Estado:    {p2_emoji} {p2}")
             
             # Tendencia con emoji
-            trend_emoji = "📈" if trend == "Verde" else "📊" if trend == "Amarillo" else "📉" if trend == "Rojo" else "⚪"
-            print(f"   {trend_emoji} Tendencia:    {trend}")
+            trend_emoji = "🟢" if trend == "Verde" else "📊" if trend == "Amarillo" else "📉" if trend == "Rojo" else "⚪"
+            print(f"   Tendencia:   {trend_emoji} {trend}")
             
             # Tiebreak con emoji
             tiebreak_emoji = "🟢" if tiebreak == "Verde" else "🟡" if tiebreak in ["Amarillo", "Ámbar"] else "🔴" if tiebreak == "Rojo" else "⚪"
-            print(f"   {tiebreak_emoji} Tiebreak:     {tiebreak}")
+            print(f"   Tiebreak:    {tiebreak_emoji} {tiebreak}")
             
             print(f"✅ Calidad:      {calidad}")
             print(f"📈 Estabilidad:  {stab}")

@@ -923,7 +923,7 @@ def show_last_daily_summary():
         print(f"⚠️  Error mostrando último summary: {e}")
 
 
-def show_last_3_days_summary():
+def show_last_5_days_summary():
     """Muestra resumen compacto de los últimos 5 días"""
     master_file = MASTER_PATH
     
@@ -938,14 +938,15 @@ def show_last_3_days_summary():
         
         # Obtener últimos 5 días
         df_sorted = df.sort_values('Fecha')
-        last_3 = df_sorted.tail(5)
+        last_5 = df_sorted.tail(5)
         
-        if len(last_3) == 0:
+        if len(last_5) == 0:
             return
         
+        print(f"\n")
         _print_header("📊 RESUMEN ÚLTIMOS 5 DÍAS")
         
-        for _, row in last_3.iterrows():
+        for _, row in last_5.iterrows():
             fecha = row.get(MASTER_CSV_COLS['fecha'], 'N/A')
             hr = row.get(MASTER_CSV_COLS['hr'], 'N/A')
             rmssd = row.get(MASTER_CSV_COLS['rmssd'], 'N/A')
@@ -1097,7 +1098,7 @@ def main():
             show_last_daily_summary()
             
             # Mostrar resumen últimos 5 días
-            show_last_3_days_summary()
+            show_last_5_days_summary()
             
             #print(f"\n💡 Para re-procesar: python {sys.argv[0]} --days 1 --process")
             #print("="*25 + "\n")
@@ -1129,7 +1130,7 @@ def main():
             show_last_daily_summary()
             
             # Mostrar resumen últimos 5 días
-            show_last_3_days_summary()
+            show_last_5_days_summary()
             
             # print(f"\n💡 Para re-procesar: python {sys.argv[0]} --days 1 --process")
             _print_divider(trailing_blank=True)
@@ -1183,7 +1184,7 @@ def main():
         if QUIET:
             print("⚠️  No hay sesiones Body&Mind en el periodo")
             show_last_daily_summary()
-            show_last_3_days_summary()
+            show_last_5_days_summary()
             _send_intervals_wellness_from_master(MASTER_PATH)
             return
         print("\n⚠️  No hay sesiones Body&Mind en el periodo")
@@ -1228,7 +1229,7 @@ def main():
         show_last_daily_summary()
         
         # Mostrar resumen últimos 5 días
-        show_last_3_days_summary()
+        show_last_5_days_summary()
         
         _send_intervals_wellness_from_master(MASTER_PATH)
         return
