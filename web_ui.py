@@ -769,14 +769,18 @@ def get_status():
     return jsonify(_build_status_payload())
 
 
-@app.route('/api/admin/copy-history', methods=['POST'])
+@app.route('/api/admin/copy-history', methods=['GET', 'POST'])
 def copy_history():
     """Copiar CSV históricos desde /app (imagen) hacia HRV_DATA_DIR (/data en Railway).
     Endpoint temporal sin auth (usar y retirar).
     """
-
-    body = request.get_json(silent=True) or {}
-    overwrite = bool(body.get("overwrite", True))
+    overwrite = True
+    if request.method == "POST":
+        body = request.get_json(silent=True) or {}
+        overwrite = bool(body.get("overwrite", True))
+    else:
+        ov = (request.args.get("overwrite") or "true").strip().lower()
+        overwrite = ov in {"1", "true", "yes", "on"}
 
     try:
         result = _copy_history_from_image_to_data(overwrite=overwrite)
