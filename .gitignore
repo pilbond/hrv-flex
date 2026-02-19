@@ -20,9 +20,21 @@ secrets.json
 # Data files
 *.csv
 rr_downloads/
+# V4 backups (además de backup/ y bak/)
+CORE_backup_*.csv
+BETA_AUDIT_backup_*.csv
+FINAL_backup_*.csv
+DASHBOARD_backup_*.csv
+# Legacy V3 backups
 ENDURANCE_HRV_master_ALL_backup_*.csv
 ENDURANCE_HRV_eval_P1P2_ALL_backup_*.csv
 ENDURANCE_HRV_QA_*.md
+backup/
+bak/
+out/
+delete/
+# Simulación local de Railway Volume (opcional)
+data/
 
 # Python
 __pycache__/
@@ -71,7 +83,5 @@ htmlcov/
 .railway/
 
 # Backups
-bak/
 *.bak
-backup/
 *_backup/

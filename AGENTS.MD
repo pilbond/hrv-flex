@@ -1,113 +1,80 @@
-# AGENTS.md — Polar HRV Automation (Railway)
+# AGENTS.md — Polar HRV Automation (Railway) V4
 
 ## Objetivo del proyecto
 Sistema automatizado de monitoreo HRV que:
 - Autentica con Polar AccessLink (OAuth2 Authorization Code).
-- Descarga datos (p.ej. sesiones Body&Mind/HRV) vía API.
-- Procesa HRV con algoritmos propios (`endurance_hrv.py`).
-- Expone UI web móvil (Flask) y endpoints de sincronización.
-- Despliegue en Railway para acceso remoto.
+- Descarga RR de sesiones Body&Mind.
+- Procesa RR con Endurance V4 (endurance_hrv.py) para generar CORE/BETA_AUDIT.
+- Calcula gate V4-lite (endurance_v4lite.py) para FINAL/DASHBOARD.
+- Expone UI web (Flask) y endpoints de sincronización.
+- Despliega en Railway.
 
 ## Arquitectura (actual)
-- `web_ui.py`: Servidor Flask + UI móvil + endpoints `/auth`, `/auth/callback`, `/api/sync`, `/api/status`.
-- `polar_hrv_automation.py`: Lógica de descarga/sync contra Polar API usando tokens ya obtenidos.
-- `endurance_hrv.py`: Procesamiento HRV.
-- `Dockerfile`: Python 3.11-slim.
-- `requirements_web.txt`: dependencias.
-- Railway: servicio web en puerto `PORT` (8080).
+- web_ui.py: Flask + UI móvil + endpoints /auth, /auth/callback, /api/sync, /api/status.
+- polar_hrv_automation.py: descarga/sync + ejecución de pipeline V4.
+- endurance_hrv.py: RR -> ENDURANCE_HRV_master_CORE.csv y ENDURANCE_HRV_master_BETA_AUDIT.csv.
+- endurance_v4lite.py: CORE -> ENDURANCE_HRV_master_FINAL.csv y ENDURANCE_HRV_master_DASHBOARD.csv.
+- __endurance_migrate.py: migración V3 -> V4-lite (opcional).
+- Dockerfile: Python 3.11-slim.
+- requirements_web.txt: dependencias.
 
-## Principio clave (para evitar fallos recurrentes)
-Debe existir **un único flujo OAuth “web”** en producción (Railway).  
+## Archivos de salida
+- ENDURANCE_HRV_master_CORE.csv (canónico, 12 cols).
+- ENDURANCE_HRV_master_BETA_AUDIT.csv (legacy V3, 13 cols).
+- ENDURANCE_HRV_master_FINAL.csv (gate V4-lite + auditoría, 34 cols).
+- ENDURANCE_HRV_master_DASHBOARD.csv (vista operativa, 9 cols).
+
+## Principio clave (producción)
+Debe existir un único flujo OAuth web en Railway.
 Está prohibido en producción:
-- abrir navegador desde backend (`webbrowser.open`)
-- levantar un “callback server local” con `HTTPServer().bind()` para capturar el `code`
+- abrir navegador desde backend
+- usar HTTPServer local para callback
 
-En Railway el callback debe entrar por el **Flask app**.
-
-## Variables de entorno (Railway / local)
+## Variables de entorno
 Requeridas:
-- `POLAR_CLIENT_ID`
-- `POLAR_CLIENT_SECRET`
-- `PUBLIC_URL` (ej. `https://web-production-xxxx.up.railway.app`)
-- `PORT` (Railway lo define; local usar 8080 o el que corresponda)
+- POLAR_CLIENT_ID
+- POLAR_CLIENT_SECRET
+- PUBLIC_URL
+- PORT
 
 Recomendadas:
-- `POLAR_TOKEN_PATH` (para persistencia de tokens; en Railway con Volume: `/data/polar_tokens.json`)
-- `POLAR_USER_NAME` (opcional; no debe ser requisito funcional)
+- POLAR_TOKEN_PATH (ej. /data/polar_tokens.json)
+- HRV_DATA_DIR
+- RR_DOWNLOAD_DIR
+- INTERVALS_API_KEY, INTERVALS_ATHLETE_ID (si se usa sync a intervals.icu)
 
 ## Persistencia: Railway Volume
-En Railway, el filesystem del contenedor puede ser efímero. Para no perder autorización:
-- Crear y montar Volume en `/data`
-- Configurar `POLAR_TOKEN_PATH=/data/polar_tokens.json`
-
-Requisitos de implementación:
-- El backend debe:
-  - crear el directorio padre (`mkdir -p`) antes de escribir
-  - guardar tokens con escritura atómica (tmp + replace)
-  - aplicar permisos restrictivos si aplica (chmod 600)
-- Nunca servir `polar_tokens.json` por HTTP ni imprimirlo en logs.
+- Montar volumen en /data
+- POLAR_TOKEN_PATH=/data/polar_tokens.json
+- Escribir tokens de forma atómica y nunca exponerlos por HTTP
 
 ## OAuth (flujo esperado)
-Canon:
-1) Usuario abre `GET /auth`
-2) Backend redirige a `https://flow.polar.com/oauth2/authorization` con:
-   - `response_type=code`
-   - `client_id=...`
-   - `redirect_uri=${PUBLIC_URL}/auth/callback`
-   - `scope=accesslink.read_all` (si aplica; no omitir)
-   - `state=<random>` (recomendado)
-3) Polar redirige a:
-   - `${PUBLIC_URL}/auth/callback?code=XXXXX&state=...`
-4) Backend en `/auth/callback`:
-   - valida `code` (y `state` si se usa)
-   - intercambia `code` por tokens:
-     - `POST https://polarremote.com/v2/oauth2/token`
-   - guarda tokens en `POLAR_TOKEN_PATH`
-   - registra usuario en Polar AccessLink:
-     - `POST https://www.polaraccesslink.com/v3/users` con `Authorization: Bearer <access_token>`
-     - tratar 409 (already registered) como éxito
-5) Usuario vuelve a `/` y puede ejecutar sync
-
-Compatibilidad:
-- Se puede mantener `/oauth/callback` como alias a `/auth/callback` si existía legado, pero el canon debe ser `/auth/callback`.
+1) Usuario abre GET /auth
+2) Backend redirige a Polar con redirect_uri=${PUBLIC_URL}/auth/callback
+3) Polar redirige a /auth/callback?code=...
+4) Backend intercambia code por tokens y registra usuario
+5) Tokens se guardan en POLAR_TOKEN_PATH
 
 ## Endpoints (contrato)
-- `GET /` → UI
-- `GET /auth` → inicia OAuth (302)
-- `GET /auth/callback` → completa OAuth (200 o error explícito)
-- `POST /api/sync` → ejecuta sync; si no hay token → 400 con mensaje “Falta autorización. Abre /auth…”
-- `GET /api/status` → estado (incluye si hay tokens y última sync)
-- `GET /health` → healthcheck simple (200)
+- GET / -> UI
+- GET /auth -> inicia OAuth
+- GET /auth/callback -> completa OAuth
+- POST /api/sync -> descarga RR + ejecuta V4 (CORE/BETA_AUDIT/FINAL/DASHBOARD)
+- GET /api/status -> estado
+- GET /health -> healthcheck
 
 ## Seguridad (no negociable)
-- No commitear: `.env`, `.polar_tokens.json`, `polar_tokens.json`, `.oauth_code.txt`, CSV/HRV personales.
-- No loguear tokens, ni `client_secret`, ni respuestas completas del token endpoint.
-- No exponer endpoints de “descarga de tokens”.
-- Si un secreto se filtra, rotarlo en Polar y actualizar Railway.
+- No commitear .env, .polar_tokens.json, RR ni CSV personales.
+- No loguear tokens ni client_secret.
+- Si un secreto se filtra, rotarlo.
 
-## Criterios de aceptación (tests de “done”)
-1) En Railway:
-   - `GET /auth` devuelve 302 a Polar con `scope` y `redirect_uri` correctos.
-2) Tras autorizar en Polar:
-   - `GET /auth/callback` devuelve 200 y guarda tokens en `POLAR_TOKEN_PATH`.
-3) Sin reautorizar:
-   - `POST /api/sync` devuelve 200 (o respuesta de éxito) y usa tokens existentes.
-4) Persistencia:
-   - tras redeploy/restart en Railway, `POST /api/sync` sigue funcionando (si Volume montado).
-5) Observabilidad:
-   - logs muestran errores útiles (status_code, endpoint) sin filtrar secretos.
+## Criterios de aceptación
+1) /auth devuelve 302 a Polar con redirect_uri correcto.
+2) /auth/callback guarda tokens en POLAR_TOKEN_PATH.
+3) POST /api/sync genera CORE/BETA_AUDIT/FINAL/DASHBOARD.
+4) Tras redeploy, /api/sync sigue funcionando (si hay Volume).
+5) Logs útiles sin secretos.
 
-## Diagnóstico rápido (si algo falla)
-- Si `/auth/callback` da 400:
-  - inspeccionar querystring: ¿viene `error=...` en lugar de `code`?
-  - revisar exactitud de `redirect_uri` (https, dominio, path)
-  - confirmar `scope` requerido y presente
-- Si hay 401 en AccessLink API:
-  - confirmar que el token exchange funcionó y se está leyendo el token correcto desde `POLAR_TOKEN_PATH`
-  - confirmar que la app en Polar AccessLink está “Active” y callbacks coinciden al 100%
-
-## Estilo de cambios (para agentes)
-- Cambios mínimos, sin reestructurar el repo salvo necesidad.
-- Mantener compatibilidad Python 3.11.
+## Estilo de cambios
+- Cambios mínimos, compatibilidad Python 3.11.
 - Evitar dependencias nuevas si no aportan valor claro.
-- No introducir nuevas columnas/formatos en outputs personales sin justificación.

@@ -10,7 +10,7 @@ Uso:
     python polar_hrv_automation.py                # Después (últimos 7 días)
     python polar_hrv_automation.py --days 30      # Últimos 30 días
     python polar_hrv_automation.py --all          # Todas las sesiones
-    python polar_hrv_automation.py --process      # + ejecutar endurance_hrv.py
+    python polar_hrv_automation.py --process      # + ejecutar endurance_hrv.py + endurance_v4lite.py
 """
 
 import os
@@ -125,7 +125,12 @@ else:
     OUTDIR = Path("rr_downloads")
 
 DATA_DIR = Path(_data_dir) if _data_dir else Path(".")
-MASTER_PATH = DATA_DIR / "ENDURANCE_HRV_master_ALL.csv"
+CORE_PATH = DATA_DIR / "ENDURANCE_HRV_master_CORE.csv"
+BETA_AUDIT_PATH = DATA_DIR / "ENDURANCE_HRV_master_BETA_AUDIT.csv"
+FINAL_PATH = DATA_DIR / "ENDURANCE_HRV_master_FINAL.csv"
+DASHBOARD_PATH = DATA_DIR / "ENDURANCE_HRV_master_DASHBOARD.csv"
+
+INTERVALS_SOURCE_PATH = BETA_AUDIT_PATH
 
 # Filtros
 SPORTS_FILTER = ["BODY_AND_MIND"]  # Comparación EXACTA
@@ -142,7 +147,7 @@ FIELD_START_TIME = ("start-time", "start_time", "startTime")
 FIELD_SPORT = ("detailed-sport-info", "detailed_sport_info", "sport")
 FIELD_SAMPLE_TYPE = ("sample-type", "sample_type")
 
-# Nombres de columnas del Master CSV (ENDURANCE_HRV_master_ALL.csv)
+# Nombres de columnas del BETA_AUDIT (para Intervals)
 MASTER_CSV_COLS = {
     'fecha': 'Fecha',
     'hr': 'HR_stable',
@@ -163,6 +168,14 @@ COLOR_EMOJI = {
     'Ámbar': '🟡',  # Alias para Amarillo
     'Rojo': '🔴',
     'N/A': '⚪',
+}
+
+GATE_EMOJI = {
+    'VERDE': '🟢',
+    'ÁMBAR': '🟡',
+    'AMBAR': '🟡',
+    'ROJO': '🔴',
+    'NO': '⚪',
 }
 
 # Límites de visualización y procesamiento
@@ -250,6 +263,25 @@ def _get_color_emoji(color_value, default='⚪'):
     return COLOR_EMOJI.get(color_value, default)
 
 
+def _get_gate_emoji(gate_value, default='⚪'):
+    """Convierte gate_badge (p.ej. 'ÁMBAR--') a emoji."""
+    if gate_value is None:
+        return default
+    value = str(gate_value).strip().upper()
+    # Quitar sufijos +/- y normalizar
+    if value.startswith("VERDE"):
+        key = "VERDE"
+    elif value.startswith("ÁMBAR") or value.startswith("AMBAR"):
+        key = "ÁMBAR"
+    elif value.startswith("ROJO"):
+        key = "ROJO"
+    elif value.startswith("NO"):
+        key = "NO"
+    else:
+        key = value.replace('Á', 'A')
+    return GATE_EMOJI.get(key, default)
+
+
 def _format_metric(value, decimals=1):
     """
     Formatea métrica numérica o devuelve 'N/A'.
@@ -332,7 +364,7 @@ def _read_latest_master_row(master_path: Path) -> Optional[Dict[str, Any]]:
                 latest_date = parsed
                 latest_row = row
     if not latest_row or not latest_date:
-        print("⚠️  Intervals: no se pudo determinar la última fecha del master CSV")
+        print("⚠️  Intervals: no se pudo determinar la última fecha del CORE")
         return None
     latest_row["_date"] = latest_date.isoformat()
     return latest_row
@@ -427,9 +459,9 @@ def _print_sync_completed(updated_date=None, checkmark=False):
     print("\n✅ SINCRONIZACIÓN COMPLETADA")
     #print("=" * 25)
     if updated_date:
-        print(f"📊 Master CSV actualizado hasta hoy ({updated_date})")
+        print(f"📊 CORE actualizado hasta hoy ({updated_date})")
     else:
-        print("📊 Master CSV actualizado hasta hoy")
+        print("📊 CORE actualizado hasta hoy")
     print("💡 No nuevas sesiones")
     tail = " ✅" if checkmark else "."
     # print(f"   • Todo al día{tail}")
@@ -449,7 +481,7 @@ def _print_master_already_updated():
     if QUIET:
         print("✅ Sync OK: sin novedades")
         return
-    print("\n✅ Master CSV ya está actualizado con todas las sesiones")
+    print("\n✅ CORE ya está actualizado con todas las sesiones")
     print("   No hay nada nuevo que procesar")
 
 
@@ -807,46 +839,41 @@ def load_tokens():
 
 
 def get_last_date_from_master():
-    """Lee última fecha registrada en ENDURANCE_HRV_master_ALL.csv"""
-    master_file = MASTER_PATH
-    
-    if not master_file.exists():
+    """Lee última fecha registrada en ENDURANCE_HRV_master_CORE.csv"""
+    master_file = CORE_PATH
+
+    if not master_file.exists() or not PANDAS_AVAILABLE:
         return None
-    
-    if not PANDAS_AVAILABLE:
-        print("⚠️  pandas no instalado, usa --days para especificar rango")
-        return None
-    
+
     try:
         df = pd.read_csv(master_file)
-        
+
         if 'Fecha' not in df.columns or df.empty:
             return None
-        
+
         # Obtener última fecha (asumiendo formato YYYY-MM-DD)
         last_date_str = df['Fecha'].max()
         last_date = datetime.strptime(last_date_str, '%Y-%m-%d').date()
-        
+
         return last_date
-        
+
     except (FileNotFoundError, pd.errors.EmptyDataError, ValueError, KeyError) as e:
-        print(f"⚠️  Error leyendo master CSV: {e}")
+        print(f"⚠️  Error leyendo CORE: {e}")
         return None
 
-
 def get_existing_dates_from_master():
-    """Obtiene set de fechas ya existentes en master CSV"""
-    master_file = MASTER_PATH
-    
+    """Obtiene set de fechas ya existentes en CORE (ENDURANCE_HRV_master_CORE.csv)"""
+    master_file = CORE_PATH
+
     if not master_file.exists() or not PANDAS_AVAILABLE:
         return set()
-    
+
     try:
         df = pd.read_csv(master_file)
-        
+
         if 'Fecha' not in df.columns or df.empty:
             return set()
-        
+
         # Convertir todas las fechas a date objects
         dates = set()
         for date_str in df['Fecha']:
@@ -855,129 +882,146 @@ def get_existing_dates_from_master():
                 dates.add(date_obj)
             except (ValueError, TypeError):
                 pass  # Skip invalid date formats
-        
+
         return dates
-        
+
     except (FileNotFoundError, pd.errors.EmptyDataError, KeyError) as e:
-        print(f"⚠️  Error leyendo fechas del master: {e}")
+        print(f"⚠️  Error leyendo fechas del CORE: {e}")
         return set()
 
-
 def show_last_daily_summary():
-    """Muestra el último daily summary del master CSV de forma destacada"""
-    master_file = MASTER_PATH
-    
-    if not master_file.exists() or not PANDAS_AVAILABLE:
+    """Muestra el último daily summary (FINAL si existe, si no CORE)."""
+    if not PANDAS_AVAILABLE:
         return
-    
+
+    if FINAL_PATH.exists():
+        try:
+            df = pd.read_csv(FINAL_PATH)
+
+            if df.empty or 'Fecha' not in df.columns:
+                return
+
+            # Obtener última medición
+            last_row = df.sort_values('Fecha').iloc[-1]
+
+            _print_header("💓 Última Medición HRV (V4)")
+            print("")
+
+            fecha = last_row.get("Fecha", "N/A")
+            hr = last_row.get("HR_today", "N/A")
+            rmssd = last_row.get("RMSSD_stable", "N/A")
+            gate = last_row.get("gate_badge", "N/A")
+            action = last_row.get("Action", "N/A")
+            reason = last_row.get("gate_razon_base60", "N/A")
+            calidad = last_row.get("Calidad", "N/A")
+            stab = last_row.get("HRV_Stability", "N/A")
+            degraded = str(last_row.get("baseline60_degraded", False)).strip().lower() in {"true", "1", "yes"}
+
+            gate_emoji = _get_gate_emoji(gate)
+
+            print(f"📅 Fecha:          {fecha}")
+            print(f"💓 HR hoy:         {_format_metric(hr)} bpm")
+            print(f"📊 RMSSD:          {_format_metric(rmssd)} ms")
+            print(f"🚦 Gate:           {gate_emoji} {gate}")
+            print(f"🧭 Acción:         {action}")
+            print(f"🧾 Razón gate:     {reason}")
+            print(f"✅ Calidad:        {calidad}")
+            print(f"📈 Estabilidad:    {stab}")
+            if bool(degraded):
+                print("⚠️  Warning base:  baseline60_degraded=True")
+            return
+
+        except (FileNotFoundError, pd.errors.EmptyDataError, KeyError, IndexError) as e:
+            print(f"⚠️  Error mostrando summary FINAL: {e}")
+
+    # Fallback: CORE
+    if not CORE_PATH.exists():
+        return
+
     try:
-        df = pd.read_csv(master_file)
-        
+        df = pd.read_csv(CORE_PATH)
+
         if df.empty or 'Fecha' not in df.columns:
             return
-        
+
         # Obtener última medición
         last_row = df.sort_values('Fecha').iloc[-1]
-        
-        _print_header("💓 Última Medición HRV")
-        
-        # Formatear y mostrar - usando constantes
-        fecha = last_row.get(MASTER_CSV_COLS['fecha'], 'N/A')
-        hr = last_row.get(MASTER_CSV_COLS['hr'], 'N/A')
-        rmssd = last_row.get(MASTER_CSV_COLS['rmssd'], 'N/A')
-        crmssd = last_row.get(MASTER_CSV_COLS['crmssd'], 'N/A')
-        p2 = last_row.get(MASTER_CSV_COLS['color_agudo'], 'N/A')
-        calidad = last_row.get(MASTER_CSV_COLS['calidad'], 'N/A')
-        stab = last_row.get(MASTER_CSV_COLS['estabilidad'], 'N/A')
-        trend = last_row.get(MASTER_CSV_COLS['color_tendencia'], 'N/A')
-        tiebreak = last_row.get(MASTER_CSV_COLS['color_tiebreak'], 'N/A')
 
-        print(f"\n📅 Fecha:          {fecha}")
+        _print_header("💓 Última Medición HRV (CORE)")
+        print("")
+
+        fecha = last_row.get("Fecha", "N/A")
+        hr = last_row.get("HR_stable", "N/A")
+        rmssd = last_row.get("RMSSD_stable", "N/A")
+        calidad = last_row.get("Calidad", "N/A")
+        stab = last_row.get("HRV_Stability", "N/A")
+
+        print(f"📅 Fecha:          {fecha}")
         print(f"💓 HR promedio:    {_format_metric(hr)} bpm")
         print(f"📊 RMSSD:          {_format_metric(rmssd)} ms")
-        print(f"🎯 cRMSSD:         {_format_metric(crmssd)} ms")
-
-        # Estado (Color_Agudo_Diario) - SOLO EMOJI DE COLOR
-        p2_emoji = _get_color_emoji(p2)
-        print(f"🚦 Estado:         {p2_emoji}")
-
-        # Tendencia - SOLO EMOJI DE COLOR (NO FLECHA)
-        trend_emoji = _get_color_emoji(trend)
-        print(f"📈 Tendencia:      {trend_emoji}")
-
-        # Tiebreak - SOLO EMOJI DE COLOR
-        tiebreak_emoji = _get_color_emoji(tiebreak)
-        print(f"🟢 Tiebreak:       {tiebreak_emoji}")
-
         print(f"✅ Calidad:        {calidad}")
         print(f"📈 Estabilidad:    {stab}")
 
-        # Flags si existen
-        flags = last_row.get(MASTER_CSV_COLS['flags'], '')
+        flags = last_row.get("Flags", "")
         if pd.notna(flags) and flags:
             print(f"🚩 Flags:          {flags}")
-        
-        # print("="*25)
-        
-    except (FileNotFoundError, pd.errors.EmptyDataError, KeyError, IndexError) as e:
-        print(f"⚠️  Error mostrando último summary: {e}")
 
+    except (FileNotFoundError, pd.errors.EmptyDataError, KeyError, IndexError) as e:
+        print(f"⚠️  Error mostrando summary CORE: {e}")
 
 def show_last_5_days_summary():
-    """Muestra resumen compacto de los últimos 5 días"""
-    master_file = MASTER_PATH
-    
-    if not master_file.exists() or not PANDAS_AVAILABLE:
+    """Muestra resumen compacto de los últimos 5 días (FINAL si existe, si no CORE)."""
+    if not PANDAS_AVAILABLE:
         return
-    
+
+    use_final = FINAL_PATH.exists()
+    src_path = FINAL_PATH if use_final else CORE_PATH
+
+    if not src_path.exists():
+        return
+
     try:
-        df = pd.read_csv(master_file)
-        
+        df = pd.read_csv(src_path)
+
         if df.empty or 'Fecha' not in df.columns:
             return
-        
+
         # Obtener últimos 5 días
         df_sorted = df.sort_values('Fecha')
         last_5 = df_sorted.tail(5)
-        
+
         if len(last_5) == 0:
             return
-        
-        print(f"\n")
-        _print_header("📊 RESUMEN ÚLTIMOS 5 DÍAS")
-        
+
+        print("")
+        title = "📊 RESUMEN ÚLTIMOS 5 DÍAS (V4)" if use_final else "📊 RESUMEN ÚLTIMOS 5 DÍAS (CORE)"
+        _print_header(title)
+
         for _, row in last_5.iterrows():
-            fecha = row.get(MASTER_CSV_COLS['fecha'], 'N/A')
-            hr = row.get(MASTER_CSV_COLS['hr'], 'N/A')
-            rmssd = row.get(MASTER_CSV_COLS['rmssd'], 'N/A')
-            crmssd = row.get(MASTER_CSV_COLS['crmssd'], 'N/A')
-            p2 = row.get(MASTER_CSV_COLS['color_agudo'], 'N/A')
-            trend = row.get(MASTER_CSV_COLS['color_tendencia'], 'N/A')
-            tiebreak = row.get(MASTER_CSV_COLS['color_tiebreak'], 'N/A')
+            fecha = row.get("Fecha", "N/A")
 
             # Formatear fecha a YY-MM-DD
             fecha_str = fecha
             if isinstance(fecha, str) and len(fecha) == DATE_STRING_LENGTH:  # YYYY-MM-DD
                 fecha_str = fecha[2:]  # Quitar "20" del año → YY-MM-DD
 
+            hr = row.get("HR_today", "N/A") if use_final else row.get("HR_stable", "N/A")
+            rmssd = row.get("RMSSD_stable", "N/A")
+
             # Formatear métricas (sin unidad)
             hr_str = _format_metric(hr)
             rmssd_str = _format_metric(rmssd)
-            crmssd_str = _format_metric(crmssd)
 
-            # Emojis DE COLOR (no flechas)
-            p2_emoji = _get_color_emoji(p2)
-            trend_emoji = _get_color_emoji(trend)
-            tiebreak_emoji = _get_color_emoji(tiebreak)
-
-            # Una línea por día - SEMÁFORO + 3 COLORES
-            print(f"{fecha_str} \n💓{hr_str:>5}  📊{rmssd_str:>5}  🎯{crmssd_str:>5}  {p2_emoji} {trend_emoji} {tiebreak_emoji}\n")
-        
-        # _print_divider()
+            if use_final:
+                gate = row.get("gate_badge", "N/A")
+                action = row.get("Action", "N/A")
+                gate_emoji = _get_gate_emoji(gate)
+                print(f"{fecha_str}  💓{hr_str:>5}  📊{rmssd_str:>5}  {gate_emoji} {gate}  → {action}")
+            else:
+                print(f"{fecha_str}  💓{hr_str:>5}  📊{rmssd_str:>5}")
 
     except (FileNotFoundError, pd.errors.EmptyDataError, KeyError, IndexError) as e:
         print(f"⚠️  Error mostrando resumen 5 días: {e}")
-
 
 def calculate_missing_days():
     """Calcula cuántos días faltan desde última medición hasta hoy"""
@@ -985,7 +1029,7 @@ def calculate_missing_days():
     today = datetime.now().date()
     
     if last_date is None:
-        # Sin master o sin datos, usar 7 días por defecto
+        # Sin CORE o sin datos, usar 7 días por defecto
         return 7, None
     
     # Calcular días faltantes
@@ -998,42 +1042,12 @@ def calculate_missing_days():
     return days_missing, last_date
 
 
-def update_endurance_hrv_files(rr_files):
-    """Actualiza lista RR_FILES en endurance_hrv.py con archivos descargados"""
-    hrv_script = Path("endurance_hrv.py")
-    
-    if not hrv_script.exists():
-        print("⚠️  endurance_hrv.py no encontrado")
-        return False
-    
-    # Leer script con UTF-8
-    try:
-        content = hrv_script.read_text(encoding='utf-8')
-    except UnicodeDecodeError:
-        # Intentar con latin-1 como fallback
-        content = hrv_script.read_text(encoding='latin-1')
-    
-    # Generar nueva lista de archivos con ruta completa
-    files_str = ",\n    ".join([f'Path("rr_downloads/{f.name}")' for f in rr_files])
-    new_rr_files = f"""RR_FILES = [
-    {files_str},
-]"""
-    
-    # Reemplazar RR_FILES usando regex
-    pattern = r'RR_FILES\s*=\s*\[[\s\S]*?\]'
-    
-    if not re.search(pattern, content):
-        print("⚠️  No se encontró RR_FILES en endurance_hrv.py")
-        return False
-    
-    new_content = re.sub(pattern, new_rr_files, content)
-    
-    # Guardar con UTF-8
-    hrv_script.write_text(new_content, encoding='utf-8')
-    print(f"✅ Actualizado RR_FILES con {len(rr_files)} archivos")
-    
-    return True
-
+def build_endurance_hrv_cmd(rr_files):
+    """Construye comando para endurance_hrv.py usando --rr-file."""
+    cmd = [sys.executable, "endurance_hrv.py"]
+    for f in rr_files:
+        cmd.extend(["--rr-file", str(f)])
+    return cmd
 
 def main():
     parser = argparse.ArgumentParser(description='Polar HRV Automation')
@@ -1041,7 +1055,7 @@ def main():
     parser.add_argument('--days', type=int, help='Días hacia atrás (ignora --auto)')
     parser.add_argument('--all', action='store_true', help='Todas las sesiones (ignora --days y --auto)')
     parser.add_argument('--auto', action='store_true', help='Detectar automáticamente días faltantes desde último registro')
-    parser.add_argument('--process', action='store_true', help='Ejecutar endurance_hrv.py después')
+    parser.add_argument('--process', action='store_true', help='Ejecutar endurance_hrv.py + endurance_v4lite.py después')
     parser.add_argument('--debug-sports', action='store_true', help='Mostrar deportes de todas las sesiones encontradas')
     parser.add_argument('--verbose', action='store_true', help='Mostrar detalles de cada archivo procesado')
     args = parser.parse_args()
@@ -1112,7 +1126,7 @@ def main():
             _qprint(f"📅 Última medición: {last_date}")
             _qprint(f"   Descargando desde {from_d} hasta {to_d}")
         else:
-            # Sin master, descargar últimos N días
+            # Sin CORE, descargar últimos N días
             from_d = (datetime.now() - timedelta(days=days_missing)).date()
             _qprint(f"📅 Master sin datos, descargando últimos {days_missing} días")
     elif args.days:
@@ -1151,7 +1165,7 @@ def main():
             _qprint(f"📅 Última medición: {last_date}")
             _qprint(f"   Descargando desde {from_d} hasta {to_d} ({days_missing} días)")
         else:
-            # Sin master, descargar últimos N días
+            # Sin CORE, descargar últimos N días
             from_d = (datetime.now() - timedelta(days=days_missing)).date()
             _qprint(f"📅 Descargando últimos {days_missing} días (default)")
 
@@ -1185,7 +1199,7 @@ def main():
             print("⚠️  No hay sesiones Body&Mind en el periodo")
             show_last_daily_summary()
             show_last_5_days_summary()
-            _send_intervals_wellness_from_master(MASTER_PATH)
+            _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
             return
         print("\n⚠️  No hay sesiones Body&Mind en el periodo")
         
@@ -1231,20 +1245,21 @@ def main():
         # Mostrar resumen últimos 5 días
         show_last_5_days_summary()
         
-        _send_intervals_wellness_from_master(MASTER_PATH)
+        _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
         return
 
     # Export RR
     _qprint("\n📥 Descargando datos RR...")
     OUTDIR.mkdir(exist_ok=True)
     
-    # Obtener fechas ya existentes en master CSV
+    # Obtener fechas ya existentes en CORE
     existing_dates = get_existing_dates_from_master()
     if existing_dates and args.verbose:
-        print(f"📋 {len(existing_dates)} fechas ya en master CSV")
+        print(f"📋 {len(existing_dates)} fechas ya en CORE")
     
     exported = 0
     skipped_in_master = 0
+    skipped_no_date = 0
     rr_files = []
 
     for idx, e in enumerate(filtered):
@@ -1285,10 +1300,22 @@ def main():
                 out_name = f"{POLAR_USER_NAME}_{date_part}_{time_part}_RR.CSV"
                 session_date = st_dt.date()
         
-        # Verificar si fecha ya existe en master CSV
+        
+        if session_date is None:
+            out_path = OUTDIR / out_name
+            if out_path.exists():
+                if args.verbose:
+                    print(f"  [{idx}] ⏭️  {out_name} sin fecha, se omite procesamiento")
+            else:
+                rr = extract_rr_ms(ex_full)
+                write_rr_csv(rr, str(out_path))
+            skipped_no_date += 1
+            continue
+
+        # Verificar si fecha ya existe en CORE
         if session_date and session_date in existing_dates:
             if args.verbose:
-                print(f"  [{idx}] ⏭️  {date_part} ya en master CSV, omitiendo")
+                print(f"  [{idx}] ⏭️  {date_part} ya en CORE, omitiendo")
             skipped_in_master += 1
             continue
 
@@ -1322,7 +1349,9 @@ def main():
         _qprint(f"\n📥 {exported} archivos nuevos descargados")
     
     if skipped_in_master > 0:
-        _qprint(f"⏭️  {skipped_in_master} sesiones omitidas (ya en master CSV)")
+        _qprint(f"⏭️  {skipped_in_master} sesiones omitidas (ya en CORE)")
+    if skipped_no_date > 0:
+        _qprint(f"⚠️  {skipped_no_date} sesiones sin fecha (no se procesan)")
     
     if total_to_process > exported:
         _qprint(f"♻️  {existing} archivos existentes para reprocesar")
@@ -1330,38 +1359,50 @@ def main():
     _qprint(f"\n📊 {total_to_process} archivos totales para procesar en {OUTDIR}/")
 
     if total_to_process == 0 and skipped_in_master == 0:
-        _print_no_rr_files()
-        _send_intervals_wellness_from_master(MASTER_PATH)
+        if skipped_no_date > 0:
+            print("⚠️  No hay RR con fecha válida para procesar")
+        else:
+            _print_no_rr_files()
+        _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
         return
     
     if total_to_process == 0 and skipped_in_master > 0:
         _print_master_already_updated()
-        _send_intervals_wellness_from_master(MASTER_PATH)
+        _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
         return
 
     # Procesar con endurance_hrv.py
     if args.process:
-        _print_header("🔧 PROCESANDO CON ENDURANCE_HRV.PY")
-        
+        _print_header("🔧 PROCESANDO CON ENDURANCE_HRV (V4)")
+
         if not Path("endurance_hrv.py").exists():
-            print("\n❌ endurance_hrv.py no encontrado")
-            print("   Cópialo al directorio actual para usar --process")
+            print("")
+            print("❌ endurance_hrv.py no encontrado")
+            print("   Copia endurance_hrv.py al directorio actual para usar --process")
             return
-        
-        # Actualizar RR_FILES en endurance_hrv.py
-        if not update_endurance_hrv_files(rr_files):
-            print("❌ Error actualizando endurance_hrv.py")
+        if not Path("endurance_v4lite.py").exists():
+            print("")
+            print("❌ endurance_v4lite.py no encontrado")
+            print("   Copia endurance_v4lite.py al directorio actual para usar --process")
             return
-        
-        # Ejecutar
-        _qprint("\n▶️  Ejecutando endurance_hrv.py...\n")
+
+        cmd = build_endurance_hrv_cmd(rr_files)
+        if len(cmd) <= 2:
+            print("")
+            print("⚠️  No hay archivos RR con fecha válida para procesar")
+            _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
+            return
+
+        _qprint("")
+        _qprint("▶️  Ejecutando endurance_hrv.py...")
+        _qprint("")
         try:
             # Configurar environment para UTF-8
             env = os.environ.copy()
             env['PYTHONIOENCODING'] = 'utf-8'
-            
+
             result = subprocess.run(
-                [sys.executable, "endurance_hrv.py"],
+                cmd,
                 capture_output=True,
                 text=True,
                 encoding='utf-8',
@@ -1369,33 +1410,55 @@ def main():
                 check=True,
                 env=env
             )
-            
-            # Mostrar output
+
             if result.stdout:
                 print(result.stdout)
-            
+
+            _qprint("")
+            _qprint("▶️  Ejecutando endurance_v4lite.py...")
+            _qprint("")
+            result2 = subprocess.run(
+                [sys.executable, "endurance_v4lite.py"],
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                check=True,
+                env=env
+            )
+            if result2.stdout:
+                print(result2.stdout)
+
             if QUIET:
-                print(f"✅ Sync OK: {exported} nuevos, {existing} reprocesados, {skipped_in_master} omitidos")
-                print("✅ HRV procesado: ENDURANCE_HRV_master_ALL.csv, ENDURANCE_HRV_eval_P1P2_ALL.csv")
+                print(f"✅ Sync OK: {exported} nuevos, {existing} reprocesados, {skipped_in_master} omitidos, {skipped_no_date} sin fecha")
+                print("✅ HRV procesado: CORE, BETA_AUDIT, FINAL, DASHBOARD")
             else:
-                print("\n✅ Procesamiento HRV completado")
-                print("\n📄 Archivos actualizados:")
-                print("   - ENDURANCE_HRV_master_ALL.csv")
-                print("   - ENDURANCE_HRV_eval_P1P2_ALL.csv")
-            _send_intervals_wellness_from_master(MASTER_PATH)
-            
+                print("")
+                print("✅ Procesamiento HRV completado")
+                print("")
+                print("📄 Archivos actualizados:")
+                print("   - ENDURANCE_HRV_master_CORE.csv")
+                print("   - ENDURANCE_HRV_master_BETA_AUDIT.csv")
+                print("   - ENDURANCE_HRV_master_FINAL.csv")
+                print("   - ENDURANCE_HRV_master_DASHBOARD.csv")
+            _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
+
         except subprocess.CalledProcessError as e:
-            print(f"\n❌ Error ejecutando endurance_hrv.py (código: {e.returncode})")
+            print("")
+            print(f"❌ Error ejecutando procesamiento HRV (código: {e.returncode})")
             if e.stdout:
-                print("\nOutput:")
+                print("")
+                print("Output:")
                 print(e.stdout)
             if e.stderr:
-                print("\nError:")
+                print("")
+                print("Error:")
                 print(e.stderr)
         except (FileNotFoundError, PermissionError, OSError) as e:
-            print(f"\n❌ Error inesperado ejecutando script: {e}")
+            print("")
+            print(f"❌ Error inesperado ejecutando script: {e}")
     else:
-        _send_intervals_wellness_from_master(MASTER_PATH)
+        _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
 
 
 if __name__ == "__main__":

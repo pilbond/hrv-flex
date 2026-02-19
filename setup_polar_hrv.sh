@@ -88,6 +88,13 @@ if [ ! -f "endurance_hrv.py" ]; then
 fi
 echo -e "${GREEN}✅ endurance_hrv.py encontrado${NC}"
 
+if [ ! -f "endurance_v4lite.py" ]; then
+    echo -e "${RED}❌ No se encuentra endurance_v4lite.py${NC}"
+    echo "   Copia tu script de decisor V4-lite aquí"
+    exit 1
+fi
+echo -e "${GREEN}✅ endurance_v4lite.py encontrado${NC}"
+
 if [ ! -f "polar_hrv_automation.py" ]; then
     echo -e "${RED}❌ No se encuentra polar_hrv_automation.py${NC}"
     exit 1
@@ -101,17 +108,28 @@ mkdir -p rr_downloads
 mkdir -p logs
 echo -e "${GREEN}✅ Directorios creados${NC}"
 
-# 8. Verificar master CSV
-echo ""
-echo "8️⃣  Verificando archivos Master CSV..."
+# 8. Verificar archivos V4
 
-if [ ! -f "ENDURANCE_HRV_master_ALL.csv" ]; then
-    echo -e "${YELLOW}⚠️  ENDURANCE_HRV_master_ALL.csv no encontrado${NC}"
+echo ""
+echo "8️⃣  Verificando archivos V4..."
+
+if [ ! -f "ENDURANCE_HRV_master_CORE.csv" ]; then
+    echo -e "${YELLOW}⚠️  ENDURANCE_HRV_master_CORE.csv no encontrado${NC}"
     echo "   Se creará automáticamente en la primera ejecución"
 fi
 
-if [ ! -f "ENDURANCE_HRV_eval_P1P2_ALL.csv" ]; then
-    echo -e "${YELLOW}⚠️  ENDURANCE_HRV_eval_P1P2_ALL.csv no encontrado${NC}"
+if [ ! -f "ENDURANCE_HRV_master_BETA_AUDIT.csv" ]; then
+    echo -e "${YELLOW}⚠️  ENDURANCE_HRV_master_BETA_AUDIT.csv no encontrado${NC}"
+    echo "   Se creará automáticamente en la primera ejecución"
+fi
+
+if [ ! -f "ENDURANCE_HRV_master_FINAL.csv" ]; then
+    echo -e "${YELLOW}⚠️  ENDURANCE_HRV_master_FINAL.csv no encontrado${NC}"
+    echo "   Se creará automáticamente en la primera ejecución"
+fi
+
+if [ ! -f "ENDURANCE_HRV_master_DASHBOARD.csv" ]; then
+    echo -e "${YELLOW}⚠️  ENDURANCE_HRV_master_DASHBOARD.csv no encontrado${NC}"
     echo "   Se creará automáticamente en la primera ejecución"
 fi
 
