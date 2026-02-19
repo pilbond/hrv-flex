@@ -12,6 +12,7 @@ import subprocess
 import sys
 import os
 import csv
+import shutil
 from pathlib import Path
 from datetime import datetime
 import threading
@@ -33,6 +34,12 @@ app.config["PREFERRED_URL_SCHEME"] = "https"
 # =========================
 SCOPE = "accesslink.read_all"
 TOKEN_PATH = Path(os.environ.get("POLAR_TOKEN_PATH", ".polar_tokens.json"))
+HISTORICAL_CSV_FILES = [
+    "ENDURANCE_HRV_master_CORE.csv",
+    "ENDURANCE_HRV_master_BETA_AUDIT.csv",
+    "ENDURANCE_HRV_master_FINAL.csv",
+    "ENDURANCE_HRV_master_DASHBOARD.csv",
+]
 
 
 def _public_url() -> str:
@@ -183,6 +190,63 @@ def _build_status_payload() -> dict:
         **csv_info,
     }
     return payload
+
+
+def _copy_history_from_image_to_data(overwrite: bool) -> dict:
+    source_dir = Path((os.environ.get("HRV_SEED_DIR") or "/app").strip() or "/app")
+    data_dir = Path((os.environ.get("HRV_DATA_DIR") or ".").strip() or ".")
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    copied = 0
+    skipped = 0
+    missing = 0
+    items = []
+
+    for name in HISTORICAL_CSV_FILES:
+        src = source_dir / name
+        dst = data_dir / name
+
+        if not src.exists():
+            missing += 1
+            items.append({
+                "file": name,
+                "status": "missing_source",
+                "src": str(src),
+                "dst": str(dst),
+            })
+            continue
+
+        if dst.exists() and not overwrite:
+            skipped += 1
+            items.append({
+                "file": name,
+                "status": "skipped_exists",
+                "src": str(src),
+                "dst": str(dst),
+                "src_size": src.stat().st_size,
+                "dst_size": dst.stat().st_size,
+            })
+            continue
+
+        shutil.copy2(src, dst)
+        copied += 1
+        items.append({
+            "file": name,
+            "status": "copied",
+            "src": str(src),
+            "dst": str(dst),
+            "size": dst.stat().st_size,
+        })
+
+    return {
+        "source_dir": str(source_dir),
+        "data_dir": str(data_dir),
+        "overwrite": overwrite,
+        "copied": copied,
+        "skipped_exists": skipped,
+        "missing_source": missing,
+        "items": items,
+    }
 
 
 # HTML Template (UI móvil-first)
@@ -703,6 +767,27 @@ def run_sync():
 def get_status():
     """Obtener estado actual"""
     return jsonify(_build_status_payload())
+
+
+@app.route('/api/admin/copy-history', methods=['POST'])
+def copy_history():
+    """Copiar CSV históricos desde /app (imagen) hacia HRV_DATA_DIR (/data en Railway).
+    Endpoint temporal sin auth (usar y retirar).
+    """
+
+    body = request.get_json(silent=True) or {}
+    overwrite = bool(body.get("overwrite", True))
+
+    try:
+        result = _copy_history_from_image_to_data(overwrite=overwrite)
+        return jsonify({
+            "success": True,
+            "message": "Copy history ejecutado",
+            "result": result,
+            "diagnostics": _build_status_payload().get("diagnostics", {}),
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route('/auth', strict_slashes=False)
