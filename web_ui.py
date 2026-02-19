@@ -11,6 +11,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 import subprocess
 import sys
 import os
+import csv
 from pathlib import Path
 from datetime import datetime
 import threading
@@ -71,6 +72,118 @@ execution_state = {
     'last_error': '',
     'success': None
 }
+
+
+def _parse_iso_date(value: str):
+    try:
+        return datetime.fromisoformat((value or "").strip()).date()
+    except Exception:
+        return None
+
+
+def _token_diagnostics() -> dict:
+    info = {
+        "token_path": str(TOKEN_PATH),
+        "token_exists": TOKEN_PATH.exists(),
+        "token_reason": "missing",
+        "token_expired": None,
+    }
+
+    if not info["token_exists"]:
+        return info
+
+    try:
+        token_json = json.loads(TOKEN_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        info["token_reason"] = "invalid_json"
+        return info
+
+    access_token = token_json.get("access_token")
+    if not access_token:
+        info["token_reason"] = "missing_access_token"
+        return info
+
+    obtained_at = float(token_json.get("obtained_at", 0) or 0)
+    expires_in = float(token_json.get("expires_in", 0) or 0)
+    if expires_in > 0 and (time.time() - obtained_at) > expires_in:
+        info["token_reason"] = "expired"
+        info["token_expired"] = True
+        return info
+
+    info["token_reason"] = "ok"
+    info["token_expired"] = False if expires_in > 0 else None
+    return info
+
+
+def _csv_runtime_diagnostics() -> dict:
+    data_dir = Path((os.environ.get("HRV_DATA_DIR") or ".").strip() or ".")
+    core_path = data_dir / "ENDURANCE_HRV_master_CORE.csv"
+    final_path = data_dir / "ENDURANCE_HRV_master_FINAL.csv"
+
+    quality_counts = {}
+    rows = 0
+    min_date = None
+    max_date = None
+
+    if core_path.exists():
+        try:
+            with core_path.open("r", encoding="utf-8", newline="") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    rows += 1
+                    calidad = (row.get("Calidad") or "").strip()
+                    if calidad:
+                        quality_counts[calidad] = quality_counts.get(calidad, 0) + 1
+
+                    d = _parse_iso_date(row.get("Fecha", ""))
+                    if d is None:
+                        continue
+                    if min_date is None or d < min_date:
+                        min_date = d
+                    if max_date is None or d > max_date:
+                        max_date = d
+        except Exception:
+            # Si falla lectura/parsing, devolvemos métricas por defecto.
+            pass
+
+    last_final_row = {}
+    if final_path.exists():
+        try:
+            with final_path.open("r", encoding="utf-8", newline="") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    last_final_row = row
+        except Exception:
+            last_final_row = {}
+
+    return {
+        "hrv_data_dir": str(data_dir),
+        "core_path": str(core_path),
+        "core_exists": core_path.exists(),
+        "core_rows": rows,
+        "core_min_date": min_date.isoformat() if min_date else None,
+        "core_max_date": max_date.isoformat() if max_date else None,
+        "core_quality_counts": quality_counts,
+        "final_path": str(final_path),
+        "final_exists": final_path.exists(),
+        "final_last_fecha": last_final_row.get("Fecha") if last_final_row else None,
+        "final_last_n_base60": last_final_row.get("n_base60") if last_final_row else None,
+        "final_last_gate_razon_base60": last_final_row.get("gate_razon_base60") if last_final_row else None,
+    }
+
+
+def _build_status_payload() -> dict:
+    token_info = _token_diagnostics()
+    csv_info = _csv_runtime_diagnostics()
+
+    payload = dict(execution_state)
+    payload["diagnostics"] = {
+        "authorized": token_info.get("token_reason") == "ok",
+        **token_info,
+        **csv_info,
+    }
+    return payload
+
 
 # HTML Template (UI móvil-first)
 HTML_TEMPLATE = """
@@ -589,7 +702,7 @@ def run_sync():
 @app.route('/api/status', methods=['GET'])
 def get_status():
     """Obtener estado actual"""
-    return jsonify(execution_state)
+    return jsonify(_build_status_payload())
 
 
 @app.route('/auth', strict_slashes=False)
