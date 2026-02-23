@@ -8,8 +8,8 @@ Lee:
   - ENDURANCE_HRV_master_CORE.csv
 
 Genera:
-  - ENDURANCE_HRV_master_FINAL.csv     (49 cols, gate + sombras + residual + auditoría)
-  - ENDURANCE_HRV_master_DASHBOARD.csv (9 cols, vista operativa compacta)
+  - ENDURANCE_HRV_master_FINAL.csv     (53 cols, gate + sombras + residual + auditoría)
+  - ENDURANCE_HRV_master_DASHBOARD.csv (10 cols, vista operativa compacta)
 
 Normativa:
   - ENDURANCE_HRV_Spec_Tecnica.md
@@ -84,6 +84,8 @@ class Config:
 
 
 CFG = Config()
+SWC_FLOOR = 0.04879  # ln(1.05), floor mínimo para SWC
+VETO_MULT = 2.0      # veto si raw cae > 2xSWC bajo base60
 
 
 # =============================================================================
@@ -105,11 +107,12 @@ COLS_FINAL = [
     "baseline60_degraded","healthy_rmssd","healthy_hr","healthy_period",
     "flag_sistemico","flag_razon",
     "warning_threshold","warning_mode",
+    "veto_agudo","ln_pre_veto","swc_ln_floor","reason_text",
 ]
 
 COLS_DASHBOARD = [
     "Fecha","Calidad","HR_today","RMSSD_stable","gate_badge","Action",
-    "gate_razon_base60","decision_path","baseline60_degraded"
+    "gate_razon_base60","decision_path","baseline60_degraded","reason_text"
 ]
 
 
@@ -230,6 +233,17 @@ def residual_tag(res_z: float, cfg: Config) -> str:
     return ""
 
 
+def _safe_float(row: pd.Series, col: str) -> Optional[float]:
+    """Extract float from context row, return None if missing."""
+    try:
+        v = row[col]
+        if pd.isna(v):
+            return None
+        return float(v)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def parse_args(argv: List[str]) -> Dict[str, str]:
     out: Dict[str, str] = {}
     i = 0
@@ -307,6 +321,10 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
     residual_ln = np.full(len(df), np.nan, dtype=float)
     residual_z  = np.full(len(df), np.nan, dtype=float)
     residual_tag_arr = np.array([""]*len(df), dtype=object)
+    veto_agudo = np.array([False]*len(df), dtype=bool)
+    ln_pre_veto = np.full(len(df), np.nan, dtype=float)
+    swc_ln_floor_arr = np.full(len(df), np.nan, dtype=float)
+    reason_parts: List[List[str]] = [[] for _ in range(len(df))]
 
     # Precompute lnRRbar
     ln_rr = np.full(len(df), np.nan, dtype=float)
@@ -347,6 +365,21 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             gate_base60[i] = NO
             razon_base60[i] = "SWC_NAN/0"
         else:
+            # ===== VETO AGUDO (v4): bypass ROLL3 si caída aguda =====
+            swc_v4 = max(sw_ln, SWC_FLOOR)
+            swc_ln_floor_arr[i] = swc_v4
+
+            if (is_clean[i] and np.isfinite(ln_today[i]) and np.isfinite(b_ln)
+                and ln_today[i] < (b_ln - VETO_MULT * swc_v4)):
+                veto_agudo[i] = True
+                ln_pre_veto[i] = ln_used[i]
+                ln_used[i] = ln_today[i]
+                hr_used[i] = hr_today[i]
+                reason_parts[i].append(
+                    f"Caída aguda HRV: raw={ln_today[i]:.3f} vs base={b_ln:.3f} "
+                    f"(drop={ln_today[i]-b_ln:.3f}, umbral=-{VETO_MULT*swc_v4:.3f})"
+                )
+
             dln = float(ln_used[i] - b_ln)
             dhr = float(hr_used[i] - b_hr)
             d_ln[i] = dln
@@ -565,6 +598,80 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             Action_detail[i] = "DESCARGA"
 
     # =============================================================================
+    # REASON_TEXT (contextual)
+    # =============================================================================
+    ctx_lookup: Optional[pd.DataFrame] = None
+    ctx_path = DATA_DIR / "ENDURANCE_HRV_context.csv"
+    if ctx_path.exists():
+        try:
+            ctx_df = pd.read_csv(ctx_path)
+            if "Fecha" in ctx_df.columns:
+                ctx_df["Fecha"] = ctx_df["Fecha"].astype(str)
+                ctx_df = ctx_df.drop_duplicates(subset=["Fecha"], keep="last")
+                ctx_lookup = ctx_df.set_index("Fecha")
+        except (OSError, ValueError, KeyError):
+            ctx_lookup = None
+
+    for i in range(len(df)):
+        fecha = str(df.iloc[i]["Fecha"])
+
+        # Saturación parasimpática
+        if np.isfinite(d_ln[i]) and np.isfinite(swc_ln_floor_arr[i]):
+            if d_ln[i] > 2 * swc_ln_floor_arr[i]:
+                reason_parts[i].append("HRV excesivamente alto: posible saturación parasimpática")
+
+        # Quality override
+        if quality_flag[i] and gate_final[i] in (VERDE, AMBAR):
+            reason_parts[i].append("Dato dudoso: limitar a Z1-Z2 máx 90min")
+
+        if ctx_lookup is None or fecha not in ctx_lookup.index:
+            continue
+
+        ctx_row = ctx_lookup.loc[fecha]
+        if isinstance(ctx_row, pd.DataFrame):
+            ctx_row = ctx_row.iloc[-1]
+
+        # Sueño (percentiles propios)
+        sleep_dur = _safe_float(ctx_row, "polar_sleep_duration_min")
+        sleep_int = _safe_float(ctx_row, "polar_interruptions_long")
+        sleep_dur_p10 = _safe_float(ctx_row, "sleep_dur_p10")
+        sleep_int_p90 = _safe_float(ctx_row, "sleep_int_p90")
+        sleep_bad = False
+
+        if sleep_dur is not None and sleep_dur_p10 is not None and sleep_dur < sleep_dur_p10:
+            reason_parts[i].append(f"Noche corta ({sleep_dur:.0f}min < P10={sleep_dur_p10:.0f})")
+            sleep_bad = True
+        if sleep_int is not None and sleep_int_p90 is not None and sleep_int > sleep_int_p90:
+            reason_parts[i].append(f"Noche fragmentada ({sleep_int:.0f} interr > P90={sleep_int_p90:.0f})")
+            sleep_bad = True
+
+        # Nightly RMSSD discordancia
+        night_rmssd = _safe_float(ctx_row, "polar_night_rmssd")
+        if night_rmssd is not None:
+            if gate_final[i] == VERDE and night_rmssd < 25:
+                reason_parts[i].append(f"VERDE pero nightly_rmssd bajo ({night_rmssd:.0f}ms)")
+            elif gate_final[i] == ROJO and night_rmssd > 45:
+                reason_parts[i].append(f"ROJO con nightly_rmssd alto ({night_rmssd:.0f}ms): posible confusor")
+
+        # Carga
+        load_3d = _safe_float(ctx_row, "intervals_load_3d")
+        load_3d_p90 = _safe_float(ctx_row, "load_3d_p90")
+        tsb = _safe_float(ctx_row, "intervals_tsb")
+        load_yday = _safe_float(ctx_row, "intervals_load_yday")
+
+        if load_3d is not None and load_3d_p90 is not None and load_3d > load_3d_p90:
+            reason_parts[i].append(f"Carga acumulada alta (3d={load_3d:.0f} > P90={load_3d_p90:.0f})")
+        if tsb is not None and tsb < -25:
+            reason_parts[i].append(f"Fatiga profunda (TSB={tsb:.0f})")
+        if gate_final[i] == ROJO and load_yday is not None and load_yday < 30:
+            if sleep_dur is None or (sleep_dur_p10 is not None and sleep_dur >= sleep_dur_p10):
+                reason_parts[i].append("ROJO sin carga previa ni sueño malo: revisar otros factores")
+        if gate_final[i] == VERDE and tsb is not None and tsb < -20:
+            reason_parts[i].append(f"VERDE con fatiga acumulada (TSB={tsb:.0f}): precaución intensidad")
+
+    reason_text = np.array([" | ".join(p) if p else "" for p in reason_parts], dtype=object)
+
+    # =============================================================================
     # Warning baseline60_degraded (informativo)
     # =============================================================================
     healthy_rmssd, healthy_hr, healthy_period = compute_healthy_anchors(core, cfg)
@@ -665,6 +772,10 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
 
         "warning_threshold": warning_threshold,
         "warning_mode": cfg.warning_mode,
+        "veto_agudo": veto_agudo.astype(bool),
+        "ln_pre_veto": ln_pre_veto,
+        "swc_ln_floor": swc_ln_floor_arr,
+        "reason_text": reason_text,
     })
 
     # Reordenar (contrato)
@@ -708,4 +819,3 @@ def main(argv: List[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
-

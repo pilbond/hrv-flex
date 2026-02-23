@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Especificación Técnica
 
-**Revisión:** r2026-02-12 v3  
+**Revisión:** r2026-02-23 v4 (veto agudo + context + reason_text)  
 **Estado:** Producción
 
 ---
@@ -441,23 +441,26 @@ Este decisor toma CORE (ya procesado) y genera:
 
 ```
 ENDURANCE_HRV_master_CORE.csv (entrada)
+ENDURANCE_HRV_context.csv (entrada opcional, para reason_text)
                     │
                     ▼
-┌─────────────────────────────────────┐
-│  endurance_v4lite.py                │
-│  1. Clasificar calidad (clean/flag) │
-│  2. Suavizado ROLL3 (solo clean)    │
-│  3. Baselines BASE60 + SWC          │
-│  4. Gate 2D BASE60                  │
-│  5. Sombras BASE42/BASE28           │
-│  6. Override opcional (modo O3)     │
-│  7. Residual (BASE60) + sufijo      │
-│  8. Acción + acumulación + warning  │
-└─────────────────────────────────────┘
+┌─────────────────────────────────────────┐
+│  endurance_v4lite.py                    │
+│  1. Clasificar calidad (clean/flag)     │
+│  2. Suavizado ROLL3 (solo clean)        │
+│  3. Baselines BASE60 + SWC             │
+│  3b. Veto agudo (bypass ROLL3 si caída) │
+│  4. Gate 2D BASE60                      │
+│  5. Sombras BASE42/BASE28              │
+│  6. Override opcional (modo O3)         │
+│  7. Residual (BASE60) + sufijo          │
+│  8. Acción + acumulación + warning      │
+│  9. Reason_text (context.csv si existe) │
+└─────────────────────────────────────────┘
      │
-     ├──► ENDURANCE_HRV_master_FINAL.csv (auditable, 49 cols)
+     ├──► ENDURANCE_HRV_master_FINAL.csv (auditable, 53 cols)
      │
-     └──► ENDURANCE_HRV_master_DASHBOARD.csv (operativo, 9 cols)
+     └──► ENDURANCE_HRV_master_DASHBOARD.csv (operativo, 10 cols)
 ```
 
 ---
@@ -544,6 +547,53 @@ Se calculan igual que BASE60 (medianas + SWC), pero con ventanas más cortas: `[
 Si `n_baseXX` no alcanza su mínimo, entonces `gate_shadowXX = NO` y `gate_razon_shadowXX = BASEXX_INSUF`.
 
 > Las sombras **no gobiernan** por defecto (modo O2); sirven para alertar de transiciones. En modo O3 pueden ajustar el gate final.
+
+---
+
+## 11bis. Veto agudo (bypass de ROLL3)
+
+**Objetivo:** detectar caídas bruscas de HRV que el suavizado ROLL3 enmascara. ROLL3 promedia los últimos 3 días clean, lo que amortigua cambios puntuales — esto es deseable para filtrar ruido, pero peligroso cuando hay una caída aguda real: si ayer y anteayer estaban bien y hoy tu HRV se desploma, ROLL3 aún muestra un valor cercano al normal, ocultando la señal de alarma.
+
+### 11bis.1 Constantes
+
+| Parámetro | Valor | Por qué |
+|-----------|-------|---------|
+| `SWC_FLOOR` | 0.04879 (= ln(1.05)) | Floor mínimo para SWC. Evita que SWC sea trivialmente pequeño en periodos de variabilidad muy baja, lo que causaría falsos positivos constantes |
+| `VETO_MULT` | 2.0 | Multiplicador del umbral. Veto se activa si la caída supera 2 × SWC (un cambio que duplica el "mínimo significativo") |
+
+### 11bis.2 Lógica (dentro del loop principal, tras BASE60+SWC)
+
+Se ejecuta solo para días con `is_clean=True` y con `BASE60` válido (n_base60 ≥ 30):
+
+```python
+# SWC efectivo con floor
+swc_v4 = max(SWC_ln, SWC_FLOOR)
+
+# ¿El dato RAW de hoy cae bruscamente respecto al baseline?
+if lnRMSSD_today < (ln_base60 - VETO_MULT × swc_v4):
+    veto_agudo = True
+    ln_pre_veto = lnRMSSD_used    # guardar valor ROLL3 original
+    lnRMSSD_used = lnRMSSD_today  # forzar dato crudo
+    HR_used = HR_today             # forzar HR crudo también
+```
+
+Después del veto, el Gate 2D (§12) se calcula con el dato **crudo** en vez del suavizado. Esto significa que la caída se refleja inmediatamente en el gate, sin esperar a que ROLL3 la absorba.
+
+### 11bis.3 Por qué se fuerza también HR_used
+
+Forzar `HR_used = HR_today` mantiene coherencia temporal: si la HRV bajó bruscamente hoy, el HR que la acompaña es el de hoy, no un promedio de los últimos 3 días. Esto permite que el Gate 2D evalúe la convergencia real del día (ambas señales del mismo momento).
+
+### 11bis.4 Columnas generadas
+
+| Columna | Tipo | Qué contiene |
+|---------|------|--------------|
+| `veto_agudo` | bool | True si se activó el bypass |
+| `ln_pre_veto` | float | Valor de lnRMSSD_used (ROLL3) antes del override. NaN si no hubo veto |
+| `swc_ln_floor` | float | SWC efectivo usado (con floor aplicado) |
+
+### 11bis.5 Efecto validado (datos históricos)
+
+En 274 días de datos reales, el veto se activa en 54 días (20%) y cambia el gate en 19: 7 VERDE→ROJO, 11 ÁMBAR→ROJO, 1 ROJO→ÁMBAR (este último porque el ROLL3 inflaba artificialmente el HR por días previos malos, y el dato crudo mostraba HR normal).
 
 ---
 
@@ -715,6 +765,32 @@ bad_7d = nº de (ROJO o NO) en los últimos 7 días
 | bad_streak ≥ 2 OR bad_7d ≥ 3 | DESCARGA | Acumulación de señales negativas → reducir carga semanal |
 | Otros ROJO/NO | SUAVE | Mal día puntual, regenerativo |
 
+### 15.3 Reason_text (contexto explicativo)
+
+**Objetivo:** generar un texto que explique *por qué* el sistema tomó esa decisión, combinando información del gate con datos contextuales de sueño y carga. Es informativo — **no recolorea** ni modifica el gate ni la acción.
+
+**Fuente:** combina datos del pipeline HRV (veto agudo, saturación, quality) con datos del `ENDURANCE_HRV_context.csv` (sueño Polar, carga Intervals.icu).
+
+**Generación:** Se evalúan las siguientes condiciones en orden. Las que se cumplen se concatenan con separador ` | `:
+
+| Prioridad | Condición | Texto generado |
+|-----------|-----------|----------------|
+| 1 | `veto_agudo == True` | `Caída aguda HRV: raw=X vs base=Y (drop=Z, umbral=-W)` |
+| 2 | `d_ln > 2 × swc_v4` | `HRV excesivamente alto: posible saturación parasimpática` |
+| 3 | `quality_flag == True` y gate VERDE/ÁMBAR | `Dato dudoso: limitar a Z1-Z2 máx 90min` |
+| 4 | `polar_sleep_duration_min < sleep_dur_p10` | `Noche corta (Xmin < P10=Y)` |
+| 5 | `polar_interruptions_long > sleep_int_p90` | `Noche fragmentada (X interr > P90=Y)` |
+| 6 | VERDE + `polar_night_rmssd < 25` | `VERDE pero nightly_rmssd bajo: vigilar` |
+| 7 | ROJO + `polar_night_rmssd > 45` | `ROJO con nightly_rmssd alto: posible confusor` |
+| 8 | `intervals_load_3d > load_3d_p90` | `Carga acumulada alta (3d=X > P90=Y)` |
+| 9 | `intervals_tsb < -25` | `Fatiga profunda (TSB=X)` |
+| 10 | ROJO + load_yday < 30 + sueño OK | `ROJO sin carga previa ni sueño malo: revisar otros factores` |
+| 11 | VERDE + TSB < -20 | `VERDE con fatiga acumulada: precaución intensidad` |
+
+**Umbrales de sueño:** Basados en percentiles propios (P10, P90), NO en valores fijos. Se recalculan con todo el histórico disponible. Esto adapta los avisos a TU patrón de sueño.
+
+**Si context.csv no existe:** Solo se generan las condiciones 1-3 (basadas en datos HRV). El sistema funciona sin contexto externo.
+
 ---
 
 ## 16. Warning baseline60_degraded
@@ -751,13 +827,14 @@ Si tu baseline actual está por debajo del P20 de todos tus baselines histórico
 
 ---
 
-## 17. Archivos de salida (V4-lite r2026-02-12)
+## 17. Archivos de salida (V4 r2026-02-23)
 
 | Archivo | Para qué | Columnas |
 |---------|----------|----------|
 | `ENDURANCE_HRV_master_CORE.csv` | La medición fisiológica del día, sin decisiones | 12 |
-| `ENDURANCE_HRV_master_FINAL.csv` | El gate, las sombras, el residual, y toda la auditoría | 49 |
-| `ENDURANCE_HRV_master_DASHBOARD.csv` | Lo esencial para decidir en 10 segundos | 9 |
+| `ENDURANCE_HRV_master_FINAL.csv` | Gate, veto agudo, sombras, residual, reason_text y auditoría completa | 53 |
+| `ENDURANCE_HRV_master_DASHBOARD.csv` | Lo esencial para decidir en 10 segundos + reason_text | 10 |
+| `ENDURANCE_HRV_context.csv` | Sueño (Polar) + carga (Intervals.icu) + percentiles propios | 34 |
 | `ENDURANCE_HRV_master_BETA_AUDIT.csv` | Modelo beta del V3, para comparación histórica | 13 |
 
 El contrato exacto (columnas, orden, tipos) está en `ENDURANCE_HRV_Estructura.md`.
@@ -787,7 +864,10 @@ tail -1 ENDURANCE_HRV_master_DASHBOARD.csv
 4. **Sombras BASE28/42 pueden ser más sensibles al ruido** por tener ventanas más cortas — por eso no mandan por defecto (modo O2)
 5. **El residual es un overlay estadístico** — útil para matizar, pero no es un "diagnóstico". Un residual negativo persistente merece atención, pero un pico puntual puede ser ruido
 6. **El warning no distingue causa** — un baseline bajo puede ser enfermedad, temporada de descanso, o adaptación a volumen alto sostenido. Requiere interpretación humana
-7. **No hay integración de carga externa** — El gate solo ve HRV y pulso, no TSS/TRIMP ni horas de sueño. La decisión final siempre requiere contexto que el sistema no tiene
+7. **No hay integración de carga externa** — El gate solo ve HRV y pulso, no TSS/TRIMP ni horas de sueño. El `reason_text` aporta contexto de sueño y carga (via context.csv), pero es informativo — no modifica el gate. La decisión final siempre requiere interpretación humana
+8. **Context.csv depende de APIs externas** — Si Polar AccessLink o Intervals.icu no responden, los campos correspondientes quedan NaN y el reason_text se genera parcial. El gate y la acción no se ven afectados
+9. **Veto agudo puede ser conservador** — Al forzar el dato crudo, un día puntualmente malo (ej: medición defectuosa que pasó quality checks) puede producir un ROJO innecesario. El SWC_FLOOR de 0.04879 limita falsos positivos pero no los elimina
+10. **Percentiles de sueño se estabilizan tras ~30 noches** — Durante las primeras semanas, los P10/P90 pueden ser inestables y generar avisos inapropiados
 
 ---
 
@@ -828,6 +908,10 @@ Secciones obligatorias:
 
 | Fecha | Cambio |
 |-------|--------|
+| 2026-02-23 v4 | Añadido veto agudo (§11bis): bypass ROLL3 en caídas agudas, con SWC_FLOOR y VETO_MULT |
+| 2026-02-23 v4 | Añadido reason_text (§15.3): texto explicativo contextual con sueño, carga y coherencia gate↔contexto |
+| 2026-02-23 v4 | Nuevo archivo context.csv (§17): sidecar de sueño Polar + carga Intervals.icu |
+| 2026-02-23 v4 | FINAL bumped 49→53 cols, DASHBOARD 9→10 cols |
 | 2026-02-12 v3 | Redactado didáctico: intros explicativas en cada sección, "por qué" antes de "cómo" |
 | 2026-02-12 v2 | Reintegradas fórmulas warning §16, sección QA §20, limitaciones §19 completas |
 | 2026-02-12 | Añadido residual (BASE60) + sufijos + gate_badge |

@@ -28,7 +28,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs, urlencode
 from datetime import datetime, timedelta
 
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Tuple
 import requests
 import base64
 from requests.auth import _basic_auth_str
@@ -129,8 +129,26 @@ CORE_PATH = DATA_DIR / "ENDURANCE_HRV_master_CORE.csv"
 BETA_AUDIT_PATH = DATA_DIR / "ENDURANCE_HRV_master_BETA_AUDIT.csv"
 FINAL_PATH = DATA_DIR / "ENDURANCE_HRV_master_FINAL.csv"
 DASHBOARD_PATH = DATA_DIR / "ENDURANCE_HRV_master_DASHBOARD.csv"
+CONTEXT_PATH = DATA_DIR / "ENDURANCE_HRV_context.csv"
 
 INTERVALS_SOURCE_PATH = BETA_AUDIT_PATH
+
+CONTEXT_COLUMNS = [
+    "Fecha",
+    "polar_sleep_duration_min", "polar_sleep_span_min",
+    "polar_deep_pct", "polar_rem_pct",
+    "polar_efficiency_pct", "polar_continuity", "polar_continuity_index",
+    "polar_interruptions_long", "polar_interruptions_total", "polar_sleep_score",
+    "polar_night_rmssd", "polar_night_rri", "polar_night_resp",
+    "intervals_load", "intervals_load_max", "intervals_intensity_max",
+    "intervals_type_main", "intervals_duration_min", "intervals_n_acts",
+    "intervals_avg_hr", "intervals_max_hr",
+    "intervals_atl", "intervals_ctl", "intervals_tsb",
+    "intervals_rpe", "intervals_resting_hr",
+    "intervals_load_3d", "intervals_load_yday",
+    "sleep_dur_p10", "sleep_dur_p90", "sleep_int_p90",
+    "load_3d_p90", "load_3d_median",
+]
 
 # Filtros
 SPORTS_FILTER = ["BODY_AND_MIND"]  # Comparación EXACTA
@@ -641,6 +659,554 @@ def get_exercise_with_samples(token: str, exercise_id: str):
         params={"samples": "true"},
         timeout=90,
     )
+
+
+def _normalize_key(key: str) -> str:
+    return str(key).strip().lower().replace("-", "_")
+
+
+def _to_float(value) -> Optional[float]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+    value_str = str(value).strip()
+    if not value_str or value_str.lower() in {"nan", "none", "null", "n/a"}:
+        return None
+    value_str = value_str.replace(",", ".")
+    try:
+        return float(value_str)
+    except ValueError:
+        return None
+
+
+def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    try:
+        return datetime.fromisoformat(s)
+    except ValueError:
+        return None
+
+
+def _minutes_between(start_iso: Optional[str], end_iso: Optional[str]) -> Optional[float]:
+    start_dt = _parse_iso_datetime(start_iso)
+    end_dt = _parse_iso_datetime(end_iso)
+    if not start_dt or not end_dt:
+        return None
+    delta = (end_dt - start_dt).total_seconds() / 60.0
+    if delta <= 0:
+        return None
+    return float(delta)
+
+
+def _iso_duration_to_minutes(value) -> Optional[float]:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    if text.startswith("PT"):
+        hours = re.search(r"([\d.]+)H", text)
+        minutes = re.search(r"([\d.]+)M", text)
+        seconds = re.search(r"([\d.]+)S", text)
+        total = 0.0
+        if hours:
+            total += float(hours.group(1)) * 60.0
+        if minutes:
+            total += float(minutes.group(1))
+        if seconds:
+            total += float(seconds.group(1)) / 60.0
+        return total
+
+    return _to_float(text)
+
+
+def _normalize_pct(value) -> Optional[float]:
+    v = _to_float(value)
+    if v is None:
+        return None
+    if v <= 1.0:
+        return v * 100.0
+    return v
+
+
+def _find_first_value(payload, candidate_keys: List[str], as_float: bool = False):
+    keys = {_normalize_key(k) for k in candidate_keys}
+    stack = [payload]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, dict):
+            for raw_key, raw_value in current.items():
+                if _normalize_key(raw_key) in keys:
+                    if as_float:
+                        f = _to_float(raw_value)
+                        if f is not None:
+                            return f
+                    else:
+                        if raw_value is not None and str(raw_value).strip() != "":
+                            return raw_value
+                if isinstance(raw_value, (dict, list)):
+                    stack.append(raw_value)
+        elif isinstance(current, list):
+            for item in current:
+                if isinstance(item, (dict, list)):
+                    stack.append(item)
+    return None
+
+
+def _extract_interruptions_counts(sleep_json: dict) -> Tuple[Optional[float], Optional[float]]:
+    if not isinstance(sleep_json, dict):
+        return None, None
+
+    evaluation = _get_field_variant(sleep_json, "evaluation", "sleep-evaluation", "sleep_evaluation", default=None)
+    interruptions = None
+    if isinstance(evaluation, dict):
+        interruptions = _get_field_variant(
+            evaluation,
+            "interruptions",
+            "sleep-interruptions",
+            "sleep_interruptions",
+            default=None,
+        )
+
+    long_count = None
+    total_count = None
+    if isinstance(interruptions, dict):
+        long_count = _to_float(_get_field_variant(interruptions, "longCount", "long_count", "long-count", default=None))
+        total_count = _to_float(_get_field_variant(interruptions, "totalCount", "total_count", "total-count", "count", default=None))
+
+    if long_count is None:
+        long_count = _find_first_value(
+            sleep_json,
+            [
+                "longCount",
+                "long_count",
+                "long-count",
+                "sleep_long_interruptions",
+                "interruptions_long",
+            ],
+            as_float=True,
+        )
+    if total_count is None:
+        total_count = _find_first_value(
+            sleep_json,
+            [
+                "totalCount",
+                "total_count",
+                "total-count",
+                "interruptions_total",
+                "sleep_interruptions_total",
+            ],
+            as_float=True,
+        )
+
+    return long_count, total_count
+
+
+def _extract_sleep_context_fields(sleep_json: Optional[dict]) -> Dict[str, Any]:
+    if not isinstance(sleep_json, dict):
+        return {}
+
+    sleep_start = _find_first_value(sleep_json, ["sleep_start_time", "sleep-start-time", "sleepStartTime"])
+    sleep_end = _find_first_value(sleep_json, ["sleep_end_time", "sleep-end-time", "sleepEndTime"])
+
+    asleep_duration_min = _iso_duration_to_minutes(
+        _find_first_value(
+            sleep_json,
+            ["asleep_duration", "asleep-duration", "sleep_duration", "sleep-duration", "sleepDuration"],
+        )
+    )
+    span_min = _iso_duration_to_minutes(
+        _find_first_value(sleep_json, ["sleep_span", "sleep-span", "sleepSpan", "time_in_bed"])
+    )
+    if span_min is None:
+        span_min = _minutes_between(sleep_start, sleep_end)
+
+    deep_min = _iso_duration_to_minutes(_find_first_value(sleep_json, ["deep_sleep", "deep-sleep", "deepSleep", "sleep_n3"]))
+    rem_min = _iso_duration_to_minutes(_find_first_value(sleep_json, ["rem_sleep", "rem-sleep", "remSleep", "sleep_rem"]))
+    light_min = _iso_duration_to_minutes(_find_first_value(sleep_json, ["light_sleep", "light-sleep", "lightSleep"]))
+
+    if asleep_duration_min is None:
+        parts = [x for x in (deep_min, rem_min, light_min) if x is not None]
+        if parts:
+            asleep_duration_min = float(sum(parts))
+
+    deep_pct = _to_float(_find_first_value(sleep_json, ["polar_deep_pct", "deep_pct", "deep_percentage"]))
+    rem_pct = _to_float(_find_first_value(sleep_json, ["polar_rem_pct", "rem_pct", "rem_percentage"]))
+    if asleep_duration_min and asleep_duration_min > 0:
+        if deep_pct is None and deep_min is not None:
+            deep_pct = 100.0 * deep_min / asleep_duration_min
+        if rem_pct is None and rem_min is not None:
+            rem_pct = 100.0 * rem_min / asleep_duration_min
+
+    continuity = _to_float(_find_first_value(sleep_json, ["continuity", "sleep_continuity"]))
+    continuity_index = _to_float(_find_first_value(sleep_json, ["continuity_index", "continuity-class", "continuity_class"]))
+    efficiency_pct = _normalize_pct(_find_first_value(sleep_json, ["efficiency_pct", "sleep_efficiency", "efficiency"]))
+    sleep_score = _to_float(_find_first_value(sleep_json, ["sleep_score", "sleep-score"]))
+    long_count, total_count = _extract_interruptions_counts(sleep_json)
+
+    out: Dict[str, Any] = {}
+    if asleep_duration_min is not None:
+        out["polar_sleep_duration_min"] = asleep_duration_min
+    if span_min is not None:
+        out["polar_sleep_span_min"] = span_min
+    if deep_pct is not None:
+        out["polar_deep_pct"] = deep_pct
+    if rem_pct is not None:
+        out["polar_rem_pct"] = rem_pct
+    if efficiency_pct is not None:
+        out["polar_efficiency_pct"] = efficiency_pct
+    if continuity is not None:
+        out["polar_continuity"] = continuity
+    if continuity_index is not None:
+        out["polar_continuity_index"] = continuity_index
+    if long_count is not None:
+        out["polar_interruptions_long"] = long_count
+    if total_count is not None:
+        out["polar_interruptions_total"] = total_count
+    if sleep_score is not None:
+        out["polar_sleep_score"] = sleep_score
+    return out
+
+
+def _extract_nightly_context_fields(nightly_json: Optional[dict]) -> Dict[str, Any]:
+    if not isinstance(nightly_json, dict):
+        return {}
+
+    night_rmssd = _to_float(
+        _find_first_value(
+            nightly_json,
+            ["heart_rate_variability_avg", "heart-rate-variability-avg", "nightly_rmssd"],
+            as_float=True,
+        )
+    )
+    night_rri = _to_float(
+        _find_first_value(
+            nightly_json,
+            ["nightly_rri", "rri_avg", "heart_rate_rri_avg", "heart-rate-rri-avg"],
+            as_float=True,
+        )
+    )
+    hr_avg = _to_float(_find_first_value(nightly_json, ["heart_rate_avg", "heart-rate-avg", "hr_avg"], as_float=True))
+    if night_rri is None and hr_avg is not None and hr_avg > 0:
+        night_rri = 60000.0 / hr_avg
+
+    night_resp = _to_float(
+        _find_first_value(
+            nightly_json,
+            ["breathing_rate_avg", "breathing-rate-avg", "nightly_resp", "nightly_resp_int"],
+            as_float=True,
+        )
+    )
+
+    out: Dict[str, Any] = {}
+    if night_rmssd is not None:
+        out["polar_night_rmssd"] = night_rmssd
+    if night_rri is not None:
+        out["polar_night_rri"] = night_rri
+    if night_resp is not None:
+        out["polar_night_resp"] = night_resp
+    return out
+
+
+def fetch_polar_sleep(token: str, user_id: str, date_str: str) -> Optional[dict]:
+    """Fetch sleep data for a date. Returns None if not available."""
+    if not token or not user_id or not date_str:
+        return None
+    try:
+        resp = api_request("GET", f"/users/{user_id}/sleep/{date_str}", token, timeout=30)
+        return resp if isinstance(resp, dict) else None
+    except Exception as exc:
+        print(f"⚠️ Sleep fetch failed for {date_str}: {exc}")
+        return None
+
+
+def fetch_polar_nightly_recharge(token: str, user_id: str, date_str: str) -> Optional[dict]:
+    """Fetch nightly recharge data for a date. Returns None if not available."""
+    if not token or not user_id or not date_str:
+        return None
+    try:
+        resp = api_request("GET", f"/users/{user_id}/nightly-recharge/{date_str}", token, timeout=30)
+        return resp if isinstance(resp, dict) else None
+    except Exception as exc:
+        print(f"⚠️ Nightly-recharge fetch failed for {date_str}: {exc}")
+        return None
+
+
+def fetch_intervals_activities(api_key: str, athlete_id: str, date_str: str) -> list:
+    """Fetch activities for a date from Intervals.icu."""
+    if not api_key or not athlete_id or not date_str:
+        return []
+    url = f"{INTERVALS_BASE_URL.rstrip('/')}/api/v1/athlete/{athlete_id}/activities"
+    headers = {"Authorization": _basic_auth_str("API_KEY", api_key)}
+    params = {"oldest": date_str, "newest": date_str}
+    try:
+        resp = requests.get(url, headers=headers, params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        return data if isinstance(data, list) else []
+    except Exception as exc:
+        print(f"⚠️ Intervals fetch failed for {date_str}: {exc}")
+        return []
+
+
+def _extract_activity_datetime(activity: dict) -> Optional[datetime]:
+    for key in ("start_date_local", "start_date", "startDateLocal", "startDate", "start_time", "startTime"):
+        raw = _find_first_value(activity, [key])
+        parsed = _parse_iso_datetime(raw) if raw is not None else None
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _aggregate_intervals_activity_fields(activities: list) -> Dict[str, Any]:
+    if not activities:
+        return {"intervals_n_acts": 0}
+
+    rows = []
+    for act in activities:
+        if not isinstance(act, dict):
+            continue
+        row = {
+            "activity": act,
+            "load": _find_first_value(act, ["icu_training_load", "training_load", "load"], as_float=True),
+            "intensity": _find_first_value(act, ["icu_intensity", "intensity"], as_float=True),
+            "moving_time_s": _find_first_value(act, ["moving_time", "movingTime", "moving time"], as_float=True),
+            "avg_hr": _find_first_value(act, ["average_heartrate", "avg_hr", "average_heart_rate"], as_float=True),
+            "max_hr": _find_first_value(act, ["max_heartrate", "max_hr", "max_heart_rate"], as_float=True),
+            "atl": _find_first_value(act, ["icu_atl", "atl"], as_float=True),
+            "ctl": _find_first_value(act, ["icu_ctl", "ctl"], as_float=True),
+            "tsb": _find_first_value(act, ["icu_tsb", "tsb"], as_float=True),
+            "rpe": _find_first_value(act, ["icu_rpe", "rpe"], as_float=True),
+            "resting_hr": _find_first_value(act, ["resting_heartrate", "resting_hr"], as_float=True),
+            "type": _find_first_value(act, ["type", "activity_type", "sport"]),
+            "dt": _extract_activity_datetime(act),
+        }
+        rows.append(row)
+
+    if not rows:
+        return {"intervals_n_acts": 0}
+
+    load_vals = [r["load"] for r in rows if r["load"] is not None]
+    intensity_vals = [r["intensity"] for r in rows if r["intensity"] is not None]
+    duration_vals = [r["moving_time_s"] for r in rows if r["moving_time_s"] is not None]
+    avg_hr_vals = [r["avg_hr"] for r in rows if r["avg_hr"] is not None]
+    max_hr_vals = [r["max_hr"] for r in rows if r["max_hr"] is not None]
+
+    main_row = max(rows, key=lambda r: r["load"] if r["load"] is not None else float("-inf"))
+    def _dt_key(row):
+        dt = row.get("dt")
+        if dt is None:
+            return float("-inf")
+        try:
+            return float(dt.timestamp())
+        except (AttributeError, OSError, OverflowError, ValueError):
+            return float("-inf")
+
+    latest_row = max(rows, key=_dt_key)
+
+    out: Dict[str, Any] = {"intervals_n_acts": len(rows)}
+    if load_vals:
+        out["intervals_load"] = float(sum(load_vals))
+        out["intervals_load_max"] = float(max(load_vals))
+    if intensity_vals:
+        out["intervals_intensity_max"] = float(max(intensity_vals))
+    if duration_vals:
+        out["intervals_duration_min"] = float(sum(duration_vals) / 60.0)
+    if avg_hr_vals:
+        out["intervals_avg_hr"] = float(sum(avg_hr_vals) / len(avg_hr_vals))
+    if max_hr_vals:
+        out["intervals_max_hr"] = float(max(max_hr_vals))
+
+    main_type = main_row.get("type")
+    if main_type is not None:
+        out["intervals_type_main"] = str(main_type)
+
+    for dst_key, src_key in (
+        ("intervals_atl", "atl"),
+        ("intervals_ctl", "ctl"),
+        ("intervals_tsb", "tsb"),
+        ("intervals_rpe", "rpe"),
+        ("intervals_resting_hr", "resting_hr"),
+    ):
+        value = latest_row.get(src_key)
+        if value is not None:
+            out[dst_key] = float(value)
+
+    return out
+
+
+def _ensure_context_schema(df):
+    out = df.copy()
+    for col in CONTEXT_COLUMNS:
+        if col not in out.columns:
+            out[col] = float("nan")
+    out = out[CONTEXT_COLUMNS].copy()
+    out["Fecha"] = out["Fecha"].astype(str)
+    return out
+
+
+def _recalculate_context_derived(df):
+    out = _ensure_context_schema(df)
+    out["_fecha_dt"] = pd.to_datetime(out["Fecha"], errors="coerce")
+    out = out.sort_values("_fecha_dt").drop(columns=["_fecha_dt"]).reset_index(drop=True)
+
+    numeric_cols = [c for c in CONTEXT_COLUMNS if c not in {"Fecha", "intervals_type_main"}]
+    for col in numeric_cols:
+        out[col] = pd.to_numeric(out[col], errors="coerce")
+
+    load_by_date: Dict[Any, float] = {}
+    for _, row in out.iterrows():
+        d = _parse_yyyy_mm_dd(str(row["Fecha"]))
+        if d is None:
+            continue
+        load_value = row.get("intervals_load")
+        load_by_date[d] = float(load_value) if pd.notna(load_value) else 0.0
+
+    load_3d_vals = []
+    load_yday_vals = []
+    for fecha in out["Fecha"].astype(str):
+        d = _parse_yyyy_mm_dd(fecha)
+        if d is None:
+            load_3d_vals.append(float("nan"))
+            load_yday_vals.append(float("nan"))
+            continue
+        l1 = load_by_date.get(d - timedelta(days=1), 0.0)
+        l2 = load_by_date.get(d - timedelta(days=2), 0.0)
+        l3 = load_by_date.get(d - timedelta(days=3), 0.0)
+        load_yday_vals.append(float(l1))
+        load_3d_vals.append(float(l1 + l2 + l3))
+
+    out["intervals_load_3d"] = load_3d_vals
+    out["intervals_load_yday"] = load_yday_vals
+
+    dur = out["polar_sleep_duration_min"].dropna()
+    out["sleep_dur_p10"] = float(dur.quantile(0.10)) if len(dur) > 0 else float("nan")
+    out["sleep_dur_p90"] = float(dur.quantile(0.90)) if len(dur) > 0 else float("nan")
+
+    ints = out["polar_interruptions_long"].dropna()
+    out["sleep_int_p90"] = float(ints.quantile(0.90)) if len(ints) > 0 else float("nan")
+
+    ld3 = out["intervals_load_3d"].dropna()
+    ld3 = ld3[ld3 > 0]
+    out["load_3d_p90"] = float(ld3.quantile(0.90)) if len(ld3) > 0 else float("nan")
+    out["load_3d_median"] = float(ld3.median()) if len(ld3) > 0 else float("nan")
+
+    return out
+
+
+def upsert_context_row(context_row: Dict[str, Any]) -> bool:
+    if not PANDAS_AVAILABLE:
+        print("⚠️  Pandas no disponible: se omite actualización de context.csv")
+        return False
+
+    fecha = str(context_row.get("Fecha", "")).strip()
+    if not fecha:
+        return False
+
+    if CONTEXT_PATH.exists():
+        try:
+            ctx = pd.read_csv(CONTEXT_PATH)
+        except (FileNotFoundError, pd.errors.EmptyDataError, OSError, ValueError):
+            ctx = pd.DataFrame(columns=CONTEXT_COLUMNS)
+    else:
+        ctx = pd.DataFrame(columns=CONTEXT_COLUMNS)
+
+    ctx = _ensure_context_schema(ctx)
+    ctx = ctx[ctx["Fecha"].astype(str) != fecha]
+
+    row = {col: context_row.get(col, float("nan")) for col in CONTEXT_COLUMNS}
+    row["Fecha"] = fecha
+    if row.get("intervals_type_main") is None:
+        row["intervals_type_main"] = ""
+
+    ctx = pd.concat([ctx, pd.DataFrame([row])], ignore_index=True)
+    ctx = _recalculate_context_derived(ctx)
+    ctx = ctx[CONTEXT_COLUMNS]
+
+    CONTEXT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    ctx.to_csv(CONTEXT_PATH, index=False)
+    return True
+
+
+def fetch_and_upsert_context(token: str, user_id: Optional[str], processed_date) -> bool:
+    if processed_date is None:
+        return False
+
+    date_str = processed_date.isoformat() if hasattr(processed_date, "isoformat") else str(processed_date)
+    if not date_str:
+        return False
+
+    context_row: Dict[str, Any] = {col: float("nan") for col in CONTEXT_COLUMNS}
+    context_row["Fecha"] = date_str
+    context_row["intervals_type_main"] = ""
+
+    if user_id:
+        sleep_json = fetch_polar_sleep(token, user_id, date_str)
+        nightly_json = fetch_polar_nightly_recharge(token, user_id, date_str)
+        if sleep_json:
+            context_row.update(_extract_sleep_context_fields(sleep_json))
+        if nightly_json:
+            context_row.update(_extract_nightly_context_fields(nightly_json))
+    else:
+        print("⚠️  x_user_id ausente: se omite fetch Polar sleep/nightly")
+
+    intervals_date = (processed_date - timedelta(days=1)).isoformat() if hasattr(processed_date, "isoformat") else date_str
+    intervals_api_key = (os.environ.get("INTERVALS_API_KEY") or "").strip()
+    intervals_athlete_id = (os.environ.get("INTERVALS_ATHLETE_ID") or "").strip()
+    activities = fetch_intervals_activities(intervals_api_key, intervals_athlete_id, intervals_date) if intervals_api_key and intervals_athlete_id else []
+    if not intervals_api_key or not intervals_athlete_id:
+        print("⚠️  Intervals context: faltan INTERVALS_API_KEY o INTERVALS_ATHLETE_ID")
+
+    context_row.update(_aggregate_intervals_activity_fields(activities))
+    saved = upsert_context_row(context_row)
+    if saved:
+        print(f"✅ Context actualizado: {CONTEXT_PATH.name} ({date_str}, acts_ayer={len(activities)})")
+    return saved
+
+
+def _update_context_for_dates(token: str, user_id: Optional[str], dates_to_sync: List) -> int:
+    """Fetch+upsert context for a list of dates. Returns successful upserts."""
+    if not dates_to_sync:
+        return 0
+
+    done = 0
+    seen = set()
+    for d in dates_to_sync:
+        if d is None:
+            continue
+        key = d.isoformat() if hasattr(d, "isoformat") else str(d)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            if fetch_and_upsert_context(token, user_id, d):
+                done += 1
+        except Exception as exc:
+            print(f"⚠️  Context fetch/upsert falló para {key}: {exc}")
+    return done
+
+
+def _today_date():
+    return datetime.now().date()
 
 
 def extract_rr_ms(exercise_json: dict):
@@ -1197,6 +1763,7 @@ def main():
     if not filtered:
         if QUIET:
             print("⚠️  No hay sesiones Body&Mind en el periodo")
+            _update_context_for_dates(access_token, x_user_id, [_today_date()])
             show_last_daily_summary()
             show_last_5_days_summary()
             _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
@@ -1244,6 +1811,7 @@ def main():
         
         # Mostrar resumen últimos 5 días
         show_last_5_days_summary()
+        _update_context_for_dates(access_token, x_user_id, [_today_date()])
         
         _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
         return
@@ -1254,6 +1822,7 @@ def main():
     
     # Obtener fechas ya existentes en CORE
     existing_dates = get_existing_dates_from_master()
+    pre_process_dates = set(existing_dates)
     if existing_dates and args.verbose:
         print(f"📋 {len(existing_dates)} fechas ya en CORE")
     
@@ -1363,11 +1932,13 @@ def main():
             print("⚠️  No hay RR con fecha válida para procesar")
         else:
             _print_no_rr_files()
+        _update_context_for_dates(access_token, x_user_id, [_today_date()])
         _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
         return
     
     if total_to_process == 0 and skipped_in_master > 0:
         _print_master_already_updated()
+        _update_context_for_dates(access_token, x_user_id, [_today_date()])
         _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
         return
 
@@ -1390,6 +1961,7 @@ def main():
         if len(cmd) <= 2:
             print("")
             print("⚠️  No hay archivos RR con fecha válida para procesar")
+            _update_context_for_dates(access_token, x_user_id, [_today_date()])
             _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
             return
 
@@ -1413,6 +1985,13 @@ def main():
 
             if result.stdout:
                 print(result.stdout)
+
+            post_process_dates = get_existing_dates_from_master() if PANDAS_AVAILABLE else set()
+            new_dates = sorted(post_process_dates - pre_process_dates) if PANDAS_AVAILABLE else []
+            target_dates = new_dates if new_dates else [_today_date()]
+            _qprint("")
+            _qprint(f"▶️  Actualizando context.csv ({len(target_dates)} fecha(s))...")
+            _update_context_for_dates(access_token, x_user_id, target_dates)
 
             _qprint("")
             _qprint("▶️  Ejecutando endurance_v4lite.py...")

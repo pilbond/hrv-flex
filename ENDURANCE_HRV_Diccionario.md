@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Diccionario de Columnas (V4-lite)
 
-**Revisión:** r2026-02-12 v2  
+**Revisión:** r2026-02-23 v3 (v4 enhancement)  
 **Estado:** Producción
 
 **Documentos relacionados:**
@@ -126,22 +126,25 @@ Generado por `endurance_hrv.py`. Contiene la señal fisiológica **sin decisione
 
 ---
 
-## 3. FINAL (gate + auditoría extendida) — 49 columnas
+## 3. FINAL (gate + auditoría extendida) — 53 columnas
 
 Generado por `endurance_v4lite.py`. Contiene:
 
 - suavizado ROLL3 (solo días clean)
 - baseline BASE60 + SWC
+- **veto agudo** (bypass ROLL3 ante caídas bruscas)
 - gate BASE60 (decisor)
 - sombras BASE42 y BASE28 (informativas)
 - override opcional (modo O3)
 - residual (BASE60) + sufijo (`+/-`)
 - acción + acumulación + warnings
+- **reason_text** (contexto de sueño + carga)
 
 ### Lo mínimo que debes mirar a diario
 
 - `gate_badge` (semáforo final + matiz)
 - `Action` y `Action_detail`
+- `reason_text` (contexto: sueño, carga, veto agudo)
 - `quality_flag`
 - `gate_razon_base60`
 - `decision_path` (para ver si hubo override)
@@ -274,9 +277,18 @@ Mapping:
 | `flag_sistemico` | Campo reservado para información externa al HRV que podría afectar la interpretación: calidad de sueño, viajes, enfermedad, etc. Actualmente no se alimenta automáticamente — está preparado para futuras integraciones. |
 | `flag_razon` | Texto explicativo del flag sistémico (ej: "sueño <5h", "jet lag"). Vacío si no hay flag activo. |
 
+#### J) v4 Enhancement
+
+| Columna | Qué es |
+|---------|--------|
+| `veto_agudo` | ¿Se activó el bypass de ROLL3 por caída aguda? True si tu lnRMSSD crudo de hoy cayó más de 2×SWC por debajo de tu baseline (una caída demasiado brusca para que ROLL3 la suavice sin peligro). Cuando se activa, `lnRMSSD_used` y `HR_used` se fuerzan al dato crudo del día en vez del promedio de 3 días. Esto hace que el gate refleje la caída inmediatamente. |
+| `ln_pre_veto` | El valor de lnRMSSD_used (ROLL3) que tenías antes de que el veto lo sobrescribiera. Permite auditar cuánto habría enmascarado el suavizado: la diferencia `ln_pre_veto - lnRMSSD_used` muestra lo que ROLL3 estaba "ocultando". NaN si no hubo veto. |
+| `swc_ln_floor` | El SWC efectivo que se usó para evaluar el veto: `max(SWC_ln, 0.04879)`. El floor de 0.04879 (= ln(1.05)) garantiza que el umbral del veto nunca sea trivialmente pequeño, evitando falsos positivos en periodos de variabilidad muy baja. NaN si no se calculó BASE60. |
+| `reason_text` | Texto explicativo contextual que combina información del gate con datos de sueño y carga. Múltiples razones separadas por ` \| `. Puede incluir: caída aguda HRV, noche corta/fragmentada (basado en tus percentiles, no en umbrales fijos), carga acumulada alta, fatiga profunda (TSB), saturación parasimpática, divergencias gate↔contexto. Vacío si no hay nada que reportar. **No recolorea** el gate — es contexto para tu decisión. |
+
 ---
 
-## 4. DASHBOARD (vista operativa) — 9 columnas
+## 4. DASHBOARD (vista operativa) — 10 columnas
 
 Subconjunto de FINAL para mirar en 10 segundos. Solo lo esencial para decidir qué hacer hoy.
 
@@ -291,6 +303,7 @@ Subconjunto de FINAL para mirar en 10 segundos. Solo lo esencial para decidir qu
 | `gate_razon_base60` | Por qué salió ese color. 2D_OK = todo dentro de rango. 2D_LN = HRV baja. 2D_HR = pulso alto. 2D_AMBOS = las dos cosas → máxima confianza de fatiga. |
 | `decision_path` | Si el gate fue ajustado por una sombra (BASE28 o BASE42) aparece aquí. Si dice BASE60_ONLY, no hubo override. |
 | `baseline60_degraded` | Warning a medio plazo: True si tu baseline de los últimos 2 meses está por debajo de tu referencia "sano". No cambia el gate de hoy, pero avisa de que tu capacidad de absorción está reducida. |
+| `reason_text` | Contexto textual del día: por qué el sistema tomó esa decisión y qué factores externos hay (sueño, carga, divergencias). Vacío si no hay nada que reportar. |
 
 ---
 
@@ -308,6 +321,53 @@ Conservado para comparación histórica con el sistema anterior (V3). **No afect
 | `Color_Agudo_Diario` | El color del sistema V3 para el día (equivalente al gate diario, pero basado en cRMSSD en vez de gate 2D). Solo para comparación histórica. |
 | `Color_Tendencia` | El color de tendencia del V3 (basado en media móvil de cRMSSD). Indicaba si la dirección a medio plazo era buena o mala. |
 | `Color_Tiebreak` | El color de desempate del V3: cuando agudo y tendencia discrepaban, este decidía. |
+
+---
+
+## 5bis. CONTEXT (sidecar externo) — 34 columnas
+
+Generado por `polar_hrv_automation.py` (fetch diario). Contiene datos de fuentes externas que el sensor HRV no mide. Alimenta el `reason_text` pero **NO afecta al gate ni a la acción**.
+
+### ¿Para qué sirve?
+
+El gate 2D solo ve HRV y pulso. Pero a menudo quieres saber *por qué* tu HRV bajó: ¿dormiste mal? ¿acumulaste mucha carga? ¿o no hay explicación obvia? El context.csv aporta esas piezas del puzzle sin interferir en la decisión automática.
+
+### Polar Sleep (lo que pasó durante la noche)
+
+| Columna | Qué es | Valores típicos |
+|---------|--------|----------------|
+| `polar_sleep_duration_min` | Minutos de sueño real (sin despertares) | 360-480 (6-8h) |
+| `polar_sleep_span_min` | Minutos totales en cama (con despertares) | 400-510 |
+| `polar_deep_pct` | % de sueño profundo (N3). Crítico para recuperación física | 15-25% |
+| `polar_rem_pct` | % de sueño REM. Importante para consolidación cognitiva | 18-25% |
+| `polar_efficiency_pct` | Eficiencia: tiempo dormido / tiempo en cama × 100 | 85-95% |
+| `polar_continuity` / `polar_continuity_index` | Clase e índice de continuidad Polar | 1-5 |
+| `polar_interruptions_long` | **Conteo** de interrupciones largas (⚠️ NO es duración). P90 personal ≈ 8 | 0-15 |
+| `polar_interruptions_total` | Conteo total de interrupciones (largas + cortas) | 10-40 |
+| `polar_sleep_score` | Score Polar (0-100). Solo disponible con Nightly Recharge activo | 60-90 |
+| `polar_night_rmssd` | RMSSD nocturno medio (ms). Complementa el RMSSD matinal — si el nocturno es alto pero el matinal bajo, hay un confusor post-despertar | 20-60 |
+| `polar_night_rri` / `polar_night_resp` | RRI y respiración nocturna (ms). Informativos | — |
+
+### Intervals.icu (lo que hiciste ayer/últimos días)
+
+| Columna | Qué es |
+|---------|--------|
+| `intervals_load` | Carga total del día (sum de actividades). 0 = descanso |
+| `intervals_load_3d` | Sum de carga de los 3 días previos (d-1 + d-2 + d-3). No incluye hoy |
+| `intervals_load_yday` | Carga de ayer. Útil para "ROJO sin carga previa" |
+| `intervals_atl` / `intervals_ctl` / `intervals_tsb` | Fatiga aguda, fitness crónico, y balance (TSB = CTL - ATL). TSB < -20 = fatiga significativa |
+| `intervals_type_main` | Tipo de sesión principal (la de mayor load) |
+| `intervals_duration_min` | Duración total en minutos |
+
+### Percentiles propios (tus umbrales personalizados)
+
+| Columna | Qué es |
+|---------|--------|
+| `sleep_dur_p10` | Debajo de este valor = noche corta para TI. Se calibra con todo tu histórico |
+| `sleep_int_p90` | Encima = noche fragmentada para TI |
+| `load_3d_p90` | Encima = carga acumulada alta para TI |
+
+**Si el context.csv no existe o una API falla:** El gate y la acción no se ven afectados. Solo se pierden los avisos contextuales en reason_text.
 
 ---
 
@@ -407,6 +467,14 @@ Si no hay override, `override_reason` queda vacío.
                               │ ¿baseline60_degraded?     │
                               │ Si True → Warning         │
                               │ (no cambia Action)        │
+                              └───────────┬───────────────┘
+                                          │
+                                          ▼
+                              ┌───────────────────────────┐
+                              │ ¿reason_text no vacío?    │
+                              │ Si tiene texto → Leer     │
+                              │ contexto (sueño, carga,   │
+                              │ veto agudo, divergencias)  │
                               └───────────────────────────┘
 ```
 
@@ -437,6 +505,15 @@ Un día FLAG_mecánico **sí** genera gate y acción (con quality_flag=True), pe
 
 ### ROLL3
 Media móvil de los **últimos 3 días clean**. En vez de comparar contra el baseline con el dato crudo de hoy (que puede fluctuar mucho día a día), se suaviza promediando los 3 últimos días fiables. Esto filtra el ruido diario sin perder sensibilidad ante cambios reales: si llevas 2 días con HRV bajando y hoy también baja, ROLL3 lo refleja. Pero si ayer tuviste un pico raro y hoy estás normal, ROLL3 lo amortigua. Si no hay 3 días clean recientes, el gate queda como NO (`ROLL3_INSUF`).
+
+### Veto agudo (bypass de ROLL3)
+Mecanismo de seguridad que detecta cuando ROLL3 está **enmascarando una caída brusca**. Si ayer y anteayer estaban bien y hoy tu HRV se desploma, ROLL3 aún muestra un valor cercano al normal (promedia 2 buenos + 1 malo). El veto compara tu dato crudo de hoy directamente contra el baseline: si cae más de 2×SWC por debajo, fuerza `lnRMSSD_used = lnRMSSD_today` (dato crudo) y `HR_used = HR_today`, saltándose el suavizado. El gate se calcula entonces con tu estado real de hoy, no con el promedio.
+
+### SWC_FLOOR
+Mínimo garantizado para SWC_ln: `ln(1.05) ≈ 0.04879`. ¿Por qué? En periodos de variabilidad muy estable (todos los días casi iguales), SWC puede ser minúsculo, lo que haría que cualquier fluctuación trivial active gates o vetos. El floor asegura que el "cambio mínimo significativo" nunca sea menor que un ~5% de variación en RMSSD.
+
+### Reason_text
+Texto explicativo que combina información del gate con datos contextuales (sueño, carga). No modifica el gate — es un "comentario" que acompaña a la decisión automática. Puede decir cosas como "noche corta", "carga acumulada alta", o "VERDE con fatiga acumulada: precaución". Si el context.csv no existe, solo se generan avisos basados en datos HRV (caída aguda, saturación parasimpática).
 
 ### Baseline 60d (BASE60)
 Tu "normal reciente": la **mediana** de lnRMSSD y HR en los últimos 60 días (solo clean, shift-1). ¿Por qué mediana y no media? Porque la mediana ignora valores extremos puntuales: si en 60 días tuviste 2 días con HRV muy bajo por una gripe, la mediana apenas se mueve. La ventana de 60 días es un compromiso: lo bastante larga para ser estable, lo bastante corta para seguir adaptaciones reales (si mejoras por entrenamiento sostenido, el baseline sube). Necesita al menos 30 días clean para operar.
@@ -574,15 +651,54 @@ decision_path: BASE60_ONLY
 
 **Interpretación:** Gate pintaría VERDE, pero quality_flag=True (FLAG_mecánico) fuerza acción a SUAVE. No se confía en el dato para justificar intensidad.
 
+### Caso 5: Veto agudo + contexto (ROJO con explicación)
+
+```
+Fecha: 2026-02-07
+Calidad: OK
+HR_today: 55.1
+RMSSD_stable: 30.2
+gate_badge: ROJO
+Action: SUAVE_O_DESCANSO
+Action_detail: SUAVE
+gate_razon_base60: 2D_AMBOS
+decision_path: BASE60_ONLY
+veto_agudo: True
+reason_text: Caída aguda HRV: raw=3.408 vs base=3.798 (drop=-0.390, umbral=-0.210) | Noche corta (345min < P10=362) | Carga acumulada alta (3d=237 > P90=241)
+```
+
+**Interpretación:** El veto agudo detectó una caída brusca que ROLL3 habría enmascarado. El reason_text explica tres factores convergentes: la caída fue real, dormiste poco, y acumulaste mucha carga. Alta confianza de que el ROJO es legítimo.
+
+### Caso 6: VERDE con aviso de fatiga acumulada
+
+```
+Fecha: 2026-02-10
+Calidad: OK
+HR_today: 47.2
+RMSSD_stable: 52.8
+gate_badge: VERDE+
+Action: INTENSIDAD_OK
+Action_detail: EJECUTAR_PLAN
+gate_razon_base60: 2D_OK
+decision_path: BASE60_ONLY
+veto_agudo: False
+reason_text: VERDE con fatiga acumulada (TSB=-22): precaución intensidad
+```
+
+**Interpretación:** Tu HRV y pulso están bien (VERDE), pero el TSB de Intervals muestra fatiga acumulada. El gate permite intensidad, pero el reason_text sugiere no ir al máximo.
+
 ---
 
 ## 13. "Para tontos" (muy llano)
 
 - **BASE60** = tu "normal" de los últimos ~2 meses (sin contar hoy).
 - **Gate** = compara tu HRV (lnRMSSD) y tu pulso (HR) contra ese normal.
+- **ROLL3** = suavizado de los últimos 3 días buenos, para filtrar ruido.
+- **Veto agudo** = si hoy tu HRV se desploma pero ROLL3 lo enmascara, el veto salta y usa el dato crudo.
 - **Sombras (28/42)** = miran si tu normal "reciente" está cambiando antes de que lo vea BASE60.
 - **Residual** = "¿para este pulso, tu HRV está mejor o peor de lo esperable?"
 - **quality_flag** = "el dato de hoy es sospechoso": aunque pinte bonito, **no toca apretar**.
+- **reason_text** = "te explico por qué": sueño malo, carga alta, caída aguda, etc. **No cambia el gate**, solo informa.
 
 ---
 
