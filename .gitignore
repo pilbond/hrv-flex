@@ -33,6 +33,7 @@ backup/
 bak/
 out/
 delete/
+docs/legacy/
 # Simulación local de Railway Volume (opcional)
 data/
 

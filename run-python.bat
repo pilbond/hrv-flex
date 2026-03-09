@@ -1,1 +1,0 @@
-python polar_hrv_automation.py --process

@@ -5,7 +5,7 @@ ENDURANCE HRV — Procesador de medición (v2.1)
 =============================================
 
 Genera desde archivos RR crudos:
-  - ENDURANCE_HRV_master_CORE.csv    (medición canónica, 12 columnas)
+  - ENDURANCE_HRV_master_CORE.csv    (medición canónica, incluye métricas ANS balance)
   - ENDURANCE_HRV_master_BETA_AUDIT.csv (beta/cRMSSD/colores V3 legacy, 13 columnas)
 
 NO genera gate V4-lite ni decisiones operativas (eso lo hace endurance_v4lite.py, que produce FINAL/DASHBOARD).
@@ -16,8 +16,8 @@ Uso:
   python endurance_hrv.py --rr-file archivo_RR.csv  # procesa un archivo específico
 
 Variables de entorno:
-  HRV_DATA_DIR       Directorio de datos (default: .)
-  RR_DOWNLOAD_DIR    Directorio de archivos RR (default: ./rr_downloads)
+  HRV_DATA_DIR       Directorio de datos (default: ./data)
+  RR_DOWNLOAD_DIR    Directorio de archivos RR (default: ./data/rr_downloads)
   HRV_QUIET          Silenciar mensajes (1/true/yes)
   HRV_DISABLE_BACKUP Deshabilitar backups (1/true/yes)
 """
@@ -46,7 +46,7 @@ def _qprint(*args, **kwargs):
         print(*args, **kwargs)
 
 # Directorios
-DATA_DIR = Path((os.environ.get("HRV_DATA_DIR") or ".").strip() or ".")
+DATA_DIR = Path((os.environ.get("HRV_DATA_DIR") or "data").strip() or "data")
 _rr_env = (os.environ.get("RR_DOWNLOAD_DIR") or "").strip()
 RR_BASE_DIR = Path(_rr_env) if _rr_env else (DATA_DIR / "rr_downloads")
 
@@ -82,6 +82,10 @@ COLS_CORE = [
     "RMSSD_stable_last2",
     "lnRMSSD",
     "Flags",
+    "SI_baevsky",
+    "SD1",
+    "SD2",
+    "SD1_SD2_ratio",
     "Notes",
 ]
 
@@ -141,6 +145,41 @@ def rmssd_ms(rr_s) -> float:
         return np.nan
     d = np.diff(rr_s)
     return float(np.sqrt(np.mean(d * d)) * 1000.0)
+
+
+def baevsky_stress_index(rr_ms, bin_width: int = 50) -> float:
+    """SI de Baevsky: AMo / (2 * Mo * MxDMn). RR de entrada en milisegundos."""
+    rr = np.asarray(rr_ms, dtype=float)
+    rr = rr[~np.isnan(rr)]
+    if rr.size < 20:
+        return np.nan
+    bins = np.arange(rr.min(), rr.max() + bin_width, bin_width)
+    if bins.size < 2:
+        return np.nan
+    counts, edges = np.histogram(rr, bins=bins)
+    if counts.size == 0 or np.sum(counts) == 0:
+        return np.nan
+    amo = float(np.max(counts)) / float(rr.size) * 100.0
+    modal_idx = int(np.argmax(counts))
+    mo_s = (float(edges[modal_idx]) + float(edges[modal_idx + 1])) / 2.0 / 1000.0
+    mxdmn_s = (float(np.max(rr)) - float(np.min(rr))) / 1000.0
+    if mo_s <= 0 or mxdmn_s <= 0:
+        return np.nan
+    return float(np.round(amo / (2.0 * mo_s * mxdmn_s), 1))
+
+
+def poincare_sd(rr_ms) -> Tuple[float, float, float]:
+    """SD1, SD2 y ratio SD1/SD2 del Poincare. RR de entrada en milisegundos."""
+    rr = np.asarray(rr_ms, dtype=float)
+    rr = rr[~np.isnan(rr)]
+    if rr.size < 10:
+        return np.nan, np.nan, np.nan
+    diff = rr[1:] - rr[:-1]
+    sd1 = float(np.std(diff, ddof=0) / np.sqrt(2.0))
+    sd2_sq = 2.0 * float(np.var(rr, ddof=0)) - (sd1 ** 2)
+    sd2 = float(np.sqrt(sd2_sq)) if sd2_sq > 0 else 0.0
+    ratio = float(np.round(sd1 / sd2, 3)) if sd2 > 0 else np.nan
+    return float(np.round(sd1, 2)), float(np.round(sd2, 2)), ratio
 
 
 def robust_z(value: float, series) -> Tuple[float, int]:
@@ -204,10 +243,12 @@ def compute_day_from_rr(rr_path: Path, history_df: pd.DataFrame, C: dict) -> Tup
     offline = pd.to_numeric(rr["offline"], errors="coerce").fillna(0).astype(int).to_numpy()
     offline = (offline != 0).astype(int)
 
-    rr_ms = rr_ms[~np.isnan(rr_ms)]
-    offline = offline[:rr_ms.size]
+    # Alinear: eliminar posiciones donde duration es NaN en ambos arrays
+    valid_mask = ~np.isnan(rr_ms)
+    rr_ms = rr_ms[valid_mask]
+    offline = offline[valid_mask]
 
-    # Eje temporal
+    # Eje temporal (basado en array alineado, preserva tiempos reales)
     N_total = int(rr_ms.size)
     t_end_raw = np.cumsum(rr_ms) / 1000.0
     dur_raw = float(t_end_raw[-1]) if N_total else np.nan
@@ -285,11 +326,14 @@ def compute_day_from_rr(rr_path: Path, history_df: pd.DataFrame, C: dict) -> Tup
 
     # Métricas tramo estabilizado
     tramo = t_eff >= t_start_eff
-    rr_tramo = rr_eff[tramo] / 1000.0
+    rr_tramo_ms = rr_eff[tramo]
+    rr_tramo = rr_tramo_ms / 1000.0
     RRbar_s = float(np.mean(rr_tramo)) if rr_tramo.size else np.nan
     HR = float(60.0 / RRbar_s) if (not np.isnan(RRbar_s) and RRbar_s > 0) else np.nan
     RMSSD = rmssd_ms(rr_tramo) if rr_tramo.size >= 2 else np.nan
     lnRMSSD = float(np.log(RMSSD)) if (not np.isnan(RMSSD) and RMSSD > 0) else np.nan
+    SI_baevsky = baevsky_stress_index(rr_tramo_ms)
+    SD1, SD2, SD1_SD2_ratio = poincare_sd(rr_tramo_ms)
 
     # Cola (últimos 120s)
     tail_start = t_end_eff - C["TAIL_S"]
@@ -505,6 +549,10 @@ def compute_day_from_rr(rr_path: Path, history_df: pd.DataFrame, C: dict) -> Tup
         "RMSSD_stable_last2": RMSSD_last2,
         "lnRMSSD": lnRMSSD,
         "Flags": "|".join(flags),
+        "SI_baevsky": SI_baevsky,
+        "SD1": SD1,
+        "SD2": SD2,
+        "SD1_SD2_ratio": SD1_SD2_ratio,
         "Notes": notes,
     }
 
@@ -541,8 +589,10 @@ def compute_day_from_rr_core_only(rr_path: Path, C: dict) -> Tuple[dict, None]:
     offline = pd.to_numeric(rr["offline"], errors="coerce").fillna(0).astype(int).to_numpy()
     offline = (offline != 0).astype(int)
 
-    rr_ms = rr_ms[~np.isnan(rr_ms)]
-    offline = offline[:rr_ms.size]
+    # Alinear: eliminar posiciones donde duration es NaN en ambos arrays
+    valid_mask = ~np.isnan(rr_ms)
+    rr_ms = rr_ms[valid_mask]
+    offline = offline[valid_mask]
 
     N_total = int(rr_ms.size)
     t_end_raw = np.cumsum(rr_ms) / 1000.0
@@ -623,6 +673,10 @@ def compute_day_from_rr_core_only(rr_path: Path, C: dict) -> Tuple[dict, None]:
         "RMSSD_stable_last2": RMSSD_last2,
         "lnRMSSD": lnRMSSD,
         "Flags": "RESCUE_MODE",
+        "SI_baevsky": np.nan,
+        "SD1": np.nan,
+        "SD2": np.nan,
+        "SD1_SD2_ratio": np.nan,
         "Notes": f"src={rr_path.name}; rescue_mode=True",
     }
 
@@ -640,6 +694,10 @@ def get_or_create_df(path: Path, columns: List[str]) -> pd.DataFrame:
             df = pd.read_csv(path)
             if "Fecha" in df.columns:
                 df["Fecha"] = df["Fecha"].astype(str)
+            for c in columns:
+                if c not in df.columns:
+                    df[c] = np.nan
+            df = df[[c for c in columns if c in df.columns] + [c for c in df.columns if c not in columns]]
             return df
         except Exception as e:
             print(f"Advertencia: No se pudo leer {path} ({e}). Creando nuevo.")

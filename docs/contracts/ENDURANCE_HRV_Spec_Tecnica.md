@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Especificación Técnica
 
-**Revisión:** r2026-02-23 v4 (veto agudo + context + reason_text)  
+**Revisión:** r2026-03-09 v4.2 (sleep sidecar + rutas data/ + reason_text dual source)  
 **Estado:** Producción
 
 ---
@@ -441,7 +441,7 @@ Este decisor toma CORE (ya procesado) y genera:
 
 ```
 ENDURANCE_HRV_master_CORE.csv (entrada)
-ENDURANCE_HRV_context.csv (entrada opcional, para reason_text)
+ENDURANCE_HRV_sleep.csv (entrada opcional, para reason_text)
                     │
                     ▼
 ┌─────────────────────────────────────────┐
@@ -455,7 +455,7 @@ ENDURANCE_HRV_context.csv (entrada opcional, para reason_text)
 │  6. Override opcional (modo O3)         │
 │  7. Residual (BASE60) + sufijo          │
 │  8. Acción + acumulación + warning      │
-│  9. Reason_text (context.csv si existe) │
+│  9. Reason_text (sleep.csv si existe) │
 └─────────────────────────────────────────┘
      │
      ├──► ENDURANCE_HRV_master_FINAL.csv (auditable, 53 cols)
@@ -769,27 +769,32 @@ bad_7d = nº de (ROJO o NO) en los últimos 7 días
 
 **Objetivo:** generar un texto que explique *por qué* el sistema tomó esa decisión, combinando información del gate con datos contextuales de sueño y carga. Es informativo — **no recolorea** ni modifica el gate ni la acción.
 
-**Fuente:** combina datos del pipeline HRV (veto agudo, saturación, quality) con datos del `ENDURANCE_HRV_context.csv` (sueño Polar, carga Intervals.icu).
+**Fuentes:** combina datos del pipeline HRV (veto agudo, saturación, quality) con:
+- `ENDURANCE_HRV_sleep.csv` — sueño Polar (noche corta, fragmentada, nightly_rmssd)
+- `ENDURANCE_HRV_sessions_day.csv` — carga de entrenamiento (load_3d, work_7d, z3_7d)
 
 **Generación:** Se evalúan las siguientes condiciones en orden. Las que se cumplen se concatenan con separador ` | `:
 
-| Prioridad | Condición | Texto generado |
-|-----------|-----------|----------------|
-| 1 | `veto_agudo == True` | `Caída aguda HRV: raw=X vs base=Y (drop=Z, umbral=-W)` |
-| 2 | `d_ln > 2 × swc_v4` | `HRV excesivamente alto: posible saturación parasimpática` |
-| 3 | `quality_flag == True` y gate VERDE/ÁMBAR | `Dato dudoso: limitar a Z1-Z2 máx 90min` |
-| 4 | `polar_sleep_duration_min < sleep_dur_p10` | `Noche corta (Xmin < P10=Y)` |
-| 5 | `polar_interruptions_long > sleep_int_p90` | `Noche fragmentada (X interr > P90=Y)` |
-| 6 | VERDE + `polar_night_rmssd < 25` | `VERDE pero nightly_rmssd bajo: vigilar` |
-| 7 | ROJO + `polar_night_rmssd > 45` | `ROJO con nightly_rmssd alto: posible confusor` |
-| 8 | `intervals_load_3d > load_3d_p90` | `Carga acumulada alta (3d=X > P90=Y)` |
-| 9 | `intervals_tsb < -25` | `Fatiga profunda (TSB=X)` |
-| 10 | ROJO + load_yday < 30 + sueño OK | `ROJO sin carga previa ni sueño malo: revisar otros factores` |
-| 11 | VERDE + TSB < -20 | `VERDE con fatiga acumulada: precaución intensidad` |
+| Prioridad | Condición | Fuente | Texto generado |
+|-----------|-----------|--------|----------------|
+| 1 | `veto_agudo == True` | HRV pipeline | `Caída aguda HRV: raw=X vs base=Y (drop=Z, umbral=-W)` |
+| 2 | `d_ln > 2 × swc_v4` | HRV pipeline | `HRV excesivamente alto: posible saturación parasimpática` |
+| 3 | `quality_flag == True` y gate VERDE/ÁMBAR | HRV pipeline | `Dato dudoso: limitar a Z1-Z2 máx 90min` |
+| 4 | `polar_sleep_duration_min < sleep_dur_p10` | sleep.csv | `Noche corta (Xmin < P10=Y)` |
+| 5 | `polar_interruptions_long > sleep_int_p90` | sleep.csv | `Noche fragmentada (X interr > P90=Y)` |
+| 6 | VERDE + `polar_night_rmssd < 25` | sleep.csv | `VERDE pero nightly_rmssd bajo: vigilar` |
+| 7 | ROJO + `polar_night_rmssd > 45` | sleep.csv | `ROJO con nightly_rmssd alto: posible confusor` |
+| 8 | `load_3d > 250` (con `load_3d_nobs >= 2`) | sessions_day.csv | `Carga acumulada alta (load_3d=X)` |
+| 9 | `work_7d_sum > 200` | sessions_day.csv | `Volumen semanal alto (work_7d=Xmin)` |
+| 10 | `z3_7d_sum > 60` | sessions_day.csv | `Z3 acumulado alto (z3_7d=Xmin)` |
+| 11 | ROJO + `load_day < 30` + sueño OK | sessions_day.csv | `ROJO sin carga previa ni sueño malo: revisar otros factores` |
+| 12 | VERDE + `load_3d > 200` | sessions_day.csv | `VERDE con carga acumulada: precaución intensidad` |
 
 **Umbrales de sueño:** Basados en percentiles propios (P10, P90), NO en valores fijos. Se recalculan con todo el histórico disponible. Esto adapta los avisos a TU patrón de sueño.
 
-**Si context.csv no existe:** Solo se generan las condiciones 1-3 (basadas en datos HRV). El sistema funciona sin contexto externo.
+**Umbrales de carga:** Valores absolutos. El check de load_3d solo se ejecuta si `load_3d_nobs >= 2` (cobertura real de la métrica, no "días con sesiones").
+
+**Si sleep.csv no existe:** Solo se generan las condiciones 1-3 (basadas en datos HRV) + 8-12 (si sessions_day.csv existe). Si tampoco existe sessions_day.csv, solo condiciones 1-3.
 
 ---
 
@@ -827,31 +832,36 @@ Si tu baseline actual está por debajo del P20 de todos tus baselines histórico
 
 ---
 
-## 17. Archivos de salida (V4 r2026-02-23)
+## 17. Archivos de salida (V4 r2026-03-01)
 
 | Archivo | Para qué | Columnas |
 |---------|----------|----------|
 | `ENDURANCE_HRV_master_CORE.csv` | La medición fisiológica del día, sin decisiones | 12 |
 | `ENDURANCE_HRV_master_FINAL.csv` | Gate, veto agudo, sombras, residual, reason_text y auditoría completa | 53 |
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | Lo esencial para decidir en 10 segundos + reason_text | 10 |
-| `ENDURANCE_HRV_context.csv` | Sueño (Polar) + carga (Intervals.icu) + percentiles propios | 34 |
+| `ENDURANCE_HRV_sleep.csv` | Sueño nocturno y recuperación (Polar) | 17 |
+| `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento | 42 |
+| `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios + rolling con cobertura (_nobs) | 31 |
+| `metadata.json` | Trazabilidad pipeline sesiones (versión, params, sampling rate) | — |
 | `ENDURANCE_HRV_master_BETA_AUDIT.csv` | Modelo beta del V3, para comparación histórica | 13 |
 
-El contrato exacto (columnas, orden, tipos) está en `ENDURANCE_HRV_Estructura.md`.
+El contrato exacto (columnas, orden, tipos) de CORE/FINAL/DASHBOARD/SLEEP está en `ENDURANCE_HRV_Estructura.md`.
+El contrato de sessions/sessions_day/metadata está en `ENDURANCE_HRV_Sessions_Schema_v3.1.md`.
 
 ---
 
 ## 18. Uso diario
 
 ```bash
-# 1. Procesar nuevo RR (genera/actualiza CORE y BETA_AUDIT)
-python endurance_hrv.py --rr-file rr_downloads/Franz_YYYY-MM-DD_RR.csv
+# 1. Flujo operativo recomendado (descarga/actualiza + procesa)
+python polar_hrv_automation.py --process
 
-# 2. Regenerar gate (genera/actualiza FINAL y DASHBOARD)
-python endurance_v4lite.py
+# 2. Reproceso manual (si necesitas depurar por pasos)
+python endurance_hrv.py --rr-file data/rr_downloads/Franz_YYYY-MM-DD_RR.csv --data-dir data
+python endurance_v4lite.py --data-dir data
 
 # 3. Ver resultado del día
-tail -1 ENDURANCE_HRV_master_DASHBOARD.csv
+tail -1 data/ENDURANCE_HRV_master_DASHBOARD.csv
 ```
 
 ---
@@ -864,8 +874,8 @@ tail -1 ENDURANCE_HRV_master_DASHBOARD.csv
 4. **Sombras BASE28/42 pueden ser más sensibles al ruido** por tener ventanas más cortas — por eso no mandan por defecto (modo O2)
 5. **El residual es un overlay estadístico** — útil para matizar, pero no es un "diagnóstico". Un residual negativo persistente merece atención, pero un pico puntual puede ser ruido
 6. **El warning no distingue causa** — un baseline bajo puede ser enfermedad, temporada de descanso, o adaptación a volumen alto sostenido. Requiere interpretación humana
-7. **No hay integración de carga externa** — El gate solo ve HRV y pulso, no TSS/TRIMP ni horas de sueño. El `reason_text` aporta contexto de sueño y carga (via context.csv), pero es informativo — no modifica el gate. La decisión final siempre requiere interpretación humana
-8. **Context.csv depende de APIs externas** — Si Polar AccessLink o Intervals.icu no responden, los campos correspondientes quedan NaN y el reason_text se genera parcial. El gate y la acción no se ven afectados
+7. **No hay integración de carga externa en el gate** — El gate solo ve HRV y pulso, no TSS/TRIMP ni horas de sueño. El `reason_text` aporta contexto de sueño (via `ENDURANCE_HRV_sleep.csv`) y carga (via `ENDURANCE_HRV_sessions_day.csv`), pero es informativo — no modifica el gate. La decisión final siempre requiere interpretación humana
+8. **`ENDURANCE_HRV_sleep.csv` y `sessions_day.csv` dependen de APIs externas** — Si Polar AccessLink no responde, los campos de sueño quedan NaN. Si Intervals.icu no responde, `sessions_day.csv` no se genera. El gate y la acción no se ven afectados
 9. **Veto agudo puede ser conservador** — Al forzar el dato crudo, un día puntualmente malo (ej: medición defectuosa que pasó quality checks) puede producir un ROJO innecesario. El SWC_FLOOR de 0.04879 limita falsos positivos pero no los elimina
 10. **Percentiles de sueño se estabilizan tras ~30 noches** — Durante las primeras semanas, los P10/P90 pueden ser inestables y generar avisos inapropiados
 
@@ -908,9 +918,13 @@ Secciones obligatorias:
 
 | Fecha | Cambio |
 |-------|--------|
+| 2026-03-01 v4.1 | sleep.csv simplificado: 34→17 cols (solo Polar sleep/nightly, sin Intervals) |
+| 2026-03-01 v4.1 | reason_text dual source: sueño de sleep.csv, carga de sessions_day.csv |
+| 2026-03-01 v4.1 | Nuevos archivos sessions.csv (42 cols), sessions_day.csv (31 cols), metadata.json |
+| 2026-03-01 v4.1 | reason_text: TSB/load_3d_p90 reemplazados por load_3d+nobs, work_7d, z3_7d (umbrales absolutos) |
 | 2026-02-23 v4 | Añadido veto agudo (§11bis): bypass ROLL3 en caídas agudas, con SWC_FLOOR y VETO_MULT |
 | 2026-02-23 v4 | Añadido reason_text (§15.3): texto explicativo contextual con sueño, carga y coherencia gate↔contexto |
-| 2026-02-23 v4 | Nuevo archivo context.csv (§17): sidecar de sueño Polar + carga Intervals.icu |
+| 2026-02-23 v4 | Nuevo archivo sleep.csv (§17): sidecar de sueño Polar |
 | 2026-02-23 v4 | FINAL bumped 49→53 cols, DASHBOARD 9→10 cols |
 | 2026-02-12 v3 | Redactado didáctico: intros explicativas en cada sección, "por qué" antes de "cómo" |
 | 2026-02-12 v2 | Reintegradas fórmulas warning §16, sección QA §20, limitaciones §19 completas |
@@ -924,3 +938,4 @@ Secciones obligatorias:
 ---
 
 Fin del documento.
+

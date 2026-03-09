@@ -64,7 +64,17 @@ else:
 # =========================
 # CONFIG
 # =========================
-QUIET = os.environ.get("HRV_QUIET", "").strip().lower() in {"1", "true", "yes", "on"}
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    value = raw.strip().lower()
+    if value == "":
+        return default
+    return value in {"1", "true", "yes", "on"}
+
+
+QUIET = _env_flag("HRV_QUIET", False)
 
 
 def _qprint(*args, **kwargs):
@@ -115,39 +125,34 @@ POLAR_USER_NAME = os.environ.get("POLAR_USER_NAME") or os.getenv("POLAR_USER_NAM
 # Permite persistir tokens en un volumen (Railway) con POLAR_TOKEN_PATH=/data/polar_tokens.json
 TOKEN_FILE = Path(os.environ.get("POLAR_TOKEN_PATH", ".polar_tokens.json"))
 
-_data_dir = (os.environ.get("HRV_DATA_DIR") or "").strip()
+_data_dir = (os.environ.get("HRV_DATA_DIR") or "data").strip() or "data"
 _rr_dir = (os.environ.get("RR_DOWNLOAD_DIR") or "").strip()
 if _rr_dir:
     OUTDIR = Path(_rr_dir)
-elif _data_dir:
-    OUTDIR = Path(_data_dir) / "rr_downloads"
 else:
-    OUTDIR = Path("rr_downloads")
+    OUTDIR = Path(_data_dir) / "rr_downloads"
 
-DATA_DIR = Path(_data_dir) if _data_dir else Path(".")
+DATA_DIR = Path(_data_dir)
 CORE_PATH = DATA_DIR / "ENDURANCE_HRV_master_CORE.csv"
 BETA_AUDIT_PATH = DATA_DIR / "ENDURANCE_HRV_master_BETA_AUDIT.csv"
 FINAL_PATH = DATA_DIR / "ENDURANCE_HRV_master_FINAL.csv"
 DASHBOARD_PATH = DATA_DIR / "ENDURANCE_HRV_master_DASHBOARD.csv"
-CONTEXT_PATH = DATA_DIR / "ENDURANCE_HRV_context.csv"
+SLEEP_PATH = DATA_DIR / "ENDURANCE_HRV_sleep.csv"
+LEGACY_SLEEP_PATH = DATA_DIR / "ENDURANCE_HRV_context.csv"
 
 INTERVALS_SOURCE_PATH = BETA_AUDIT_PATH
 
-CONTEXT_COLUMNS = [
+SLEEP_COLUMNS = [
     "Fecha",
+    # Polar sleep
     "polar_sleep_duration_min", "polar_sleep_span_min",
     "polar_deep_pct", "polar_rem_pct",
     "polar_efficiency_pct", "polar_continuity", "polar_continuity_index",
     "polar_interruptions_long", "polar_interruptions_total", "polar_sleep_score",
+    # Polar nightly recharge
     "polar_night_rmssd", "polar_night_rri", "polar_night_resp",
-    "intervals_load", "intervals_load_max", "intervals_intensity_max",
-    "intervals_type_main", "intervals_duration_min", "intervals_n_acts",
-    "intervals_avg_hr", "intervals_max_hr",
-    "intervals_atl", "intervals_ctl", "intervals_tsb",
-    "intervals_rpe", "intervals_resting_hr",
-    "intervals_load_3d", "intervals_load_yday",
+    # Derived percentiles (recalculated on each upsert)
     "sleep_dur_p10", "sleep_dur_p90", "sleep_int_p90",
-    "load_3d_p90", "load_3d_median",
 ]
 
 # Filtros
@@ -204,6 +209,15 @@ UNKNOWN_SESSION_ID = "unknown"  # ID para sesiones sin fecha
 
 DEBUG_JSON = False  # True = guarda JSON debug de sesiones sin RR
 
+# Integración Drive RR (ECG/ACC JSONL -> RR) con fallback a Polar.
+DRIVE_RR_ENABLED = _env_flag("HRV_DRIVE_RR_ENABLED", True)
+DRIVE_RR_SCRIPT = (os.environ.get("HRV_DRIVE_RR_SCRIPT") or "egc_to_rr.py").strip() or "egc_to_rr.py"
+DRIVE_RR_RUNTIME = (os.environ.get("HRV_DRIVE_RUNTIME") or "auto").strip() or "auto"
+DRIVE_RR_RECURSIVE = _env_flag("HRV_DRIVE_RECURSIVE", True)
+DRIVE_RR_NO_AUX = _env_flag("HRV_DRIVE_NO_AUX", True)
+DRIVE_RR_FOLDER_ID = (os.environ.get("HRV_DRIVE_FOLDER_ID") or "").strip()
+DRIVE_RR_PAIR_LIMIT = (os.environ.get("HRV_DRIVE_PAIR_LIMIT") or "").strip()
+
 # =========================
 # Intervals.icu wellness sync
 # =========================
@@ -216,6 +230,14 @@ INTERVALS_FIELD_MAP = {
     "ColorTiebreak": "Color_Tiebreak",
     "ColorTendencia": "Color_Tendencia",
 }
+
+
+def _intervals_api_root() -> str:
+    base = (INTERVALS_BASE_URL or "https://intervals.icu").strip().rstrip("/")
+    if not base:
+        base = "https://intervals.icu"
+    base = re.sub(r"/api/v1/?$", "", base, flags=re.IGNORECASE)
+    return f"{base}/api/v1"
 
 # Verificar credenciales al inicio
 if not CLIENT_ID or not CLIENT_SECRET:
@@ -265,6 +287,148 @@ def _parse_yyyy_mm_dd(s: str):
         return datetime.strptime(s, "%Y-%m-%d").date()
     except ValueError:
         return None
+
+
+def _extract_date_from_rr_filename(file_name: str):
+    """Extrae fecha YYYY-MM-DD desde nombre de archivo RR."""
+    m = re.search(r"(\d{4}-\d{2}-\d{2})", file_name)
+    if not m:
+        return None
+    return _parse_yyyy_mm_dd(m.group(1))
+
+
+def _scan_rr_files_by_date(rr_dir: Path, source_tag: Optional[str] = None) -> Dict:
+    """
+    Devuelve {date: best_rr_path} para archivos *_RR.csv en rr_dir.
+    Si source_tag existe, filtra por nombre que contenga ese tag (case-insensitive).
+    """
+    out: Dict = {}
+    if not rr_dir.exists():
+        return out
+
+    tag = source_tag.lower() if source_tag else ""
+    candidates = list(rr_dir.glob("*_RR.[Cc][Ss][Vv]"))
+    for path in candidates:
+        name_lower = path.name.lower()
+        if tag and tag not in name_lower:
+            continue
+
+        day = _extract_date_from_rr_filename(path.name)
+        if day is None:
+            continue
+
+        prev = out.get(day)
+        if prev is None:
+            out[day] = path
+            continue
+
+        prev_name = prev.name.lower()
+        cur_is_jsonl = "from_jsonl" in name_lower
+        prev_is_jsonl = "from_jsonl" in prev_name
+        if cur_is_jsonl and not prev_is_jsonl:
+            out[day] = path
+            continue
+
+        try:
+            cur_mtime = path.stat().st_mtime
+        except OSError:
+            cur_mtime = 0
+        try:
+            prev_mtime = prev.stat().st_mtime
+        except OSError:
+            prev_mtime = 0
+        if cur_mtime >= prev_mtime:
+            out[day] = path
+
+    return out
+
+
+def _iter_dates(start_date, end_date):
+    if start_date is None or end_date is None:
+        return
+    day = start_date
+    while day <= end_date:
+        yield day
+        day += timedelta(days=1)
+
+
+def _compute_target_missing_dates(from_d, to_d, existing_dates: set) -> set:
+    """
+    Fechas objetivo del rango [from_d, to_d] que aún no están en CORE.
+    Solo aplica cuando existe un rango de fechas explícito.
+    """
+    if from_d is None or to_d is None:
+        return set()
+    return {d for d in _iter_dates(from_d, to_d) if d not in existing_dates}
+
+
+def _run_drive_rr_import_for_dates(target_dates: set, outdir: Path, verbose: bool = False) -> Tuple[Dict, int]:
+    """
+    Ejecuta egc_to_rr.py para intentar cubrir fechas faltantes desde Drive.
+    Devuelve:
+      - {date: rr_path} para fechas cubiertas con RR from_jsonl.
+      - número de fechas nuevas creadas en esta ejecución.
+    """
+    if not target_dates:
+        return {}, 0
+
+    existing_before = _scan_rr_files_by_date(outdir, source_tag="from_jsonl")
+    missing_dates = sorted(d for d in target_dates if d not in existing_before)
+
+    if missing_dates:
+        script_path = Path(DRIVE_RR_SCRIPT)
+        if not script_path.exists():
+            print(f"⚠️  Drive RR habilitado, pero no existe {script_path}. Se usa fallback Polar.")
+        else:
+            cmd = [
+                sys.executable,
+                str(script_path),
+                "--outdir",
+                str(outdir),
+                "--drive-runtime",
+                DRIVE_RR_RUNTIME,
+            ]
+            if DRIVE_RR_RECURSIVE:
+                cmd.append("--drive-recursive")
+            if DRIVE_RR_NO_AUX:
+                cmd.append("--no-aux")
+            if DRIVE_RR_FOLDER_ID:
+                cmd.extend(["--drive-folder-id", DRIVE_RR_FOLDER_ID])
+            if DRIVE_RR_PAIR_LIMIT:
+                cmd.extend(["--pair-limit", DRIVE_RR_PAIR_LIMIT])
+
+            _qprint(f"☁️  Drive RR: intentando cubrir {len(missing_dates)} fecha(s) faltante(s)...")
+            try:
+                env = os.environ.copy()
+                env["PYTHONIOENCODING"] = "utf-8"
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    check=False,
+                    env=env,
+                )
+                if verbose and result.stdout:
+                    print(result.stdout)
+                if result.returncode != 0:
+                    print(f"⚠️  Drive RR devolvió código {result.returncode}. Se continúa con fallback Polar.")
+                    if result.stderr:
+                        print(result.stderr)
+            except Exception as exc:
+                print(f"⚠️  Error ejecutando Drive RR: {exc}. Se continúa con fallback Polar.")
+
+    existing_after = _scan_rr_files_by_date(outdir, source_tag="from_jsonl")
+    covered = {d: p for d, p in existing_after.items() if d in target_dates}
+
+    new_created = 0
+    for d, p in covered.items():
+        prev = existing_before.get(d)
+        if prev is None or str(prev) != str(p):
+            new_created += 1
+
+    return covered, new_created
 
 
 def _get_field_variant(data: dict, *keys, default=None):
@@ -420,7 +584,7 @@ def _send_intervals_wellness_from_master(master_path: Path) -> None:
         return
 
     date_value = row.get("_date")
-    url = f"{INTERVALS_BASE_URL.rstrip('/')}/api/v1/athlete/{athlete_id}/wellness/{date_value}"
+    url = f"{_intervals_api_root()}/athlete/{athlete_id}/wellness/{date_value}"
     headers = {
         "Authorization": _basic_auth_str("API_KEY", api_key),
         "Content-Type": "application/json",
@@ -739,6 +903,40 @@ def _iso_duration_to_minutes(value) -> Optional[float]:
     return _to_float(text)
 
 
+def _normalize_sleep_minutes(value) -> Optional[float]:
+    """
+    Normalize duration-like values to minutes.
+    Accepts ISO duration, minutes, seconds, or milliseconds (heuristic).
+    """
+    minutes = _iso_duration_to_minutes(value)
+    if minutes is None:
+        return None
+    if minutes <= 0:
+        return None
+    # If value is implausibly large for minutes, infer source unit.
+    if minutes > 1440:
+        # Looks like seconds.
+        if minutes <= 172800:
+            return minutes / 60.0
+        # Looks like milliseconds.
+        if minutes <= 172800000:
+            return minutes / 60000.0
+    return minutes
+
+
+def _normalize_resp_rate(value) -> Optional[float]:
+    """Normalize nightly respiration to breaths/min."""
+    v = _to_float(value)
+    if v is None or v <= 0:
+        return None
+    # If value seems to be respiration interval in ms, convert to brpm.
+    if v > 100:
+        brpm = 60000.0 / v
+        if 4.0 <= brpm <= 40.0:
+            return brpm
+    return v
+
+
 def _normalize_pct(value) -> Optional[float]:
     v = _to_float(value)
     if v is None:
@@ -792,6 +990,23 @@ def _extract_interruptions_counts(sleep_json: dict) -> Tuple[Optional[float], Op
     if isinstance(interruptions, dict):
         long_count = _to_float(_get_field_variant(interruptions, "longCount", "long_count", "long-count", default=None))
         total_count = _to_float(_get_field_variant(interruptions, "totalCount", "total_count", "total-count", "count", default=None))
+    elif isinstance(interruptions, list):
+        total_items = 0
+        long_items = 0
+        for item in interruptions:
+            if not isinstance(item, dict):
+                continue
+            total_items += 1
+            kind = str(_find_first_value(item, ["type", "kind", "interruption_type"]) or "").strip().lower()
+            if "long" in kind:
+                long_items += 1
+                continue
+            dur_min = _normalize_sleep_minutes(_find_first_value(item, ["duration", "interruption_duration"]))
+            if dur_min is not None and dur_min >= 5.0:
+                long_items += 1
+        if total_items > 0:
+            total_count = float(total_items)
+            long_count = float(long_items)
 
     if long_count is None:
         long_count = _find_first_value(
@@ -814,6 +1029,8 @@ def _extract_interruptions_counts(sleep_json: dict) -> Tuple[Optional[float], Op
                 "total-count",
                 "interruptions_total",
                 "sleep_interruptions_total",
+                "interruptions_count",
+                "number_of_interruptions",
             ],
             as_float=True,
         )
@@ -821,28 +1038,28 @@ def _extract_interruptions_counts(sleep_json: dict) -> Tuple[Optional[float], Op
     return long_count, total_count
 
 
-def _extract_sleep_context_fields(sleep_json: Optional[dict]) -> Dict[str, Any]:
+def _extract_sleep_fields(sleep_json: Optional[dict]) -> Dict[str, Any]:
     if not isinstance(sleep_json, dict):
         return {}
 
     sleep_start = _find_first_value(sleep_json, ["sleep_start_time", "sleep-start-time", "sleepStartTime"])
     sleep_end = _find_first_value(sleep_json, ["sleep_end_time", "sleep-end-time", "sleepEndTime"])
 
-    asleep_duration_min = _iso_duration_to_minutes(
+    asleep_duration_min = _normalize_sleep_minutes(
         _find_first_value(
             sleep_json,
             ["asleep_duration", "asleep-duration", "sleep_duration", "sleep-duration", "sleepDuration"],
         )
     )
-    span_min = _iso_duration_to_minutes(
+    span_min = _normalize_sleep_minutes(
         _find_first_value(sleep_json, ["sleep_span", "sleep-span", "sleepSpan", "time_in_bed"])
     )
     if span_min is None:
         span_min = _minutes_between(sleep_start, sleep_end)
 
-    deep_min = _iso_duration_to_minutes(_find_first_value(sleep_json, ["deep_sleep", "deep-sleep", "deepSleep", "sleep_n3"]))
-    rem_min = _iso_duration_to_minutes(_find_first_value(sleep_json, ["rem_sleep", "rem-sleep", "remSleep", "sleep_rem"]))
-    light_min = _iso_duration_to_minutes(_find_first_value(sleep_json, ["light_sleep", "light-sleep", "lightSleep"]))
+    deep_min = _normalize_sleep_minutes(_find_first_value(sleep_json, ["deep_sleep", "deep-sleep", "deepSleep", "sleep_n3"]))
+    rem_min = _normalize_sleep_minutes(_find_first_value(sleep_json, ["rem_sleep", "rem-sleep", "remSleep", "sleep_rem"]))
+    light_min = _normalize_sleep_minutes(_find_first_value(sleep_json, ["light_sleep", "light-sleep", "lightSleep"]))
 
     if asleep_duration_min is None:
         parts = [x for x in (deep_min, rem_min, light_min) if x is not None]
@@ -860,6 +1077,8 @@ def _extract_sleep_context_fields(sleep_json: Optional[dict]) -> Dict[str, Any]:
     continuity = _to_float(_find_first_value(sleep_json, ["continuity", "sleep_continuity"]))
     continuity_index = _to_float(_find_first_value(sleep_json, ["continuity_index", "continuity-class", "continuity_class"]))
     efficiency_pct = _normalize_pct(_find_first_value(sleep_json, ["efficiency_pct", "sleep_efficiency", "efficiency"]))
+    if efficiency_pct is None and asleep_duration_min is not None and span_min is not None and span_min > 0:
+        efficiency_pct = 100.0 * asleep_duration_min / span_min
     sleep_score = _to_float(_find_first_value(sleep_json, ["sleep_score", "sleep-score"]))
     long_count, total_count = _extract_interruptions_counts(sleep_json)
 
@@ -887,7 +1106,7 @@ def _extract_sleep_context_fields(sleep_json: Optional[dict]) -> Dict[str, Any]:
     return out
 
 
-def _extract_nightly_context_fields(nightly_json: Optional[dict]) -> Dict[str, Any]:
+def _extract_nightly_fields(nightly_json: Optional[dict]) -> Dict[str, Any]:
     if not isinstance(nightly_json, dict):
         return {}
 
@@ -909,13 +1128,12 @@ def _extract_nightly_context_fields(nightly_json: Optional[dict]) -> Dict[str, A
     if night_rri is None and hr_avg is not None and hr_avg > 0:
         night_rri = 60000.0 / hr_avg
 
-    night_resp = _to_float(
-        _find_first_value(
-            nightly_json,
-            ["breathing_rate_avg", "breathing-rate-avg", "nightly_resp", "nightly_resp_int"],
-            as_float=True,
-        )
+    night_resp_raw = _find_first_value(
+        nightly_json,
+        ["breathing_rate_avg", "breathing-rate-avg", "nightly_resp", "nightly_resp_int"],
+        as_float=True,
     )
+    night_resp = _normalize_resp_rate(night_resp_raw)
 
     out: Dict[str, Any] = {}
     if night_rmssd is not None:
@@ -932,7 +1150,8 @@ def fetch_polar_sleep(token: str, user_id: str, date_str: str) -> Optional[dict]
     if not token or not user_id or not date_str:
         return None
     try:
-        resp = api_request("GET", f"/users/{user_id}/sleep/{date_str}", token, timeout=30)
+        # AccessLink sleep endpoint is scoped to authorized user (no user_id in path).
+        resp = api_request("GET", f"/users/sleep/{date_str}", token, timeout=30)
         return resp if isinstance(resp, dict) else None
     except Exception as exc:
         print(f"⚠️ Sleep fetch failed for {date_str}: {exc}")
@@ -944,25 +1163,37 @@ def fetch_polar_nightly_recharge(token: str, user_id: str, date_str: str) -> Opt
     if not token or not user_id or not date_str:
         return None
     try:
-        resp = api_request("GET", f"/users/{user_id}/nightly-recharge/{date_str}", token, timeout=30)
+        # AccessLink nightly endpoint is scoped to authorized user (no user_id in path).
+        resp = api_request("GET", f"/users/nightly-recharge/{date_str}", token, timeout=30)
         return resp if isinstance(resp, dict) else None
     except Exception as exc:
         print(f"⚠️ Nightly-recharge fetch failed for {date_str}: {exc}")
         return None
 
 
+def _normalize_intervals_activities_payload(data: Any) -> list:
+    if isinstance(data, list):
+        return [item for item in data if isinstance(item, dict)]
+    if isinstance(data, dict):
+        for key in ("activities", "data", "results", "items"):
+            value = data.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+    return []
+
+
 def fetch_intervals_activities(api_key: str, athlete_id: str, date_str: str) -> list:
     """Fetch activities for a date from Intervals.icu."""
     if not api_key or not athlete_id or not date_str:
         return []
-    url = f"{INTERVALS_BASE_URL.rstrip('/')}/api/v1/athlete/{athlete_id}/activities"
+    url = f"{_intervals_api_root()}/athlete/{athlete_id}/activities"
     headers = {"Authorization": _basic_auth_str("API_KEY", api_key)}
     params = {"oldest": date_str, "newest": date_str}
     try:
         resp = requests.get(url, headers=headers, params=params, timeout=30)
         resp.raise_for_status()
         data = resp.json()
-        return data if isinstance(data, list) else []
+        return _normalize_intervals_activities_payload(data)
     except Exception as exc:
         print(f"⚠️ Intervals fetch failed for {date_str}: {exc}")
         return []
@@ -1054,50 +1285,45 @@ def _aggregate_intervals_activity_fields(activities: list) -> Dict[str, Any]:
     return out
 
 
-def _ensure_context_schema(df):
+def _ensure_sleep_schema(df):
     out = df.copy()
-    for col in CONTEXT_COLUMNS:
+    for col in SLEEP_COLUMNS:
         if col not in out.columns:
             out[col] = float("nan")
-    out = out[CONTEXT_COLUMNS].copy()
+    out = out[SLEEP_COLUMNS].copy()
     out["Fecha"] = out["Fecha"].astype(str)
     return out
 
 
-def _recalculate_context_derived(df):
-    out = _ensure_context_schema(df)
+def _recalculate_sleep_derived(df):
+    out = _ensure_sleep_schema(df)
     out["_fecha_dt"] = pd.to_datetime(out["Fecha"], errors="coerce")
     out = out.sort_values("_fecha_dt").drop(columns=["_fecha_dt"]).reset_index(drop=True)
 
-    numeric_cols = [c for c in CONTEXT_COLUMNS if c not in {"Fecha", "intervals_type_main"}]
+    numeric_cols = [c for c in SLEEP_COLUMNS if c != "Fecha"]
     for col in numeric_cols:
         out[col] = pd.to_numeric(out[col], errors="coerce")
 
-    load_by_date: Dict[Any, float] = {}
-    for _, row in out.iterrows():
-        d = _parse_yyyy_mm_dd(str(row["Fecha"]))
-        if d is None:
-            continue
-        load_value = row.get("intervals_load")
-        load_by_date[d] = float(load_value) if pd.notna(load_value) else 0.0
+    # Normalize sleep minutes and nightly respiration for legacy rows too.
+    if "polar_sleep_duration_min" in out.columns:
+        out["polar_sleep_duration_min"] = out["polar_sleep_duration_min"].apply(_normalize_sleep_minutes)
+    if "polar_sleep_span_min" in out.columns:
+        out["polar_sleep_span_min"] = out["polar_sleep_span_min"].apply(_normalize_sleep_minutes)
+    if "polar_night_resp" in out.columns:
+        out["polar_night_resp"] = out["polar_night_resp"].apply(_normalize_resp_rate)
+    if "polar_efficiency_pct" in out.columns:
+        missing_eff = out["polar_efficiency_pct"].isna()
+        can_derive = (
+            out["polar_sleep_duration_min"].notna()
+            & out["polar_sleep_span_min"].notna()
+            & (out["polar_sleep_span_min"] > 0)
+        )
+        idx = missing_eff & can_derive
+        out.loc[idx, "polar_efficiency_pct"] = (
+            100.0 * out.loc[idx, "polar_sleep_duration_min"] / out.loc[idx, "polar_sleep_span_min"]
+        )
 
-    load_3d_vals = []
-    load_yday_vals = []
-    for fecha in out["Fecha"].astype(str):
-        d = _parse_yyyy_mm_dd(fecha)
-        if d is None:
-            load_3d_vals.append(float("nan"))
-            load_yday_vals.append(float("nan"))
-            continue
-        l1 = load_by_date.get(d - timedelta(days=1), 0.0)
-        l2 = load_by_date.get(d - timedelta(days=2), 0.0)
-        l3 = load_by_date.get(d - timedelta(days=3), 0.0)
-        load_yday_vals.append(float(l1))
-        load_3d_vals.append(float(l1 + l2 + l3))
-
-    out["intervals_load_3d"] = load_3d_vals
-    out["intervals_load_yday"] = load_yday_vals
-
+    # Sleep-only percentiles
     dur = out["polar_sleep_duration_min"].dropna()
     out["sleep_dur_p10"] = float(dur.quantile(0.10)) if len(dur) > 0 else float("nan")
     out["sleep_dur_p90"] = float(dur.quantile(0.90)) if len(dur) > 0 else float("nan")
@@ -1105,49 +1331,58 @@ def _recalculate_context_derived(df):
     ints = out["polar_interruptions_long"].dropna()
     out["sleep_int_p90"] = float(ints.quantile(0.90)) if len(ints) > 0 else float("nan")
 
-    ld3 = out["intervals_load_3d"].dropna()
-    ld3 = ld3[ld3 > 0]
-    out["load_3d_p90"] = float(ld3.quantile(0.90)) if len(ld3) > 0 else float("nan")
-    out["load_3d_median"] = float(ld3.median()) if len(ld3) > 0 else float("nan")
-
     return out
 
 
-def upsert_context_row(context_row: Dict[str, Any]) -> bool:
+def upsert_sleep_row(sleep_row: Dict[str, Any]) -> bool:
     if not PANDAS_AVAILABLE:
-        print("⚠️  Pandas no disponible: se omite actualización de context.csv")
+        print("⚠️  Pandas no disponible: se omite actualización de sleep.csv")
         return False
 
-    fecha = str(context_row.get("Fecha", "")).strip()
+    fecha = str(sleep_row.get("Fecha", "")).strip()
     if not fecha:
         return False
 
-    if CONTEXT_PATH.exists():
+    source_path = None
+    if SLEEP_PATH.exists():
+        source_path = SLEEP_PATH
+    elif LEGACY_SLEEP_PATH.exists():
+        source_path = LEGACY_SLEEP_PATH
+
+    if source_path is not None:
         try:
-            ctx = pd.read_csv(CONTEXT_PATH)
+            sleep_df = pd.read_csv(source_path)
         except (FileNotFoundError, pd.errors.EmptyDataError, OSError, ValueError):
-            ctx = pd.DataFrame(columns=CONTEXT_COLUMNS)
+            sleep_df = pd.DataFrame(columns=SLEEP_COLUMNS)
     else:
-        ctx = pd.DataFrame(columns=CONTEXT_COLUMNS)
+        sleep_df = pd.DataFrame(columns=SLEEP_COLUMNS)
 
-    ctx = _ensure_context_schema(ctx)
-    ctx = ctx[ctx["Fecha"].astype(str) != fecha]
+    sleep_df = _ensure_sleep_schema(sleep_df)
+    sleep_df = sleep_df[sleep_df["Fecha"].astype(str) != fecha]
 
-    row = {col: context_row.get(col, float("nan")) for col in CONTEXT_COLUMNS}
+    row = {col: sleep_row.get(col, float("nan")) for col in SLEEP_COLUMNS}
     row["Fecha"] = fecha
     if row.get("intervals_type_main") is None:
         row["intervals_type_main"] = ""
 
-    ctx = pd.concat([ctx, pd.DataFrame([row])], ignore_index=True)
-    ctx = _recalculate_context_derived(ctx)
-    ctx = ctx[CONTEXT_COLUMNS]
+    sleep_df = pd.concat([sleep_df, pd.DataFrame([row])], ignore_index=True)
+    sleep_df = _recalculate_sleep_derived(sleep_df)
+    sleep_df = sleep_df[SLEEP_COLUMNS]
 
-    CONTEXT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    ctx.to_csv(CONTEXT_PATH, index=False)
+    SLEEP_PATH.parent.mkdir(parents=True, exist_ok=True)
+    sleep_df.to_csv(SLEEP_PATH, index=False)
     return True
 
 
-def fetch_and_upsert_context(token: str, user_id: Optional[str], processed_date) -> bool:
+def _polar_sleep_date_candidates(date_str: str) -> List[str]:
+    d = _parse_yyyy_mm_dd(date_str)
+    if d is None:
+        return [date_str]
+    prev = (d - timedelta(days=1)).isoformat()
+    return [date_str, prev]
+
+
+def fetch_and_upsert_sleep(token: str, user_id: Optional[str], processed_date) -> bool:
     if processed_date is None:
         return False
 
@@ -1155,36 +1390,50 @@ def fetch_and_upsert_context(token: str, user_id: Optional[str], processed_date)
     if not date_str:
         return False
 
-    context_row: Dict[str, Any] = {col: float("nan") for col in CONTEXT_COLUMNS}
-    context_row["Fecha"] = date_str
-    context_row["intervals_type_main"] = ""
+    sleep_row: Dict[str, Any] = {col: float("nan") for col in SLEEP_COLUMNS}
+    sleep_row["Fecha"] = date_str
 
     if user_id:
-        sleep_json = fetch_polar_sleep(token, user_id, date_str)
-        nightly_json = fetch_polar_nightly_recharge(token, user_id, date_str)
+        sleep_json = None
+        sleep_used_date = None
+        nightly_json = None
+        nightly_used_date = None
+        for candidate_date in _polar_sleep_date_candidates(date_str):
+            if sleep_json is None:
+                resp = fetch_polar_sleep(token, user_id, candidate_date)
+                if isinstance(resp, dict) and len(resp) > 0:
+                    sleep_json = resp
+                    sleep_used_date = candidate_date
+            if nightly_json is None:
+                resp2 = fetch_polar_nightly_recharge(token, user_id, candidate_date)
+                if isinstance(resp2, dict) and len(resp2) > 0:
+                    nightly_json = resp2
+                    nightly_used_date = candidate_date
+            if sleep_json is not None and nightly_json is not None:
+                break
+
         if sleep_json:
-            context_row.update(_extract_sleep_context_fields(sleep_json))
+            sleep_row.update(_extract_sleep_fields(sleep_json))
+            if sleep_used_date and sleep_used_date != date_str:
+                print(f"ℹ️  Sleep tomado desde {sleep_used_date} para fecha {date_str}")
         if nightly_json:
-            context_row.update(_extract_nightly_context_fields(nightly_json))
+            sleep_row.update(_extract_nightly_fields(nightly_json))
+            if nightly_used_date and nightly_used_date != date_str:
+                print(f"ℹ️  Nightly tomado desde {nightly_used_date} para fecha {date_str}")
     else:
         print("⚠️  x_user_id ausente: se omite fetch Polar sleep/nightly")
 
-    intervals_date = (processed_date - timedelta(days=1)).isoformat() if hasattr(processed_date, "isoformat") else date_str
-    intervals_api_key = (os.environ.get("INTERVALS_API_KEY") or "").strip()
-    intervals_athlete_id = (os.environ.get("INTERVALS_ATHLETE_ID") or "").strip()
-    activities = fetch_intervals_activities(intervals_api_key, intervals_athlete_id, intervals_date) if intervals_api_key and intervals_athlete_id else []
-    if not intervals_api_key or not intervals_athlete_id:
-        print("⚠️  Intervals context: faltan INTERVALS_API_KEY o INTERVALS_ATHLETE_ID")
+    # Training load now lives in sessions_day.csv (generated by build_sessions.py)
+    # — no longer fetched here.
 
-    context_row.update(_aggregate_intervals_activity_fields(activities))
-    saved = upsert_context_row(context_row)
+    saved = upsert_sleep_row(sleep_row)
     if saved:
-        print(f"✅ Context actualizado: {CONTEXT_PATH.name} ({date_str}, acts_ayer={len(activities)})")
+        print(f"✅ Sleep actualizado: {SLEEP_PATH.name} ({date_str})")
     return saved
 
 
-def _update_context_for_dates(token: str, user_id: Optional[str], dates_to_sync: List) -> int:
-    """Fetch+upsert context for a list of dates. Returns successful upserts."""
+def _update_sleep_for_dates(token: str, user_id: Optional[str], dates_to_sync: List) -> int:
+    """Fetch+upsert sleep rows for a list of dates. Returns successful upserts."""
     if not dates_to_sync:
         return 0
 
@@ -1198,15 +1447,20 @@ def _update_context_for_dates(token: str, user_id: Optional[str], dates_to_sync:
             continue
         seen.add(key)
         try:
-            if fetch_and_upsert_context(token, user_id, d):
+            if fetch_and_upsert_sleep(token, user_id, d):
                 done += 1
         except Exception as exc:
-            print(f"⚠️  Context fetch/upsert falló para {key}: {exc}")
+            print(f"⚠️  Sleep fetch/upsert falló para {key}: {exc}")
     return done
 
 
 def _today_date():
     return datetime.now().date()
+
+
+def _default_sleep_refresh_dates() -> List:
+    today = _today_date()
+    return [today, today - timedelta(days=1)]
 
 
 def extract_rr_ms(exercise_json: dict):
@@ -1615,6 +1869,35 @@ def build_endurance_hrv_cmd(rr_files):
         cmd.extend(["--rr-file", str(f)])
     return cmd
 
+
+def run_endurance_v4lite_only() -> bool:
+    """Ejecuta endurance_v4lite.py sin reprocesar RR/CORE."""
+    if not Path("endurance_v4lite.py").exists():
+        print("❌ endurance_v4lite.py no encontrado")
+        return False
+    try:
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+        result = subprocess.run(
+            [sys.executable, "endurance_v4lite.py"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=True,
+            env=env,
+        )
+        if result.stdout:
+            print(result.stdout)
+        return True
+    except subprocess.CalledProcessError as exc:
+        print(f"⚠️  Error ejecutando endurance_v4lite.py (código {exc.returncode})")
+        if exc.stdout:
+            print(exc.stdout)
+        if exc.stderr:
+            print(exc.stderr)
+        return False
+
 def main():
     parser = argparse.ArgumentParser(description='Polar HRV Automation')
     parser.add_argument('--auth', action='store_true', help='Forzar re-autenticación')
@@ -1672,6 +1955,11 @@ def main():
         days_missing, last_date = calculate_missing_days()
         
         if days_missing == 0:
+            if args.process:
+                _qprint("▶️  Sin RR nuevos: actualizando sleep.csv (hoy)...")
+                _update_sleep_for_dates(access_token, x_user_id, _default_sleep_refresh_dates())
+                _qprint("▶️  Regenerando FINAL/DASHBOARD con sleep actualizado...")
+                run_endurance_v4lite_only()
             _print_sync_completed(updated_date=datetime.now().date(), checkmark=False)
             
             # Mostrar último daily summary
@@ -1704,6 +1992,11 @@ def main():
         days_missing, last_date = calculate_missing_days()
         
         if days_missing == 0:
+            if args.process:
+                _qprint("▶️  Sin RR nuevos: actualizando sleep.csv (hoy)...")
+                _update_sleep_for_dates(access_token, x_user_id, _default_sleep_refresh_dates())
+                _qprint("▶️  Regenerando FINAL/DASHBOARD con sleep actualizado...")
+                run_endurance_v4lite_only()
             _print_sync_completed(updated_date=None, checkmark=True)
             
             # Mostrar último daily summary
@@ -1761,60 +2054,76 @@ def main():
     _qprint(f"✅ {len(filtered)} sesiones tras filtros (max {MAX_EXERCISES})")
 
     if not filtered:
-        if QUIET:
-            print("⚠️  No hay sesiones Body&Mind en el periodo")
-            _update_context_for_dates(access_token, x_user_id, [_today_date()])
+        drive_only_map: Dict = {}
+        if DRIVE_RR_ENABLED:
+            existing_for_drive = get_existing_dates_from_master()
+            target_for_drive = _compute_target_missing_dates(from_d, to_d, existing_for_drive)
+            drive_only_map, _ = _run_drive_rr_import_for_dates(
+                target_for_drive,
+                OUTDIR,
+                verbose=args.verbose,
+            )
+
+        if drive_only_map:
+            _qprint(
+                f"☁️  Sin sesiones Polar filtradas, pero Drive cubrió "
+                f"{len(drive_only_map)} fecha(s). Continuando con procesamiento HRV."
+            )
+        else:
+            if QUIET:
+                print("⚠️  No hay sesiones Body&Mind en el periodo")
+                _update_sleep_for_dates(access_token, x_user_id, _default_sleep_refresh_dates())
+                show_last_daily_summary()
+                show_last_5_days_summary()
+                _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
+                return
+            print("\n⚠️  No hay sesiones Body&Mind en el periodo")
+            
+            # Mostrar debug automáticamente
+            if not args.debug_sports and exercises:
+                print("\n🔍 Mostrando TODAS las sesiones encontradas para debug:")
+                _print_divider()
+                for i, e in enumerate(exercises[:DEBUG_PREVIEW_LIMIT]):
+                    st = _get_field_variant(e, *FIELD_START_TIME, default="N/A")
+                    sport = _get_field_variant(e, *FIELD_SPORT, default="N/A")
+                    duration = e.get("duration", "N/A")
+                    dt = _iso_to_dt(st)
+                    date_str = dt.strftime("%Y-%m-%d") if dt else "N/A"
+                    
+                    # Mostrar si pasa filtro de fecha
+                    in_range = "✓" if from_d and to_d and dt and from_d <= dt.date() <= to_d else "✗"
+                    
+                    print(f"  [{i}] {date_str} {in_range} | Sport: '{sport}' | Duration: {duration}")
+                
+                if len(exercises) > 10:
+                    print(f"  ... y {len(exercises) - DEBUG_PREVIEW_LIMIT} más")
+                _print_divider()
+                print(f"\n💡 Buscando: Sport EXACTO = '{SPORTS_FILTER[0] if SPORTS_FILTER else 'N/A'}'")
+                print(f"   En rango: {from_d} a {to_d}")
+                
+                # DEBUG DETALLADO: Re-evaluar con debug activado
+                _print_header("🔍 DEBUG DETALLADO de cada sesión en rango:", leading_blank=True)
+                for i, e in enumerate(exercises[:10]):
+                    st = _get_field_variant(e, *FIELD_START_TIME, default="N/A")
+                    dt = _iso_to_dt(st)
+                    if dt and from_d and to_d and from_d <= dt.date() <= to_d:
+                        print(f"\n  Sesión [{i}] - {dt.date()}:")
+                        passes_filters(e, from_d, to_d, sports_set, MAX_DURATION_MINUTES, debug=True)
+                _print_divider()
+            
+            print(f"\n💡 No se encontraron sesiones '{SPORTS_FILTER[0] if SPORTS_FILTER else 'N/A'}' en el periodo.")
+            print(f"   Usa --days N para más días o --debug-sports para ver todas las sesiones.")
+            
+            # Mostrar último daily summary disponible aunque no haya nuevos datos
+            _print_header("📊 Aunque no hay nuevos datos, aquí está tu última medición:")
             show_last_daily_summary()
+            
+            # Mostrar resumen últimos 5 días
             show_last_5_days_summary()
+            _update_sleep_for_dates(access_token, x_user_id, _default_sleep_refresh_dates())
+            
             _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
             return
-        print("\n⚠️  No hay sesiones Body&Mind en el periodo")
-        
-        # Mostrar debug automáticamente
-        if not args.debug_sports and exercises:
-            print("\n🔍 Mostrando TODAS las sesiones encontradas para debug:")
-            _print_divider()
-            for i, e in enumerate(exercises[:DEBUG_PREVIEW_LIMIT]):
-                st = _get_field_variant(e, *FIELD_START_TIME, default="N/A")
-                sport = _get_field_variant(e, *FIELD_SPORT, default="N/A")
-                duration = e.get("duration", "N/A")
-                dt = _iso_to_dt(st)
-                date_str = dt.strftime("%Y-%m-%d") if dt else "N/A"
-                
-                # Mostrar si pasa filtro de fecha
-                in_range = "✓" if from_d and to_d and dt and from_d <= dt.date() <= to_d else "✗"
-                
-                print(f"  [{i}] {date_str} {in_range} | Sport: '{sport}' | Duration: {duration}")
-            
-            if len(exercises) > 10:
-                print(f"  ... y {len(exercises) - DEBUG_PREVIEW_LIMIT} más")
-            _print_divider()
-            print(f"\n💡 Buscando: Sport EXACTO = '{SPORTS_FILTER[0] if SPORTS_FILTER else 'N/A'}'")
-            print(f"   En rango: {from_d} a {to_d}")
-            
-            # DEBUG DETALLADO: Re-evaluar con debug activado
-            _print_header("🔍 DEBUG DETALLADO de cada sesión en rango:", leading_blank=True)
-            for i, e in enumerate(exercises[:10]):
-                st = _get_field_variant(e, *FIELD_START_TIME, default="N/A")
-                dt = _iso_to_dt(st)
-                if dt and from_d and to_d and from_d <= dt.date() <= to_d:
-                    print(f"\n  Sesión [{i}] - {dt.date()}:")
-                    passes_filters(e, from_d, to_d, sports_set, MAX_DURATION_MINUTES, debug=True)
-            _print_divider()
-        
-        print(f"\n💡 No se encontraron sesiones '{SPORTS_FILTER[0] if SPORTS_FILTER else 'N/A'}' en el periodo.")
-        print(f"   Usa --days N para más días o --debug-sports para ver todas las sesiones.")
-        
-        # Mostrar último daily summary disponible aunque no haya nuevos datos
-        _print_header("📊 Aunque no hay nuevos datos, aquí está tu última medición:")
-        show_last_daily_summary()
-        
-        # Mostrar resumen últimos 5 días
-        show_last_5_days_summary()
-        _update_context_for_dates(access_token, x_user_id, [_today_date()])
-        
-        _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
-        return
 
     # Export RR
     _qprint("\n📥 Descargando datos RR...")
@@ -1828,12 +2137,48 @@ def main():
     
     exported = 0
     skipped_in_master = 0
+    skipped_covered_by_drive = 0
     skipped_no_date = 0
     rr_files = []
+    pending_rr_dates = set()
+
+    target_missing_dates = _compute_target_missing_dates(from_d, to_d, existing_dates)
+    drive_rr_map: Dict = {}
+    drive_rr_new = 0
+    if DRIVE_RR_ENABLED and target_missing_dates:
+        drive_rr_map, drive_rr_new = _run_drive_rr_import_for_dates(
+            target_missing_dates,
+            OUTDIR,
+            verbose=args.verbose,
+        )
+        for day, rr_path in sorted(drive_rr_map.items(), key=lambda x: x[0]):
+            rr_files.append(rr_path)
+            pending_rr_dates.add(day)
+        if drive_rr_map:
+            reused = max(len(drive_rr_map) - drive_rr_new, 0)
+            _qprint(
+                f"☁️  Drive RR: {len(drive_rr_map)} fecha(s) cubierta(s) "
+                f"({drive_rr_new} nuevas, {reused} ya existentes)"
+            )
 
     for idx, e in enumerate(filtered):
         ex_id = e.get("id")
         if not ex_id:
+            continue
+
+        # Si ya tenemos RR (CORE o Drive) para la fecha del índice, evitar descarga de detalle.
+        st_hint = _get_field_variant(e, *FIELD_START_TIME, default="")
+        st_hint_dt = _iso_to_dt(st_hint)
+        session_date_hint = st_hint_dt.date() if st_hint_dt else None
+        if session_date_hint and session_date_hint in existing_dates:
+            if args.verbose:
+                print(f"  [{idx}] ⏭️  {session_date_hint} ya en CORE, omitiendo")
+            skipped_in_master += 1
+            continue
+        if session_date_hint and session_date_hint in pending_rr_dates:
+            if args.verbose:
+                print(f"  [{idx}] ⏭️  {session_date_hint} ya cubierto por RR Drive, omitiendo descarga Polar")
+            skipped_covered_by_drive += 1
             continue
 
         try:
@@ -1887,6 +2232,11 @@ def main():
                 print(f"  [{idx}] ⏭️  {date_part} ya en CORE, omitiendo")
             skipped_in_master += 1
             continue
+        if session_date and session_date in pending_rr_dates:
+            if args.verbose:
+                print(f"  [{idx}] ⏭️  {date_part} ya cubierto por RR Drive, omitiendo Polar")
+            skipped_covered_by_drive += 1
+            continue
 
         out_path = OUTDIR / out_name
 
@@ -1895,6 +2245,7 @@ def main():
             if args.verbose:
                 print(f"  [{idx}] ♻️  {out_name} existe, se procesará (no en master)")
             rr_files.append(out_path)
+            pending_rr_dates.add(session_date)
             continue
 
         # Extraer RR
@@ -1902,6 +2253,7 @@ def main():
 
         write_rr_csv(rr, str(out_path))
         rr_files.append(out_path)
+        pending_rr_dates.add(session_date)
         exported += 1
 
         offline_pct = 100.0 * sum(1 for _, off in rr if off == 1) / max(1, len(rr))
@@ -1912,13 +2264,17 @@ def main():
     _print_header("✅ EXPORT COMPLETADO")
     
     total_to_process = len(rr_files)
-    existing = max(total_to_process - exported, 0)
+    existing = max(total_to_process - exported - drive_rr_new, 0)
     
     if exported > 0:
         _qprint(f"\n📥 {exported} archivos nuevos descargados")
+    if drive_rr_new > 0:
+        _qprint(f"☁️  {drive_rr_new} RR nuevos generados desde Drive")
     
     if skipped_in_master > 0:
         _qprint(f"⏭️  {skipped_in_master} sesiones omitidas (ya en CORE)")
+    if skipped_covered_by_drive > 0:
+        _qprint(f"☁️  ⏭️  {skipped_covered_by_drive} sesiones omitidas (cubiertas por Drive)")
     if skipped_no_date > 0:
         _qprint(f"⚠️  {skipped_no_date} sesiones sin fecha (no se procesan)")
     
@@ -1932,13 +2288,13 @@ def main():
             print("⚠️  No hay RR con fecha válida para procesar")
         else:
             _print_no_rr_files()
-        _update_context_for_dates(access_token, x_user_id, [_today_date()])
+        _update_sleep_for_dates(access_token, x_user_id, _default_sleep_refresh_dates())
         _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
         return
     
     if total_to_process == 0 and skipped_in_master > 0:
         _print_master_already_updated()
-        _update_context_for_dates(access_token, x_user_id, [_today_date()])
+        _update_sleep_for_dates(access_token, x_user_id, _default_sleep_refresh_dates())
         _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
         return
 
@@ -1961,7 +2317,7 @@ def main():
         if len(cmd) <= 2:
             print("")
             print("⚠️  No hay archivos RR con fecha válida para procesar")
-            _update_context_for_dates(access_token, x_user_id, [_today_date()])
+            _update_sleep_for_dates(access_token, x_user_id, _default_sleep_refresh_dates())
             _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
             return
 
@@ -1988,10 +2344,15 @@ def main():
 
             post_process_dates = get_existing_dates_from_master() if PANDAS_AVAILABLE else set()
             new_dates = sorted(post_process_dates - pre_process_dates) if PANDAS_AVAILABLE else []
-            target_dates = new_dates if new_dates else [_today_date()]
+            if new_dates:
+                merged_dates = set(new_dates)
+                merged_dates.update(_default_sleep_refresh_dates())
+                target_dates = sorted(merged_dates)
+            else:
+                target_dates = _default_sleep_refresh_dates()
             _qprint("")
-            _qprint(f"▶️  Actualizando context.csv ({len(target_dates)} fecha(s))...")
-            _update_context_for_dates(access_token, x_user_id, target_dates)
+            _qprint(f"▶️  Actualizando sleep.csv ({len(target_dates)} fecha(s))...")
+            _update_sleep_for_dates(access_token, x_user_id, target_dates)
 
             _qprint("")
             _qprint("▶️  Ejecutando endurance_v4lite.py...")
@@ -2009,7 +2370,11 @@ def main():
                 print(result2.stdout)
 
             if QUIET:
-                print(f"✅ Sync OK: {exported} nuevos, {existing} reprocesados, {skipped_in_master} omitidos, {skipped_no_date} sin fecha")
+                print(
+                    f"✅ Sync OK: {exported} nuevos Polar, {drive_rr_new} nuevos Drive, "
+                    f"{existing} reprocesados, {skipped_in_master} omitidos CORE, "
+                    f"{skipped_covered_by_drive} cubiertos por Drive, {skipped_no_date} sin fecha"
+                )
                 print("✅ HRV procesado: CORE, BETA_AUDIT, FINAL, DASHBOARD")
             else:
                 print("")
@@ -2050,3 +2415,4 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
         sys.exit(1)
+

@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Diccionario de Columnas (V4-lite)
 
-**Revisión:** r2026-02-23 v3 (v4 enhancement)  
+**Revisión:** r2026-03-01 v4.1 (context simplificado + sessions pipeline)  
 **Estado:** Producción
 
 **Documentos relacionados:**
@@ -324,13 +324,15 @@ Conservado para comparación histórica con el sistema anterior (V3). **No afect
 
 ---
 
-## 5bis. CONTEXT (sidecar externo) — 34 columnas
+## 5bis. CONTEXT (sidecar externo) — 17 columnas
 
-Generado por `polar_hrv_automation.py` (fetch diario). Contiene datos de fuentes externas que el sensor HRV no mide. Alimenta el `reason_text` pero **NO afecta al gate ni a la acción**.
+Generado por `polar_hrv_automation.py` (fetch diario). Contiene datos de sueño y recuperación nocturna de Polar. Alimenta el `reason_text` pero **NO afecta al gate ni a la acción**.
+
+**La carga de entrenamiento ya NO está en sleep.csv.** Está en `sessions_day.csv` (generado por `build_sessions.py`), que tiene datos más ricos: work blocks, zonas con moving mask, rolling con cobertura real (_nobs). El `reason_text` lee carga de sessions_day.csv y sueño de sleep.csv.
 
 ### ¿Para qué sirve?
 
-El gate 2D solo ve HRV y pulso. Pero a menudo quieres saber *por qué* tu HRV bajó: ¿dormiste mal? ¿acumulaste mucha carga? ¿o no hay explicación obvia? El context.csv aporta esas piezas del puzzle sin interferir en la decisión automática.
+El gate 2D solo ve HRV y pulso. Pero a menudo quieres saber *por qué* tu HRV bajó: ¿dormiste mal? ¿acumulaste mucha carga? ¿o no hay explicación obvia? Context.csv aporta la pieza del sueño. Sessions_day.csv aporta la pieza de carga. Ninguna interfiere en la decisión automática.
 
 ### Polar Sleep (lo que pasó durante la noche)
 
@@ -338,36 +340,25 @@ El gate 2D solo ve HRV y pulso. Pero a menudo quieres saber *por qué* tu HRV ba
 |---------|--------|----------------|
 | `polar_sleep_duration_min` | Minutos de sueño real (sin despertares) | 360-480 (6-8h) |
 | `polar_sleep_span_min` | Minutos totales en cama (con despertares) | 400-510 |
-| `polar_deep_pct` | % de sueño profundo (N3). Crítico para recuperación física | 15-25% |
-| `polar_rem_pct` | % de sueño REM. Importante para consolidación cognitiva | 18-25% |
+| `polar_deep_pct` | % de sueño profundo (N3). Solo con Sleep Plus Stages (~18% cobertura) | 15-25% |
+| `polar_rem_pct` | % de sueño REM. Solo con Sleep Plus Stages (~18% cobertura) | 18-25% |
 | `polar_efficiency_pct` | Eficiencia: tiempo dormido / tiempo en cama × 100 | 85-95% |
 | `polar_continuity` / `polar_continuity_index` | Clase e índice de continuidad Polar | 1-5 |
 | `polar_interruptions_long` | **Conteo** de interrupciones largas (⚠️ NO es duración). P90 personal ≈ 8 | 0-15 |
 | `polar_interruptions_total` | Conteo total de interrupciones (largas + cortas) | 10-40 |
-| `polar_sleep_score` | Score Polar (0-100). Solo disponible con Nightly Recharge activo | 60-90 |
+| `polar_sleep_score` | Score Polar (0-100). Solo con Nightly Recharge (~18% cobertura) | 60-90 |
 | `polar_night_rmssd` | RMSSD nocturno medio (ms). Complementa el RMSSD matinal — si el nocturno es alto pero el matinal bajo, hay un confusor post-despertar | 20-60 |
 | `polar_night_rri` / `polar_night_resp` | RRI y respiración nocturna (ms). Informativos | — |
-
-### Intervals.icu (lo que hiciste ayer/últimos días)
-
-| Columna | Qué es |
-|---------|--------|
-| `intervals_load` | Carga total del día (sum de actividades). 0 = descanso |
-| `intervals_load_3d` | Sum de carga de los 3 días previos (d-1 + d-2 + d-3). No incluye hoy |
-| `intervals_load_yday` | Carga de ayer. Útil para "ROJO sin carga previa" |
-| `intervals_atl` / `intervals_ctl` / `intervals_tsb` | Fatiga aguda, fitness crónico, y balance (TSB = CTL - ATL). TSB < -20 = fatiga significativa |
-| `intervals_type_main` | Tipo de sesión principal (la de mayor load) |
-| `intervals_duration_min` | Duración total en minutos |
 
 ### Percentiles propios (tus umbrales personalizados)
 
 | Columna | Qué es |
 |---------|--------|
 | `sleep_dur_p10` | Debajo de este valor = noche corta para TI. Se calibra con todo tu histórico |
+| `sleep_dur_p90` | Encima = noche excepcionalmente larga |
 | `sleep_int_p90` | Encima = noche fragmentada para TI |
-| `load_3d_p90` | Encima = carga acumulada alta para TI |
 
-**Si el context.csv no existe o una API falla:** El gate y la acción no se ven afectados. Solo se pierden los avisos contextuales en reason_text.
+**Si el sleep.csv no existe o Polar API falla:** El gate y la acción no se ven afectados. Solo se pierden los avisos de sueño en reason_text. Los avisos de carga (de sessions_day.csv) siguen funcionando independientemente.
 
 ---
 
@@ -513,7 +504,7 @@ Mecanismo de seguridad que detecta cuando ROLL3 está **enmascarando una caída 
 Mínimo garantizado para SWC_ln: `ln(1.05) ≈ 0.04879`. ¿Por qué? En periodos de variabilidad muy estable (todos los días casi iguales), SWC puede ser minúsculo, lo que haría que cualquier fluctuación trivial active gates o vetos. El floor asegura que el "cambio mínimo significativo" nunca sea menor que un ~5% de variación en RMSSD.
 
 ### Reason_text
-Texto explicativo que combina información del gate con datos contextuales (sueño, carga). No modifica el gate — es un "comentario" que acompaña a la decisión automática. Puede decir cosas como "noche corta", "carga acumulada alta", o "VERDE con fatiga acumulada: precaución". Si el context.csv no existe, solo se generan avisos basados en datos HRV (caída aguda, saturación parasimpática).
+Texto explicativo que combina información del gate con datos contextuales (sueño, carga). No modifica el gate — es un "comentario" que acompaña a la decisión automática. Puede decir cosas como "noche corta", "carga acumulada alta", o "VERDE con fatiga acumulada: precaución". Si el sleep.csv no existe, solo se generan avisos basados en datos HRV (caída aguda, saturación parasimpática).
 
 ### Baseline 60d (BASE60)
 Tu "normal reciente": la **mediana** de lnRMSSD y HR en los últimos 60 días (solo clean, shift-1). ¿Por qué mediana y no media? Porque la mediana ignora valores extremos puntuales: si en 60 días tuviste 2 días con HRV muy bajo por una gripe, la mediana apenas se mueve. La ventana de 60 días es un compromiso: lo bastante larga para ser estable, lo bastante corta para seguir adaptaciones reales (si mejoras por entrenamiento sostenido, el baseline sube). Necesita al menos 30 días clean para operar.
@@ -664,7 +655,7 @@ Action_detail: SUAVE
 gate_razon_base60: 2D_AMBOS
 decision_path: BASE60_ONLY
 veto_agudo: True
-reason_text: Caída aguda HRV: raw=3.408 vs base=3.798 (drop=-0.390, umbral=-0.210) | Noche corta (345min < P10=362) | Carga acumulada alta (3d=237 > P90=241)
+reason_text: Caída aguda HRV: raw=3.408 vs base=3.798 (drop=-0.390, umbral=-0.210) | Noche corta (345min < P10=362) | Carga acumulada alta (load_3d=237)
 ```
 
 **Interpretación:** El veto agudo detectó una caída brusca que ROLL3 habría enmascarado. El reason_text explica tres factores convergentes: la caída fue real, dormiste poco, y acumulaste mucha carga. Alta confianza de que el ROJO es legítimo.
@@ -682,10 +673,10 @@ Action_detail: EJECUTAR_PLAN
 gate_razon_base60: 2D_OK
 decision_path: BASE60_ONLY
 veto_agudo: False
-reason_text: VERDE con fatiga acumulada (TSB=-22): precaución intensidad
+reason_text: VERDE con carga acumulada (load_3d=210): precaución intensidad
 ```
 
-**Interpretación:** Tu HRV y pulso están bien (VERDE), pero el TSB de Intervals muestra fatiga acumulada. El gate permite intensidad, pero el reason_text sugiere no ir al máximo.
+**Interpretación:** Tu HRV y pulso están bien (VERDE), pero sessions_day muestra carga acumulada alta en los últimos 3 días. El gate permite intensidad, pero el reason_text sugiere no ir al máximo.
 
 ---
 
@@ -698,8 +689,9 @@ reason_text: VERDE con fatiga acumulada (TSB=-22): precaución intensidad
 - **Sombras (28/42)** = miran si tu normal "reciente" está cambiando antes de que lo vea BASE60.
 - **Residual** = "¿para este pulso, tu HRV está mejor o peor de lo esperable?"
 - **quality_flag** = "el dato de hoy es sospechoso": aunque pinte bonito, **no toca apretar**.
-- **reason_text** = "te explico por qué": sueño malo, carga alta, caída aguda, etc. **No cambia el gate**, solo informa.
+- **reason_text** = "te explico por qué": sueño malo (de Polar), carga alta (de sessions_day), caída aguda de HRV, etc. **No cambia el gate**, solo informa.
 
 ---
 
 Fin del documento.
+

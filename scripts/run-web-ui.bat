@@ -1,7 +1,8 @@
 @echo off
 setlocal
 
-cd /d "%~dp0"
+set "ROOT_DIR=%~dp0.."
+cd /d "%ROOT_DIR%"
 
 if not exist ".venv\Scripts\activate.bat" (
   echo [ERROR] No se encontro el entorno virtual en .venv
@@ -21,5 +22,7 @@ echo Iniciando Polar HRV Web UI...
 echo URL: http://localhost:%PORT%
 echo.
 python web_ui.py
+
+pause
 
 endlocal

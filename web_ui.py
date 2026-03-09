@@ -81,6 +81,29 @@ def _parse_iso_date(value: str):
         return None
 
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    value = raw.strip().lower()
+    if value == "":
+        return default
+    return value in {"1", "true", "yes", "on"}
+
+
+def _sync_timeout_seconds(default: int = 1200) -> int:
+    raw = (os.environ.get("HRV_SYNC_TIMEOUT_SEC") or "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+        if value < 60:
+            return 60
+        return value
+    except ValueError:
+        return default
+
+
 def _token_diagnostics() -> dict:
     info = {
         "token_path": str(TOKEN_PATH),
@@ -116,7 +139,7 @@ def _token_diagnostics() -> dict:
 
 
 def _csv_runtime_diagnostics() -> dict:
-    data_dir = Path((os.environ.get("HRV_DATA_DIR") or ".").strip() or ".")
+    data_dir = Path((os.environ.get("HRV_DATA_DIR") or "data").strip() or "data")
     core_path = data_dir / "ENDURANCE_HRV_master_CORE.csv"
     final_path = data_dir / "ENDURANCE_HRV_master_FINAL.csv"
 
@@ -172,15 +195,52 @@ def _csv_runtime_diagnostics() -> dict:
     }
 
 
+def _drive_runtime_diagnostics() -> dict:
+    drive_script = Path((os.environ.get("HRV_DRIVE_RR_SCRIPT") or "egc_to_rr.py").strip() or "egc_to_rr.py")
+    drive_runtime = (os.environ.get("HRV_DRIVE_RUNTIME") or "auto").strip() or "auto"
+    drive_folder_id_set = bool((os.environ.get("HRV_DRIVE_FOLDER_ID") or "").strip())
+
+    google_application_credentials = (os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or "").strip()
+    google_application_credentials_exists = False
+    if google_application_credentials:
+        try:
+            google_application_credentials_exists = Path(google_application_credentials).exists()
+        except Exception:
+            google_application_credentials_exists = False
+
+    service_account_file = Path("service_account.json")
+    tokens_file = Path("tokens.json")
+
+    return {
+        "drive_rr_enabled": _env_flag("HRV_DRIVE_RR_ENABLED", True),
+        "drive_rr_script": str(drive_script),
+        "drive_rr_script_exists": drive_script.exists(),
+        "drive_rr_runtime": drive_runtime,
+        "drive_rr_recursive": _env_flag("HRV_DRIVE_RECURSIVE", True),
+        "drive_rr_no_aux": _env_flag("HRV_DRIVE_NO_AUX", True),
+        "drive_rr_folder_id_set": drive_folder_id_set,
+        "drive_rr_pair_limit": (os.environ.get("HRV_DRIVE_PAIR_LIMIT") or "").strip() or None,
+        "google_oauth_token_json_set": bool((os.environ.get("GOOGLE_OAUTH_TOKEN_JSON") or "").strip()),
+        "google_service_account_json_set": bool((os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON") or "").strip()),
+        "google_application_credentials_set": bool(google_application_credentials),
+        "google_application_credentials_exists": google_application_credentials_exists,
+        "service_account_file_exists": service_account_file.exists(),
+        "tokens_file_exists": tokens_file.exists(),
+        "credentials_file_exists": Path("credentials.json").exists(),
+    }
+
+
 def _build_status_payload() -> dict:
     token_info = _token_diagnostics()
     csv_info = _csv_runtime_diagnostics()
+    drive_info = _drive_runtime_diagnostics()
 
     payload = dict(execution_state)
     payload["diagnostics"] = {
         "authorized": token_info.get("token_reason") == "ok",
         **token_info,
         **csv_info,
+        **drive_info,
     }
     return payload
 
@@ -631,7 +691,7 @@ def sync():
         return jsonify({
             'success': False,
             'error': 'Ya hay una sincronización en curso'
-        })
+        }), 409
     
     # Ejecutar en thread separado para no bloquear
     thread = threading.Thread(target=run_sync)
@@ -666,6 +726,7 @@ def run_sync():
     
     try:
         script_path = Path('polar_hrv_automation.py')
+        timeout_sec = _sync_timeout_seconds()
         
         if not script_path.exists():
             raise FileNotFoundError('polar_hrv_automation.py no encontrado')
@@ -677,7 +738,7 @@ def run_sync():
             text=True,
             encoding='utf-8',
             errors='replace',
-            timeout=300,  # 5 minutos máximo
+            timeout=timeout_sec,
             env={
                 **os.environ,
                 'PYTHONIOENCODING': 'utf-8',
@@ -689,13 +750,23 @@ def run_sync():
         execution_state['last_output'] = result.stdout
         execution_state['last_error'] = result.stderr
         execution_state['success'] = (result.returncode == 0)
-        execution_state['last_run'] = datetime.now().isoformat()
+    except subprocess.TimeoutExpired as e:
+        timeout_sec = _sync_timeout_seconds()
+        stdout = e.stdout if isinstance(e.stdout, str) else (e.stdout.decode('utf-8', errors='replace') if e.stdout else '')
+        stderr = e.stderr if isinstance(e.stderr, str) else (e.stderr.decode('utf-8', errors='replace') if e.stderr else '')
+        execution_state['last_output'] = stdout or ''
+        execution_state['last_error'] = (
+            f"Timeout ejecutando sync (>{timeout_sec}s). "
+            f"Ajusta HRV_SYNC_TIMEOUT_SEC si hace falta.\n{stderr or ''}"
+        ).strip()
+        execution_state['success'] = False
         
     except Exception as e:
         execution_state['last_error'] = str(e)
         execution_state['success'] = False
     
     finally:
+        execution_state['last_run'] = datetime.now().isoformat()
         execution_state['running'] = False
 
 
