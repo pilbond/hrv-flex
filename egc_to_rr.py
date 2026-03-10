@@ -44,6 +44,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import zipfile
 from collections import defaultdict
 from dataclasses import dataclass
@@ -262,6 +263,12 @@ def list_dropbox_input_files(access_token: str, folder_path: str, recursive: boo
                 "Dropbox list_folder failed (401 invalid_access_token). "
                 "Check DROPBOX_ACCESS_TOKEN or configure "
                 "DROPBOX_REFRESH_TOKEN + DROPBOX_APP_KEY + DROPBOX_APP_SECRET."
+            )
+        if resp.status_code == 409 and '"error_summary": "path/not_found/"' in body_snippet:
+            requested_path = folder_path or "/"
+            raise RuntimeError(
+                f"Dropbox folder not found: {requested_path}. "
+                "Check HRV_DROPBOX_FOLDER_PATH/DROPBOX_FOLDER_PATH and use the exact Dropbox path."
             )
         raise RuntimeError(f"Dropbox list_folder failed ({resp.status_code}): {resp.text[:300]}")
 
