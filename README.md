@@ -13,7 +13,7 @@ python polar_hrv_automation.py --process
 Este comando:
 
 1. Calcula fechas faltantes en CORE.
-2. Intenta cubrir faltantes con `egc_to_rr.py` desde Google Drive (JSONL -> RR), si está habilitado.
+2. Intenta cubrir faltantes con `egc_to_rr.py` desde cloud (Dropbox/Drive, JSONL/ZIP -> RR), si está habilitado.
 3. Para fechas restantes, descarga RR desde Polar (Body&Mind).
 4. Actualiza `ENDURANCE_HRV_sleep.csv`.
 5. Genera/actualiza:
@@ -54,12 +54,17 @@ Con Volume montado en `/data`:
 - `POLAR_CLIENT_ID2=<id>` (o `POLAR_CLIENT_ID`)
 - `PORT` (inyectada por Railway)
 
-Para flujo Drive->RR:
+Para flujo cloud->RR (Dropbox/Drive):
 
 - `HRV_DRIVE_RR_ENABLED=1`
-- `HRV_DRIVE_RUNTIME=web`
-- `HRV_DRIVE_FOLDER_ID=1ROd4GmALeNVQzwaMC48PWBH0zrAAlR-U`
 - `HRV_DRIVE_NO_AUX=1`
+- `HRV_RR_CLOUD_SOURCE=dropbox|drive`
+- Si `drive`:
+  - `HRV_DRIVE_RUNTIME=web`
+  - `HRV_DRIVE_FOLDER_ID=1ROd4GmALeNVQzwaMC48PWBH0zrAAlR-U`
+- Si `dropbox`:
+  - `HRV_DROPBOX_FOLDER_PATH=/ruta/carpeta`
+  - `HRV_DROPBOX_RECURSIVE=1`
 
 ## Ejecución local
 

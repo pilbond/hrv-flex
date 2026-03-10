@@ -512,7 +512,7 @@ HTML_TEMPLATE = """
             
             // Mostrar status
             status.className = 'status info show';
-            status.textContent = '🔄 Conectando con Polar Flow...';
+            status.textContent = ' Iniciando sincronización...';
             statusValue.textContent = 'Procesando';
             
             try {
@@ -552,7 +552,9 @@ HTML_TEMPLATE = """
             const statusValue = document.getElementById('statusValue');
             
             let attempts = 0;
-            const maxAttempts = 150; // 5 minutos (150 * 2s)
+            const syncTimeoutSec = Number('{{ sync_timeout_sec }}') || 1200;
+            const pollIntervalSec = 2;
+            const maxAttempts = Math.ceil(syncTimeoutSec / pollIntervalSec);
             
             while (attempts < maxAttempts) {
                 await new Promise(resolve => setTimeout(resolve, 2000)); // Esperar 2s
@@ -562,7 +564,7 @@ HTML_TEMPLATE = """
                     const data = await response.json();
                     
                     // Actualizar mensaje de progreso
-                    status.textContent = '🔄 Procesando datos HRV... ' + Math.floor(attempts * 2 / 60) + 'm ' + (attempts * 2 % 60) + 's';
+                    status.textContent = '🔄 Procesando datos HRV... ' + Math.floor(attempts * pollIntervalSec / 60) + 'm ' + (attempts * pollIntervalSec % 60) + 's';
                     
                     // Si ya no está ejecutándose
                     if (!data.running) {
@@ -581,13 +583,13 @@ HTML_TEMPLATE = """
                 }
             }
             
-            // Timeout después de 5 minutos
+            // Timeout UI alineado con HRV_SYNC_TIMEOUT_SEC
             btn.classList.remove('running');
             btnText.textContent = 'Sincronizar Ahora';
             btn.disabled = false;
             
             status.className = 'status error show';
-            status.textContent = '⏱️ Timeout: La sincronización tomó demasiado tiempo';
+            status.textContent = '⏱️ Timeout en UI: la sincronización tardó más de lo esperado';
             statusValue.textContent = 'Error';
         }
         
@@ -687,7 +689,7 @@ HTML_TEMPLATE = """
 @app.route('/')
 def index():
     """Interfaz web principal"""
-    return render_template_string(HTML_TEMPLATE)
+    return render_template_string(HTML_TEMPLATE, sync_timeout_sec=_sync_timeout_seconds())
 
 
 @app.route('/api/sync', methods=['POST'])

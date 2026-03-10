@@ -681,7 +681,7 @@ def _print_no_rr_files():
     print("\n⚠️  No hay archivos RR para procesar")
     print("Causas típicas:")
     print("   - Sesiones sin RR en el periodo")
-    print("   - Sesiones aún no sincronizadas con Polar Flow")
+    print("   - Archivos aún no disponibles en cloud (Dropbox/Drive) ni en Polar")
 
 
 def _print_master_already_updated():
