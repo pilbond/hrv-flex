@@ -199,6 +199,14 @@ def _drive_runtime_diagnostics() -> dict:
     drive_script = Path((os.environ.get("HRV_DRIVE_RR_SCRIPT") or "egc_to_rr.py").strip() or "egc_to_rr.py")
     drive_runtime = (os.environ.get("HRV_DRIVE_RUNTIME") or "auto").strip() or "auto"
     drive_folder_id_set = bool((os.environ.get("HRV_DRIVE_FOLDER_ID") or "").strip())
+    rr_cloud_source = (os.environ.get("HRV_RR_CLOUD_SOURCE") or "drive").strip().lower() or "drive"
+    if rr_cloud_source not in {"drive", "dropbox"}:
+        rr_cloud_source = "drive"
+    dropbox_folder_path = (
+        os.environ.get("HRV_DROPBOX_FOLDER_PATH")
+        or os.environ.get("DROPBOX_FOLDER_PATH")
+        or ""
+    ).strip()
 
     google_application_credentials = (os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or "").strip()
     google_application_credentials_exists = False
@@ -216,10 +224,17 @@ def _drive_runtime_diagnostics() -> dict:
         "drive_rr_script": str(drive_script),
         "drive_rr_script_exists": drive_script.exists(),
         "drive_rr_runtime": drive_runtime,
+        "rr_cloud_source": rr_cloud_source,
         "drive_rr_recursive": _env_flag("HRV_DRIVE_RECURSIVE", True),
         "drive_rr_no_aux": _env_flag("HRV_DRIVE_NO_AUX", True),
         "drive_rr_folder_id_set": drive_folder_id_set,
         "drive_rr_pair_limit": (os.environ.get("HRV_DRIVE_PAIR_LIMIT") or "").strip() or None,
+        "dropbox_folder_path_set": bool(dropbox_folder_path),
+        "dropbox_recursive": _env_flag("HRV_DROPBOX_RECURSIVE", True),
+        "dropbox_access_token_set": bool((os.environ.get("DROPBOX_ACCESS_TOKEN") or "").strip()),
+        "dropbox_refresh_token_set": bool((os.environ.get("DROPBOX_REFRESH_TOKEN") or "").strip()),
+        "dropbox_app_key_set": bool((os.environ.get("DROPBOX_APP_KEY") or "").strip()),
+        "dropbox_app_secret_set": bool((os.environ.get("DROPBOX_APP_SECRET") or "").strip()),
         "google_oauth_token_json_set": bool((os.environ.get("GOOGLE_OAUTH_TOKEN_JSON") or "").strip()),
         "google_service_account_json_set": bool((os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON") or "").strip()),
         "google_application_credentials_set": bool(google_application_credentials),

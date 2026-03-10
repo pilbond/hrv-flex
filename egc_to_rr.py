@@ -17,7 +17,10 @@ Supported modes:
 4) Google Drive using predefined folder id:
    python egc_to_rr.py --outdir data/rr_downloads --dry-run
 
-5) Web/server runtime (non-interactive, e.g. Railway):
+5) Dropbox folder:
+   python egc_to_rr.py --dropbox-folder /HRV/raw_jsonl --dropbox-recursive --outdir data/rr_downloads
+
+6) Web/server runtime (non-interactive, e.g. Railway):
    python egc_to_rr.py --drive-runtime web --outdir data/rr_downloads --dry-run
 
 Outputs per session:
@@ -36,10 +39,12 @@ Main requirements:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
 import shutil
+import zipfile
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -48,6 +53,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+import requests
 
 try:
     from scipy.signal import butter, filtfilt, find_peaks, welch
@@ -78,6 +84,9 @@ RR_MIN_MS = 300.0
 RR_MAX_MS = 2000.0
 DELTA_RR_MAX = 0.20
 PREDEFINED_DRIVE_FOLDER_ID = "1ROd4GmALeNVQzwaMC48PWBH0zrAAlR-U"
+DROPBOX_API_ROOT = "https://api.dropboxapi.com/2"
+DROPBOX_CONTENT_ROOT = "https://content.dropboxapi.com/2"
+SUPPORTED_INPUT_EXTS = {".jsonl", ".zip"}
 
 
 @dataclass
@@ -122,6 +131,207 @@ def get_default_drive_folder_id() -> str:
     if env_override:
         return env_override
     return PREDEFINED_DRIVE_FOLDER_ID
+
+
+def get_default_source() -> str:
+    raw = (os.environ.get("ECG_RR_SOURCE") or "drive").strip().lower()
+    if raw in {"drive", "dropbox"}:
+        return raw
+    return "drive"
+
+
+def get_default_dropbox_folder_path() -> str:
+    return (os.environ.get("ECG_RR_DROPBOX_FOLDER") or "").strip()
+
+
+def _modified_to_ts(value: str) -> float:
+    if not value:
+        return 0.0
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return 0.0
+
+
+def is_jsonl_filename(name: str) -> bool:
+    return str(name).lower().endswith(".jsonl")
+
+
+def is_zip_filename(name: str) -> bool:
+    return str(name).lower().endswith(".zip")
+
+
+def is_supported_input_filename(name: str) -> bool:
+    lower = str(name).lower()
+    return any(lower.endswith(ext) for ext in SUPPORTED_INPUT_EXTS)
+
+
+def _get_dropbox_access_token(
+    access_token_cli: str = "",
+    refresh_token_cli: str = "",
+    app_key_cli: str = "",
+    app_secret_cli: str = "",
+) -> Tuple[str, str]:
+    access_token = (
+        (access_token_cli or "").strip()
+        or (os.environ.get("DROPBOX_ACCESS_TOKEN") or "").strip()
+    )
+    if access_token:
+        return access_token, "direct_access_token"
+
+    refresh_token = (
+        (refresh_token_cli or "").strip()
+        or (os.environ.get("DROPBOX_REFRESH_TOKEN") or "").strip()
+    )
+    app_key = (
+        (app_key_cli or "").strip()
+        or (os.environ.get("DROPBOX_APP_KEY") or "").strip()
+    )
+    app_secret = (
+        (app_secret_cli or "").strip()
+        or (os.environ.get("DROPBOX_APP_SECRET") or "").strip()
+    )
+    if not refresh_token or not app_key or not app_secret:
+        raise RuntimeError(
+            "Dropbox credentials not configured. Provide DROPBOX_ACCESS_TOKEN, "
+            "or DROPBOX_REFRESH_TOKEN + DROPBOX_APP_KEY + DROPBOX_APP_SECRET."
+        )
+
+    try:
+        resp = requests.post(
+            "https://api.dropboxapi.com/oauth2/token",
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+            },
+            auth=(app_key, app_secret),
+            timeout=30,
+        )
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Dropbox token refresh request failed: {exc}") from exc
+
+    if resp.status_code != 200:
+        raise RuntimeError(
+            f"Dropbox token refresh failed ({resp.status_code}): {resp.text[:300]}"
+        )
+    payload = resp.json()
+    token = (payload.get("access_token") or "").strip()
+    if not token:
+        raise RuntimeError("Dropbox token refresh response missing access_token.")
+    return token, "refresh_token"
+
+
+def _normalize_dropbox_folder_path(folder_path: str) -> str:
+    raw = (folder_path or "").strip()
+    if not raw:
+        raise ValueError("Dropbox mode requires --dropbox-folder (or ECG_RR_DROPBOX_FOLDER).")
+    if raw == "/":
+        return ""
+    if not raw.startswith("/"):
+        raw = "/" + raw
+    return raw.rstrip("/")
+
+
+def list_dropbox_input_files(access_token: str, folder_path: str, recursive: bool = True) -> List[FileEntry]:
+    folder_api = _normalize_dropbox_folder_path(folder_path)
+    files: List[FileEntry] = []
+    headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+    payload = {
+        "path": folder_api,
+        "recursive": bool(recursive),
+        "include_deleted": False,
+        "include_has_explicit_shared_members": False,
+        "include_mounted_folders": True,
+    }
+
+    try:
+        resp = requests.post(f"{DROPBOX_API_ROOT}/files/list_folder", headers=headers, json=payload, timeout=60)
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Dropbox list_folder failed: {exc}") from exc
+    if resp.status_code != 200:
+        raise RuntimeError(f"Dropbox list_folder failed ({resp.status_code}): {resp.text[:300]}")
+
+    data = resp.json()
+    while True:
+        for item in data.get("entries", []):
+            if item.get(".tag") != "file":
+                continue
+            name = item.get("name", "")
+            if not is_supported_input_filename(name):
+                continue
+
+            path_lower = item.get("path_lower", "")
+            path_display = item.get("path_display", "")
+            server_modified = item.get("server_modified", "")
+
+            rel = path_lower.lstrip("/")
+            if folder_api:
+                prefix = folder_api.lstrip("/") + "/"
+                rel = rel[len(prefix):] if rel.startswith(prefix) else rel
+            parent = "."
+            if "/" in rel:
+                parent = rel.rsplit("/", 1)[0]
+
+            files.append(
+                FileEntry(
+                    source="dropbox",
+                    name=name,
+                    parent=parent,
+                    sort_key=_modified_to_ts(server_modified),
+                    path=None,
+                    drive_id=path_lower or path_display,
+                    modified_time=server_modified,
+                )
+            )
+
+        if not data.get("has_more"):
+            break
+        cursor = data.get("cursor")
+        if not cursor:
+            break
+        try:
+            resp = requests.post(
+                f"{DROPBOX_API_ROOT}/files/list_folder/continue",
+                headers=headers,
+                json={"cursor": cursor},
+                timeout=60,
+            )
+        except requests.RequestException as exc:
+            raise RuntimeError(f"Dropbox list_folder/continue failed: {exc}") from exc
+        if resp.status_code != 200:
+            raise RuntimeError(
+                f"Dropbox list_folder/continue failed ({resp.status_code}): {resp.text[:300]}"
+            )
+        data = resp.json()
+
+    return files
+
+
+def download_dropbox_file(access_token: str, file_entry: FileEntry, download_dir: Path) -> Path:
+    file_path = (file_entry.drive_id or "").strip()
+    if not file_path:
+        raise ValueError("Dropbox file entry missing path.")
+
+    ext = Path(file_entry.name).suffix.lower()
+    if ext not in SUPPORTED_INPUT_EXTS:
+        ext = ".bin"
+    safe_name = sanitize_fragment(Path(file_entry.name).stem, 80)
+    hash_prefix = hashlib.sha1(file_path.encode("utf-8")).hexdigest()[:10]
+    local_name = f"{hash_prefix}_{safe_name}{ext}"
+    dest = download_dir / local_name
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Dropbox-API-Arg": json.dumps({"path": file_path}),
+    }
+    try:
+        resp = requests.post(f"{DROPBOX_CONTENT_ROOT}/files/download", headers=headers, timeout=120)
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Dropbox download failed for {file_entry.name}: {exc}") from exc
+    if resp.status_code != 200:
+        raise RuntimeError(f"Dropbox download failed ({resp.status_code}): {resp.text[:300]}")
+    dest.write_bytes(resp.content)
+    return dest
 
 
 def iter_jsonl(path: Path) -> Iterable[dict]:
@@ -716,7 +926,7 @@ def get_drive_service(
     )
 
 
-def list_drive_jsonl_files(service, folder_id: str, recursive: bool = True) -> List[FileEntry]:
+def list_drive_input_files(service, folder_id: str, recursive: bool = True) -> List[FileEntry]:
     files: List[FileEntry] = []
     queue: List[Tuple[str, str]] = [(folder_id, ".")]
     visited: set = set()
@@ -754,7 +964,7 @@ def list_drive_jsonl_files(service, folder_id: str, recursive: bool = True) -> L
                         queue.append((file_id, sub_parent))
                     continue
 
-                if not name.lower().endswith(".jsonl"):
+                if not is_supported_input_filename(name):
                     continue
 
                 files.append(
@@ -780,8 +990,11 @@ def download_drive_file(service, file_entry: FileEntry, download_dir: Path) -> P
     if not file_entry.drive_id:
         raise ValueError("Drive file entry missing drive_id.")
 
-    safe_name = sanitize_fragment(file_entry.name, 80)
-    local_name = f"{file_entry.drive_id[:10]}_{safe_name}.jsonl"
+    ext = Path(file_entry.name).suffix.lower()
+    if ext not in SUPPORTED_INPUT_EXTS:
+        ext = ".bin"
+    base = sanitize_fragment(Path(file_entry.name).stem, 80)
+    local_name = f"{file_entry.drive_id[:10]}_{base}{ext}"
     dest = download_dir / local_name
 
     request = service.files().get_media(fileId=file_entry.drive_id, supportsAllDrives=True)
@@ -794,10 +1007,12 @@ def download_drive_file(service, file_entry: FileEntry, download_dir: Path) -> P
 
 
 def collect_local_jsonl_files(input_dir: Path, recursive: bool = True) -> List[FileEntry]:
-    pattern = "**/*.jsonl" if recursive else "*.jsonl"
+    pattern = "**/*" if recursive else "*"
     files: List[FileEntry] = []
     for path in sorted(input_dir.glob(pattern)):
         if not path.is_file():
+            continue
+        if not is_jsonl_filename(path.name):
             continue
         parent = "."
         try:
@@ -815,6 +1030,51 @@ def collect_local_jsonl_files(input_dir: Path, recursive: bool = True) -> List[F
             )
         )
     return files
+
+
+def collect_local_zip_files(input_dir: Path, recursive: bool = True) -> List[Path]:
+    pattern = "**/*" if recursive else "*"
+    files: List[Path] = []
+    for path in sorted(input_dir.glob(pattern)):
+        if not path.is_file():
+            continue
+        if is_zip_filename(path.name):
+            files.append(path)
+    return files
+
+
+def _safe_zip_output_name(member_name: str) -> str:
+    member_path = Path(member_name.replace("\\", "/"))
+    stem = sanitize_fragment(member_path.stem, 80)
+    return f"{stem}.jsonl"
+
+
+def extract_zip_archives(zip_paths: List[Path], dest_root: Path) -> Tuple[int, int]:
+    extracted_jsonl = 0
+    archives_used = 0
+    for idx, zip_path in enumerate(zip_paths, start=1):
+        target_dir = dest_root / f"{sanitize_fragment(zip_path.stem, 50)}_{idx:04d}"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                members = [m for m in zf.namelist() if is_jsonl_filename(m) and not m.endswith("/")]
+                if not members:
+                    continue
+                archives_used += 1
+                for j, member in enumerate(members, start=1):
+                    safe_name = _safe_zip_output_name(member)
+                    out_path = target_dir / safe_name
+                    if out_path.exists():
+                        stem = out_path.stem
+                        out_path = target_dir / f"{stem}_{j}.jsonl"
+                    with zf.open(member, "r") as src, out_path.open("wb") as dst:
+                        shutil.copyfileobj(src, dst)
+                    extracted_jsonl += 1
+        except zipfile.BadZipFile:
+            print(f"[WARN] Invalid ZIP skipped: {zip_path}")
+        except Exception as exc:
+            print(f"[WARN] Could not extract ZIP {zip_path}: {exc}")
+    return extracted_jsonl, archives_used
 
 
 def detect_sensor_and_key(file_name: str) -> Tuple[Optional[str], Optional[str]]:
@@ -911,6 +1171,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--drive-download-dir", default="", help="Keep downloaded drive JSONL files in this folder")
     parser.add_argument("--drive-recursive", action="store_true", help="Traverse subfolders in Drive input folder")
 
+    parser.add_argument(
+        "--dropbox-folder",
+        default="",
+        help="Dropbox folder path containing ECG/ACC JSONL files (e.g. /HRV/raw_jsonl).",
+    )
+    parser.add_argument("--dropbox-recursive", action="store_true", help="Traverse subfolders in Dropbox input folder")
+    parser.add_argument("--dropbox-access-token", default="", help="Dropbox direct access token")
+    parser.add_argument("--dropbox-refresh-token", default="", help="Dropbox refresh token")
+    parser.add_argument("--dropbox-app-key", default="", help="Dropbox app key (for refresh token auth)")
+    parser.add_argument("--dropbox-app-secret", default="", help="Dropbox app secret (for refresh token auth)")
+    parser.add_argument(
+        "--dropbox-download-dir",
+        default="",
+        help="Keep downloaded Dropbox JSONL files in this folder",
+    )
+
     parser.add_argument("--outdir", required=True, help="Output folder for RR files")
     parser.add_argument(
         "--aux-subdir",
@@ -929,14 +1205,24 @@ def resolve_mode(args: argparse.Namespace) -> str:
     single_mode = bool(args.ecg or args.acc)
     local_mode = bool(args.input_dir)
     drive_mode = bool((args.drive_folder_id or "").strip())
-    selected = int(single_mode) + int(local_mode) + int(drive_mode)
+    dropbox_mode = bool((args.dropbox_folder or "").strip())
+    selected = int(single_mode) + int(local_mode) + int(drive_mode) + int(dropbox_mode)
 
     if selected == 0:
+        default_source = get_default_source()
+        if default_source == "dropbox":
+            default_dropbox_folder = get_default_dropbox_folder_path()
+            if default_dropbox_folder:
+                args.dropbox_folder = default_dropbox_folder
+                return "dropbox_batch"
+
         default_drive_id = get_default_drive_folder_id()
         if default_drive_id:
             args.drive_folder_id = default_drive_id
             return "drive_batch"
-        raise ValueError("Choose one source mode: --ecg/--acc, or --input-dir, or --drive-folder-id.")
+        raise ValueError(
+            "Choose one source mode: --ecg/--acc, --input-dir, --drive-folder-id, or --dropbox-folder."
+        )
     if selected > 1:
         raise ValueError("Use only one source mode at a time.")
     if single_mode and (not args.ecg or not args.acc):
@@ -945,6 +1231,8 @@ def resolve_mode(args: argparse.Namespace) -> str:
         return "single"
     if local_mode:
         return "local_batch"
+    if dropbox_mode:
+        return "dropbox_batch"
     return "drive_batch"
 
 
@@ -980,8 +1268,10 @@ def main() -> None:
 
     pairs: List[PairEntry]
     drive_service = None
+    dropbox_access_token: Optional[str] = None
     download_dir: Optional[Path] = None
-    temp_drive_download_dir: Optional[Path] = None
+    temp_cloud_download_dir: Optional[Path] = None
+    temp_local_extract_dir: Optional[Path] = None
 
     if mode == "single":
         ecg_path = Path(args.ecg)
@@ -1002,6 +1292,54 @@ def main() -> None:
         if not input_dir.exists():
             raise FileNotFoundError(f"Input dir not found: {input_dir}")
         local_files = collect_local_jsonl_files(input_dir, recursive=args.input_recursive)
+        local_zips = collect_local_zip_files(input_dir, recursive=args.input_recursive)
+        if local_zips:
+            run_tag = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+            temp_local_extract_dir = outdir / "_local_zip_tmp" / run_tag
+            temp_local_extract_dir.mkdir(parents=True, exist_ok=True)
+            extracted_jsonl, used_archives = extract_zip_archives(local_zips, temp_local_extract_dir)
+            if extracted_jsonl:
+                local_files.extend(collect_local_jsonl_files(temp_local_extract_dir, recursive=True))
+            print(
+                f"[INFO] Local ZIP scan: archives={len(local_zips)} "
+                f"used={used_archives} extracted_jsonl={extracted_jsonl}"
+            )
+        pairs = build_pairs(local_files)
+    elif mode == "dropbox_batch":
+        print(f"[INFO] Using Dropbox folder path: {args.dropbox_folder}")
+        dropbox_access_token, auth_source = _get_dropbox_access_token(
+            access_token_cli=args.dropbox_access_token,
+            refresh_token_cli=args.dropbox_refresh_token,
+            app_key_cli=args.dropbox_app_key,
+            app_secret_cli=args.dropbox_app_secret,
+        )
+        print(f"[INFO] Dropbox auth source: {auth_source}")
+        dropbox_files = list_dropbox_input_files(
+            dropbox_access_token,
+            args.dropbox_folder,
+            recursive=args.dropbox_recursive,
+        )
+        if args.dropbox_download_dir:
+            download_dir = Path(args.dropbox_download_dir)
+            download_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            run_tag = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+            download_dir = outdir / "_dropbox_tmp" / run_tag
+            download_dir.mkdir(parents=True, exist_ok=True)
+            temp_cloud_download_dir = download_dir
+
+        for file_entry in dropbox_files:
+            download_dropbox_file(dropbox_access_token, file_entry, download_dir)
+
+        zip_files = collect_local_zip_files(download_dir, recursive=False)
+        if zip_files:
+            extracted_jsonl, used_archives = extract_zip_archives(zip_files, download_dir / "_unzipped")
+            print(
+                f"[INFO] Dropbox ZIP scan: archives={len(zip_files)} "
+                f"used={used_archives} extracted_jsonl={extracted_jsonl}"
+            )
+
+        local_files = collect_local_jsonl_files(download_dir, recursive=True)
         pairs = build_pairs(local_files)
     else:
         if drive_folder_cli:
@@ -1019,19 +1357,31 @@ def main() -> None:
             runtime=args.drive_runtime,
             service_account_path=service_account_path,
         )
-        drive_files = list_drive_jsonl_files(drive_service, args.drive_folder_id, recursive=args.drive_recursive)
-        pairs = build_pairs(drive_files)
+        drive_files = list_drive_input_files(drive_service, args.drive_folder_id, recursive=args.drive_recursive)
 
-        if not args.dry_run:
-            if args.drive_download_dir:
-                download_dir = Path(args.drive_download_dir)
-                download_dir.mkdir(parents=True, exist_ok=True)
-            else:
-                # Avoid OS temp permission issues by keeping transient downloads in workspace.
-                run_tag = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
-                download_dir = outdir / "_drive_tmp" / run_tag
-                download_dir.mkdir(parents=True, exist_ok=True)
-                temp_drive_download_dir = download_dir
+        if args.drive_download_dir:
+            download_dir = Path(args.drive_download_dir)
+            download_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            # Avoid OS temp permission issues by keeping transient downloads in workspace.
+            run_tag = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+            download_dir = outdir / "_drive_tmp" / run_tag
+            download_dir.mkdir(parents=True, exist_ok=True)
+            temp_cloud_download_dir = download_dir
+
+        for file_entry in drive_files:
+            download_drive_file(drive_service, file_entry, download_dir)
+
+        zip_files = collect_local_zip_files(download_dir, recursive=False)
+        if zip_files:
+            extracted_jsonl, used_archives = extract_zip_archives(zip_files, download_dir / "_unzipped")
+            print(
+                f"[INFO] Drive ZIP scan: archives={len(zip_files)} "
+                f"used={used_archives} extracted_jsonl={extracted_jsonl}"
+            )
+
+        local_files = collect_local_jsonl_files(download_dir, recursive=True)
+        pairs = build_pairs(local_files)
 
     if not pairs:
         raise ValueError("No ECG/ACC pairs found.")
@@ -1042,6 +1392,34 @@ def main() -> None:
     print_pairs_preview(pairs)
     if args.dry_run:
         print("[DRY-RUN] No files converted.")
+        if temp_cloud_download_dir is not None:
+            try:
+                shutil.rmtree(temp_cloud_download_dir)
+                parent = temp_cloud_download_dir.parent
+                if parent.exists():
+                    for legacy_file in parent.glob("*.jsonl"):
+                        try:
+                            legacy_file.unlink()
+                        except OSError:
+                            pass
+                if parent.exists() and not any(parent.iterdir()):
+                    try:
+                        parent.rmdir()
+                    except OSError:
+                        pass
+            except Exception as exc:
+                print(f"[WARN] Could not cleanup temporary cloud files: {exc}")
+        if temp_local_extract_dir is not None:
+            try:
+                shutil.rmtree(temp_local_extract_dir)
+                parent = temp_local_extract_dir.parent
+                if parent.exists() and not any(parent.iterdir()):
+                    try:
+                        parent.rmdir()
+                    except OSError:
+                        pass
+            except Exception as exc:
+                print(f"[WARN] Could not cleanup temporary local zip files: {exc}")
         return
 
     ok = 0
@@ -1049,16 +1427,10 @@ def main() -> None:
     try:
         for idx, pair in enumerate(pairs, start=1):
             try:
-                if mode == "drive_batch":
-                    assert drive_service is not None
-                    assert download_dir is not None
-                    ecg_local = download_drive_file(drive_service, pair.ecg, download_dir)
-                    acc_local = download_drive_file(drive_service, pair.acc, download_dir)
-                else:
-                    assert pair.ecg.path is not None
-                    assert pair.acc.path is not None
-                    ecg_local = pair.ecg.path
-                    acc_local = pair.acc.path
+                assert pair.ecg.path is not None
+                assert pair.acc.path is not None
+                ecg_local = pair.ecg.path
+                acc_local = pair.acc.path
 
                 result = process_pair(
                     ecg_path=ecg_local,
@@ -1079,10 +1451,10 @@ def main() -> None:
                 failed += 1
                 print(f"[FAIL {idx}/{len(pairs)}] {pair.key}: {exc}")
     finally:
-        if temp_drive_download_dir is not None:
+        if temp_cloud_download_dir is not None:
             try:
-                shutil.rmtree(temp_drive_download_dir, ignore_errors=True)
-                parent = temp_drive_download_dir.parent
+                shutil.rmtree(temp_cloud_download_dir)
+                parent = temp_cloud_download_dir.parent
                 # Legacy cleanup: previous versions stored downloaded jsonl directly in _drive_tmp.
                 if parent.exists():
                     for legacy_file in parent.glob("*.jsonl"):
@@ -1098,6 +1470,17 @@ def main() -> None:
                         pass
             except Exception as exc:
                 print(f"[WARN] Could not cleanup temporary drive files: {exc}")
+        if temp_local_extract_dir is not None:
+            try:
+                shutil.rmtree(temp_local_extract_dir)
+                parent = temp_local_extract_dir.parent
+                if parent.exists() and not any(parent.iterdir()):
+                    try:
+                        parent.rmdir()
+                    except OSError:
+                        pass
+            except Exception as exc:
+                print(f"[WARN] Could not cleanup temporary local zip files: {exc}")
 
     print(
         f"[SUMMARY] processed={len(pairs)} ok={ok} failed={failed} "
