@@ -452,7 +452,7 @@ HTML_TEMPLATE = """
 <body>
     <div class="container">
         <div class="card">
-            <h1>⚡ Polar HRV Sync v4</h1>
+            <h1>⚡ HRV Sync v4</h1>
             <p class="subtitle">Sincronización automática de datos HRV</p>
             
             <button id="syncBtn" class="sync-button" onclick="syncPolar()">
