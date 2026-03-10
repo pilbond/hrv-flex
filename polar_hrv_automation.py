@@ -1923,6 +1923,14 @@ def run_endurance_v4lite_only() -> bool:
             print(exc.stderr)
         return False
 
+
+def _refresh_sleep_and_outputs(access_token: str, x_user_id: Optional[str], run_v4lite: bool = False, dates: Optional[List] = None) -> None:
+    target_dates = dates if dates is not None else _default_sleep_refresh_dates()
+    _update_sleep_for_dates(access_token, x_user_id, target_dates)
+    if run_v4lite:
+        _qprint("▶️  Regenerando FINAL/DASHBOARD con sleep actualizado...")
+        run_endurance_v4lite_only()
+
 def main():
     parser = argparse.ArgumentParser(description='Polar HRV Automation')
     parser.add_argument('--auth', action='store_true', help='Forzar re-autenticación')
@@ -1982,9 +1990,7 @@ def main():
         if days_missing == 0:
             if args.process:
                 _qprint("▶️  Sin RR nuevos: actualizando sleep.csv (hoy)...")
-                _update_sleep_for_dates(access_token, x_user_id, _default_sleep_refresh_dates())
-                _qprint("▶️  Regenerando FINAL/DASHBOARD con sleep actualizado...")
-                run_endurance_v4lite_only()
+                _refresh_sleep_and_outputs(access_token, x_user_id, run_v4lite=True)
             _print_sync_completed(updated_date=datetime.now().date(), checkmark=False)
             
             # Mostrar último daily summary
@@ -2019,9 +2025,7 @@ def main():
         if days_missing == 0:
             if args.process:
                 _qprint("▶️  Sin RR nuevos: actualizando sleep.csv (hoy)...")
-                _update_sleep_for_dates(access_token, x_user_id, _default_sleep_refresh_dates())
-                _qprint("▶️  Regenerando FINAL/DASHBOARD con sleep actualizado...")
-                run_endurance_v4lite_only()
+                _refresh_sleep_and_outputs(access_token, x_user_id, run_v4lite=True)
             _print_sync_completed(updated_date=None, checkmark=True)
             
             # Mostrar último daily summary
@@ -2098,7 +2102,7 @@ def main():
         else:
             if QUIET:
                 print("⚠️  No hay sesiones Body&Mind en el periodo")
-                _update_sleep_for_dates(access_token, x_user_id, _default_sleep_refresh_dates())
+                _refresh_sleep_and_outputs(access_token, x_user_id, run_v4lite=args.process)
                 show_last_daily_summary()
                 show_last_5_days_summary()
                 _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
@@ -2140,13 +2144,14 @@ def main():
             print(f"\n💡 No se encontraron sesiones '{SPORTS_FILTER[0] if SPORTS_FILTER else 'N/A'}' en el periodo.")
             print(f"   Usa --days N para más días o --debug-sports para ver todas las sesiones.")
             
+            _refresh_sleep_and_outputs(access_token, x_user_id, run_v4lite=args.process)
+
             # Mostrar último daily summary disponible aunque no haya nuevos datos
             _print_header("📊 Aunque no hay nuevos datos, aquí está tu última medición:")
             show_last_daily_summary()
             
             # Mostrar resumen últimos 5 días
             show_last_5_days_summary()
-            _update_sleep_for_dates(access_token, x_user_id, _default_sleep_refresh_dates())
             
             _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
             return
@@ -2318,13 +2323,13 @@ def main():
             print("⚠️  No hay RR con fecha válida para procesar")
         else:
             _print_no_rr_files()
-        _update_sleep_for_dates(access_token, x_user_id, _default_sleep_refresh_dates())
+        _refresh_sleep_and_outputs(access_token, x_user_id, run_v4lite=args.process)
         _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
         return
     
     if total_to_process == 0 and skipped_in_master > 0:
         _print_master_already_updated()
-        _update_sleep_for_dates(access_token, x_user_id, _default_sleep_refresh_dates())
+        _refresh_sleep_and_outputs(access_token, x_user_id, run_v4lite=args.process)
         _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
         return
 
@@ -2347,7 +2352,7 @@ def main():
         if len(cmd) <= 2:
             print("")
             print("⚠️  No hay archivos RR con fecha válida para procesar")
-            _update_sleep_for_dates(access_token, x_user_id, _default_sleep_refresh_dates())
+            _refresh_sleep_and_outputs(access_token, x_user_id, run_v4lite=True)
             _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
             return
 

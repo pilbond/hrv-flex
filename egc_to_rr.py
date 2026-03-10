@@ -176,9 +176,6 @@ def _get_dropbox_access_token(
         (access_token_cli or "").strip()
         or (os.environ.get("DROPBOX_ACCESS_TOKEN") or "").strip()
     )
-    if access_token:
-        return access_token, "direct_access_token"
-
     refresh_token = (
         (refresh_token_cli or "").strip()
         or (os.environ.get("DROPBOX_REFRESH_TOKEN") or "").strip()
@@ -191,7 +188,11 @@ def _get_dropbox_access_token(
         (app_secret_cli or "").strip()
         or (os.environ.get("DROPBOX_APP_SECRET") or "").strip()
     )
-    if not refresh_token or not app_key or not app_secret:
+    refresh_auth_ready = bool(refresh_token and app_key and app_secret)
+    if not refresh_auth_ready and access_token:
+        return access_token, "direct_access_token"
+
+    if not refresh_auth_ready:
         raise RuntimeError(
             "Dropbox credentials not configured. Provide DROPBOX_ACCESS_TOKEN, "
             "or DROPBOX_REFRESH_TOKEN + DROPBOX_APP_KEY + DROPBOX_APP_SECRET."
@@ -208,15 +209,21 @@ def _get_dropbox_access_token(
             timeout=30,
         )
     except requests.RequestException as exc:
+        if access_token:
+            return access_token, "direct_access_token_fallback"
         raise RuntimeError(f"Dropbox token refresh request failed: {exc}") from exc
 
     if resp.status_code != 200:
+        if access_token:
+            return access_token, "direct_access_token_fallback"
         raise RuntimeError(
             f"Dropbox token refresh failed ({resp.status_code}): {resp.text[:300]}"
         )
     payload = resp.json()
     token = (payload.get("access_token") or "").strip()
     if not token:
+        if access_token:
+            return access_token, "direct_access_token_fallback"
         raise RuntimeError("Dropbox token refresh response missing access_token.")
     return token, "refresh_token"
 
@@ -249,6 +256,13 @@ def list_dropbox_input_files(access_token: str, folder_path: str, recursive: boo
     except requests.RequestException as exc:
         raise RuntimeError(f"Dropbox list_folder failed: {exc}") from exc
     if resp.status_code != 200:
+        body_snippet = resp.text[:300]
+        if resp.status_code == 401 and "invalid_access_token" in body_snippet:
+            raise RuntimeError(
+                "Dropbox list_folder failed (401 invalid_access_token). "
+                "Check DROPBOX_ACCESS_TOKEN or configure "
+                "DROPBOX_REFRESH_TOKEN + DROPBOX_APP_KEY + DROPBOX_APP_SECRET."
+            )
         raise RuntimeError(f"Dropbox list_folder failed ({resp.status_code}): {resp.text[:300]}")
 
     data = resp.json()
@@ -1491,4 +1505,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        raise
+    except Exception as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        raise SystemExit(2)
