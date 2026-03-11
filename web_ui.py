@@ -12,6 +12,7 @@ import subprocess
 import sys
 import os
 import csv
+import shutil
 from pathlib import Path
 from datetime import datetime
 import threading
@@ -33,6 +34,18 @@ app.config["PREFERRED_URL_SCHEME"] = "https"
 # =========================
 SCOPE = "accesslink.read_all"
 TOKEN_PATH = Path(os.environ.get("POLAR_TOKEN_PATH", ".polar_tokens.json"))
+DATA_DIR = Path((os.environ.get("HRV_DATA_DIR") or "data").strip() or "data")
+SEED_UPLOAD_DIR = Path((os.environ.get("HRV_SEED_UPLOAD_DIR") or "seed_upload").strip() or "seed_upload")
+ALLOWED_IMPORT_FILES = [
+    "ENDURANCE_HRV_master_CORE.csv",
+    "ENDURANCE_HRV_master_BETA_AUDIT.csv",
+    "ENDURANCE_HRV_master_FINAL.csv",
+    "ENDURANCE_HRV_master_DASHBOARD.csv",
+    "ENDURANCE_HRV_sleep.csv",
+    "ENDURANCE_HRV_sessions.csv",
+    "ENDURANCE_HRV_sessions_day.csv",
+]
+
 
 
 def _public_url() -> str:
@@ -136,6 +149,69 @@ def _token_diagnostics() -> dict:
     info["token_reason"] = "ok"
     info["token_expired"] = False if expires_in > 0 else None
     return info
+
+
+def _seed_upload_diagnostics() -> dict:
+    files = []
+    for name in ALLOWED_IMPORT_FILES:
+        path = SEED_UPLOAD_DIR / name
+        if path.exists():
+            try:
+                size = path.stat().st_size
+            except OSError:
+                size = None
+            files.append({
+                "name": name,
+                "size": size,
+            })
+
+    return {
+        "seed_upload_dir": str(SEED_UPLOAD_DIR),
+        "seed_upload_exists": SEED_UPLOAD_DIR.exists(),
+        "seed_upload_files": files,
+        "seed_upload_file_count": len(files),
+    }
+
+
+def _import_seed_csvs() -> dict:
+    if not SEED_UPLOAD_DIR.exists():
+        raise FileNotFoundError(f"No existe la carpeta de carga: {SEED_UPLOAD_DIR}")
+
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    backup_dir = DATA_DIR / "backup" / datetime.now().strftime("seed_import_%Y%m%d_%H%M%S")
+
+    imported = []
+    missing = []
+    backed_up = []
+
+    for name in ALLOWED_IMPORT_FILES:
+        source = SEED_UPLOAD_DIR / name
+        if not source.exists():
+            missing.append(name)
+            continue
+
+        dest = DATA_DIR / name
+        if dest.exists():
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            backup_target = backup_dir / name
+            shutil.copy2(dest, backup_target)
+            backed_up.append(name)
+
+        shutil.copy2(source, dest)
+        imported.append(name)
+
+    if not imported:
+        raise FileNotFoundError(
+            f"No se encontraron CSV permitidos en {SEED_UPLOAD_DIR}"
+        )
+
+    return {
+        "imported": imported,
+        "missing": missing,
+        "backed_up": backed_up,
+        "backup_dir": str(backup_dir) if backed_up else None,
+        "data_dir": str(DATA_DIR),
+    }
 
 
 def _csv_runtime_diagnostics() -> dict:
@@ -249,6 +325,7 @@ def _build_status_payload() -> dict:
     token_info = _token_diagnostics()
     csv_info = _csv_runtime_diagnostics()
     drive_info = _drive_runtime_diagnostics()
+    seed_info = _seed_upload_diagnostics()
 
     payload = dict(execution_state)
     payload["diagnostics"] = {
@@ -256,6 +333,7 @@ def _build_status_payload() -> dict:
         **token_info,
         **csv_info,
         **drive_info,
+        **seed_info,
     }
     return payload
 
@@ -342,6 +420,31 @@ HTML_TEMPLATE = """
         
         .sync-button.success {
             background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        }
+
+        .secondary-button {
+            width: 100%;
+            padding: 16px;
+            margin-top: 12px;
+            background: linear-gradient(135deg, #2f4858 0%, #33658a 100%);
+            color: white;
+            border: none;
+            border-radius: 15px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(51, 101, 138, 0.35);
+        }
+
+        .secondary-button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(51, 101, 138, 0.5);
+        }
+
+        .secondary-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
         }
         
         @keyframes pulse {
@@ -473,6 +576,10 @@ HTML_TEMPLATE = """
             <button id="syncBtn" class="sync-button" onclick="syncPolar()">
                 <span id="btnText">Sincronizar Ahora</span>
             </button>
+
+            <button id="importBtn" class="secondary-button" onclick="importSeedCsvs()">
+                <span id="importBtnText">Importar CSV seed a /data</span>
+            </button>
             
             <div id="status" class="status"></div>
             
@@ -484,6 +591,14 @@ HTML_TEMPLATE = """
                 <div class="info-item">
                     <div class="info-label">Estado</div>
                     <div class="info-value" id="statusValue">Listo</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">CSV seed</div>
+                    <div class="info-value" id="seedCount">-</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Data dir</div>
+                    <div class="info-value" id="dataDirValue">-</div>
                 </div>
             </div>
         </div>
@@ -545,6 +660,46 @@ HTML_TEMPLATE = """
             }
         }
         
+        async function importSeedCsvs() {
+            const btn = document.getElementById('importBtn');
+            const btnText = document.getElementById('importBtnText');
+            const status = document.getElementById('status');
+            const statusValue = document.getElementById('statusValue');
+            const output = document.getElementById('output');
+            const outputCard = document.getElementById('outputCard');
+
+            btn.disabled = true;
+            btnText.innerHTML = '<span class="spinner"></span> Importando...';
+            status.className = 'status info show';
+            status.textContent = '📥 Importando CSV seed a /data...';
+            statusValue.textContent = 'Importando';
+
+            try {
+                const response = await fetch('/api/import-seed', {
+                    method: 'POST'
+                });
+                const data = await response.json();
+
+                if (!response.ok || !data.success) {
+                    throw new Error(data.error || 'Error importando CSV seed');
+                }
+
+                outputCard.style.display = 'block';
+                output.textContent = JSON.stringify(data, null, 2);
+                status.className = 'status success show';
+                status.textContent = '✅ CSV seed importados a /data';
+                statusValue.textContent = 'Éxito';
+                await updateLastRun();
+            } catch (error) {
+                status.className = 'status error show';
+                status.textContent = '❌ ' + error.message;
+                statusValue.textContent = 'Error';
+            } finally {
+                btn.disabled = false;
+                btnText.textContent = 'Importar CSV seed a /data';
+            }
+        }
+
         async function pollSyncStatus() {
             const btn = document.getElementById('syncBtn');
             const btnText = document.getElementById('btnText');
@@ -652,6 +807,7 @@ HTML_TEMPLATE = """
             try {
                 const response = await fetch('/api/status');
                 const data = await response.json();
+                const diagnostics = data.diagnostics || {};
                 
                 if (data.last_run) {
                     const date = new Date(data.last_run);
@@ -671,6 +827,9 @@ HTML_TEMPLATE = """
                     
                     document.getElementById('lastRun').textContent = timeStr;
                 }
+
+                document.getElementById('seedCount').textContent = String(diagnostics.seed_upload_file_count ?? '-');
+                document.getElementById('dataDirValue').textContent = diagnostics.hrv_data_dir || '-';
             } catch (error) {
                 console.error('Error actualizando status:', error);
             }
@@ -791,6 +950,39 @@ def run_sync():
 def get_status():
     """Obtener estado actual"""
     return jsonify(_build_status_payload())
+
+
+@app.route('/api/import-seed', methods=['POST'])
+def import_seed():
+    """Importar CSV canónicos desde seed_upload hacia HRV_DATA_DIR."""
+    global execution_state
+
+    if execution_state['running']:
+        return jsonify({
+            'success': False,
+            'error': 'Hay una sincronización en curso. Espera a que termine antes de importar.'
+        }), 409
+
+    try:
+        result = _import_seed_csvs()
+        execution_state['last_run'] = datetime.now().isoformat()
+        execution_state['last_output'] = json.dumps(result, ensure_ascii=False, indent=2)
+        execution_state['last_error'] = ''
+        execution_state['success'] = True
+        return jsonify({
+            'success': True,
+            'message': 'CSV seed importados',
+            **result,
+        })
+    except Exception as exc:
+        execution_state['last_run'] = datetime.now().isoformat()
+        execution_state['last_output'] = ''
+        execution_state['last_error'] = str(exc)
+        execution_state['success'] = False
+        return jsonify({
+            'success': False,
+            'error': str(exc),
+        }), 400
 
 
 @app.route('/auth', strict_slashes=False)

@@ -19,6 +19,8 @@ secrets.json
 
 # Data files
 *.csv
+!seed_upload/
+!seed_upload/*.csv
 rr_downloads/
 # V4 backups (además de backup/ y bak/)
 CORE_backup_*.csv

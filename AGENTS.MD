@@ -4,7 +4,7 @@
 Sistema automatizado de monitoreo HRV que:
 - Autentica con Polar AccessLink (OAuth2 Authorization Code).
 - Descarga RR de sesiones Body&Mind.
-- Opcionalmente genera RR válidos desde `ECG.jsonl + ACC.jsonl` en Google Drive.
+- Opcionalmente genera RR válidos desde `ECG.jsonl + ACC.jsonl` en Dropbox o Google Drive (normalmente Dropbox; Drive puede quedar como fallback).
 - Procesa RR con Endurance V4 (`endurance_hrv.py`) para generar CORE/BETA_AUDIT.
 - Calcula gate V4-lite (`endurance_v4lite.py`) para FINAL/DASHBOARD.
 - Expone UI web (Flask) y endpoints de sincronización.
@@ -28,12 +28,12 @@ Cambios estructurales ya aplicados:
   - `POST /api/sync` ejecuta `polar_hrv_automation.py --process` en thread.
 - `polar_hrv_automation.py`:
   - Descarga/sync RR desde Polar.
-  - Para fechas faltantes de CORE, intenta primero importar RR desde Drive vía `egc_to_rr.py`.
+  - Para fechas faltantes de CORE, intenta primero importar RR desde cloud vía `egc_to_rr.py` (normalmente Dropbox; Drive puede quedar como fallback).
   - Actualiza sueño/recharge en `ENDURANCE_HRV_sleep.csv`.
   - Ejecuta pipeline V4 (`endurance_hrv.py` + `endurance_v4lite.py`) cuando corresponde.
   - Sync opcional de wellness a Intervals.icu (PUT del último día).
 - `egc_to_rr.py`:
-  - Lee pares `ECG.jsonl + ACC.jsonl` (local o Google Drive).
+  - Lee pares `ECG.jsonl + ACC.jsonl` (local, Dropbox o Google Drive).
   - Convierte a RR en formato compatible con la app (`ENDURANCE_YYYY-MM-DD_from_jsonl_RR.CSV`).
   - Puede guardar artefactos auxiliares en subcarpeta (`_aux_jsonl`).
 - `endurance_hrv.py`:
@@ -44,6 +44,7 @@ Cambios estructurales ya aplicados:
 - `build_sessions.py`:
   - Pipeline de sesiones desde Intervals.icu.
   - Genera `ENDURANCE_HRV_sessions.csv`, `ENDURANCE_HRV_sessions_day.csv`, `metadata.json`.
+  - Soporta `--backfill`, `--daily`, `--update` y `--date`; `--update` relee el ultimo dia con datos y avanza hasta hoy.
 - `Dockerfile`: Python 3.11-slim.
 - `requirements_web.txt`: dependencias.
   - Incluye `scipy` y librerías Google Drive (`google-auth*`, `google-api-python-client`).
@@ -110,7 +111,7 @@ Opcionales operativas:
 - `HRV_DISABLE_BACKUP=1` para evitar backups en ejecuciones web.
 - `HRV_SYNC_TIMEOUT_SEC` para timeout de `POST /api/sync`.
 
-Opcionales Drive (flujo RR desde JSONL):
+Opcionales cloud RR (flujo RR desde JSONL/ZIP):
 - `HRV_DRIVE_RR_ENABLED=1` (default true).
 - `HRV_DRIVE_RR_SCRIPT=egc_to_rr.py`.
 - `HRV_DRIVE_RUNTIME=auto|local|web`.
@@ -118,6 +119,12 @@ Opcionales Drive (flujo RR desde JSONL):
 - `HRV_DRIVE_RECURSIVE=1`.
 - `HRV_DRIVE_NO_AUX=1` para no guardar artefactos auxiliares.
 - `HRV_DRIVE_PAIR_LIMIT=<N>` para pruebas.
+
+Opcionales Dropbox:
+- `HRV_RR_CLOUD_SOURCE=dropbox|drive`.
+- `HRV_DROPBOX_FOLDER_PATH=<dropbox_path>`.
+- `HRV_DROPBOX_RECURSIVE=1`.
+- `DROPBOX_ACCESS_TOKEN` o `DROPBOX_REFRESH_TOKEN` + `DROPBOX_APP_KEY` + `DROPBOX_APP_SECRET`.
 
 Credenciales Google Drive:
 - Local interactivo: `credentials.json` + `tokens.json`.
@@ -163,7 +170,7 @@ Reglas:
 4) Tras redeploy, `/api/sync` sigue funcionando si hay Volume.
 5) Logs útiles sin secretos.
 6) RR se almacenan y leen desde `data/rr_downloads/`.
-7) Si faltan fechas en CORE y Drive está habilitado, se intenta `Drive -> RR from_jsonl` antes del fallback Polar.
+7) Si faltan fechas en CORE y cloud RR está habilitado, se intenta `cloud -> RR from_jsonl` (normalmente Dropbox; Drive puede quedar como fallback) antes del fallback Polar.
 
 ## Comandos operativos
 - Web UI local:
@@ -171,9 +178,10 @@ Reglas:
 - Sync+process local:
   - `scripts\run-python.bat`
 - Pipeline de sesiones Intervals:
-  - `python build_sessions.py --output data`
-- Conversión manual Drive -> RR (debug/local):
-  - `python egc_to_rr.py --drive-runtime local --drive-recursive --outdir data/rr_downloads`
+  - `python build_sessions.py --update`
+- Conversión manual cloud -> RR (debug/local):
+  - Dropbox: `python egc_to_rr.py --dropbox-folder /ruta/carpeta --dropbox-recursive --outdir data/rr_downloads`
+  - Drive: `python egc_to_rr.py --drive-runtime local --drive-recursive --outdir data/rr_downloads`
 
 ## Estilo de cambios
 - Cambios mínimos, compatibilidad Python 3.11.

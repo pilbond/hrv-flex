@@ -54,7 +54,7 @@ Con Volume montado en `/data`:
 - `POLAR_CLIENT_ID2=<id>` (o `POLAR_CLIENT_ID`)
 - `PORT` (inyectada por Railway)
 
-Para flujo cloud->RR (Dropbox/Drive):
+Para flujo cloud->RR (normalmente Dropbox; Drive puede quedar como fallback):
 
 - `HRV_DRIVE_RR_ENABLED=1`
 - `HRV_DRIVE_NO_AUX=1`
@@ -71,6 +71,7 @@ Para flujo cloud->RR (Dropbox/Drive):
 ```bash
 scripts\run-python.bat
 scripts\run-web-ui.bat
+python build_sessions.py --update
 ```
 
 ## Seguridad

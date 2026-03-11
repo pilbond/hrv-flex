@@ -49,13 +49,14 @@ python egc_to_rr.py --dropbox-folder /ruta/carpeta --dropbox-recursive --outdir 
 
 4) (Opcional) Actualizar carga de entrenamiento:
 
-python build_sessions.py --output data
+python build_sessions.py --update
 
 ## Días sin sesión
 Si no hay sesión en un día, el CSV simplemente no incluye esa fecha. Es normal.
 
 ## Notas operativas
 - El comando principal sigue siendo: `python polar_hrv_automation.py --process`.
+- Para mantener la capa de carga al dia, usa `python build_sessions.py --update`.
 - Para evitar guardar artefactos JSONL auxiliares en entornos web, usa `HRV_DRIVE_NO_AUX=1`.
 - No subir a Git: `.env`, `credentials.json`, `tokens.json`, `.polar_tokens.json`, ni datos personales.
 

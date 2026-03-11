@@ -128,21 +128,38 @@ def require_drive_libs() -> None:
 
 
 def get_default_drive_folder_id() -> str:
-    env_override = (os.environ.get("ECG_RR_DRIVE_FOLDER_ID") or "").strip()
+    env_override = (
+        os.environ.get("HRV_DRIVE_FOLDER_ID")
+        or os.environ.get("ECG_RR_DRIVE_FOLDER_ID")
+        or ""
+    ).strip()
     if env_override:
         return env_override
     return PREDEFINED_DRIVE_FOLDER_ID
 
 
 def get_default_source() -> str:
-    raw = (os.environ.get("ECG_RR_SOURCE") or "drive").strip().lower()
+    raw = (
+        os.environ.get("HRV_RR_CLOUD_SOURCE")
+        or os.environ.get("ECG_RR_SOURCE")
+        or ""
+    ).strip().lower()
     if raw in {"drive", "dropbox"}:
         return raw
-    return "drive"
+
+    has_dropbox = bool(
+        (os.environ.get("HRV_DROPBOX_FOLDER_PATH") or os.environ.get("DROPBOX_FOLDER_PATH") or os.environ.get("ECG_RR_DROPBOX_FOLDER") or "").strip()
+    )
+    return "dropbox" if has_dropbox else "drive"
 
 
 def get_default_dropbox_folder_path() -> str:
-    return (os.environ.get("ECG_RR_DROPBOX_FOLDER") or "").strip()
+    return (
+        os.environ.get("HRV_DROPBOX_FOLDER_PATH")
+        or os.environ.get("DROPBOX_FOLDER_PATH")
+        or os.environ.get("ECG_RR_DROPBOX_FOLDER")
+        or ""
+    ).strip()
 
 
 def _modified_to_ts(value: str) -> float:
@@ -332,14 +349,7 @@ def download_dropbox_file(access_token: str, file_entry: FileEntry, download_dir
     file_path = (file_entry.drive_id or "").strip()
     if not file_path:
         raise ValueError("Dropbox file entry missing path.")
-
-    ext = Path(file_entry.name).suffix.lower()
-    if ext not in SUPPORTED_INPUT_EXTS:
-        ext = ".bin"
-    safe_name = sanitize_fragment(Path(file_entry.name).stem, 80)
-    hash_prefix = hashlib.sha1(file_path.encode("utf-8")).hexdigest()[:10]
-    local_name = f"{hash_prefix}_{safe_name}{ext}"
-    dest = download_dir / local_name
+    dest = _cloud_file_to_local_path(download_dir, file_entry)
 
     headers = {
         "Authorization": f"Bearer {access_token}",
@@ -699,6 +709,35 @@ def sanitize_fragment(text: str, max_len: int = 40) -> str:
     return out[:max_len]
 
 
+def _cloud_parent_to_local_dir(parent: str) -> Path:
+    raw = (parent or ".").strip().replace("\\", "/")
+    if raw in {"", "."}:
+        return Path()
+    parts = [sanitize_fragment(part, 80) or "item" for part in raw.split("/") if part not in {"", "."}]
+    return Path(*parts)
+
+
+def _cloud_file_to_local_path(download_dir: Path, file_entry: FileEntry) -> Path:
+    ext = Path(file_entry.name).suffix.lower()
+    if ext not in SUPPORTED_INPUT_EXTS:
+        ext = ".bin"
+
+    rel_dir = _cloud_parent_to_local_dir(file_entry.parent)
+    target_dir = download_dir / rel_dir
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    original_name = Path(file_entry.name).name
+    if not original_name:
+        original_name = f"{sanitize_fragment(file_entry.drive_id or 'file', 24) or 'file'}{ext}"
+
+    dest = target_dir / original_name
+    if dest.exists():
+        stem = sanitize_fragment(Path(original_name).stem, 80) or "file"
+        unique_prefix = sanitize_fragment(file_entry.drive_id or file_entry.modified_time or "dup", 24) or "dup"
+        dest = target_dir / f"{stem}_{unique_prefix}{ext}"
+    return dest
+
+
 def unique_output_stem(outdir: Path, stem: str) -> str:
     candidate = stem
     idx = 2
@@ -1010,13 +1049,7 @@ def list_drive_input_files(service, folder_id: str, recursive: bool = True) -> L
 def download_drive_file(service, file_entry: FileEntry, download_dir: Path) -> Path:
     if not file_entry.drive_id:
         raise ValueError("Drive file entry missing drive_id.")
-
-    ext = Path(file_entry.name).suffix.lower()
-    if ext not in SUPPORTED_INPUT_EXTS:
-        ext = ".bin"
-    base = sanitize_fragment(Path(file_entry.name).stem, 80)
-    local_name = f"{file_entry.drive_id[:10]}_{base}{ext}"
-    dest = download_dir / local_name
+    dest = _cloud_file_to_local_path(download_dir, file_entry)
 
     request = service.files().get_media(fileId=file_entry.drive_id, supportsAllDrives=True)
     with dest.open("wb") as fh:

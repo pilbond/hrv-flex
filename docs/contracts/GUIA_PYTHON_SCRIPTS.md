@@ -9,7 +9,7 @@ Flujo operativo normal (Railway o UI local):
 1. `web_ui.py` levanta la web.
 2. Al llamar `POST /api/sync`, la web ejecuta `python polar_hrv_automation.py --process`.
 3. `polar_hrv_automation.py` detecta fechas faltantes en CORE.
-4. Si hay faltantes y Drive esta habilitado, intenta generar RR desde JSONL con `egc_to_rr.py`.
+4. Si hay faltantes y cloud RR esta habilitado, intenta generar RR desde JSONL/ZIP con `egc_to_rr.py` (normalmente Dropbox; Drive puede quedar como fallback).
 5. Para lo que siga faltando, usa el flujo normal de descarga RR desde Polar.
 6. `polar_hrv_automation.py` actualiza sleep y luego llama:
    - `endurance_hrv.py`
@@ -42,7 +42,7 @@ Importante:
 - Que hace:
   - Autenticacion/token con Polar AccessLink.
   - Calcula fechas faltantes en CORE dentro del rango objetivo.
-  - Si esta habilitado, llama `egc_to_rr.py` para cubrir faltantes desde Drive (`from_jsonl`).
+  - Si esta habilitado, llama `egc_to_rr.py` para cubrir faltantes desde cloud (`from_jsonl`), normalmente Dropbox.
   - Descarga sesiones Body&Mind y extrae RR desde Polar para los faltantes restantes.
   - Guarda RR validos en `data/rr_downloads`.
   - Actualiza `ENDURANCE_HRV_sleep.csv` (y compat legacy con `ENDURANCE_HRV_context.csv`).
@@ -59,7 +59,7 @@ Importante:
 
 ## `egc_to_rr.py`
 - Que hace:
-  - Busca pares `ECG.jsonl` + `ACC.jsonl` en carpeta local o en Google Drive.
+  - Busca pares `ECG.jsonl` + `ACC.jsonl` en carpeta local, Dropbox o Google Drive.
   - Convierte cada par a un RR compatible con la app.
   - Guarda RR con nomenclatura tipo `ENDURANCE_YYYY-MM-DD_from_jsonl_RR.CSV`.
   - Puede guardar ficheros auxiliares en subcarpeta (por defecto `_aux_jsonl`).
@@ -68,8 +68,9 @@ Importante:
   - Automaticamente cuando lo invoca `polar_hrv_automation.py` para cubrir fechas faltantes.
 - Entradas:
   - Local: `--input-dir` o `--ecg` + `--acc`.
+  - Dropbox: `--dropbox-folder` + credenciales Dropbox.
   - Drive: `--drive-folder-id` (si no se pasa, usa folder predefinido del script).
-  - Credenciales Drive segun runtime (`local` con OAuth interactivo, `web` con credenciales no interactivas).
+  - Credenciales cloud segun fuente configurada.
 - Salidas:
   - RR en `data/rr_downloads`.
   - Opcional: artefactos de apoyo en `_aux_jsonl`.
@@ -125,7 +126,12 @@ Importante:
   - Cuando quieras actualizar la capa de carga de entrenamiento.
   - Recomendado en cron separado (diario/backfill), no dentro del sync Polar.
 - Entradas:
-  - `INTERVALS_API_KEY`, `INTERVALS_ATHLETE_ID` y parametros (`--daily`, `--backfill`, `--date`).
+  - `INTERVALS_API_KEY`, `INTERVALS_ATHLETE_ID` y parametros (`--daily`, `--backfill`, `--update`, `--date`).
+- Modos utiles:
+  - `--backfill`: historico completo desde `--oldest`.
+  - `--daily`: ultimas 48h.
+  - `--update`: desde el ultimo dia con datos hasta hoy, releyendo tambien ese ultimo dia.
+  - `--date YYYY-MM-DD`: un dia concreto.
 - Salidas:
   - CSVs de sesiones y metadata.
 - Automatico o manual:
@@ -196,7 +202,7 @@ Si tu pregunta es "que scripts importan para operar dia a dia":
 
 1. `web_ui.py` (servidor web)
 2. `polar_hrv_automation.py` (sync y orquestacion)
-3. `egc_to_rr.py` (Drive/local JSONL -> RR, cuando faltan fechas o para validacion manual)
+3. `egc_to_rr.py` (Dropbox/Drive/local JSONL -> RR, cuando faltan fechas o para validacion manual)
 4. `endurance_hrv.py` (RR -> CORE/BETA)
 5. `endurance_v4lite.py` (CORE -> FINAL/DASHBOARD)
 

@@ -1,0 +1,41 @@
+{
+  "pipeline_version": "v3.0",
+  "params": {
+    "gap_max_s": 60,
+    "hr_drop_max_bpm": 10,
+    "hr_exit_win_s": 30,
+    "hr_min_win_s": 10,
+    "min_block_s": 180,
+    "late_intensity_threshold_lpm": 8,
+    "late_intensity_min_duration_s": 2400,
+    "drift_min_duration_s": 1800,
+    "drift_min_speed_ms": 0.5,
+    "moving_min_speed_ms": 0.3,
+    "effort_recent_window_days": 60,
+    "effort_min_prev_sessions": 5,
+    "effort_anchor_start": "2025-06-01",
+    "effort_anchor_end": "2025-08-31"
+  },
+  "params_hash": "c1c78a78",
+  "build_time": "2026-03-11T12:28:41.968512",
+  "input_range": {
+    "oldest": "2026-03-08",
+    "newest": "2026-03-12"
+  },
+  "counts": {
+    "sessions": 321,
+    "days": 252,
+    "with_streams": 213,
+    "with_notes": 23
+  },
+  "stream_sampling": {
+    "n_streams": 213,
+    "dt_mean": 0.953,
+    "dt_min": 0.213,
+    "dt_max": 1.012,
+    "assumed_1hz": false
+  },
+  "zones_source_dist": {
+    "icu": 321
+  }
+}

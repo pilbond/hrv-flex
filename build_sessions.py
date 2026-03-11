@@ -10,6 +10,7 @@ Extrae datos de sesiones desde Intervals.icu API y genera:
 Modos:
   --backfill           Histórico completo desde --oldest (default 2025-05-12)
   --daily              Últimas 48h (para cron diario)
+  --update             Desde el último día con datos hasta hoy (revisando ese último día)
   --date YYYY-MM-DD    Un día concreto
 
 Config: .env con INTERVALS_API_KEY + INTERVALS_ATHLETE_ID
@@ -899,6 +900,36 @@ def merge_sessions_incremental(new_df: pd.DataFrame, sessions_path: Path) -> pd.
     return merged
 
 
+def resolve_update_oldest(output_dir: Path, fallback_oldest: str) -> str:
+    candidates = [
+        output_dir / "ENDURANCE_HRV_sessions_day.csv",
+        output_dir / "ENDURANCE_HRV_sessions.csv",
+    ]
+
+    for csv_path in candidates:
+        if not csv_path.exists():
+            continue
+        try:
+            df = pd.read_csv(csv_path, usecols=["Fecha"])
+        except ValueError:
+            log.warning(f"Fecha column missing in {csv_path}; skipping update anchor")
+            continue
+        except Exception as exc:
+            log.warning(f"Could not read {csv_path} for update anchor: {exc}")
+            continue
+
+        fechas = pd.to_datetime(df["Fecha"], errors="coerce").dropna()
+        if fechas.empty:
+            continue
+
+        last_day = fechas.max().date().isoformat()
+        log.info(f"Update mode anchor: {last_day} ← {csv_path.name}")
+        return last_day
+
+    log.info(f"Update mode anchor not found; falling back to --oldest={fallback_oldest}")
+    return fallback_oldest
+
+
 # ─── Main pipeline ────────────────────────────────────────────────────────────
 
 
@@ -1016,6 +1047,7 @@ def main():
         description=f"ENDURANCE HRV — Session pipeline {PIPELINE_VERSION}")
     parser.add_argument("--backfill", action="store_true")
     parser.add_argument("--daily", action="store_true")
+    parser.add_argument("--update", action="store_true")
     parser.add_argument("--date", type=str)
     parser.add_argument("--oldest", type=str, default="2025-05-12")
     parser.add_argument(
@@ -1032,8 +1064,16 @@ def main():
         sys.exit(1)
 
     today = date.today()
+    output_dir = Path(args.output)
+    selected_modes = int(bool(args.backfill)) + int(bool(args.daily)) + int(bool(args.update)) + int(bool(args.date))
+    if selected_modes > 1:
+        parser.error("Use only one range mode: --backfill, --daily, --update, or --date")
+
     if args.daily:
         oldest = (today - timedelta(days=2)).isoformat()
+        newest = (today + timedelta(days=1)).isoformat()
+    elif args.update:
+        oldest = resolve_update_oldest(output_dir, args.oldest)
         newest = (today + timedelta(days=1)).isoformat()
     elif args.date:
         oldest = args.date
@@ -1043,7 +1083,7 @@ def main():
         oldest = args.oldest
         newest = (today + timedelta(days=1)).isoformat()
 
-    run_pipeline(oldest, newest, Path(args.output),
+    run_pipeline(oldest, newest, output_dir,
                  fetch_streams=not args.no_streams,
                  fetch_notes=not args.no_notes)
 
