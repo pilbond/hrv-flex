@@ -1452,8 +1452,6 @@ def fetch_and_upsert_sleep(token: str, user_id: Optional[str], processed_date) -
     # — no longer fetched here.
 
     saved = upsert_sleep_row(sleep_row)
-    if saved:
-        print(f"✅ Sleep actualizado: {SLEEP_PATH.name} ({date_str})")
     return saved
 
 
@@ -1814,8 +1812,8 @@ def show_last_daily_summary():
     except (FileNotFoundError, pd.errors.EmptyDataError, KeyError, IndexError) as e:
         print(f"⚠️  Error mostrando summary CORE: {e}")
 
-def show_last_5_days_summary():
-    """Muestra resumen compacto de los últimos 5 días (FINAL si existe, si no CORE)."""
+def show_last_7_days_summary():
+    """Muestra resumen compacto de los últimos 7 días (FINAL si existe, si no CORE)."""
     if not PANDAS_AVAILABLE:
         return
 
@@ -1831,18 +1829,18 @@ def show_last_5_days_summary():
         if df.empty or 'Fecha' not in df.columns:
             return
 
-        # Obtener últimos 5 días
+        # Obtener últimos 7 días
         df_sorted = df.sort_values('Fecha')
-        last_5 = df_sorted.tail(5)
+        last_7 = df_sorted.tail(7)
 
-        if len(last_5) == 0:
+        if len(last_7) == 0:
             return
 
         print("")
-        title = "📊 RESUMEN ÚLTIMOS 5 DÍAS (V4)" if use_final else "📊 RESUMEN ÚLTIMOS 5 DÍAS (CORE)"
+        title = "📊 RESUMEN ÚLTIMOS 7 DÍAS (V4)" if use_final else "📊 RESUMEN ÚLTIMOS 7 DÍAS (CORE)"
         _print_header(title)
 
-        for _, row in last_5.iterrows():
+        for _, row in last_7.iterrows():
             fecha = row.get("Fecha", "N/A")
 
             # Formatear fecha a YY-MM-DD
@@ -1866,7 +1864,12 @@ def show_last_5_days_summary():
                 print(f"{fecha_str}  💓{hr_str:>5}  📊{rmssd_str:>5}")
 
     except (FileNotFoundError, pd.errors.EmptyDataError, KeyError, IndexError) as e:
-        print(f"⚠️  Error mostrando resumen 5 días: {e}")
+        print(f"⚠️  Error mostrando resumen 7 días: {e}")
+
+def show_latest_hrv_summaries():
+    """Muestra el resumen diario y el histórico corto más recientes."""
+    show_last_daily_summary()
+    show_last_7_days_summary()
 
 def calculate_missing_days():
     """Calcula cuántos días faltan desde última medición hasta hoy"""
@@ -1994,10 +1997,7 @@ def main():
             _print_sync_completed(updated_date=datetime.now().date(), checkmark=False)
             
             # Mostrar último daily summary
-            show_last_daily_summary()
-            
-            # Mostrar resumen últimos 5 días
-            show_last_5_days_summary()
+            show_latest_hrv_summaries()
             
             #print(f"\n💡 Para re-procesar: python {sys.argv[0]} --days 1 --process")
             #print("="*25 + "\n")
@@ -2029,10 +2029,7 @@ def main():
             _print_sync_completed(updated_date=None, checkmark=True)
             
             # Mostrar último daily summary
-            show_last_daily_summary()
-            
-            # Mostrar resumen últimos 5 días
-            show_last_5_days_summary()
+            show_latest_hrv_summaries()
             
             # print(f"\n💡 Para re-procesar: python {sys.argv[0]} --days 1 --process")
             _print_divider(trailing_blank=True)
@@ -2103,8 +2100,7 @@ def main():
             if QUIET:
                 print("⚠️  No hay sesiones Body&Mind en el periodo")
                 _refresh_sleep_and_outputs(access_token, x_user_id, run_v4lite=args.process)
-                show_last_daily_summary()
-                show_last_5_days_summary()
+                show_latest_hrv_summaries()
                 _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
                 return
             print("\n⚠️  No hay sesiones Body&Mind en el periodo")
@@ -2148,10 +2144,7 @@ def main():
 
             # Mostrar último daily summary disponible aunque no haya nuevos datos
             _print_header("📊 Aunque no hay nuevos datos, aquí está tu última medición:")
-            show_last_daily_summary()
-            
-            # Mostrar resumen últimos 5 días
-            show_last_5_days_summary()
+            show_latest_hrv_summaries()
             
             _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
             return
@@ -2325,12 +2318,14 @@ def main():
             _print_no_rr_files()
         _refresh_sleep_and_outputs(access_token, x_user_id, run_v4lite=args.process)
         _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
+        show_latest_hrv_summaries()
         return
     
     if total_to_process == 0 and skipped_in_master > 0:
         _print_master_already_updated()
         _refresh_sleep_and_outputs(access_token, x_user_id, run_v4lite=args.process)
         _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
+        show_latest_hrv_summaries()
         return
 
     # Procesar con endurance_hrv.py
@@ -2354,6 +2349,7 @@ def main():
             print("⚠️  No hay archivos RR con fecha válida para procesar")
             _refresh_sleep_and_outputs(access_token, x_user_id, run_v4lite=True)
             _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
+            show_latest_hrv_summaries()
             return
 
         _qprint("")
@@ -2421,6 +2417,7 @@ def main():
                 print("   - ENDURANCE_HRV_master_FINAL.csv")
                 print("   - ENDURANCE_HRV_master_DASHBOARD.csv")
             _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
+            show_latest_hrv_summaries()
 
         except subprocess.CalledProcessError as e:
             print("")

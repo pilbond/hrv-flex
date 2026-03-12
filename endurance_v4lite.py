@@ -847,8 +847,10 @@ def main(argv: List[str]) -> int:
     final.to_csv(OUT_FINAL, index=False)
     dashboard.to_csv(OUT_DASHBOARD, index=False)
 
-    print(f"[OK] FINAL -> {OUT_FINAL} ({len(final)} filas)")
-    print(f"[OK] DASHBOARD -> {OUT_DASHBOARD} ({len(dashboard)} filas)")
+    last_fecha = "N/A"
+    if not final.empty and "Fecha" in final.columns:
+        last_fecha = str(final["Fecha"].iloc[-1])
+    print(f"[OK] Archivos actualizados hasta {last_fecha}")
     return 0
 
 
