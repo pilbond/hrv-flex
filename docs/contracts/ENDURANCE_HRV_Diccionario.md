@@ -88,7 +88,7 @@
 
 ---
 
-## 2. CORE (medición canónica) — 12 columnas
+## 2. CORE (medición canónica) — 18 columnas
 
 Generado por `endurance_hrv.py`. Contiene la señal fisiológica **sin decisiones**.
 
@@ -102,31 +102,42 @@ Generado por `endurance_hrv.py`. Contiene la señal fisiológica **sin decisione
 
 | Columna | Qué es | Valores |
 |---------|--------|---------|
-| `Calidad` | Veredicto final sobre si la medición de hoy es usable. Resume en una palabra si los artefactos, la latencia y la estabilidad permiten confiar en el dato. | OK (fiable) / FLAG_mecánico (existe pero dudoso) / INVALID (descartado) |
-| `HRV_Stability` | ¿El tramo final de la grabación fue estable? Se evalúa comparando los últimos 120 s con el tramo completo. Si la cola oscila mucho o no tiene suficientes datos, marca Unstable. | OK / Unstable |
-| `Artifact_pct` | Porcentaje del registro total que se ha descartado (por artefactos del sensor, intervalos fuera de rango fisiológico, y saltos bruscos entre latidos). Cuanto más bajo, más limpia la señal. | 0-100 (ver §1 para rangos de calidad) |
-| `Tiempo_Estabilizacion` | Cuántos segundos tardó tu sistema nervioso (y la señal del sensor) en estabilizarse desde que empezaste la medición. Si no se detecta punto de estabilización, queda NaN y fuerza FLAG_mecánico. | segundos (ideal 60-120) o NaN |
+| `Calidad` | Veredicto final sobre si la medición de hoy es usable. Resume en una palabra si los artefactos, la latencia y la estabilidad permiten confiar en el dato. No dice si "estás bien o mal"; dice si la medición merece confianza. | OK (fiable) / FLAG_mecánico (existe pero dudoso) / INVALID (descartado) |
+| `HRV_Stability` | ¿El tramo final de la grabación fue estable? Se evalúa comparando los últimos 120 s con el tramo completo. Si la cola oscila mucho, cambia de régimen o no tiene suficientes datos, marca `Unstable`. | OK / Unstable |
+| `Stability_Subtype` | Subtipo explícito del chequeo de estabilidad. Hace visible el motivo principal del `Unstable` sin obligarte a parsear `Flags`. Es útil para distinguir una simple discrepancia de cola (`STAB_LAST2_MISMATCH`) de una medición realmente rota (`STAB_TAIL_SHORT`, `STAB_LAST2_NAN`). | OK / STAB_LAST2_MISMATCH / STAB_TAIL_SHORT / STAB_CV120_HIGH / STAB_LAST2_NAN |
+| `Artifact_pct` | Porcentaje del registro total que se ha descartado por artefactos del sensor, intervalos fuera de rango fisiológico y saltos bruscos entre latidos. Cuanto más bajo, más limpia la señal. Un valor alto no implica necesariamente fatiga: muchas veces es solo mala calidad de adquisición. | 0-100 (ver §1 para rangos de calidad) |
+| `Tiempo_Estabilizacion` | Cuántos segundos tardó tu sistema nervioso, y la propia señal del sensor, en estabilizarse desde que empezaste la medición. Si no se detecta ese punto, queda `NaN` y fuerza `FLAG_mecánico`, porque probablemente estás midiendo una transición y no un estado estable. | segundos (ideal 60-120) o NaN |
 
 ### Señal fisiológica (del tramo estable)
 
 | Columna | Qué es | Unidades |
 |---------|--------|----------|
-| `HR_stable` | Tu frecuencia cardíaca media durante el tramo estabilizado. Es tu pulso "real" de reposo matinal, una vez descartada la fase de ajuste inicial y los últimos segundos. | lpm |
-| `RRbar_s` | Intervalo RR medio en el tramo estable (el tiempo medio entre latidos). Es la inversa del pulso: `RRbar_s = 60 / HR_stable`. Sirve como control cruzado y como entrada para el modelo beta. | segundos |
-| `RMSSD_stable` | Tu variabilidad cardíaca principal: la raíz cuadrada de la media de las diferencias al cuadrado entre latidos consecutivos, calculada sobre todo el tramo estable. Es el indicador central del tono vagal (parasimpático). Más alto = más recuperado. | ms |
-| `RMSSD_stable_last2` | Igual que RMSSD_stable pero calculado solo sobre los últimos 120 segundos de la grabación. Se compara con RMSSD_stable para verificar que la señal no estaba cambiando al final: si discrepan mucho (>15%), el tramo se marca como Unstable. | ms |
-| `lnRMSSD` | Logaritmo natural de RMSSD_stable. Se usa en vez del RMSSD bruto porque la distribución de RMSSD es asimétrica (los días buenos generan valores mucho más dispersos que los malos). El logaritmo "simetriza" la distribución y hace que los promedios y las desviaciones tengan más sentido estadístico. Es el valor que realmente entra en el gate. | adimensional |
+| `HR_stable` | Tu frecuencia cardiaca media durante el tramo estabilizado. Es tu pulso "real" de reposo matinal, una vez descartada la fase de ajuste inicial y los últimos segundos problemáticos. | lpm |
+| `RRbar_s` | Intervalo RR medio en el tramo estable, es decir, el tiempo medio entre latidos. Es la inversa del pulso: `RRbar_s = 60 / HR_stable`. Sirve como control cruzado y como entrada para modelos auxiliares. | segundos |
+| `RMSSD_stable` | Tu variabilidad cardiaca principal: la raíz cuadrada de la media de las diferencias al cuadrado entre latidos consecutivos, calculada sobre todo el tramo estable. Es el indicador central del tono vagal o parasimpático. Más alto, en general, implica más recuperación. | ms |
+| `RMSSD_stable_last2` | Igual que `RMSSD_stable`, pero calculado solo con los últimos 120 segundos de la grabación útil. Se compara con el tramo estable completo para verificar si la señal seguía estable al final o estaba cambiando. | ms |
+| `tail_mismatch_pct` | Diferencia relativa entre `RMSSD_stable` y `RMSSD_stable_last2`. Es una métrica diagnóstica pensada para entender mejor los `Unstable` de tipo discrepancia de cola. No decide el color por sí sola, pero ayuda a ver si el final de la medición se apartó mucho del resto. | % |
+| `lnRMSSD` | Logaritmo natural de `RMSSD_stable`. Se usa en vez del RMSSD bruto porque la distribución de RMSSD es muy asimétrica: los días buenos generan dispersión mayor que los malos. El logaritmo la "normaliza" mejor y hace que medias, medianas y umbrales tengan más sentido estadístico. Es la señal que realmente entra en el gate. | adimensional |
+
+### Métricas informativas Tier 2
+
+| Columna | Qué es | Uso |
+|---------|--------|-----|
+| `SI_baevsky` | Índice de estrés de Baevsky. Resume la compactación del histograma RR y suele aumentar cuando la señal apunta a mayor rigidez o carga simpática. En este pipeline queda como señal complementaria, útil para auditoría o análisis futuro. | Informativo; no afecta al gate V4-lite |
+| `SD1` | SD1 del diagrama de Poincare. Captura la variabilidad de corto plazo, muy relacionada con la misma dinámica que refleja RMSSD. Sirve como métrica adicional para leer la forma de la nube RR. | Informativo |
+| `SD2` | SD2 del diagrama de Poincare. Captura la variabilidad de más largo plazo dentro de la serie RR estable. Ayuda a distinguir si la señal cambia solo beat-to-beat o también en una escala algo más lenta. | Informativo |
+| `SD1_SD2_ratio` | Relación entre la variabilidad rápida (`SD1`) y la más lenta (`SD2`). Útil para interpretar la "geometría" del Poincare y detectar patrones menos visibles si solo miras RMSSD. | Informativo |
 
 ### Trazabilidad
 
 | Columna | Qué es |
 |---------|--------|
-| `Flags` | Lista de incidencias detectadas durante el procesamiento, separadas por `\|`. Cada flag indica un problema específico (ver §7). Ejemplo: `LAT_NAN\|ART_GT10` significa que no se detectó estabilización y además los artefactos superaron el 10%. Si está vacío, no hubo incidencias. |
-| `Notes` | Metadatos técnicos del procesamiento en formato `clave=valor`. Incluye: nombre del fichero fuente, duraciones de cada fase, conteos de latidos en cada etapa, y desglose de artefactos por tipo. Pensado para auditoría y depuración, no para uso diario. |
+| `Flags` | Lista de incidencias detectadas durante el procesamiento, separadas por `\|`. Cada flag indica un problema o condición específica: estabilidad, artefactos, latencia, modo beta, etc. Ejemplo: `LAT_NAN\|ART_GT10` significa que no se detectó estabilización y además los artefactos superaron el 10%. Si está vacío, no se detectaron incidencias relevantes. |
+| `Notes` | Metadatos técnicos del procesamiento en formato `clave=valor`. Incluye el fichero fuente, duraciones de cada fase, conteos de latidos en cada etapa y desglose de artefactos por tipo. Está pensado para auditoría y depuración, no para lectura diaria. |
 
 ---
 
-## 3. FINAL (gate + auditoría extendida) — 53 columnas
+## 3. FINAL (gate + auditoría extendida) — 58 columnas
 
 Generado por `endurance_v4lite.py`. Contiene:
 
@@ -153,18 +164,20 @@ Generado por `endurance_v4lite.py`. Contiene:
 
 #### A) Identidad / medición base (copiado de CORE)
 
-Las 8 primeras columnas de FINAL replican la medición de CORE, pero **con nombres distintos en 2 campos**:
+Las 10 primeras columnas de FINAL replican la medición de CORE, pero ahora arrastran también el subtipo explícito de estabilidad y el mismatch de cola. Siguen existiendo **2 cambios de nombre** respecto a CORE:
 
 | Columna FINAL | Equivale a (CORE) | Qué es | Unidades |
 |---------------|--------------------|--------|----------|
 | `Fecha` | `Fecha` | Día de la medición matinal | YYYY-MM-DD |
-| `Calidad` | `Calidad` | ¿Se puede confiar en la medición? Resume artefactos, latencia y estabilidad | OK / FLAG_mecánico / INVALID |
-| `HRV_Stability` | `HRV_Stability` | ¿El tramo final de la grabación fue estable o estaba oscilando? | OK / Unstable |
-| `Artifact_pct` | `Artifact_pct` | Porcentaje del registro descartado por ruido, artefactos y saltos entre latidos | 0-100 |
-| `Tiempo_Estabilizacion` | `Tiempo_Estabilizacion` | Cuántos segundos tardó la señal en estabilizarse tras iniciar la medición | número o NaN |
-| `HR_today` | **`HR_stable`** | Tu pulso de reposo matinal (media del tramo estable). Mismo valor que HR_stable de CORE, distinto nombre | lpm |
-| `RMSSD_stable` | `RMSSD_stable` | Tu variabilidad cardíaca del tramo estable completo | ms |
-| `lnRMSSD_today` | **`lnRMSSD`** | Logaritmo natural de RMSSD_stable. Es el valor que entra en el suavizado y el gate. Mismo valor que lnRMSSD de CORE, distinto nombre | adimensional |
+| `Calidad` | `Calidad` | ¿Se puede confiar en la medición? Resume artefactos, latencia y estabilidad. Ojo: es una etiqueta de fiabilidad, no un juicio sobre tu estado fisiológico. | OK / FLAG_mecánico / INVALID |
+| `HRV_Stability` | `HRV_Stability` | ¿El tramo final de la grabación fue estable o estaba oscilando? Si aquí sale `Unstable`, el raw del día existe, pero el sistema lo trata con desconfianza. | OK / Unstable |
+| `Artifact_pct` | `Artifact_pct` | Porcentaje del registro descartado por ruido, artefactos y saltos entre latidos. Es una forma rápida de medir la limpieza de la señal. | 0-100 |
+| `Tiempo_Estabilizacion` | `Tiempo_Estabilizacion` | Cuántos segundos tardó la señal en estabilizarse tras iniciar la medición. Si es muy alto o `NaN`, conviene sospechar de protocolo, postura o transición fisiológica. | número o NaN |
+| `Stability_Subtype` | `Stability_Subtype` | Subtipo explícito de estabilidad. Hace visible el motivo principal del `Unstable` sin parsear `Flags`, y permite distinguir una discrepancia de cola de un tramo final demasiado corto o directamente no calculable. | texto |
+| `tail_mismatch_pct` | `tail_mismatch_pct` | Diferencia relativa entre `RMSSD_stable` y `RMSSD_stable_last2`. Es una métrica diagnóstica para entender cuánto se apartó el final de la medición del resto del tramo estable. No es el color oficial. | % |
+| `HR_today` | **`HR_stable`** | Tu pulso de reposo matinal, media del tramo estable. Es exactamente el mismo valor que `HR_stable` de CORE, solo que en FINAL cambia el nombre para alinearse con el resto del lenguaje del gate. | lpm |
+| `RMSSD_stable` | `RMSSD_stable` | Tu variabilidad cardiaca del tramo estable completo. Se mantiene con el mismo nombre porque sigue siendo la métrica fisiológica de referencia del día. | ms |
+| `lnRMSSD_today` | **`lnRMSSD`** | Logaritmo natural de `RMSSD_stable`. Es el valor que entra en el suavizado y el gate. Es el mismo dato que `lnRMSSD` de CORE, con nombre distinto para dejar claro que aquí representa el valor bruto de hoy. | adimensional |
 
 **Atención — cambios de nombre CORE → FINAL:**
 - `HR_stable` → `HR_today` (mismo valor, distinto nombre)
@@ -172,7 +185,7 @@ Las 8 primeras columnas de FINAL replican la medición de CORE, pero **con nombr
 
 Si haces merge CORE↔FINAL por nombre de columna, estos dos campos no casarán automáticamente. Usa `Fecha` como clave y renombra explícitamente.
 
-**Nota:** `RRbar_s` y `RMSSD_stable_last2` de CORE **no se copian** a FINAL (quedan solo en CORE).
+**Nota:** `RRbar_s`, `SI_baevsky`, `SD1`, `SD2` y `SD1_SD2_ratio` de CORE **no se copian** a FINAL. `Stability_Subtype` y `tail_mismatch_pct` sí se copian porque añaden contexto útil para auditar discrepancias entre el raw del día y la decisión final.
 
 #### B) Suavizado (ROLL3)
 
@@ -184,7 +197,17 @@ Si haces merge CORE↔FINAL por nombre de columna, estos dos campos no casarán 
 
 Reduce ruido: se calcula solo con días **clean**.
 
-#### C) Baseline BASE60 y SWC
+#### C) Auditoría raw del día
+
+| Columna | Qué es |
+|---------|--------|
+| `gate_raw_today` | Semáforo 2D contrafactual calculado con el raw del día (`lnRMSSD_today`, `HR_today`) frente a la misma baseline que usa el gate oficial. No cambia `gate_final`. Existe para responder a una pregunta muy concreta: "si me creyera el dato bruto de hoy, ¿qué color habría dado?". |
+| `gate_raw_reason` | Motivo del semáforo raw (`2D_OK`, `2D_LN`, `2D_HR`, `2D_AMBOS`). Es la explicación del color contrafactual, igual que `gate_razon_base60` lo es del color oficial. |
+| `unstable_note` | Resumen corto `raw vs ref` cuando `quality_flag=True`. Ejemplo: `Raw=VERDE(2D_OK) vs ref=ÁMBAR(2D_LN)`. Está pensado para que, al abrir el CSV, se vea de un vistazo si el día dudoso apuntaba en una dirección distinta a la decisión conservadora. |
+
+Estas columnas son de auditoría, no de decisión: ayudan a interpretar los `Unstable`, pero no promocionan ni empeoran el gate por sí mismas.
+
+#### D) Baseline BASE60 y SWC
 
 | Columna | Qué es |
 |---------|--------|
@@ -201,7 +224,7 @@ Deltas (la distancia entre tu valor suavizado de hoy y tu baseline):
 | `d_ln` | Diferencia `lnRMSSD_used - ln_base60`. Negativo = tu HRV está por debajo de tu normal. Si supera -SWC_ln, contribuye al gate (ámbar o rojo). |
 | `d_HR` | Diferencia `HR_used - HR_base60`. Positivo = tu pulso está por encima de tu normal. Si supera +SWC_HR, contribuye al gate (ámbar o rojo). |
 
-#### D) Gates (BASE60 + sombras + final)
+#### E) Gates (BASE60 + sombras + final)
 
 | Columna | Qué es | Valores |
 |---------|--------|---------|
@@ -219,7 +242,7 @@ Deltas (la distancia entre tu valor suavizado de hoy y tu baseline):
 | `decision_path` | Auditoría de quién tomó la decisión final. Si es BASE60_ONLY, no hubo override. Si contiene OVERRIDE, indica qué sombra (28 o 42) forzó el ajuste y en qué dirección. | BASE60_ONLY / OVERRIDE_DOWN_28_2of3 / OVERRIDE_UP_28_2of3 / etc. |
 | `override_reason` | Texto corto que explica por qué se aplicó el override (ej: "shadow28 peor 2/3"). Vacío si no hubo override. | texto o vacío |
 
-#### E) Residual (matiz)
+#### F) Residual (matiz)
 
 | Columna | Qué es |
 |---------|--------|
@@ -238,7 +261,7 @@ Tags:
 - `+` / `++` / `+++` si residual_z ≥ 0.5 / 1.0 / 2.0
 - `-` / `--` / `---` si residual_z ≤ -0.5 / -1.0 / -2.0
 
-#### F) Calidad y acción
+#### G) Calidad y acción
 
 | Columna | Qué es | Valores |
 |---------|--------|---------|
@@ -252,14 +275,14 @@ Mapping:
 - ÁMBAR → `Z2_O_TEMPO_SUAVE` (salvo quality_flag)
 - ROJO/NO → `SUAVE_O_DESCANSO`
 
-#### G) Acumulación
+#### H) Acumulación
 
 | Columna | Qué es |
 |---------|--------|
 | `bad_streak` | Cuántos días consecutivos llevas con gate ROJO o NO (sin un VERDE o ÁMBAR de por medio). Una racha de 1 es un mal día puntual. Una racha ≥2 activa DESCARGA en Action_detail — la señal de que no es un evento aislado. |
 | `bad_7d` | Cuántos días ROJO o NO has tenido en los últimos 7 días (no necesariamente consecutivos). Si llega a ≥3, también activa DESCARGA. Captura la situación donde alternas días malos y regulares pero la tendencia semanal es negativa. |
 
-#### H) Warning
+#### I) Warning
 
 | Columna | Qué es |
 |---------|--------|
@@ -270,14 +293,14 @@ Mapping:
 | `warning_threshold` | El umbral concreto (en ms de RMSSD) por debajo del cual se activa el warning. En modo healthy85 es el 85% de tu healthy_rmssd. En modo p20 es el percentil 20 de tu histórico. |
 | `warning_mode` | Qué método se usó para calcular el umbral de warning. healthy85 = basado en tu mejor periodo × 0.85. p20 = basado en el percentil 20 de tu histórico completo. | 
 
-#### I) Flags sistémicos
+#### J) Flags sistémicos
 
 | Columna | Qué es |
 |---------|--------|
 | `flag_sistemico` | Campo reservado para información externa al HRV que podría afectar la interpretación: calidad de sueño, viajes, enfermedad, etc. Actualmente no se alimenta automáticamente — está preparado para futuras integraciones. |
 | `flag_razon` | Texto explicativo del flag sistémico (ej: "sueño <5h", "jet lag"). Vacío si no hay flag activo. |
 
-#### J) v4 Enhancement
+#### K) v4 Enhancement
 
 | Columna | Qué es |
 |---------|--------|

@@ -20,12 +20,15 @@ Cambios estructurales ya aplicados:
 - Scripts `.bat` movidos a `scripts/`.
 - Documentación en `docs/contracts/`.
 - Documentación legacy en `docs/legacy/` (ignorada y tratada como sensible).
+- La UI web actual prioriza `Detalle técnico` / `raw output` como bloque principal visible.
 
 ## Arquitectura (actual)
 - `web_ui.py`:
   - Flask + UI móvil.
-  - Endpoints: `/`, `/auth`, `/auth/callback`, `/oauth/callback`, `/api/sync`, `/api/status`, `/health`.
+  - Endpoints: `/`, `/auth`, `/auth/callback`, `/oauth/callback`, `/api/sync`, `/api/sync-sessions`, `/api/status`, `/health`.
   - `POST /api/sync` ejecuta `polar_hrv_automation.py --process` en thread.
+  - `POST /api/sync-sessions` ejecuta `build_sessions.py --update` en thread.
+  - Ambos jobs comparten estado operativo en la UI web y no deben ejecutarse en paralelo.
 - `polar_hrv_automation.py`:
   - Descarga/sync RR desde Polar.
   - Para fechas faltantes de CORE, intenta primero importar RR desde cloud vía `egc_to_rr.py` (normalmente Dropbox; Drive puede quedar como fallback).
@@ -154,7 +157,8 @@ Reglas:
 - `GET /auth/callback` -> completa OAuth.
 - `GET /oauth/callback` -> alias compatible.
 - `POST /api/sync` -> descarga RR + actualiza sleep + ejecuta V4 (CORE/BETA_AUDIT/FINAL/DASHBOARD).
-- `GET /api/status` -> estado + diagnósticos.
+- `POST /api/sync-sessions` -> ejecuta sync de sesiones (`build_sessions.py --update`).
+- `GET /api/status` -> estado actual del job, `job_type`, último `output/error` y diagnósticos.
 - `GET /health` -> healthcheck.
 
 ## Seguridad (no negociable)
@@ -171,6 +175,8 @@ Reglas:
 5) Logs útiles sin secretos.
 6) RR se almacenan y leen desde `data/rr_downloads/`.
 7) Si faltan fechas en CORE y cloud RR está habilitado, se intenta `cloud -> RR from_jsonl` (normalmente Dropbox; Drive puede quedar como fallback) antes del fallback Polar.
+8) `POST /api/sync-sessions` ejecuta `build_sessions.py --update`.
+9) La UI web no permite ejecutar `sync` HRV y `sync-sessions` al mismo tiempo.
 
 ## Comandos operativos
 - Web UI local:

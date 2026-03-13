@@ -25,8 +25,10 @@ Importante:
 ## `web_ui.py`
 - Que hace:
   - Levanta Flask (UI + API).
-  - Expone endpoints: `/`, `/auth`, `/auth/callback`, `/oauth/callback`, `/api/sync`, `/api/status`, `/health`.
+  - Expone endpoints: `/`, `/auth`, `/auth/callback`, `/oauth/callback`, `/api/sync`, `/api/sync-sessions`, `/api/status`, `/health`.
   - En `/api/sync` dispara `polar_hrv_automation.py --process`.
+  - En `/api/sync-sessions` dispara `build_sessions.py --update`.
+  - La UI actual prioriza `Detalle tecnico` / `raw output` como bloque principal visible.
 - Cuando usarlo:
   - Siempre que quieras usar OAuth web y lanzar sync desde navegador.
   - Es el entrypoint de Railway.
@@ -34,9 +36,11 @@ Importante:
   - Variables de entorno (`PORT`, `POLAR_CLIENT_ID`, `POLAR_CLIENT_SECRET`, `PUBLIC_URL`, etc.).
 - Salidas:
   - Respuestas HTTP y logs.
+  - `GET /api/status` devuelve estado actual del job, `job_type` y ultimo `output/error` relevante.
   - No genera CSV por si solo; delega al pipeline.
 - Automatico o manual:
   - Automatico en Railway (start command).
+  - `POST /api/sync` y `POST /api/sync-sessions` comparten estado y no deben ejecutarse en paralelo.
 
 ## `polar_hrv_automation.py`
 - Que hace:

@@ -32,8 +32,14 @@ Endpoints principales:
 - `GET /auth`
 - `GET /auth/callback` (alias: `/oauth/callback`)
 - `POST /api/sync`
+- `POST /api/sync-sessions`
 - `GET /api/status`
 - `GET /health`
+
+Notas operativas de la web:
+- La UI prioriza `Detalle tecnico` / `raw output` como bloque principal visible.
+- `GET /api/status` expone el estado actual del job, `job_type` y el ultimo `output/error` relevante.
+- `POST /api/sync` y `POST /api/sync-sessions` comparten estado y no deben ejecutarse en paralelo.
 
 ## Estructura de datos
 

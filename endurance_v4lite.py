@@ -94,8 +94,10 @@ VETO_MULT = 2.0      # veto si raw cae > 2xSWC bajo base60
 
 COLS_FINAL = [
     "Fecha","Calidad","HRV_Stability","Artifact_pct","Tiempo_Estabilizacion",
+    "Stability_Subtype","tail_mismatch_pct",
     "HR_today","RMSSD_stable","lnRMSSD_today",
     "lnRMSSD_used","HR_used","n_roll3",
+    "gate_raw_today","gate_raw_reason","unstable_note",
     "ln_base60","HR_base60","n_base60","SWC_ln","SWC_HR","d_ln","d_HR",
     "gate_base60","gate_razon_base60",
     "gate_shadow42","gate_razon_shadow42","n_base42",
@@ -233,6 +235,24 @@ def residual_tag(res_z: float, cfg: Config) -> str:
     return ""
 
 
+def eval_gate(ln_val: float, hr_val: float, b_ln: float, b_hr: float, sw_ln: float, sw_hr: float) -> Tuple[str, str]:
+    if not all(np.isfinite(v) for v in (ln_val, hr_val, b_ln, b_hr, sw_ln, sw_hr)) or sw_ln == 0.0 or sw_hr == 0.0:
+        return NO, "RAW_NAN/0"
+
+    dln = float(ln_val - b_ln)
+    dhr = float(hr_val - b_hr)
+    ln_bajo = dln < -sw_ln
+    hr_alto = dhr > sw_hr
+
+    if ln_bajo and hr_alto:
+        return ROJO, "2D_AMBOS"
+    if ln_bajo:
+        return AMBAR, "2D_LN"
+    if hr_alto:
+        return AMBAR, "2D_HR"
+    return VERDE, "2D_OK"
+
+
 def _safe_float(row: pd.Series, col: str) -> Optional[float]:
     """Extract float from sleep row, return None if missing."""
     try:
@@ -277,6 +297,12 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
     hr_today = pd.to_numeric(df["HR_stable"], errors="coerce").to_numpy(dtype=float)
     rmssd_today = pd.to_numeric(df["RMSSD_stable"], errors="coerce").to_numpy(dtype=float)
     rrbar_s = pd.to_numeric(df["RRbar_s"], errors="coerce").to_numpy(dtype=float)
+    stability_subtype = (
+        df["Stability_Subtype"].astype(str).to_numpy(dtype=object)
+        if "Stability_Subtype" in df.columns
+        else np.where(df["HRV_Stability"].astype(str).to_numpy(dtype=object) == "OK", "OK", "")
+    )
+    tail_mismatch_pct = pd.to_numeric(df["tail_mismatch_pct"], errors="coerce").to_numpy(dtype=float) if "tail_mismatch_pct" in df.columns else np.full(len(df), np.nan, dtype=float)
 
     # Clean / invalid / quality_flag
     is_numeric = np.isfinite(ln_today) & np.isfinite(hr_today) & np.isfinite(rmssd_today)
@@ -313,6 +339,9 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
     razon_shadow42 = np.array([""]*len(df), dtype=object)
     gate_shadow28 = np.array([NO]*len(df), dtype=object)
     razon_shadow28 = np.array([""]*len(df), dtype=object)
+    gate_raw_today = np.array([NO]*len(df), dtype=object)
+    gate_raw_reason = np.array([""]*len(df), dtype=object)
+    unstable_note = np.array([""]*len(df), dtype=object)
 
     d_ln = np.full(len(df), np.nan, dtype=float)
     d_hr = np.full(len(df), np.nan, dtype=float)
@@ -361,10 +390,15 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
         if n60 < cfg.min_base60_clean:
             gate_base60[i] = NO
             razon_base60[i] = "BASE60_INSUF"
+            gate_raw_today[i] = NO
+            gate_raw_reason[i] = "BASE60_INSUF"
         elif (not np.isfinite(sw_ln)) or (not np.isfinite(sw_hr)) or sw_ln == 0.0 or sw_hr == 0.0:
             gate_base60[i] = NO
             razon_base60[i] = "SWC_NAN/0"
+            gate_raw_today[i] = NO
+            gate_raw_reason[i] = "SWC_NAN/0"
         else:
+            gate_raw_today[i], gate_raw_reason[i] = eval_gate(ln_today[i], hr_today[i], b_ln, b_hr, sw_ln, sw_hr)
             # ===== VETO AGUDO (v4): bypass ROLL3 si caída aguda =====
             swc_v4 = max(sw_ln, SWC_FLOOR)
             swc_ln_floor_arr[i] = swc_v4
@@ -400,6 +434,9 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             else:
                 gate_base60[i] = VERDE
                 razon_base60[i] = "2D_OK"
+
+            if bool(quality_flag[i]) and gate_raw_today[i] in (VERDE, AMBAR, ROJO):
+                unstable_note[i] = f"Raw={gate_raw_today[i]}({gate_raw_reason[i]}) vs ref={gate_base60[i]}({razon_base60[i]})"
 
         # ===== SHADOW42 =====
         w42 = window_mask(dates, i, cfg.base42_days)
@@ -749,6 +786,8 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
         "HRV_Stability": df["HRV_Stability"].astype(str),
         "Artifact_pct": pd.to_numeric(df["Artifact_pct"], errors="coerce"),
         "Tiempo_Estabilizacion": pd.to_numeric(df["Tiempo_Estabilizacion"], errors="coerce"),
+        "Stability_Subtype": stability_subtype,
+        "tail_mismatch_pct": tail_mismatch_pct,
 
         "HR_today": hr_today,
         "RMSSD_stable": rmssd_today,
@@ -757,6 +796,9 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
         "lnRMSSD_used": ln_used,
         "HR_used": hr_used,
         "n_roll3": n_roll3,
+        "gate_raw_today": gate_raw_today,
+        "gate_raw_reason": gate_raw_reason,
+        "unstable_note": unstable_note,
 
         "ln_base60": ln_base60,
         "HR_base60": hr_base60,

@@ -74,12 +74,14 @@ COLS_CORE = [
     "Fecha",
     "Calidad",
     "HRV_Stability",
+    "Stability_Subtype",
     "Artifact_pct",
     "Tiempo_Estabilizacion",
     "HR_stable",
     "RRbar_s",
     "RMSSD_stable",
     "RMSSD_stable_last2",
+    "tail_mismatch_pct",
     "lnRMSSD",
     "Flags",
     "SI_baevsky",
@@ -343,6 +345,11 @@ def compute_day_from_rr(rr_path: Path, history_df: pd.DataFrame, C: dict) -> Tup
     n_pairs_tail = int(rr_tail.size - 1)
     RMSSD_last2 = rmssd_ms(rr_tail) if rr_tail.size >= 2 else np.nan
     CV_120 = float(np.std(rr_tail) / np.mean(rr_tail)) if rr_tail.size > 1 and np.mean(rr_tail) > 0 else np.nan
+    tail_mismatch_pct = (
+        float(abs(RMSSD_last2 - RMSSD) / RMSSD * 100.0)
+        if (not np.isnan(RMSSD_last2)) and (not np.isnan(RMSSD)) and RMSSD > 0
+        else np.nan
+    )
 
     # Gate: Estabilidad y Calidad
     HRV_Stability = "OK"
@@ -541,12 +548,14 @@ def compute_day_from_rr(rr_path: Path, history_df: pd.DataFrame, C: dict) -> Tup
         "Fecha": fecha_str,
         "Calidad": Calidad,
         "HRV_Stability": HRV_Stability,
+        "Stability_Subtype": stab_flag or "OK",
         "Artifact_pct": artifact_pct,
         "Tiempo_Estabilizacion": lat,
         "HR_stable": HR,
         "RRbar_s": RRbar_s,
         "RMSSD_stable": RMSSD,
         "RMSSD_stable_last2": RMSSD_last2,
+        "tail_mismatch_pct": tail_mismatch_pct,
         "lnRMSSD": lnRMSSD,
         "Flags": "|".join(flags),
         "SI_baevsky": SI_baevsky,
@@ -878,15 +887,16 @@ def main():
     core_df.to_csv(OUT_CORE, index=False)
     beta_df.to_csv(OUT_BETA_AUDIT, index=False)
 
-    print(f"\n{'='*50}")
-    print("✅ ENDURANCE HRV - Procesamiento completado")
-    print(f"{'='*50}")
-    print(f"📄 CORE:       {OUT_CORE} ({len(core_df)} filas)")
-    print(f"📄 BETA_AUDIT: {OUT_BETA_AUDIT} ({len(beta_df)} filas)")
-    print(f"\nÚltimas fechas procesadas:")
-    for p in processed[-5:]:
-        print(f"   {p['Fecha']}: HR={p['HR']:.1f} lpm, RMSSD={p['RMSSD']:.1f} ms")
-    print(f"\n➡️  Ejecuta 'python endurance_v4lite.py' para generar FINAL y DASHBOARD")
+    if not QUIET:
+        print("\n" + "="*50)
+        print("✅ ENDURANCE HRV - Procesamiento completado")
+        print("="*50)
+        print(f"📄 CORE:       {OUT_CORE} ({len(core_df)} filas)")
+        print(f"📄 BETA_AUDIT: {OUT_BETA_AUDIT} ({len(beta_df)} filas)")
+        print(f"\nÚltimas fechas procesadas:")
+        for p in processed[-5:]:
+            print(f"   {p['Fecha']}: HR={p['HR']:.1f} lpm, RMSSD={p['RMSSD']:.1f} ms")
+        print("\n➡️  Ejecuta 'python endurance_v4lite.py' para generar FINAL y DASHBOARD")
 
 
 if __name__ == "__main__":

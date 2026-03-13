@@ -485,7 +485,6 @@ HTML_TEMPLATE = """
         .raw-output {
             padding: 14px; border-radius: 4px; background: #16353a; color: #eef6f5; font-family: Consolas, "Courier New", monospace;
             font-size: 12px; line-height: 1.5; min-height: 320px; max-height: 60vh; overflow: auto; white-space: pre-wrap; word-wrap: break-word;
-            letter-spacing: -.125px;
         }
         .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.32); border-radius: 50%; border-top-color: #fff; animation: spin 1s linear infinite; }
         @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(0.99); } }

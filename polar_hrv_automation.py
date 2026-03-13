@@ -661,7 +661,6 @@ def _print_divider(width: int = 30, leading_blank: bool = False, trailing_blank:
 
 def _print_sync_completed(updated_date=None, checkmark=False):
     if QUIET:
-        print("✅ Sync OK: sin novedades")
         return
     print("\n✅ SINCRONIZACIÓN COMPLETADA")
     #print("=" * 25)
@@ -686,7 +685,6 @@ def _print_no_rr_files():
 
 def _print_master_already_updated():
     if QUIET:
-        print("✅ Sync OK: sin novedades")
         return
     print("\n✅ CORE ya está actualizado con todas las sesiones")
     print("   No hay nada nuevo que procesar")
@@ -2400,14 +2398,7 @@ def main():
             if result2.stdout:
                 print(result2.stdout)
 
-            if QUIET:
-                print(
-                    f"✅ Sync OK: {exported} nuevos Polar, {drive_rr_new} nuevos {rr_cloud_label}, "
-                    f"{existing} reprocesados, {skipped_in_master} omitidos CORE, "
-                    f"{skipped_covered_by_drive} cubiertos por {rr_cloud_label}, {skipped_no_date} sin fecha"
-                )
-                print("✅ HRV procesado: CORE, BETA_AUDIT, FINAL, DASHBOARD")
-            else:
+            if not QUIET:
                 print("")
                 print("✅ Procesamiento HRV completado")
                 print("")

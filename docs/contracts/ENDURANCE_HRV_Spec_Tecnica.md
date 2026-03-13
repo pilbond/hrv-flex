@@ -62,7 +62,7 @@ Origen: Secciones 0-5 de Spec v3.x (r2025-12-25-UPDATE3)
 
 | Archivo | Contenido |
 |---------|-----------|
-| `ENDURANCE_HRV_master_CORE.csv` | Medición canónica (12 cols): la señal fisiológica del día sin ninguna decisión |
+| `ENDURANCE_HRV_master_CORE.csv` | Medición canónica (18 cols): señal fisiológica + trazabilidad mínima de estabilidad, sin decisiones |
 | `ENDURANCE_HRV_master_BETA_AUDIT.csv` | Beta/cRMSSD legacy (13 cols): modelo alométrico del sistema V3, conservado para comparación |
 
 ---
@@ -458,7 +458,7 @@ ENDURANCE_HRV_sleep.csv (entrada opcional, para reason_text)
 │  9. Reason_text (sleep.csv si existe) │
 └─────────────────────────────────────────┘
      │
-     ├──► ENDURANCE_HRV_master_FINAL.csv (auditable, 53 cols)
+     ├──► ENDURANCE_HRV_master_FINAL.csv (auditable, 58 cols)
      │
      └──► ENDURANCE_HRV_master_DASHBOARD.csv (operativo, 10 cols)
 ```
@@ -482,6 +482,21 @@ ENDURANCE_HRV_sleep.csv (entrada opcional, para reason_text)
 - **ROLL3 y baselines** se calculan **solo con días clean** — así la referencia contra la que se compara siempre es "limpia".
 - Con `quality_flag=True`, el día se conserva (no se borra) y se calcula gate, pero **Action_detail = SUAVE_QUALITY**.
 - `INVALID` no entra en ningún cálculo (ni ROLL3, ni baselines, ni residual).
+
+### 9.3 Auditoría raw-vs-ref (r2026-03-12)
+
+Sin cambiar `gate_final`, FINAL expone tres columnas nuevas para explicar mejor los días dudosos:
+
+- `gate_raw_today`: semáforo 2D contrafactual usando el raw del día
+- `gate_raw_reason`: motivo del semáforo raw
+- `unstable_note`: resumen corto `raw vs ref` cuando `quality_flag=True`
+
+Además, CORE expone:
+
+- `Stability_Subtype`: subtipo explícito de estabilidad (`OK`, `STAB_LAST2_MISMATCH`, etc.)
+- `tail_mismatch_pct`: discrepancia porcentual entre `RMSSD_stable` y `RMSSD_stable_last2`
+
+**Importante:** estas columnas son solo de auditoría. No modifican `gate_final`, `Action` ni la definición de días `clean`.
 
 ---
 
@@ -836,8 +851,8 @@ Si tu baseline actual está por debajo del P20 de todos tus baselines histórico
 
 | Archivo | Para qué | Columnas |
 |---------|----------|----------|
-| `ENDURANCE_HRV_master_CORE.csv` | La medición fisiológica del día, sin decisiones | 12 |
-| `ENDURANCE_HRV_master_FINAL.csv` | Gate, veto agudo, sombras, residual, reason_text y auditoría completa | 53 |
+| `ENDURANCE_HRV_master_CORE.csv` | La medición fisiológica del día, sin decisiones | 18 |
+| `ENDURANCE_HRV_master_FINAL.csv` | Gate, veto agudo, sombras, residual, reason_text y auditoría completa raw-vs-ref | 58 |
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | Lo esencial para decidir en 10 segundos + reason_text | 10 |
 | `ENDURANCE_HRV_sleep.csv` | Sueño nocturno y recuperación (Polar) | 17 |
 | `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento | 42 |
@@ -926,6 +941,7 @@ Secciones obligatorias:
 | 2026-02-23 v4 | Añadido reason_text (§15.3): texto explicativo contextual con sueño, carga y coherencia gate↔contexto |
 | 2026-02-23 v4 | Nuevo archivo sleep.csv (§17): sidecar de sueño Polar |
 | 2026-02-23 v4 | FINAL bumped 49→53 cols, DASHBOARD 9→10 cols |
+| 2026-03-12 v4 | CORE bumped 16→18 cols, FINAL 53→58 cols con auditoría raw-vs-ref (`Stability_Subtype`, `tail_mismatch_pct`, `gate_raw_today`, `gate_raw_reason`, `unstable_note`) |
 | 2026-02-12 v3 | Redactado didáctico: intros explicativas en cada sección, "por qué" antes de "cómo" |
 | 2026-02-12 v2 | Reintegradas fórmulas warning §16, sección QA §20, limitaciones §19 completas |
 | 2026-02-12 | Añadido residual (BASE60) + sufijos + gate_badge |
