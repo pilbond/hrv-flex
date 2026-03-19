@@ -1,10 +1,10 @@
-# ENDURANCE HRV — Sessions Schema v3.1
+# ENDURANCE HRV — Sessions Schema
 
-**Revisión:** r2026-03-01 v3.1 (params_hash: c1c78a78)  
+**Revisión:** r2026-03-19 v3.2 (params_hash: c1c78a78)  
 **Estado:** Producción
 
 **Documentos relacionados:**
-- `ENDURANCE_HRV_Estructura.md` — contrato de datos del sistema completo (CORE, FINAL, DASHBOARD, CONTEXT)
+- `ENDURANCE_HRV_Estructura.md` — contrato de datos del sistema completo (CORE, FINAL, DASHBOARD, SLEEP)
 - `ENDURANCE_HRV_Spec_Tecnica.md` — fórmulas y algoritmos del gate HRV
 - `ENDURANCE_HRV_Diccionario.md` — diccionario de columnas del gate HRV
 
@@ -17,6 +17,14 @@ El gate HRV (CORE → FINAL → DASHBOARD) responde a la pregunta "¿cómo está
 Sessions extrae de Intervals.icu el detalle de cada entrenamiento — stream de HR segundo a segundo, velocidad, desnivel — y lo transforma en métricas que describen **la estructura real del trabajo**: cuántos minutos pasaste por encima de VT1 en bloques sostenidos, cuánto de ese trabajo fue en Z3, si terminaste la sesión con el corazón más alto que al principio (drift), y cómo se compara esa sesión con tu histórico reciente.
 
 El resultado alimenta el `reason_text` del gate HRV con avisos de carga ("Volumen semanal alto", "Z3 acumulado alto"), pero **nunca modifica el gate ni la acción** — es contexto informativo para tu decisión.
+
+### Alcance
+
+Este pipeline está diseñado para **un único atleta** y consume la cuenta personal de Intervals.icu asociada a ese atleta.
+
+- No pretende agregar ni comparar sesiones entre varios atletas.
+- No define particionado por usuario, equipos, coaches ni tenants.
+- El uso del endpoint `/athlete/{id}` es una fuente externa concreta, no una señal de que el sistema deba generalizarse a múltiples atletas dentro de la misma instalación.
 
 ### Lo que NO hace este pipeline
 
@@ -32,8 +40,8 @@ El resultado alimenta el `reason_text` del gate HRV con avisos de carga ("Volume
 | Archivo | Granularidad | Para qué sirve |
 |---------|-------------|-----------------|
 | `sessions.csv` | 1 fila por sesión | Detalle completo de cada entrenamiento: zonas, work blocks, drift, clasificación. Lo que miras cuando quieres entender una sesión concreta. |
-| `sessions_day.csv` | 1 fila por día | Agregados diarios + rolling 3d/7d con cobertura. Lo que lee `endurance_v4lite.py` para generar avisos de carga en reason_text. |
-| `metadata.json` | 1 por corrida | Trazabilidad: versión del pipeline, parámetros usados, hash de configuración, sampling rate del stream. Para auditoría y depuración. |
+| `sessions_day.csv` | 1 fila por día | Agregados diarios + rolling 3d/7d/14d/28d con cobertura. Lo que lee `endurance_v4lite.py` para generar avisos de carga en reason_text. |
+| `ENDURANCE_HRV_sessions_metadata.json` | 1 por corrida | Trazabilidad: versión del pipeline, parámetros usados, hash de configuración, sampling rate del stream. Para auditoría y depuración. |
 
 ### Fuente de datos
 
@@ -49,7 +57,7 @@ El stream HR de Intervals es idéntico al TCX del sensor (verificado empíricame
 
 ## 2. SESSIONS.CSV — columnas y significado
 
-42 columnas organizadas en 7 bloques. Cada bloque agrupa campos relacionados.
+43 columnas organizadas en 7 bloques. Cada bloque agrupa campos relacionados.
 
 ### Bloque A — Identidad (9 campos)
 
@@ -60,7 +68,7 @@ Quién eres, cuándo entrenaste, y qué zonas se usaron para clasificar el esfue
 | `session_id` | string | Identificador único de la actividad en Intervals.icu. Empieza con "i" seguido de un número. Sirve para rastrear cualquier sesión hasta su fuente original. | i127783816 |
 | `Fecha` | date | Día en que se realizó la sesión (YYYY-MM-DD). Si entrenas dos veces un día, habrá dos filas con la misma Fecha pero distinto session_id. | 2026-02-25 |
 | `start_time` | HH:MM | Hora de inicio de la sesión. Útil para distinguir sesiones dobles y para análisis de distribución horaria del entrenamiento. | 15:16 |
-| `sport` | enum | Tipo de deporte normalizado (minúsculas, guiones bajos). El pipeline lo usa para asignar umbrales de zonas, decidir si hay velocidad disponible, y clasificar la sesión. | trail_run, cycling, strength, swim |
+| `sport` | enum | Tipo de deporte normalizado (minúsculas, guiones bajos). El pipeline lo usa para asignar umbrales de zonas, decidir si hay velocidad disponible, y clasificar la sesión. | trail_run, bike, strength, swim |
 | `sport_raw` | string | Tipo de deporte tal como viene de Intervals.icu, sin normalizar. Lo conservamos por trazabilidad: si algún día cambia la normalización, puedes volver al original. | TrailRun, VirtualRide |
 | `source` | const | Siempre "intervals". Reservado por si en el futuro se integran otras fuentes (Garmin directo, Polar Flow, etc.). | intervals |
 | `vt1_used` | int lpm | Umbral ventilatorio 1 (primer umbral) usado para esta sesión. Es el límite entre Z1 y Z2. Todo lo que está por debajo es aeróbico cómodo; por encima, empieza el "trabajo". | 143 |
@@ -150,8 +158,8 @@ Cómo se clasifica la sesión y cómo se compara con tu histórico.
 | `rpe` | int? (1-10) | Rate of Perceived Exertion. Percepción subjetiva del esfuerzo que tú registraste después de entrenar. 1=muy fácil, 10=máximo. NaN si no lo registraste. El pipeline lo conserva pero no lo usa para clasificar — es informativo. |
 | `feel` | int? | Cómo te sentiste durante la sesión (escala Intervals). NaN si no lo registraste. Informativo. |
 | `intensity_category` | enum | **Clasificación de la estructura de trabajo de la sesión.** Ver §3 para la taxonomía completa. Es la respuesta a "¿qué tipo de sesión fue?" basada en los work blocks, no en el porcentaje bruto de zonas. |
-| `effort_vs_recent` | enum | ¿Esta sesión fue más dura, normal, o más fácil que tus últimas 60 sesiones del mismo tipo? Se calcula con P25/P75 de load **solo sobre sesiones anteriores** (sin look-ahead), para mantener la causalidad. Valores: "above" / "typical" / "below". |
-| `effort_vs_anchor` | enum | ¿Esta sesión fue más dura que cuando estabas en tu mejor forma? Compara contra percentiles fijos de un periodo de referencia sano (jun-ago 2025, configurable). Detecta desentrenamiento sostenido: si tu "typical" actual está por debajo del "typical" de tu mejor periodo, algo ha cambiado. Valores: "above" / "typical" / "below". |
+| `effort_vs_recent` | enum | ¿Esta sesión fue más dura, normal, o más fácil que tus últimas 60 sesiones del mismo `session_group`? Se calcula con P25/P75 de `load` **solo sobre sesiones anteriores** (sin look-ahead), para mantener la causalidad. Valores: "above" / "typical" / "below". |
+| `effort_vs_anchor` | enum | ¿Esta sesión fue más dura que cuando estabas en tu mejor forma? Compara `load` contra percentiles fijos de un periodo de referencia sano (jun-ago 2025, configurable), siempre dentro del mismo `session_group`. Detecta desentrenamiento sostenido: si tu "typical" actual está por debajo del "typical" de tu mejor periodo, algo ha cambiado. Valores: "above" / "typical" / "below". |
 | `session_group` | enum | Grupo funcional de la sesión para separar estadísticas. Ver §4 para valores. |
 
 ### Bloque G — QA y trazabilidad (5 campos)
@@ -197,7 +205,7 @@ Compara el `load` de esta sesión contra el P25 y P75 de las últimas 60 sesione
 
 ### effort_vs_anchor — esfuerzo relativo a tu mejor periodo
 
-Misma lógica que effort_vs_recent, pero los percentiles se calculan sobre un periodo de referencia fijo: tu "mejor momento" conocido (configurable, por defecto jun-ago 2025). No cambian con el tiempo.
+Misma lógica que effort_vs_recent, pero los percentiles se calculan sobre un periodo de referencia fijo: tu "mejor momento" conocido (configurable, por defecto jun-ago 2025), siempre dentro del mismo `session_group`. No cambian con el tiempo.
 
 **¿Para qué sirve?** Si tu effort_vs_recent dice "typical" pero tu effort_vs_anchor dice "below", significa que tu nivel actual de esfuerzo se ha normalizado a la baja sin que te des cuenta. Detecta desentrenamiento progresivo: lo que hoy te parece normal era "below" en tu mejor momento.
 
@@ -225,15 +233,30 @@ Sessions_day.csv tiene una fila por día-calendario (no por sesión). Si un día
 |-------|------|--------|
 | `Fecha` | date | Día-calendario (YYYY-MM-DD). Clave primaria. |
 | `n_sessions` | int | Número de sesiones registradas ese día. |
+| `total_duration_min` | float | Suma de `duration_min` de todas las sesiones del día. Es duración bruta total, útil como contexto descriptivo. |
+| `has_aerobic` | 0/1 | 1 si el día incluye al menos una sesión aeróbica. |
+| `has_strength` | 0/1 | 1 si el día incluye al menos una sesión de fuerza. |
+| `has_mobility` | 0/1 | 1 si el día incluye al menos una sesión de movilidad. |
 | `load_day` | float | Suma de `load` de todas las sesiones del día. Es tu carga total diaria. |
-| `moving_min_day` | float | Suma de `moving_min` de todas las sesiones. Tu tiempo total de movimiento. |
-| `work_total_min_day` | float | Suma de `work_total_min` de las sesiones aeróbicas del día. Minutos de trabajo sostenido ≥VT1. Viene de los agregados de sesión, no de parsear strings (fix v3.1). |
-| `work_n_blocks_day` | int | Suma de `work_n_blocks` de las sesiones aeróbicas. |
-| `z3_min_day` | float | Suma de `z3_total_min` de las sesiones aeróbicas. Minutos totales de Z3 del día. |
-| `intensity_cat_day` | string | Categoría de intensidad de la sesión principal (la de mayor load) del día. |
+| `intensity_cat_day` | string | Categoría de intensidad de la sesión principal del día. La sesión principal se define por `load` más alto; si falta `load`, desempata por `duration_min`. |
+| `work_total_min_day` | float | Suma de `work_total_min` de las sesiones aeróbicas del día. Minutos de trabajo sostenido ≥VT1. Viene de los agregados de sesión, no de parsear strings (fix v3.1). **NaN si ese día no hubo ninguna sesión aeróbica.** |
+| `work_n_blocks_day` | int | Suma de `work_n_blocks` de las sesiones aeróbicas. **NaN si ese día no hubo ninguna sesión aeróbica.** |
+| `z3_min_day` | float | Suma de `z3_total_min` de las sesiones aeróbicas. Minutos totales de Z3 del día. **NaN si ese día no hubo ninguna sesión aeróbica.** |
+| `hr_max_day` | int? | Pico de FC más alto observado entre las sesiones aeróbicas del día. |
+| `hr_p95_max_day` | float? | Mayor `hr_p95` observado entre las sesiones aeróbicas del día. |
+| `late_intensity_day` | 0/1? | 1 si alguna sesión aeróbica terminó claramente más intensa; 0 si hubo sesión aeróbica pero no ocurrió; NaN si no hubo sesión aeróbica. |
+| `cardiac_drift_worst` | float? | Peor drift cardíaco del día entre sesiones aeróbicas con datos válidos. |
+| `elev_gain_day` | float? | Suma de desnivel positivo del día. |
+| `elev_loss_day` | float? | Suma de desnivel negativo del día. |
+| `strength_min_day` | float | Duración total de sesiones de fuerza del día. |
+| `mobility_min_day` | float | Duración total de sesiones de movilidad del día. |
+| `rpe_max_day` | int? | RPE máximo registrado entre las sesiones aeróbicas del día. |
 | `effort_above_typical_aerobic` | 0/1 | ¿Alguna sesión aeróbica del día tuvo effort_vs_recent = "above"? |
 | `effort_above_typical_strength` | 0/1 | ¿Alguna sesión de fuerza del día tuvo effort_vs_recent = "above"? |
 | `effort_above_anchor_aerobic` | 0/1 | ¿Alguna sesión aeróbica del día tuvo effort_vs_anchor = "above"? |
+| `n_with_rpe` | int | Número de sesiones del día con RPE informado. |
+| `n_with_notes` | int | Número de sesiones del día con notas. |
+| `elev_density_day` | float? | Densidad vertical media ponderada por distancia de las sesiones aeróbicas del día. |
 
 ### Campos rolling (ventana deslizante con cobertura)
 
@@ -247,6 +270,8 @@ Los campos rolling son sumas o medias de los últimos N días, con un campo `_no
 | `z3_7d_sum` / `z3_7d_nobs` | 7 días | **Minutos totales de Z3 en los 7 días previos.** Este valor genera el aviso "Z3 acumulado alto" en reason_text cuando supera 60 minutos. |
 | `load_14d` / `load_14d_nobs` | 14 días | Carga total de las 2 semanas anteriores. |
 | `load_28d` / `load_28d_nobs` | 28 días | Carga total del mes anterior. |
+| `finish_strong_7d_count` | 7 días | Conteo rolling de días con `late_intensity_day = 1` en la semana previa. |
+| `elev_loss_7d_sum` | 7 días | Suma rolling de desnivel negativo en la semana previa. Campo descriptivo; no lo usa el gate. |
 
 ### Semántica de _nobs — por qué importa
 
@@ -259,7 +284,7 @@ Los campos rolling son sumas o medias de los últimos N días, con un campo `_no
 
 Si el pipeline rellenara NaN→0 **antes** de contar nobs, contaría miércoles como "0 minutos de Z3" — como si ese día hubieras confirmado que no hubo Z3. Pero la realidad es que el concepto ni siquiera aplica ese día. La métrica era **desconocida**, no cero.
 
-**Fix v3.1:** `_nobs` se computa ANTES de rellenar NaN→0. Así:
+**Fix v3.1:** `_nobs` se computa ANTES de rellenar NaN→0. Además, las métricas aeróbicas diarias (`work_total_min_day`, `work_n_blocks_day`, `z3_min_day`, `late_intensity_day`) quedan en `NaN` si ese día no hubo sesión aeróbica. Así:
 - `z3_7d_nobs = 1` (solo lunes tenía un valor real de Z3)
 - `z3_7d_sum = 8.5` (solo el valor real)
 
@@ -269,11 +294,11 @@ Si el pipeline rellenara NaN→0 **antes** de contar nobs, contaría miércoles 
 
 ## 5. METADATA.JSON — trazabilidad del pipeline
 
-Cada corrida del pipeline genera un metadata.json que documenta exactamente qué se procesó, con qué parámetros, y si hay algo sospechoso.
+Cada corrida del pipeline genera un `ENDURANCE_HRV_sessions_metadata.json` que documenta exactamente qué se procesó, con qué parámetros, y si hay algo sospechoso.
 
 ```json
 {
-  "pipeline_version": "v3.0",
+  "pipeline_version": "v3.2",
   "params": {
     "VT1_DEFAULT": 143,
     "VT2_DEFAULT": 161,
@@ -310,7 +335,7 @@ Cada corrida del pipeline genera un metadata.json que documenta exactamente qué
 | Campo | Qué mirar |
 |-------|-----------|
 | `params_hash` | Si cambias cualquier parámetro, el hash cambia. Permite saber si dos corridas usaron la misma configuración. |
-| `stream_sampling.assumed_1hz` | **Si es `false`, STOP.** Las conversiones de muestras a minutos son incorrectas. Hay que investigar qué sesiones tienen dt ≠ 1.0 (el campo `stream_dt_est` en sessions.csv te dice cuáles). |
+| `stream_sampling.assumed_1hz` | **Si es `false`, trátalo como warning fuerte.** Las conversiones de muestras a minutos pueden estar sesgadas. Hay que investigar qué sesiones tienen dt ≠ 1.0 (el campo `stream_dt_est` en sessions.csv te dice cuáles) antes de confiar plenamente en las métricas derivadas de stream. No implica por sí solo que el metadata esté mal: es un canario deliberado. |
 | `stream_sampling.dt_mean` | Debería ser ~1.000. Si se aleja mucho (ej: 0.5 o 2.0), Intervals cambió su re-muestreo. |
 | `zones_source_dist` | Si `fallback > 0`, hay deportes sin zonas configuradas en Intervals. Revisa tu configuración de zonas. |
 | `counts.with_streams` | Sesiones con stream HR disponible. Si es mucho menor que `sessions`, hay sesiones sin stream (ej: fuerza sin HR, sesiones muy cortas). Las métricas de zonas serán NaN para esas sesiones. |
@@ -368,14 +393,14 @@ assert (day["load_3d_nobs"] <= 3).all()
 assert (day["z3_7d_nobs"] <= 7).all()
 ```
 
-### metadata.json
+### ENDURANCE_HRV_sessions_metadata.json
 
 ```python
 import json
-meta = json.load(open("metadata.json"))
+meta = json.load(open("ENDURANCE_HRV_sessions_metadata.json"))
 
-# Sampling rate es 1 Hz
-assert meta["stream_sampling"]["assumed_1hz"] == True
+# Sampling rate: si no parece 1 Hz, elevar warning y revisar sessions.csv
+assert "assumed_1hz" in meta["stream_sampling"]
 
 # Todas las sesiones tienen zonas de Intervals (no fallback)
 assert meta["zones_source_dist"].get("fallback", 0) == 0
@@ -411,7 +436,11 @@ Cuántos días de la ventana rolling tenían un valor real (no NaN) para esa mé
 
 ---
 
-## 9. Fixes aplicados
+## 9. Historial de versiones y fixes
+
+**Versión operativa actual:** `v3.2`
+
+Lo siguiente es historial de cambios acumulados. No sustituye al estado vigente declarado al inicio del documento.
 
 ### v3.0 (fixes del revisor externo)
 A) Moving mask en zonas/blocks/late_intensity  
@@ -428,6 +457,11 @@ F) effort split aerobic/strength
 4) stream_dt_est en session + stream_sampling en metadata (canary 1Hz)  
 5) classify_intensity: firma sin z3_pct, documentado como "estructura de trabajo"  
 
+### v3.2 (alineación semántica y trazabilidad)
+1) `elev_density` = `elev_gain / distance` (verticalidad ascendente, no relieve total)  
+2) `PIPELINE_VERSION` bumped a `v3.2` en sessions + metadata  
+3) metadata renombrado a `ENDURANCE_HRV_sessions_metadata.json`  
+
 ---
 
 ## 10. Pipeline
@@ -443,5 +477,5 @@ python build_sessions.py --daily
 python build_sessions.py --date 2026-02-25
 ```
 
-Genera: `sessions.csv` + `sessions_day.csv` + `metadata.json`
+Genera: `sessions.csv` + `sessions_day.csv` + `ENDURANCE_HRV_sessions_metadata.json`
 

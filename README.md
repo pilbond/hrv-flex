@@ -2,6 +2,14 @@
 
 Automatiza el flujo diario de HRV con Polar AccessLink y pipeline ENDURANCE V4.
 
+## Alcance
+
+Este repositorio está pensado para **uso personal de un único atleta**.
+
+- No es un producto multiusuario ni multiatleta.
+- Railway se usa como despliegue del flujo personal, no como servicio compartido.
+- Las decisiones de implementación deben priorizar simplicidad y robustez operativa para ese caso N=1.
+
 ## Flujo principal
 
 Comando operativo principal:
@@ -13,8 +21,8 @@ python polar_hrv_automation.py --process
 Este comando:
 
 1. Calcula fechas faltantes en CORE.
-2. Intenta cubrir faltantes con `egc_to_rr.py` desde cloud (Dropbox/Drive, JSONL/ZIP -> RR), si está habilitado.
-3. Para fechas restantes, descarga RR desde Polar (Body&Mind).
+2. Intenta cubrir faltantes con `egc_to_rr.py` desde Dropbox (JSONL/ZIP -> RR), si está habilitado.
+3. Para fechas restantes, usa Polar como fallback (Body&Mind).
 4. Actualiza `ENDURANCE_HRV_sleep.csv`.
 5. Genera/actualiza:
    - `ENDURANCE_HRV_master_CORE.csv`
@@ -60,16 +68,11 @@ Con Volume montado en `/data`:
 - `POLAR_CLIENT_ID2=<id>` (o `POLAR_CLIENT_ID`)
 - `PORT` (inyectada por Railway)
 
-Para flujo cloud->RR (normalmente Dropbox; Drive puede quedar como fallback):
+Para flujo Dropbox->RR:
 
-- `HRV_DRIVE_RR_ENABLED=1`
-- `HRV_DRIVE_NO_AUX=1`
-- `HRV_RR_CLOUD_SOURCE=dropbox|drive`
-- Si `drive`:
-  - `HRV_DRIVE_RUNTIME=web`
-  - `HRV_DRIVE_FOLDER_ID=1ROd4GmALeNVQzwaMC48PWBH0zrAAlR-U`
-- Si `dropbox`:
-  - `HRV_DROPBOX_FOLDER_PATH=/ruta/carpeta`
+- `HRV_DROPBOX_RR_ENABLED=1`
+- `HRV_DROPBOX_NO_AUX=1`
+- `HRV_DROPBOX_FOLDER_PATH=/ruta/carpeta`
   - `HRV_DROPBOX_RECURSIVE=1`
 
 ## Ejecución local
@@ -85,6 +88,4 @@ python build_sessions.py --update
 No subir a Git:
 - `.env`
 - `.polar_tokens.json`
-- `credentials.json`
-- `tokens.json`
 - `data/` y CSV/RR personales

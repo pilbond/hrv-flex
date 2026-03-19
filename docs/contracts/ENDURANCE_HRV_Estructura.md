@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Estructura de Datos
 
-**Revisión:** r2026-03-09 v3.2 (sleep sidecar + rutas data/ + sessions pipeline)  
+**Revisión:** r2026-03-19 v3.3 (FINAL 58 cols + naming SLEEP + guía DASHBOARD corregida)  
 **Estado:** Producción
 
 **Documentos relacionados:**
@@ -17,6 +17,17 @@ Este documento es el **contrato de datos** del sistema ENDURANCE HRV: define qu�
 - **No explica cómo interpretar las salidas** — para eso, la autoridad es `Diccionario.md`
 - Si hay conflicto entre documentos, prevalece: Spec_Tecnica > Estructura > Diccionario
 
+### Alcance del contrato
+
+Este contrato está definido para **uso personal de un solo atleta**.
+
+- No modela multiusuario, multiatleta ni multi-tenant.
+- La clave primaria `Fecha` se entiende dentro del histórico de ese único atleta.
+- Cuando se describen percentiles o agregados "globales", significa "calculados sobre todo el histórico disponible del mismo atleta", no sobre varios usuarios.
+- No se introducen campos para particionado por atleta, tenant, owner o cuenta salvo cambio de alcance explícito.
+
+Si algún día se quisiera soportar varios atletas, este documento tendría que versionarse de nuevo porque cambiarían claves, persistencia, contratos de entrada/salida y supuestos de la UI.
+
 ---
 
 ## 1. Archivos del sistema
@@ -29,9 +40,9 @@ El sistema genera 7 archivos CSV + 1 JSON de trazabilidad. Cada uno tiene un rol
 | `ENDURANCE_HRV_master_FINAL.csv` | El gate de entrenamiento, las sombras, el residual, el veto agudo, el reason_text y la auditoría raw-vs-ref necesaria para entender qué hizo el sistema con los datos inestables. | `endurance_v4lite.py` | 58 |
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | Lo esencial para decidir en 10 segundos: semáforo, acción, warning, y reason_text contextual. Subconjunto de FINAL. | `endurance_v4lite.py` | 10 |
 | `ENDURANCE_HRV_sleep.csv` | Sueño nocturno y señales de recuperación (Polar). Alimenta el reason_text pero NO afecta al gate. | `polar_hrv_automation.py` | 17 |
-| `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento: zonas, work blocks, drift, effort, clasificación. | `build_sessions.py` | 42 |
-| `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios de entrenamiento + rolling con cobertura (_nobs). Alimenta el reason_text para checks de carga. | `build_sessions.py` | 31 |
-| `metadata.json` | Trazabilidad del pipeline de sesiones: versión, parámetros, hash, sampling rate, cobertura. | `build_sessions.py` | — |
+| `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento: zonas, work blocks, drift, effort, clasificación. | `build_sessions.py` | 43 |
+| `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios de entrenamiento + rolling con cobertura (_nobs). Alimenta el reason_text para checks de carga. | `build_sessions.py` | 40 |
+| `ENDURANCE_HRV_sessions_metadata.json` | Trazabilidad del pipeline de sesiones: versión, parámetros, hash, sampling rate, cobertura. | `build_sessions.py` | — |
 | `ENDURANCE_HRV_master_BETA_AUDIT.csv` | Modelo alométrico beta/cRMSSD del sistema V3. Se conserva para comparación histórica; no afecta al gate V4-lite. | `endurance_hrv.py` | 13 |
 
 ---
@@ -40,7 +51,7 @@ El sistema genera 7 archivos CSV + 1 JSON de trazabilidad. Cada uno tiene un rol
 
 Estas reglas aplican a todos los archivos CSV del sistema:
 
-- **Clave primaria:** `Fecha` (formato YYYY-MM-DD). Cada día solo puede tener una fila.
+- **Clave primaria:** `Fecha` (formato YYYY-MM-DD). Cada día solo puede tener una fila dentro del histórico del único atleta soportado por este proyecto.
 - **Sin duplicados:** si se reprocesa un día, la nueva fila sustituye a la anterior (upsert por Fecha).
 - **Orden:** ascendente por Fecha (el día más antiguo arriba, el más reciente abajo).
 - **Codificación:** UTF-8
@@ -158,7 +169,7 @@ Columnas 43-44: `Action`, `Action_detail`
 
 #### I) Acumulación (2 cols)
 
-Racha y conteo de días malos. Cuando se acumulan, se activa DESCARGA.
+Racha y conteo de días ROJO. Cuando se acumulan, se activa DESCARGA. Los días `NO` por falta de datos no inflan estos contadores.
 
 Columnas 45-46: `bad_streak`, `bad_7d`
 
@@ -340,9 +351,9 @@ Muestra qué entra y qué sale de cada script, y cómo se encadenan:
                     │    (sueño + recuperación)
                     │
   Intervals.icu ────┤
-                    ├──► build_sessions.py ──► SESSIONS.csv (42 cols)
-                    │                     ├──► SESSIONS_DAY.csv (31 cols)
-                    │                     └──► metadata.json
+                    ├──► build_sessions.py ──► SESSIONS.csv (43 cols)
+                    │                     ├──► SESSIONS_DAY.csv (40 cols)
+                    │                     └──► ENDURANCE_HRV_sessions_metadata.json
 ```
 
 ---
@@ -364,7 +375,7 @@ assert df["HRV_Stability"].isin(["OK", "Unstable"]).all()             # vocabula
 
 ```python
 assert df["Fecha"].is_unique                                                           # sin duplicados
-assert df.shape[1] == 53                                                               # schema v4
+assert df.shape[1] == 58                                                               # schema v4 actual
 assert df["gate_final"].isin(["VERDE", "ÁMBAR", "ROJO", "NO"]).all()                 # vocabulario cerrado
 assert df["Action"].isin(["INTENSIDAD_OK", "Z2_O_TEMPO_SUAVE", "SUAVE_O_DESCANSO"]).all()
 assert df["warning_mode"].isin(["healthy85", "p20"]).all()
@@ -386,16 +397,16 @@ assert df.shape[1] == 10                                                        
 assert "reason_text" in df.columns
 ```
 
-### CONTEXT
+### SLEEP
 
 ```python
-assert ctx["Fecha"].is_unique                                                           # sin duplicados
-assert ctx.shape[1] == 17                                                               # schema v3.1 (solo Polar sleep)
+assert sleep["Fecha"].is_unique                                                         # sin duplicados
+assert sleep.shape[1] == 17                                                             # schema actual (solo Polar sleep)
 # Percentiles son globales (mismo valor en todas las filas)
-assert ctx["sleep_dur_p10"].nunique() <= 1
+assert sleep["sleep_dur_p10"].nunique() <= 1
 # polar_interruptions_long es conteo (no duración), valores típicos 0-15
-if ctx["polar_interruptions_long"].notna().any():
-    assert ctx["polar_interruptions_long"].max() < 50  # sanity: no es duración en minutos
+if sleep["polar_interruptions_long"].notna().any():
+    assert sleep["polar_interruptions_long"].max() < 50  # sanity: no es duración en minutos
 ```
 
 ### Consistencia CORE ↔ FINAL
@@ -477,14 +488,18 @@ Secuencia de lectura rápida del DASHBOARD:
 
 Mirar `Calidad`:
 - **INVALID** → día perdido, no decidir por HRV
-- **FLAG / Unstable** → prudencia. El gate se calcula pero la acción se fuerza a SUAVE
+- **FLAG_mecánico** → prudencia. El gate se calcula, pero la acción se limita por calidad
+
+Mirar `HRV_Stability`:
+- **Unstable** no aparece en DASHBOARD
+- Si necesitas revisar estabilidad, mirar CORE o FINAL
 
 ### Paso 2: Semáforo y acción
 
 Mirar `gate_badge` y `Action`:
 - **VERDE + INTENSIDAD_OK** → ejecutar plan previsto (intervalos, sesión dura, lo que toque)
 - **ÁMBAR + Z2_O_TEMPO_SUAVE** → sin HIIT, pero Z1-Z2 permitido
-- **ROJO/NO + SUAVE_O_DESCANSO** → mirar `Action_detail` para decidir si regenerativo o descarga total
+- **ROJO/NO + SUAVE_O_DESCANSO** → tratar como día de descarga o descanso; si hace falta matiz fino, mirar FINAL
 
 ### Paso 3: Contexto (v4)
 

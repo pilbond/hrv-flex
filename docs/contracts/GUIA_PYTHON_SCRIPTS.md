@@ -9,8 +9,8 @@ Flujo operativo normal (Railway o UI local):
 1. `web_ui.py` levanta la web.
 2. Al llamar `POST /api/sync`, la web ejecuta `python polar_hrv_automation.py --process`.
 3. `polar_hrv_automation.py` detecta fechas faltantes en CORE.
-4. Si hay faltantes y cloud RR esta habilitado, intenta generar RR desde JSONL/ZIP con `egc_to_rr.py` (normalmente Dropbox; Drive puede quedar como fallback).
-5. Para lo que siga faltando, usa el flujo normal de descarga RR desde Polar.
+4. Si hay faltantes y Dropbox RR esta habilitado, intenta generar RR desde JSONL/ZIP con `egc_to_rr.py`.
+5. Para lo que siga faltando, usa Polar como fallback.
 6. `polar_hrv_automation.py` actualiza sleep y luego llama:
    - `endurance_hrv.py`
    - `endurance_v4lite.py`
@@ -49,7 +49,7 @@ Importante:
   - Si esta habilitado, llama `egc_to_rr.py` para cubrir faltantes desde cloud (`from_jsonl`), normalmente Dropbox.
   - Descarga sesiones Body&Mind y extrae RR desde Polar para los faltantes restantes.
   - Guarda RR validos en `data/rr_downloads`.
-  - Actualiza `ENDURANCE_HRV_sleep.csv` (y compat legacy con `ENDURANCE_HRV_context.csv`).
+- Actualiza `ENDURANCE_HRV_sleep.csv`.
   - Si se usa `--process`, ejecuta `endurance_hrv.py` y `endurance_v4lite.py`.
   - Sync opcional de wellness a Intervals.
 - Cuando usarlo:
@@ -63,7 +63,7 @@ Importante:
 
 ## `egc_to_rr.py`
 - Que hace:
-  - Busca pares `ECG.jsonl` + `ACC.jsonl` en carpeta local, Dropbox o Google Drive.
+  - Busca pares `ECG.jsonl` + `ACC.jsonl` en carpeta local o Dropbox.
   - Convierte cada par a un RR compatible con la app.
   - Guarda RR con nomenclatura tipo `ENDURANCE_YYYY-MM-DD_from_jsonl_RR.CSV`.
   - Puede guardar ficheros auxiliares en subcarpeta (por defecto `_aux_jsonl`).
@@ -73,8 +73,7 @@ Importante:
 - Entradas:
   - Local: `--input-dir` o `--ecg` + `--acc`.
   - Dropbox: `--dropbox-folder` + credenciales Dropbox.
-  - Drive: `--drive-folder-id` (si no se pasa, usa folder predefinido del script).
-  - Credenciales cloud segun fuente configurada.
+  - Credenciales Dropbox segun fuente configurada.
 - Salidas:
   - RR en `data/rr_downloads`.
   - Opcional: artefactos de apoyo en `_aux_jsonl`.
@@ -111,7 +110,7 @@ Importante:
   - Siempre que quieras pasar de CORE a salida operativa FINAL/DASHBOARD.
 - Entradas:
   - `ENDURANCE_HRV_master_CORE.csv`
-  - `ENDURANCE_HRV_sleep.csv` (o fallback legacy `ENDURANCE_HRV_context.csv`)
+- `ENDURANCE_HRV_sleep.csv`
   - Opcional: `ENDURANCE_HRV_sessions_day.csv`
 - Salidas:
   - FINAL y DASHBOARD.
@@ -125,7 +124,7 @@ Importante:
   - Construye:
     - `ENDURANCE_HRV_sessions.csv` (detalle por sesion)
     - `ENDURANCE_HRV_sessions_day.csv` (agregado diario + rolling)
-    - `metadata.json`
+    - `ENDURANCE_HRV_sessions_metadata.json`
 - Cuando usarlo:
   - Cuando quieras actualizar la capa de carga de entrenamiento.
   - Recomendado en cron separado (diario/backfill), no dentro del sync Polar.
@@ -190,7 +189,7 @@ Importante:
   - Genera archivos tipo:
     - `ENDURANCE_HRV_master_FINAL_v4.csv`
     - `ENDURANCE_HRV_master_DASHBOARD_v4.csv`
-    - `ENDURANCE_HRV_context.csv`
+    - `ENDURANCE_HRV_sleep.csv`
 - Cuando usarlo:
   - Analisis historico, validaciones, comparativas de version.
 - Entradas:
@@ -206,7 +205,7 @@ Si tu pregunta es "que scripts importan para operar dia a dia":
 
 1. `web_ui.py` (servidor web)
 2. `polar_hrv_automation.py` (sync y orquestacion)
-3. `egc_to_rr.py` (Dropbox/Drive/local JSONL -> RR, cuando faltan fechas o para validacion manual)
+3. `egc_to_rr.py` (Dropbox/local JSONL -> RR, cuando faltan fechas o para validacion manual)
 4. `endurance_hrv.py` (RR -> CORE/BETA)
 5. `endurance_v4lite.py` (CORE -> FINAL/DASHBOARD)
 

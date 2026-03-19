@@ -13,6 +13,20 @@
 
 ---
 
+## Alcance operativo (N=1)
+
+Esta especificación describe un sistema de uso personal para **un único atleta**. No define un producto multiusuario ni multiatleta.
+
+Implicaciones de diseño:
+- Todos los baselines, percentiles, warnings y métricas históricas se calculan sobre el histórico completo de ese mismo atleta.
+- Cuando este documento habla de histórico "global", significa "global dentro del histórico personal del atleta", no agregado entre usuarios.
+- No son objetivos de esta versión: aislamiento por tenant, soporte simultáneo para varias cuentas, catálogos de configuración por atleta, ni orquestación concurrente para múltiples deportistas.
+- Si en el futuro se quisiera soportar varios atletas, habría que redefinir contratos, persistencia, claves primarias, OAuth, jobs y UI como un cambio de alcance explícito.
+
+Regla práctica: ante una duda de diseño, preferir la solución más simple y robusta para el flujo personal N=1 antes que una abstracción preparada para escalar a terceros.
+
+---
+
 # PARTE I: Procesamiento RR → CORE
 
 **Objetivo de la Parte I:** tomar un fichero CSV crudo de intervalos RR (latido a latido) grabado con el sensor Polar H10, y producir una fila limpia con las métricas fisiológicas del día: pulso en reposo, variabilidad cardíaca, y un veredicto de calidad sobre la medición.
@@ -765,11 +779,11 @@ El badge combina el gate final con el sufijo del residual:
 
 ### 15.2 Action_detail (acumulación)
 
-La acumulación detecta si los días malos se están amontonando:
+La acumulación detecta si los días fisiológicamente malos se están amontonando:
 
 ```python
-bad_streak = racha consecutiva de (ROJO o NO) hasta hoy
-bad_7d = nº de (ROJO o NO) en los últimos 7 días
+bad_streak = racha consecutiva de ROJO hasta hoy
+bad_7d = nº de ROJO en los últimos 7 días
 ```
 
 | Condición | Action_detail | Significado |
@@ -777,8 +791,8 @@ bad_7d = nº de (ROJO o NO) en los últimos 7 días
 | gate_final=VERDE y no quality_flag | EJECUTAR_PLAN | Todo limpio, adelante con lo planificado |
 | gate_final=ÁMBAR y no quality_flag | SIN_HIIT | Quita intervalos, mantén volumen |
 | quality_flag=True | SUAVE_QUALITY | Dato dudoso, no justifica intensidad |
-| bad_streak ≥ 2 OR bad_7d ≥ 3 | DESCARGA | Acumulación de señales negativas → reducir carga semanal |
-| Otros ROJO/NO | SUAVE | Mal día puntual, regenerativo |
+| bad_streak ≥ 2 OR bad_7d ≥ 3 | DESCARGA | Acumulación de ROJO → reducir carga semanal |
+| Otros ROJO/NO | SUAVE | Mal día puntual o falta de datos; mantener prudencia |
 
 ### 15.3 Reason_text (contexto explicativo)
 
@@ -855,13 +869,13 @@ Si tu baseline actual está por debajo del P20 de todos tus baselines histórico
 | `ENDURANCE_HRV_master_FINAL.csv` | Gate, veto agudo, sombras, residual, reason_text y auditoría completa raw-vs-ref | 58 |
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | Lo esencial para decidir en 10 segundos + reason_text | 10 |
 | `ENDURANCE_HRV_sleep.csv` | Sueño nocturno y recuperación (Polar) | 17 |
-| `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento | 42 |
-| `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios + rolling con cobertura (_nobs) | 31 |
-| `metadata.json` | Trazabilidad pipeline sesiones (versión, params, sampling rate) | — |
+| `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento | 43 |
+| `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios + rolling con cobertura (_nobs) | 40 |
+| `ENDURANCE_HRV_sessions_metadata.json` | Trazabilidad pipeline sesiones (versión, params, sampling rate) | — |
 | `ENDURANCE_HRV_master_BETA_AUDIT.csv` | Modelo beta del V3, para comparación histórica | 13 |
 
 El contrato exacto (columnas, orden, tipos) de CORE/FINAL/DASHBOARD/SLEEP está en `ENDURANCE_HRV_Estructura.md`.
-El contrato de sessions/sessions_day/metadata está en `ENDURANCE_HRV_Sessions_Schema_v3.1.md`.
+El contrato de sessions/sessions_day/metadata está en `ENDURANCE_HRV_Sessions_Schema.md`.
 
 ---
 
@@ -935,7 +949,7 @@ Secciones obligatorias:
 |-------|--------|
 | 2026-03-01 v4.1 | sleep.csv simplificado: 34→17 cols (solo Polar sleep/nightly, sin Intervals) |
 | 2026-03-01 v4.1 | reason_text dual source: sueño de sleep.csv, carga de sessions_day.csv |
-| 2026-03-01 v4.1 | Nuevos archivos sessions.csv (42 cols), sessions_day.csv (31 cols), metadata.json |
+| 2026-03-01 v4.1 | Nuevos archivos sessions.csv (43 cols), sessions_day.csv (40 cols), ENDURANCE_HRV_sessions_metadata.json |
 | 2026-03-01 v4.1 | reason_text: TSB/load_3d_p90 reemplazados por load_3d+nobs, work_7d, z3_7d (umbrales absolutos) |
 | 2026-02-23 v4 | Añadido veto agudo (§11bis): bypass ROLL3 en caídas agudas, con SWC_FLOOR y VETO_MULT |
 | 2026-02-23 v4 | Añadido reason_text (§15.3): texto explicativo contextual con sueño, carga y coherencia gate↔contexto |

@@ -268,7 +268,7 @@ Tags:
 | `quality_flag` | ¿El dato de hoy es sospechoso? True si la medición tiene algún problema de fiabilidad (FLAG_mecánico, Unstable, o artefactos >10%) pero no llega a ser INVALID. Cuando es True, la acción se fuerza a SUAVE aunque el gate pinte VERDE — no se confía en el dato para justificar intensidad. | True / False |
 | `Color_operativo` | Duplicado explícito de gate_final, sin transformaciones ni capas intermedias. Existe para que no haya duda de qué color gobierna la acción. Si lees gate_final, es exactamente lo mismo. | VERDE / ÁMBAR / ROJO / NO |
 | `Action` | La instrucción operativa del día: qué tipo de entrenamiento permite el gate. INTENSIDAD_OK = puedes ejecutar intervalos o sesiones duras. Z2_O_TEMPO_SUAVE = nada explosivo, pero puedes hacer volumen en zona aeróbica. SUAVE_O_DESCANSO = regenerativo o descanso total. | INTENSIDAD_OK / Z2_O_TEMPO_SUAVE / SUAVE_O_DESCANSO |
-| `Action_detail` | Matiza la acción con contexto: EJECUTAR_PLAN (verde limpio, adelante con lo planificado), SIN_HIIT (ámbar, quita intensidad pero mantén volumen), SUAVE_QUALITY (el gate podría ser bueno pero el dato no es fiable), SUAVE (rojo puntual), DESCARGA (acumulación de rojos → reducir carga semanal). | EJECUTAR_PLAN / SIN_HIIT / SUAVE_QUALITY / SUAVE / DESCARGA |
+| `Action_detail` | Matiza la acción con contexto: EJECUTAR_PLAN (verde limpio, adelante con lo planificado), SIN_HIIT (ámbar, quita intensidad pero mantén volumen), SUAVE_QUALITY (el gate podría ser bueno pero el dato no es fiable), SUAVE (rojo puntual o NO sin señal suficiente), DESCARGA (acumulación de rojos → reducir carga semanal). | EJECUTAR_PLAN / SIN_HIIT / SUAVE_QUALITY / SUAVE / DESCARGA |
 
 Mapping:
 - VERDE → `INTENSIDAD_OK` (salvo quality_flag)
@@ -279,8 +279,8 @@ Mapping:
 
 | Columna | Qué es |
 |---------|--------|
-| `bad_streak` | Cuántos días consecutivos llevas con gate ROJO o NO (sin un VERDE o ÁMBAR de por medio). Una racha de 1 es un mal día puntual. Una racha ≥2 activa DESCARGA en Action_detail — la señal de que no es un evento aislado. |
-| `bad_7d` | Cuántos días ROJO o NO has tenido en los últimos 7 días (no necesariamente consecutivos). Si llega a ≥3, también activa DESCARGA. Captura la situación donde alternas días malos y regulares pero la tendencia semanal es negativa. |
+| `bad_streak` | Cuántos días consecutivos llevas con gate ROJO. Una racha de 1 es un mal día puntual. Una racha ≥2 activa DESCARGA en Action_detail — la señal de que no es un evento aislado. Los días `NO` por falta de señal no cuentan como acumulación fisiológica. |
+| `bad_7d` | Cuántos días ROJO has tenido en los últimos 7 días (no necesariamente consecutivos). Si llega a ≥3, también activa DESCARGA. Captura la situación donde alternas días malos y regulares pero la tendencia semanal es negativa. Los días `NO` no suman este contador. |
 
 #### I) Warning
 
@@ -355,7 +355,7 @@ Generado por `polar_hrv_automation.py` (fetch diario). Contiene datos de sueño 
 
 ### ¿Para qué sirve?
 
-El gate 2D solo ve HRV y pulso. Pero a menudo quieres saber *por qué* tu HRV bajó: ¿dormiste mal? ¿acumulaste mucha carga? ¿o no hay explicación obvia? Context.csv aporta la pieza del sueño. Sessions_day.csv aporta la pieza de carga. Ninguna interfiere en la decisión automática.
+El gate 2D solo ve HRV y pulso. Pero a menudo quieres saber *por qué* tu HRV bajó: ¿dormiste mal? ¿acumulaste mucha carga? ¿o no hay explicación obvia? Sleep.csv aporta la pieza del sueño. Sessions_day.csv aporta la pieza de carga. Ninguna interfiere en la decisión automática.
 
 ### Polar Sleep (lo que pasó durante la noche)
 

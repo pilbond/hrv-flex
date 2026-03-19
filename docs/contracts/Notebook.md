@@ -440,6 +440,29 @@ Eso enriquece la lectura del dia, pero no sustituye la senal principal del gate.
 
 La filosofia es correcta: la carga te dice `de donde podria venir` el estado de hoy, pero no debe imponerse sobre la medicion matinal.
 
+## ¿Como afecta exactamente el contenido de sessions al gate?
+
+A dia de hoy, `sessions_day` no recolorea el gate ni cambia por si mismo un `VERDE`, `AMBAR` o `ROJO`.
+
+El color del gate sigue saliendo de la fisiologia matinal:
+
+- `lnRMSSD`
+- `HR_stable`
+- baseline
+- SWC
+- veto agudo
+- sombras
+
+Lo que hace `sessions_day` es anadir contexto sobre la carga reciente para que la lectura del dia sea mas inteligente.
+
+En la practica puede:
+
+- explicar mejor una caida de HRV si vienes de varios dias densos
+- volver mas prudente la lectura de un `VERDE` con mucha carga acumulada
+- sugerir que un `ROJO` no encaja del todo con la carga previa y obliga a mirar otros factores
+
+Dicho simple: `sessions_day` no manda sobre el semaforo, pero si cambia la forma en que deberias interpretar ese semaforo.
+
 ## ¿Como se manifiesta una acumulacion de carga en la combinacion HRV, pulso y contexto de entrenamiento?
 
 Cuando la carga se acumula de forma mal absorbida, lo esperable es que el sistema empiece a ver una historia coherente entre varias piezas:
