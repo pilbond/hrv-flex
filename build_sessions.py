@@ -5,7 +5,7 @@ ENDURANCE HRV — Session Extraction Pipeline v3
 Extrae datos de sesiones desde Intervals.icu API y genera:
   - sessions.csv       (1 fila por sesión)
   - sessions_day.csv   (1 fila por día, agregado + rolling)
-  - metadata.json      (trazabilidad de la corrida)
+  - ENDURANCE_HRV_sessions_metadata.json (trazabilidad de la corrida)
 
 Modos:
   --backfill           Histórico completo desde --oldest (default 2025-05-12)
@@ -24,7 +24,7 @@ v3 changes:
   - effort_above_typical split aerobic/strength
   - Rolling with _nobs (no blind missing→0)
   - Work block aggregates + string as forensic
-  - metadata.json per run
+  - ENDURANCE_HRV_sessions_metadata.json per run
   - CSV: QUOTE_ALL, notes sanitized
 """
 
@@ -45,7 +45,7 @@ import pandas as pd
 
 # ─── Version & params ─────────────────────────────────────────────────────────
 
-PIPELINE_VERSION = "v3.0"
+PIPELINE_VERSION = "v3.2"
 
 PARAMS = {
     "gap_max_s": 60,
@@ -415,7 +415,7 @@ def classify_session_group(sport: str, intensity_cat: str) -> str:
         return "other"
     if intensity_cat == "work_intense":
         return "endurance_hard"
-    if intensity_cat in ("work_steady", "work_moderate", "finish_strong"):
+    if intensity_cat in ("work_steady", "work_moderate"):
         return "endurance_moderate"
     return "endurance_easy"
 
@@ -458,47 +458,46 @@ def _elev_bin(ed):
 
 def compute_effort_recent(df: pd.DataFrame) -> pd.Series:
     """
-    Online/causal: rolling 60d expanding percentiles, shift(1).
-    Only uses past data for each session.
+    Online/causal: rolling 60d percentiles by session_group, shift(1).
+    Only uses past sessions in the same group.
     """
     min_prev = PARAMS["effort_min_prev_sessions"]
     window_days = PARAMS["effort_recent_window_days"]
     out = pd.Series("unknown", index=df.index, dtype="object")
 
     w = df.copy()
-    w["_elev_bin"] = w["elev_density"].apply(_elev_bin)
     w["_Fecha"] = pd.to_datetime(w["Fecha"])
     w = w.sort_values("_Fecha")
 
-    for (sport, ebin), g in w.groupby(["sport", "_elev_bin"], sort=False):
-        if sport not in AEROBIC_SPORTS:
+    for session_group, g in w.groupby("session_group", sort=False):
+        if not isinstance(session_group, str) or not session_group.strip():
             continue
         indices = g.index.tolist()
-        hr_vals = g["hr_mean"].astype(float).values
+        load_vals = pd.to_numeric(g["load"], errors="coerce").values
         fechas = g["_Fecha"].values
 
         for pos in range(len(indices)):
             idx = indices[pos]
-            hr = hr_vals[pos]
-            if np.isnan(hr):
+            load = load_vals[pos]
+            if np.isnan(load):
                 continue
 
             # Get past sessions within window
             current_date = fechas[pos]
             cutoff = current_date - np.timedelta64(window_days, 'D')
             past_mask = (fechas[:pos] >= cutoff)
-            past_hr = hr_vals[:pos][past_mask]
+            past_load = load_vals[:pos][past_mask]
 
-            if len(past_hr) < min_prev:
+            if len(past_load) < min_prev:
                 continue
 
-            p25 = np.percentile(past_hr, 25)
-            p75 = np.percentile(past_hr, 75)
+            p25 = np.percentile(past_load, 25)
+            p75 = np.percentile(past_load, 75)
 
-            if hr > p75:
-                out.loc[idx] = "above_typical"
-            elif hr < p25:
-                out.loc[idx] = "below_typical"
+            if load > p75:
+                out.loc[idx] = "above"
+            elif load < p25:
+                out.loc[idx] = "below"
             else:
                 out.loc[idx] = "typical"
 
@@ -507,8 +506,8 @@ def compute_effort_recent(df: pd.DataFrame) -> pd.Series:
 
 def compute_effort_anchor(df: pd.DataFrame) -> pd.Series:
     """
-    Anchor mode: percentiles fixed from a 'healthy' reference period.
-    Detects sustained detraining.
+    Anchor mode: percentiles fixed from a 'healthy' reference period
+    in the same session_group.
     """
     anchor_start = PARAMS["effort_anchor_start"]
     anchor_end = PARAMS["effort_anchor_end"]
@@ -516,34 +515,33 @@ def compute_effort_anchor(df: pd.DataFrame) -> pd.Series:
     out = pd.Series("unknown", index=df.index, dtype="object")
 
     w = df.copy()
-    w["_elev_bin"] = w["elev_density"].apply(_elev_bin)
     w["_Fecha"] = pd.to_datetime(w["Fecha"])
 
     anchor_mask = (w["_Fecha"] >= anchor_start) & (w["_Fecha"] <= anchor_end)
     anchor_data = w[anchor_mask]
 
-    for (sport, ebin), ref_group in anchor_data.groupby(["sport", "_elev_bin"]):
-        if sport not in AEROBIC_SPORTS:
+    for session_group, ref_group in anchor_data.groupby("session_group"):
+        if not isinstance(session_group, str) or not session_group.strip():
             continue
-        hr_ref = ref_group["hr_mean"].dropna()
-        if len(hr_ref) < min_n:
+        load_ref = pd.to_numeric(ref_group["load"], errors="coerce").dropna()
+        if len(load_ref) < min_n:
             continue
 
-        p25 = hr_ref.quantile(0.25)
-        p75 = hr_ref.quantile(0.75)
+        p25 = load_ref.quantile(0.25)
+        p75 = load_ref.quantile(0.75)
 
-        # Apply to ALL sessions in same bin
-        all_in_bin = w[(w["sport"] == sport) & (w["_elev_bin"] == ebin)]
-        for idx in all_in_bin.index:
-            hr = all_in_bin.loc[idx, "hr_mean"]
-            if pd.isna(hr):
+        # Apply to all sessions in the same functional group
+        all_in_group = w[w["session_group"] == session_group]
+        for idx in all_in_group.index:
+            load = pd.to_numeric(all_in_group.loc[idx, "load"], errors="coerce")
+            if pd.isna(load):
                 continue
-            if hr > p75:
-                out.loc[idx] = "above_anchor"
-            elif hr < p25:
-                out.loc[idx] = "below_anchor"
+            if load > p75:
+                out.loc[idx] = "above"
+            elif load < p25:
+                out.loc[idx] = "below"
             else:
-                out.loc[idx] = "typical_anchor"
+                out.loc[idx] = "typical"
 
     return out
 
@@ -598,9 +596,9 @@ def build_session_row(activity: dict, client: IntervalsClient,
     }
 
     # Elevation density
-    gain, loss, dist = row["elev_gain_m"], row["elev_loss_m"], row["distance_km"]
-    if gain is not None and loss is not None and dist and dist > 0.5:
-        row["elev_density"] = round((gain + loss) / dist, 1)
+    gain, dist = row["elev_gain_m"], row["distance_km"]
+    if gain is not None and dist and dist > 0.5:
+        row["elev_density"] = round(gain / dist, 1)
     else:
         row["elev_density"] = None
 
@@ -687,39 +685,72 @@ def build_sessions_day(sessions_df: pd.DataFrame) -> pd.DataFrame:
         aerobic = group[group["sport"].isin(AEROBIC_SPORTS)]
         strength = group[group["sport"] == "strength"]
         mobility = group[group["sport"] == "mobility"]
+        has_aerobic_sessions = len(aerobic) > 0
+        primary_session = group.copy()
+        primary_session["_load_sort"] = pd.to_numeric(primary_session.get("load"), errors="coerce")
+        primary_session["_duration_sort"] = pd.to_numeric(primary_session.get("duration_min"), errors="coerce")
+        primary_session = primary_session.sort_values(
+            ["_load_sort", "_duration_sort"],
+            ascending=[False, False],
+            na_position="last",
+            kind="stable",
+        )
+        primary_intensity_cat = (
+            primary_session.iloc[0]["intensity_category"]
+            if len(primary_session) > 0 and "intensity_category" in primary_session.columns
+            else None
+        )
 
         # Aggregate work from pre-computed session aggregates (not string parsing)
-        work_total_day = aerobic["work_total_min"].sum() if "work_total_min" in aerobic.columns and aerobic["work_total_min"].notna().any() else 0
-        work_n_blocks_day = int(aerobic["work_n_blocks"].sum()) if "work_n_blocks" in aerobic.columns and aerobic["work_n_blocks"].notna().any() else 0
+        work_total_day = (
+            round(aerobic["work_total_min"].sum(), 1)
+            if has_aerobic_sessions and "work_total_min" in aerobic.columns and aerobic["work_total_min"].notna().any()
+            else None
+        )
+        work_n_blocks_day = (
+            int(aerobic["work_n_blocks"].sum())
+            if has_aerobic_sessions and "work_n_blocks" in aerobic.columns and aerobic["work_n_blocks"].notna().any()
+            else None
+        )
+        z3_min_day = (
+            round(aerobic["z3_total_min"].sum(), 1)
+            if has_aerobic_sessions and "z3_total_min" in aerobic.columns and aerobic["z3_total_min"].notna().any()
+            else None
+        )
+        late_intensity_day = (
+            1 if has_aerobic_sessions and "late_intensity" in aerobic.columns and (aerobic["late_intensity"] == 1).any()
+            else (0 if has_aerobic_sessions else None)
+        )
 
         row = {
             "Fecha": fecha.strftime("%Y-%m-%d"),
             "n_sessions": len(group),
             "total_duration_min": round(group["duration_min"].sum(), 1),
-            "has_aerobic": 1 if len(aerobic) > 0 else 0,
+            "has_aerobic": 1 if has_aerobic_sessions else 0,
             "has_strength": 1 if len(strength) > 0 else 0,
             "has_mobility": 1 if len(mobility) > 0 else 0,
 
             "load_day": round(group["load"].sum(), 1) if group["load"].notna().any() else None,
-            "work_total_min_day": round(work_total_day, 1),
+            "intensity_cat_day": primary_intensity_cat if pd.notna(primary_intensity_cat) else None,
+            "work_total_min_day": work_total_day,
             "work_n_blocks_day": work_n_blocks_day,
-            "z3_min_day": round(aerobic["z3_total_min"].sum(), 1) if "z3_total_min" in aerobic.columns and aerobic["z3_total_min"].notna().any() else 0,
-            "hr_max_day": aerobic["hr_max"].max() if len(aerobic) > 0 and aerobic["hr_max"].notna().any() else None,
-            "hr_p95_max_day": aerobic["hr_p95"].max() if "hr_p95" in aerobic.columns and aerobic["hr_p95"].notna().any() else None,
-            "late_intensity_day": 1 if "late_intensity" in aerobic.columns and (aerobic["late_intensity"] == 1).any() else 0,
-            "cardiac_drift_worst": aerobic["cardiac_drift_pct"].max() if "cardiac_drift_pct" in aerobic.columns and aerobic["cardiac_drift_pct"].notna().any() else None,
+            "z3_min_day": z3_min_day,
+            "hr_max_day": aerobic["hr_max"].max() if has_aerobic_sessions and aerobic["hr_max"].notna().any() else None,
+            "hr_p95_max_day": aerobic["hr_p95"].max() if has_aerobic_sessions and "hr_p95" in aerobic.columns and aerobic["hr_p95"].notna().any() else None,
+            "late_intensity_day": late_intensity_day,
+            "cardiac_drift_worst": aerobic["cardiac_drift_pct"].max() if has_aerobic_sessions and "cardiac_drift_pct" in aerobic.columns and aerobic["cardiac_drift_pct"].notna().any() else None,
 
             "elev_gain_day": round(group["elev_gain_m"].sum(), 0) if group["elev_gain_m"].notna().any() else None,
             "elev_loss_day": round(group["elev_loss_m"].sum(), 0) if group["elev_loss_m"].notna().any() else None,
             "strength_min_day": round(strength["duration_min"].sum(), 1) if len(strength) > 0 else 0,
             "mobility_min_day": round(mobility["duration_min"].sum(), 1) if len(mobility) > 0 else 0,
 
-            "rpe_max_day": int(aerobic["rpe"].max()) if len(aerobic) > 0 and aerobic["rpe"].notna().any() else None,
+            "rpe_max_day": int(aerobic["rpe"].max()) if has_aerobic_sessions and aerobic["rpe"].notna().any() else None,
 
             # Fix F: split effort aerobic/strength
-            "effort_above_typical_aerobic": 1 if len(aerobic) > 0 and (aerobic.get("effort_vs_recent", pd.Series(dtype=str)) == "above_typical").any() else 0,
-            "effort_above_typical_strength": 1 if len(strength) > 0 and (strength.get("effort_vs_recent", pd.Series(dtype=str)) == "above_typical").any() else 0,
-            "effort_above_anchor_aerobic": 1 if len(aerobic) > 0 and (aerobic.get("effort_vs_anchor", pd.Series(dtype=str)) == "above_anchor").any() else 0,
+            "effort_above_typical_aerobic": 1 if has_aerobic_sessions and (aerobic.get("effort_vs_recent", pd.Series(dtype=str)) == "above").any() else 0,
+            "effort_above_typical_strength": 1 if len(strength) > 0 and (strength.get("effort_vs_recent", pd.Series(dtype=str)) == "above").any() else 0,
+            "effort_above_anchor_aerobic": 1 if has_aerobic_sessions and (aerobic.get("effort_vs_anchor", pd.Series(dtype=str)) == "above").any() else 0,
 
             "n_with_rpe": int(group["rpe_present"].sum()),
             "n_with_notes": int(group["notes_present"].sum()),
@@ -777,6 +808,9 @@ def build_sessions_day(sessions_df: pd.DataFrame) -> pd.DataFrame:
     day_df["work_7d_sum"], day_df["work_7d_nobs"] = safe_rolling(day_df["work_total_min_day"], 7)
     day_df["finish_strong_7d_count"], _ = safe_rolling(day_df["late_intensity_day"], 7)
     day_df["load_3d"], day_df["load_3d_nobs"] = safe_rolling(day_df["load_day"], 3)
+    day_df["load_7d"], day_df["load_7d_nobs"] = safe_rolling(day_df["load_day"], 7)
+    day_df["load_14d"], day_df["load_14d_nobs"] = safe_rolling(day_df["load_day"], 14)
+    day_df["load_28d"], day_df["load_28d_nobs"] = safe_rolling(day_df["load_day"], 28)
 
     if "elev_loss_day" in day_df:
         day_df["elev_loss_7d_sum"], _ = safe_rolling(day_df["elev_loss_day"], 7)
@@ -814,9 +848,21 @@ def write_metadata(output_dir: Path, oldest: str, newest: str,
         meta["stream_sampling"] = dt_stats
     if zones_dist:
         meta["zones_source_dist"] = zones_dist
-    path = output_dir / "metadata.json"
+    path = output_dir / "ENDURANCE_HRV_sessions_metadata.json"
     path.write_text(json.dumps(meta, indent=2, ensure_ascii=False))
     log.info(f"Metadata → {path}")
+
+
+def warn_if_stream_sampling_suspicious(dt_stats: Optional[dict]) -> None:
+    if not dt_stats:
+        return
+    if dt_stats.get("assumed_1hz", True):
+        return
+    log.warning(
+        "Stream sampling canary outside ~1Hz; review stream_dt_est before "
+        f"trusting stream-derived metrics (dt_mean={dt_stats['dt_mean']}, "
+        f"dt_min={dt_stats['dt_min']}, dt_max={dt_stats['dt_max']})"
+    )
 
 
 NUMERIC_SESSION_COLS = [
@@ -858,7 +904,8 @@ def coerce_numeric_session_cols(df: pd.DataFrame) -> pd.DataFrame:
 def merge_sessions_incremental(new_df: pd.DataFrame, sessions_path: Path) -> pd.DataFrame:
     if sessions_path.exists():
         try:
-            existing_df = pd.read_csv(sessions_path)
+            # Preserve literal enums like "NA"; numeric columns are coerced explicitly later.
+            existing_df = pd.read_csv(sessions_path, keep_default_na=False)
             log.info(f"Loaded {len(existing_df)} existing sessions ← {sessions_path}")
         except Exception as e:
             log.warning(f"Could not read existing sessions ({sessions_path}): {e}")
@@ -910,7 +957,7 @@ def resolve_update_oldest(output_dir: Path, fallback_oldest: str) -> str:
         if not csv_path.exists():
             continue
         try:
-            df = pd.read_csv(csv_path, usecols=["Fecha"])
+            df = pd.read_csv(csv_path, usecols=["Fecha"], keep_default_na=False)
         except ValueError:
             log.warning(f"Fecha column missing in {csv_path}; skipping update anchor")
             continue
@@ -1020,6 +1067,7 @@ def run_pipeline(oldest: str, newest: str, output_dir: Path,
                 "dt_max": round(float(dt_vals.max()), 4),
                 "assumed_1hz": bool(dt_vals.max() < 1.1 and dt_vals.min() > 0.9),
             }
+            warn_if_stream_sampling_suspicious(dt_stats)
     zones_dist = df["zones_source"].value_counts().to_dict() if "zones_source" in df.columns else None
 
     write_metadata(output_dir, oldest, newest, len(df), len(day_df),

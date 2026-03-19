@@ -11,17 +11,8 @@ Supported modes:
 2) Batch local folder (auto-pair ECG/ACC by name):
    python egc_to_rr.py --input-dir C:\\path\\jsonl_folder --outdir data/rr_downloads
 
-3) Google Drive folder (OAuth user auth + download + convert):
-   python egc_to_rr.py --drive-folder-id <FOLDER_ID> --outdir data/rr_downloads --drive-client-secret credentials.json
-
-4) Google Drive using predefined folder id:
-   python egc_to_rr.py --outdir data/rr_downloads --dry-run
-
-5) Dropbox folder:
+3) Dropbox folder:
    python egc_to_rr.py --dropbox-folder /HRV/raw_jsonl --dropbox-recursive --outdir data/rr_downloads
-
-6) Web/server runtime (non-interactive, e.g. Railway):
-   python egc_to_rr.py --drive-runtime web --outdir data/rr_downloads --dry-run
 
 Outputs per session:
 - <prefix>_<YYYY-MM-DD>_from_jsonl_RR.CSV                  (duration,offline)
@@ -32,8 +23,6 @@ Outputs per session:
 
 Main requirements:
 - numpy, pandas, scipy
-- Optional for Google Drive mode:
-  google-auth, google-auth-oauthlib, google-api-python-client
 """
 
 from __future__ import annotations
@@ -64,27 +53,9 @@ except Exception:
 else:
     SCIPY_AVAILABLE = True
 
-try:
-    from google.oauth2.credentials import Credentials
-    from google.oauth2 import service_account
-    from google.auth.transport.requests import Request
-    from google_auth_oauthlib.flow import InstalledAppFlow
-    from googleapiclient.discovery import build
-    from googleapiclient.http import MediaIoBaseDownload
-except Exception as exc:
-    GOOGLE_DRIVE_AVAILABLE = False
-    GOOGLE_DRIVE_IMPORT_ERROR = exc
-    Credentials = service_account = Request = InstalledAppFlow = build = MediaIoBaseDownload = None
-else:
-    GOOGLE_DRIVE_AVAILABLE = True
-    GOOGLE_DRIVE_IMPORT_ERROR = None
-
-
-DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 RR_MIN_MS = 300.0
 RR_MAX_MS = 2000.0
 DELTA_RR_MAX = 0.20
-PREDEFINED_DRIVE_FOLDER_ID = "1ROd4GmALeNVQzwaMC48PWBH0zrAAlR-U"
 DROPBOX_API_ROOT = "https://api.dropboxapi.com/2"
 DROPBOX_CONTENT_ROOT = "https://content.dropboxapi.com/2"
 SUPPORTED_INPUT_EXTS = {".jsonl", ".zip"}
@@ -97,7 +68,7 @@ class FileEntry:
     parent: str
     sort_key: float
     path: Optional[Path] = None
-    drive_id: Optional[str] = None
+    cloud_id: Optional[str] = None
     modified_time: str = ""
 
 
@@ -117,40 +88,11 @@ def require_scipy() -> None:
     )
 
 
-def require_drive_libs() -> None:
-    if GOOGLE_DRIVE_AVAILABLE:
-        return
-    raise RuntimeError(
-        "Google Drive mode needs extra deps. Install:\n"
-        "  pip install google-auth google-auth-oauthlib google-api-python-client\n"
-        f"Import error detail: {GOOGLE_DRIVE_IMPORT_ERROR}"
-    )
-
-
-def get_default_drive_folder_id() -> str:
-    env_override = (
-        os.environ.get("HRV_DRIVE_FOLDER_ID")
-        or os.environ.get("ECG_RR_DRIVE_FOLDER_ID")
-        or ""
-    ).strip()
-    if env_override:
-        return env_override
-    return PREDEFINED_DRIVE_FOLDER_ID
-
-
 def get_default_source() -> str:
-    raw = (
-        os.environ.get("HRV_RR_CLOUD_SOURCE")
-        or os.environ.get("ECG_RR_SOURCE")
-        or ""
-    ).strip().lower()
-    if raw in {"drive", "dropbox"}:
-        return raw
-
     has_dropbox = bool(
         (os.environ.get("HRV_DROPBOX_FOLDER_PATH") or os.environ.get("DROPBOX_FOLDER_PATH") or os.environ.get("ECG_RR_DROPBOX_FOLDER") or "").strip()
     )
-    return "dropbox" if has_dropbox else "drive"
+    return "dropbox" if has_dropbox else ""
 
 
 def get_default_dropbox_folder_path() -> str:
@@ -317,7 +259,7 @@ def list_dropbox_input_files(access_token: str, folder_path: str, recursive: boo
                     parent=parent,
                     sort_key=_modified_to_ts(server_modified),
                     path=None,
-                    drive_id=path_lower or path_display,
+            cloud_id=path_lower or path_display,
                     modified_time=server_modified,
                 )
             )
@@ -346,7 +288,7 @@ def list_dropbox_input_files(access_token: str, folder_path: str, recursive: boo
 
 
 def download_dropbox_file(access_token: str, file_entry: FileEntry, download_dir: Path) -> Path:
-    file_path = (file_entry.drive_id or "").strip()
+    file_path = (file_entry.cloud_id or "").strip()
     if not file_path:
         raise ValueError("Dropbox file entry missing path.")
     dest = _cloud_file_to_local_path(download_dir, file_entry)
@@ -728,12 +670,12 @@ def _cloud_file_to_local_path(download_dir: Path, file_entry: FileEntry) -> Path
 
     original_name = Path(file_entry.name).name
     if not original_name:
-        original_name = f"{sanitize_fragment(file_entry.drive_id or 'file', 24) or 'file'}{ext}"
+        original_name = f"{sanitize_fragment(file_entry.cloud_id or 'file', 24) or 'file'}{ext}"
 
     dest = target_dir / original_name
     if dest.exists():
         stem = sanitize_fragment(Path(original_name).stem, 80) or "file"
-        unique_prefix = sanitize_fragment(file_entry.drive_id or file_entry.modified_time or "dup", 24) or "dup"
+        unique_prefix = sanitize_fragment(file_entry.cloud_id or file_entry.modified_time or "dup", 24) or "dup"
         dest = target_dir / f"{stem}_{unique_prefix}{ext}"
     return dest
 
@@ -845,219 +787,6 @@ def process_pair(
         "fs_acc": float(fs_est(ts_acc)),
         "motion_thr": float(motion_thr) if np.isfinite(motion_thr) else float("nan"),
     }
-
-
-def _drive_modified_ts(value: str) -> float:
-    if not value:
-        return 0.0
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
-    except Exception:
-        return 0.0
-
-
-def resolve_drive_runtime(runtime: str) -> str:
-    if runtime in {"local", "web"}:
-        return runtime
-    web_markers = [
-        "RAILWAY_ENVIRONMENT",
-        "RAILWAY_PROJECT_ID",
-        "K_SERVICE",
-        "CI",
-        "GITHUB_ACTIONS",
-    ]
-    return "web" if any((os.environ.get(k) or "").strip() for k in web_markers) else "local"
-
-
-def _load_service_account_credentials(service_account_path: Path):
-    env_json = (os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON") or "").strip()
-    if env_json:
-        try:
-            info = json.loads(env_json)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"Invalid GOOGLE_SERVICE_ACCOUNT_JSON: {exc}") from exc
-        creds = service_account.Credentials.from_service_account_info(info, scopes=DRIVE_SCOPES)
-        return creds, "env:GOOGLE_SERVICE_ACCOUNT_JSON"
-
-    env_file = (os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or "").strip()
-    if env_file:
-        p = Path(env_file)
-        if p.exists():
-            creds = service_account.Credentials.from_service_account_file(str(p), scopes=DRIVE_SCOPES)
-            return creds, f"file:{p}"
-
-    if service_account_path.exists():
-        creds = service_account.Credentials.from_service_account_file(str(service_account_path), scopes=DRIVE_SCOPES)
-        return creds, f"file:{service_account_path}"
-
-    return None, ""
-
-
-def _load_oauth_token_credentials(token_path: Path):
-    env_token_json = (os.environ.get("GOOGLE_OAUTH_TOKEN_JSON") or "").strip()
-    if env_token_json:
-        try:
-            token_info = json.loads(env_token_json)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"Invalid GOOGLE_OAUTH_TOKEN_JSON: {exc}") from exc
-        creds = Credentials.from_authorized_user_info(token_info, DRIVE_SCOPES)
-        return creds, "env:GOOGLE_OAUTH_TOKEN_JSON", False
-
-    if token_path.exists():
-        creds = Credentials.from_authorized_user_file(str(token_path), DRIVE_SCOPES)
-        return creds, f"file:{token_path}", True
-
-    return None, "", False
-
-
-def _build_oauth_flow(client_secret: Path):
-    env_client_json = (os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET_JSON") or "").strip()
-    if env_client_json:
-        try:
-            client_config = json.loads(env_client_json)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"Invalid GOOGLE_OAUTH_CLIENT_SECRET_JSON: {exc}") from exc
-        return InstalledAppFlow.from_client_config(client_config, DRIVE_SCOPES), "env:GOOGLE_OAUTH_CLIENT_SECRET_JSON"
-
-    if not client_secret.exists():
-        raise FileNotFoundError(f"Google OAuth client secret not found: {client_secret}")
-    return InstalledAppFlow.from_client_secrets_file(str(client_secret), DRIVE_SCOPES), f"file:{client_secret}"
-
-
-def get_drive_service(
-    client_secret: Path,
-    token_path: Path,
-    auth_mode: str = "local_server",
-    runtime: str = "auto",
-    service_account_path: Optional[Path] = None,
-):
-    require_drive_libs()
-    resolved_runtime = resolve_drive_runtime(runtime)
-    service_account_path = service_account_path or Path("service_account.json")
-
-    # Web mode: prefer non-interactive auth (service account first).
-    if resolved_runtime == "web":
-        sa_creds, sa_source = _load_service_account_credentials(service_account_path)
-        if sa_creds is not None:
-            print(f"[INFO] Drive auth=service_account source={sa_source}")
-            return build("drive", "v3", credentials=sa_creds, cache_discovery=False)
-
-    creds, token_source, can_persist_token = _load_oauth_token_credentials(token_path)
-    if creds and creds.expired and creds.refresh_token:
-        try:
-            creds.refresh(Request())
-            if can_persist_token:
-                token_path.parent.mkdir(parents=True, exist_ok=True)
-                token_path.write_text(creds.to_json(), encoding="utf-8")
-        except Exception as exc:
-            if resolved_runtime == "web":
-                raise RuntimeError(
-                    "Web runtime cannot refresh OAuth token automatically. "
-                    "Provide valid token or service account credentials."
-                ) from exc
-
-    if creds and creds.valid:
-        print(f"[INFO] Drive auth=oauth_token source={token_source}")
-        return build("drive", "v3", credentials=creds, cache_discovery=False)
-
-    # Local mode fallback: allow service account if available.
-    if resolved_runtime == "local":
-        sa_creds, sa_source = _load_service_account_credentials(service_account_path)
-        if sa_creds is not None:
-            print(f"[INFO] Drive auth=service_account source={sa_source}")
-            return build("drive", "v3", credentials=sa_creds, cache_discovery=False)
-
-    # Local mode: interactive OAuth.
-    if resolved_runtime == "local":
-        flow, flow_source = _build_oauth_flow(client_secret)
-        if auth_mode == "console":
-            creds = flow.run_console()
-        else:
-            creds = flow.run_local_server(port=0)
-        token_path.parent.mkdir(parents=True, exist_ok=True)
-        token_path.write_text(creds.to_json(), encoding="utf-8")
-        print(f"[INFO] Drive auth=oauth_interactive source={flow_source}")
-        return build("drive", "v3", credentials=creds, cache_discovery=False)
-
-    raise RuntimeError(
-        "Web runtime requires non-interactive credentials. "
-        "Use one of: GOOGLE_SERVICE_ACCOUNT_JSON, "
-        "GOOGLE_APPLICATION_CREDENTIALS/service_account.json, or GOOGLE_OAUTH_TOKEN_JSON/tokens.json."
-    )
-
-
-def list_drive_input_files(service, folder_id: str, recursive: bool = True) -> List[FileEntry]:
-    files: List[FileEntry] = []
-    queue: List[Tuple[str, str]] = [(folder_id, ".")]
-    visited: set = set()
-
-    while queue:
-        current_id, display_parent = queue.pop(0)
-        if current_id in visited:
-            continue
-        visited.add(current_id)
-
-        page_token = None
-        while True:
-            query = f"'{current_id}' in parents and trashed = false"
-            resp = (
-                service.files()
-                .list(
-                    q=query,
-                    fields="nextPageToken, files(id,name,mimeType,modifiedTime,parents)",
-                    pageToken=page_token,
-                    pageSize=1000,
-                    supportsAllDrives=True,
-                    includeItemsFromAllDrives=True,
-                )
-                .execute()
-            )
-            for item in resp.get("files", []):
-                name = item.get("name", "")
-                mime = item.get("mimeType", "")
-                file_id = item.get("id", "")
-                mtime = item.get("modifiedTime", "")
-
-                if mime == "application/vnd.google-apps.folder":
-                    if recursive:
-                        sub_parent = f"{display_parent}/{name}" if display_parent != "." else name
-                        queue.append((file_id, sub_parent))
-                    continue
-
-                if not is_supported_input_filename(name):
-                    continue
-
-                files.append(
-                    FileEntry(
-                        source="drive",
-                        name=name,
-                        parent=display_parent,
-                        sort_key=_drive_modified_ts(mtime),
-                        path=None,
-                        drive_id=file_id,
-                        modified_time=mtime,
-                    )
-                )
-
-            page_token = resp.get("nextPageToken")
-            if not page_token:
-                break
-
-    return files
-
-
-def download_drive_file(service, file_entry: FileEntry, download_dir: Path) -> Path:
-    if not file_entry.drive_id:
-        raise ValueError("Drive file entry missing drive_id.")
-    dest = _cloud_file_to_local_path(download_dir, file_entry)
-
-    request = service.files().get_media(fileId=file_entry.drive_id, supportsAllDrives=True)
-    with dest.open("wb") as fh:
-        downloader = MediaIoBaseDownload(fh, request)
-        done = False
-        while not done:
-            _, done = downloader.next_chunk()
-    return dest
 
 
 def collect_local_jsonl_files(input_dir: Path, recursive: bool = True) -> List[FileEntry]:
@@ -1191,41 +920,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input-recursive", action="store_true", help="Scan local input-dir recursively")
 
     parser.add_argument(
-        "--drive-folder-id",
-        default="",
-        help=(
-            "Google Drive folder id containing ECG/ACC JSONL files. "
-            "If omitted and no local mode is selected, predefined folder id is used."
-        ),
-    )
-    parser.add_argument(
-        "--drive-runtime",
-        choices=["auto", "local", "web"],
-        default="auto",
-        help=(
-            "Runtime profile for Drive auth. "
-            "'local' allows interactive OAuth login, "
-            "'web' disables interactive login (Railway/server), "
-            "'auto' detects environment."
-        ),
-    )
-    parser.add_argument("--drive-client-secret", default="credentials.json")
-    parser.add_argument("--drive-token-path", default="tokens.json")
-    parser.add_argument(
-        "--drive-service-account",
-        default="service_account.json",
-        help="Service account JSON file (used mainly in web runtime).",
-    )
-    parser.add_argument(
-        "--drive-auth-mode",
-        choices=["local_server", "console"],
-        default="local_server",
-        help="Interactive OAuth flow mode for local runtime.",
-    )
-    parser.add_argument("--drive-download-dir", default="", help="Keep downloaded drive JSONL files in this folder")
-    parser.add_argument("--drive-recursive", action="store_true", help="Traverse subfolders in Drive input folder")
-
-    parser.add_argument(
         "--dropbox-folder",
         default="",
         help="Dropbox folder path containing ECG/ACC JSONL files (e.g. /HRV/raw_jsonl).",
@@ -1258,9 +952,8 @@ def parse_args() -> argparse.Namespace:
 def resolve_mode(args: argparse.Namespace) -> str:
     single_mode = bool(args.ecg or args.acc)
     local_mode = bool(args.input_dir)
-    drive_mode = bool((args.drive_folder_id or "").strip())
     dropbox_mode = bool((args.dropbox_folder or "").strip())
-    selected = int(single_mode) + int(local_mode) + int(drive_mode) + int(dropbox_mode)
+    selected = int(single_mode) + int(local_mode) + int(dropbox_mode)
 
     if selected == 0:
         default_source = get_default_source()
@@ -1269,13 +962,8 @@ def resolve_mode(args: argparse.Namespace) -> str:
             if default_dropbox_folder:
                 args.dropbox_folder = default_dropbox_folder
                 return "dropbox_batch"
-
-        default_drive_id = get_default_drive_folder_id()
-        if default_drive_id:
-            args.drive_folder_id = default_drive_id
-            return "drive_batch"
         raise ValueError(
-            "Choose one source mode: --ecg/--acc, --input-dir, --drive-folder-id, or --dropbox-folder."
+            "Choose one source mode: --ecg/--acc, --input-dir, or --dropbox-folder."
         )
     if selected > 1:
         raise ValueError("Use only one source mode at a time.")
@@ -1287,7 +975,7 @@ def resolve_mode(args: argparse.Namespace) -> str:
         return "local_batch"
     if dropbox_mode:
         return "dropbox_batch"
-    return "drive_batch"
+    raise ValueError("Dropbox source mode requires --dropbox-folder.")
 
 
 def print_pairs_preview(pairs: List[PairEntry]) -> None:
@@ -1302,7 +990,6 @@ def print_pairs_preview(pairs: List[PairEntry]) -> None:
 
 def main() -> None:
     args = parse_args()
-    drive_folder_cli = (args.drive_folder_id or "").strip()
     mode = resolve_mode(args)
 
     outdir = Path(args.outdir)
@@ -1321,7 +1008,6 @@ def main() -> None:
         require_scipy()
 
     pairs: List[PairEntry]
-    drive_service = None
     dropbox_access_token: Optional[str] = None
     download_dir: Optional[Path] = None
     temp_cloud_download_dir: Optional[Path] = None
@@ -1395,48 +1081,6 @@ def main() -> None:
 
         local_files = collect_local_jsonl_files(download_dir, recursive=True)
         pairs = build_pairs(local_files)
-    else:
-        if drive_folder_cli:
-            print(f"[INFO] Using Drive folder id from CLI: {args.drive_folder_id}")
-        else:
-            print(f"[INFO] Using predefined Drive folder id: {args.drive_folder_id}")
-        print(f"[INFO] Drive runtime requested: {args.drive_runtime}")
-        client_secret = Path(args.drive_client_secret)
-        token_path = Path(args.drive_token_path)
-        service_account_path = Path(args.drive_service_account)
-        drive_service = get_drive_service(
-            client_secret=client_secret,
-            token_path=token_path,
-            auth_mode=args.drive_auth_mode,
-            runtime=args.drive_runtime,
-            service_account_path=service_account_path,
-        )
-        drive_files = list_drive_input_files(drive_service, args.drive_folder_id, recursive=args.drive_recursive)
-
-        if args.drive_download_dir:
-            download_dir = Path(args.drive_download_dir)
-            download_dir.mkdir(parents=True, exist_ok=True)
-        else:
-            # Avoid OS temp permission issues by keeping transient downloads in workspace.
-            run_tag = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
-            download_dir = outdir / "_drive_tmp" / run_tag
-            download_dir.mkdir(parents=True, exist_ok=True)
-            temp_cloud_download_dir = download_dir
-
-        for file_entry in drive_files:
-            download_drive_file(drive_service, file_entry, download_dir)
-
-        zip_files = collect_local_zip_files(download_dir, recursive=False)
-        if zip_files:
-            extracted_jsonl, used_archives = extract_zip_archives(zip_files, download_dir / "_unzipped")
-            print(
-                f"[INFO] Drive ZIP scan: archives={len(zip_files)} "
-                f"used={used_archives} extracted_jsonl={extracted_jsonl}"
-            )
-
-        local_files = collect_local_jsonl_files(download_dir, recursive=True)
-        pairs = build_pairs(local_files)
-
     if not pairs:
         raise ValueError("No ECG/ACC pairs found.")
 
@@ -1509,7 +1153,6 @@ def main() -> None:
             try:
                 shutil.rmtree(temp_cloud_download_dir)
                 parent = temp_cloud_download_dir.parent
-                # Legacy cleanup: previous versions stored downloaded jsonl directly in _drive_tmp.
                 if parent.exists():
                     for legacy_file in parent.glob("*.jsonl"):
                         try:
@@ -1523,7 +1166,7 @@ def main() -> None:
                         # Non-critical (e.g. OneDrive lock): files are already removed.
                         pass
             except Exception as exc:
-                print(f"[WARN] Could not cleanup temporary drive files: {exc}")
+                print(f"[WARN] Could not cleanup temporary cloud files: {exc}")
         if temp_local_extract_dir is not None:
             try:
                 shutil.rmtree(temp_local_extract_dir)

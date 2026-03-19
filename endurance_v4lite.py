@@ -8,7 +8,7 @@ Lee:
   - ENDURANCE_HRV_master_CORE.csv
 
 Genera:
-  - ENDURANCE_HRV_master_FINAL.csv     (53 cols, gate + sombras + residual + auditoría)
+  - ENDURANCE_HRV_master_FINAL.csv     (58 cols, gate + sombras + residual + auditoría raw-vs-ref)
   - ENDURANCE_HRV_master_DASHBOARD.csv (10 cols, vista operativa compacta)
 
 Normativa:
@@ -614,10 +614,11 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             else:
                 Action_detail[i] = "SUAVE"
 
-    # bad_streak / bad_7d sobre (ROJO o NO)
+    # bad_streak / bad_7d solo sobre ROJO.
+    # NO significa "sin datos suficientes para decidir" y no debe inflar acumulación.
     bad_streak = np.zeros(len(df), dtype=int)
     for i in range(len(df)):
-        if gate_final[i] in (ROJO, NO):
+        if gate_final[i] == ROJO:
             bad_streak[i] = (bad_streak[i-1] + 1) if i > 0 else 1
         else:
             bad_streak[i] = 0
@@ -625,13 +626,13 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
     bad_7d = np.zeros(len(df), dtype=int)
     for i in range(len(df)):
         lo = max(0, i-6)
-        bad_7d[i] = int(np.sum(np.isin(gate_final[lo:i+1], [ROJO, NO])))
+        bad_7d[i] = int(np.sum(gate_final[lo:i+1] == ROJO))
 
-    # Ajuste Action_detail por acumulación (solo para ROJO/NO y sin SUAVE_QUALITY)
+    # Ajuste Action_detail por acumulación (solo para ROJO y sin SUAVE_QUALITY)
     for i in range(len(df)):
         if Action_detail[i] == "SUAVE_QUALITY":
             continue
-        if gate_final[i] in (ROJO, NO) and (bad_streak[i] >= 2 or bad_7d[i] >= 3):
+        if gate_final[i] == ROJO and (bad_streak[i] >= 2 or bad_7d[i] >= 3):
             Action_detail[i] = "DESCARGA"
 
     # =============================================================================
@@ -641,9 +642,6 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
     # --- Sleep context from sleep.csv (Polar sleep/nightly only) ---
     sleep_lookup: Optional[pd.DataFrame] = None
     sleep_path = DATA_DIR / "ENDURANCE_HRV_sleep.csv"
-    legacy_sleep_path = DATA_DIR / "ENDURANCE_HRV_context.csv"
-    if not sleep_path.exists() and legacy_sleep_path.exists():
-        sleep_path = legacy_sleep_path
     if sleep_path.exists():
         try:
             sleep_df = pd.read_csv(sleep_path)
@@ -737,7 +735,13 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                     reason_parts[i].append("ROJO sin carga previa ni sueño malo: revisar otros factores")
 
             # VERDE con carga acumulada alta
-            if gate_final[i] == VERDE and load_3d is not None and load_3d > 200:
+            if (
+                gate_final[i] == VERDE
+                and load_3d is not None
+                and load_3d_nobs is not None
+                and load_3d_nobs >= 2
+                and load_3d > 200
+            ):
                 reason_parts[i].append(f"VERDE con carga acumulada (load_3d={load_3d:.0f}): precaución intensidad")
 
     reason_text = np.array([" | ".join(p) if p else "" for p in reason_parts], dtype=object)

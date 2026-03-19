@@ -138,7 +138,6 @@ BETA_AUDIT_PATH = DATA_DIR / "ENDURANCE_HRV_master_BETA_AUDIT.csv"
 FINAL_PATH = DATA_DIR / "ENDURANCE_HRV_master_FINAL.csv"
 DASHBOARD_PATH = DATA_DIR / "ENDURANCE_HRV_master_DASHBOARD.csv"
 SLEEP_PATH = DATA_DIR / "ENDURANCE_HRV_sleep.csv"
-LEGACY_SLEEP_PATH = DATA_DIR / "ENDURANCE_HRV_context.csv"
 
 INTERVALS_SOURCE_PATH = BETA_AUDIT_PATH
 
@@ -209,17 +208,11 @@ UNKNOWN_SESSION_ID = "unknown"  # ID para sesiones sin fecha
 
 DEBUG_JSON = False  # True = guarda JSON debug de sesiones sin RR
 
-# Integración Drive RR (ECG/ACC JSONL -> RR) con fallback a Polar.
-DRIVE_RR_ENABLED = _env_flag("HRV_DRIVE_RR_ENABLED", True)
-DRIVE_RR_SCRIPT = (os.environ.get("HRV_DRIVE_RR_SCRIPT") or "egc_to_rr.py").strip() or "egc_to_rr.py"
-DRIVE_RR_RUNTIME = (os.environ.get("HRV_DRIVE_RUNTIME") or "auto").strip() or "auto"
-DRIVE_RR_RECURSIVE = _env_flag("HRV_DRIVE_RECURSIVE", True)
-DRIVE_RR_NO_AUX = _env_flag("HRV_DRIVE_NO_AUX", True)
-DRIVE_RR_FOLDER_ID = (os.environ.get("HRV_DRIVE_FOLDER_ID") or "").strip()
-DRIVE_RR_PAIR_LIMIT = (os.environ.get("HRV_DRIVE_PAIR_LIMIT") or "").strip()
-RR_CLOUD_SOURCE = (os.environ.get("HRV_RR_CLOUD_SOURCE") or "drive").strip().lower()
-if RR_CLOUD_SOURCE not in {"drive", "dropbox"}:
-    RR_CLOUD_SOURCE = "drive"
+# Integración Dropbox RR (ECG/ACC JSONL -> RR) con fallback a Polar.
+DROPBOX_RR_ENABLED = _env_flag("HRV_DROPBOX_RR_ENABLED", True)
+DROPBOX_RR_SCRIPT = (os.environ.get("HRV_DROPBOX_RR_SCRIPT") or "egc_to_rr.py").strip() or "egc_to_rr.py"
+DROPBOX_RR_NO_AUX = _env_flag("HRV_DROPBOX_NO_AUX", True)
+DROPBOX_RR_PAIR_LIMIT = (os.environ.get("HRV_DROPBOX_PAIR_LIMIT") or "").strip()
 DROPBOX_FOLDER_PATH = (
     os.environ.get("HRV_DROPBOX_FOLDER_PATH")
     or os.environ.get("DROPBOX_FOLDER_PATH")
@@ -371,9 +364,9 @@ def _compute_target_missing_dates(from_d, to_d, existing_dates: set) -> set:
     return {d for d in _iter_dates(from_d, to_d) if d not in existing_dates}
 
 
-def _run_drive_rr_import_for_dates(target_dates: set, outdir: Path, verbose: bool = False) -> Tuple[Dict, int]:
+def _run_dropbox_rr_import_for_dates(target_dates: set, outdir: Path, verbose: bool = False) -> Tuple[Dict, int]:
     """
-    Ejecuta egc_to_rr.py para intentar cubrir fechas faltantes desde cloud (Drive/Dropbox).
+    Ejecuta egc_to_rr.py para intentar cubrir fechas faltantes desde Dropbox.
     Devuelve:
       - {date: rr_path} para fechas cubiertas con RR from_jsonl.
       - número de fechas nuevas creadas en esta ejecución.
@@ -381,14 +374,13 @@ def _run_drive_rr_import_for_dates(target_dates: set, outdir: Path, verbose: boo
     if not target_dates:
         return {}, 0
 
-    source_label = "Dropbox" if RR_CLOUD_SOURCE == "dropbox" else "Drive"
     existing_before = _scan_rr_files_by_date(outdir, source_tag="from_jsonl")
     missing_dates = sorted(d for d in target_dates if d not in existing_before)
 
     if missing_dates:
-        script_path = Path(DRIVE_RR_SCRIPT)
+        script_path = Path(DROPBOX_RR_SCRIPT)
         if not script_path.exists():
-            print(f"⚠️  {source_label} RR habilitado, pero no existe {script_path}. Se usa fallback Polar.")
+            print(f"⚠️  Dropbox RR habilitado, pero no existe {script_path}. Se usa fallback Polar.")
         else:
             cmd = [
                 sys.executable,
@@ -397,29 +389,22 @@ def _run_drive_rr_import_for_dates(target_dates: set, outdir: Path, verbose: boo
                 str(outdir),
             ]
 
-            if RR_CLOUD_SOURCE == "dropbox":
-                if not DROPBOX_FOLDER_PATH:
-                    print(
-                        "⚠️  Dropbox RR habilitado pero falta HRV_DROPBOX_FOLDER_PATH/DROPBOX_FOLDER_PATH. "
-                        "Se usa fallback Polar."
-                    )
-                    return {}, 0
-                cmd.extend(["--dropbox-folder", DROPBOX_FOLDER_PATH])
-                if DROPBOX_RECURSIVE:
-                    cmd.append("--dropbox-recursive")
-            else:
-                cmd.extend(["--drive-runtime", DRIVE_RR_RUNTIME])
-                if DRIVE_RR_RECURSIVE:
-                    cmd.append("--drive-recursive")
-                if DRIVE_RR_FOLDER_ID:
-                    cmd.extend(["--drive-folder-id", DRIVE_RR_FOLDER_ID])
+            if not DROPBOX_FOLDER_PATH:
+                print(
+                    "⚠️  Dropbox RR habilitado pero falta HRV_DROPBOX_FOLDER_PATH/DROPBOX_FOLDER_PATH. "
+                    "Se usa fallback Polar."
+                )
+                return {}, 0
+            cmd.extend(["--dropbox-folder", DROPBOX_FOLDER_PATH])
+            if DROPBOX_RECURSIVE:
+                cmd.append("--dropbox-recursive")
 
-            if DRIVE_RR_NO_AUX:
+            if DROPBOX_RR_NO_AUX:
                 cmd.append("--no-aux")
-            if DRIVE_RR_PAIR_LIMIT:
-                cmd.extend(["--pair-limit", DRIVE_RR_PAIR_LIMIT])
+            if DROPBOX_RR_PAIR_LIMIT:
+                cmd.extend(["--pair-limit", DROPBOX_RR_PAIR_LIMIT])
 
-            _qprint(f"☁️  {source_label} RR: intentando cubrir {len(missing_dates)} fecha(s) faltante(s)...")
+            _qprint(f"☁️  Dropbox RR: intentando cubrir {len(missing_dates)} fecha(s) faltante(s)...")
             try:
                 env = os.environ.copy()
                 env["PYTHONIOENCODING"] = "utf-8"
@@ -436,13 +421,13 @@ def _run_drive_rr_import_for_dates(target_dates: set, outdir: Path, verbose: boo
                     print(result.stdout)
                 if result.returncode != 0:
                     print(
-                        f"⚠️  {source_label} RR devolvió código {result.returncode}. "
+                        f"⚠️  Dropbox RR devolvió código {result.returncode}. "
                         "Se continúa con fallback Polar."
                     )
                     if result.stderr:
                         print(result.stderr)
             except Exception as exc:
-                print(f"⚠️  Error ejecutando {source_label} RR: {exc}. Se continúa con fallback Polar.")
+                print(f"⚠️  Error ejecutando Dropbox RR: {exc}. Se continúa con fallback Polar.")
 
     existing_after = _scan_rr_files_by_date(outdir, source_tag="from_jsonl")
     covered = {d: p for d, p in existing_after.items() if d in target_dates}
@@ -680,7 +665,7 @@ def _print_no_rr_files():
     print("\n⚠️  No hay archivos RR para procesar")
     print("Causas típicas:")
     print("   - Sesiones sin RR en el periodo")
-    print("   - Archivos aún no disponibles en cloud (Dropbox/Drive) ni en Polar")
+    print("   - Archivos aún no disponibles en Dropbox ni en Polar")
 
 
 def _print_master_already_updated():
@@ -1366,15 +1351,9 @@ def upsert_sleep_row(sleep_row: Dict[str, Any]) -> bool:
     if not fecha:
         return False
 
-    source_path = None
     if SLEEP_PATH.exists():
-        source_path = SLEEP_PATH
-    elif LEGACY_SLEEP_PATH.exists():
-        source_path = LEGACY_SLEEP_PATH
-
-    if source_path is not None:
         try:
-            sleep_df = pd.read_csv(source_path)
+            sleep_df = pd.read_csv(SLEEP_PATH)
         except (FileNotFoundError, pd.errors.EmptyDataError, OSError, ValueError):
             sleep_df = pd.DataFrame(columns=SLEEP_COLUMNS)
     else:
@@ -2078,21 +2057,20 @@ def main():
     _qprint(f"✅ {len(filtered)} sesiones tras filtros (max {MAX_EXERCISES})")
 
     if not filtered:
-        drive_only_map: Dict = {}
-        if DRIVE_RR_ENABLED:
-            existing_for_drive = get_existing_dates_from_master()
-            target_for_drive = _compute_target_missing_dates(from_d, to_d, existing_for_drive)
-            drive_only_map, _ = _run_drive_rr_import_for_dates(
-                target_for_drive,
+        dropbox_only_map: Dict = {}
+        if DROPBOX_RR_ENABLED:
+            existing_for_dropbox = get_existing_dates_from_master()
+            target_for_dropbox = _compute_target_missing_dates(from_d, to_d, existing_for_dropbox)
+            dropbox_only_map, _ = _run_dropbox_rr_import_for_dates(
+                target_for_dropbox,
                 OUTDIR,
                 verbose=args.verbose,
             )
 
-        if drive_only_map:
+        if dropbox_only_map:
             _qprint(
-                f"☁️  Sin sesiones Polar filtradas, pero "
-                f"{('Dropbox' if RR_CLOUD_SOURCE == 'dropbox' else 'Drive')} cubrió "
-                f"{len(drive_only_map)} fecha(s). Continuando con procesamiento HRV."
+                f"☁️  Sin sesiones Polar filtradas, pero Dropbox cubrió "
+                f"{len(dropbox_only_map)} fecha(s). Continuando con procesamiento HRV."
             )
         else:
             if QUIET:
@@ -2150,8 +2128,6 @@ def main():
     # Export RR
     _qprint("\n📥 Descargando datos RR...")
     OUTDIR.mkdir(exist_ok=True)
-    rr_cloud_label = "Dropbox" if RR_CLOUD_SOURCE == "dropbox" else "Drive"
-    
     # Obtener fechas ya existentes en CORE
     existing_dates = get_existing_dates_from_master()
     pre_process_dates = set(existing_dates)
@@ -2160,28 +2136,28 @@ def main():
     
     exported = 0
     skipped_in_master = 0
-    skipped_covered_by_drive = 0
+    skipped_covered_by_dropbox = 0
     skipped_no_date = 0
     rr_files = []
     pending_rr_dates = set()
 
     target_missing_dates = _compute_target_missing_dates(from_d, to_d, existing_dates)
-    drive_rr_map: Dict = {}
-    drive_rr_new = 0
-    if DRIVE_RR_ENABLED and target_missing_dates:
-        drive_rr_map, drive_rr_new = _run_drive_rr_import_for_dates(
+    dropbox_rr_map: Dict = {}
+    dropbox_rr_new = 0
+    if DROPBOX_RR_ENABLED and target_missing_dates:
+        dropbox_rr_map, dropbox_rr_new = _run_dropbox_rr_import_for_dates(
             target_missing_dates,
             OUTDIR,
             verbose=args.verbose,
         )
-        for day, rr_path in sorted(drive_rr_map.items(), key=lambda x: x[0]):
+        for day, rr_path in sorted(dropbox_rr_map.items(), key=lambda x: x[0]):
             rr_files.append(rr_path)
             pending_rr_dates.add(day)
-        if drive_rr_map:
-            reused = max(len(drive_rr_map) - drive_rr_new, 0)
+        if dropbox_rr_map:
+            reused = max(len(dropbox_rr_map) - dropbox_rr_new, 0)
             _qprint(
-                f"☁️  {rr_cloud_label} RR: {len(drive_rr_map)} fecha(s) cubierta(s) "
-                f"({drive_rr_new} nuevas, {reused} ya existentes)"
+                f"☁️  Dropbox RR: {len(dropbox_rr_map)} fecha(s) cubierta(s) "
+                f"({dropbox_rr_new} nuevas, {reused} ya existentes)"
             )
 
     for idx, e in enumerate(filtered):
@@ -2201,10 +2177,10 @@ def main():
         if session_date_hint and session_date_hint in pending_rr_dates:
             if args.verbose:
                 print(
-                    f"  [{idx}] ⏭️  {session_date_hint} ya cubierto por RR {rr_cloud_label}, "
+                    f"  [{idx}] ⏭️  {session_date_hint} ya cubierto por RR Dropbox, "
                     "omitiendo descarga Polar"
                 )
-            skipped_covered_by_drive += 1
+            skipped_covered_by_dropbox += 1
             continue
 
         try:
@@ -2260,8 +2236,8 @@ def main():
             continue
         if session_date and session_date in pending_rr_dates:
             if args.verbose:
-                print(f"  [{idx}] ⏭️  {date_part} ya cubierto por RR {rr_cloud_label}, omitiendo Polar")
-            skipped_covered_by_drive += 1
+                print(f"  [{idx}] ⏭️  {date_part} ya cubierto por RR Dropbox, omitiendo Polar")
+            skipped_covered_by_dropbox += 1
             continue
 
         out_path = OUTDIR / out_name
@@ -2290,17 +2266,17 @@ def main():
     _print_header("✅ EXPORT COMPLETADO")
     
     total_to_process = len(rr_files)
-    existing = max(total_to_process - exported - drive_rr_new, 0)
+    existing = max(total_to_process - exported - dropbox_rr_new, 0)
     
     if exported > 0:
         _qprint(f"\n📥 {exported} archivos nuevos descargados")
-    if drive_rr_new > 0:
-        _qprint(f"☁️  {drive_rr_new} RR nuevos generados desde {rr_cloud_label}")
+    if dropbox_rr_new > 0:
+        _qprint(f"☁️  {dropbox_rr_new} RR nuevos generados desde Dropbox")
     
     if skipped_in_master > 0:
         _qprint(f"⏭️  {skipped_in_master} sesiones omitidas (ya en CORE)")
-    if skipped_covered_by_drive > 0:
-        _qprint(f"☁️  ⏭️  {skipped_covered_by_drive} sesiones omitidas (cubiertas por {rr_cloud_label})")
+    if skipped_covered_by_dropbox > 0:
+        _qprint(f"☁️  ⏭️  {skipped_covered_by_dropbox} sesiones omitidas (cubiertas por Dropbox)")
     if skipped_no_date > 0:
         _qprint(f"⚠️  {skipped_no_date} sesiones sin fecha (no se procesan)")
     
