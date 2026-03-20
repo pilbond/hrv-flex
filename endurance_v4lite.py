@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ENDURANCE HRV — Decisor V4-lite (r2026-02-12)
-============================================
+ENDURANCE HRV — Decisor V4-lite
+===============================
+
+Revisión de módulo: r2026-03-19
+Contrato esperado: FINAL 58 cols, DASHBOARD 10 cols
+Sistema vigente: ENDURANCE HRV V4.2
 
 Lee:
   - ENDURANCE_HRV_master_CORE.csv

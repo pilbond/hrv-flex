@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ENDURANCE HRV — Procesador de medición (v2.1)
-=============================================
+ENDURANCE HRV — Procesador de medición CORE/BETA
+================================================
+
+Revisión de módulo: r2026-03-19
+Contrato esperado: CORE 18 cols, BETA_AUDIT 13 cols
+Sistema vigente: ENDURANCE HRV V4.2
 
 Genera desde archivos RR crudos:
   - ENDURANCE_HRV_master_CORE.csv    (medición canónica, incluye métricas ANS balance)

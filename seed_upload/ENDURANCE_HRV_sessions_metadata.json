@@ -1,5 +1,5 @@
 {
-  "pipeline_version": "v3.0",
+  "pipeline_version": "v3.2",
   "params": {
     "gap_max_s": 60,
     "hr_drop_max_bpm": 10,
@@ -17,25 +17,25 @@
     "effort_anchor_end": "2025-08-31"
   },
   "params_hash": "c1c78a78",
-  "build_time": "2026-03-11T12:28:41.968512",
+  "build_time": "2026-03-20T09:44:27.875293",
   "input_range": {
-    "oldest": "2026-03-08",
-    "newest": "2026-03-12"
+    "oldest": "2025-05-12",
+    "newest": "2026-03-21"
   },
   "counts": {
-    "sessions": 321,
-    "days": 252,
-    "with_streams": 213,
-    "with_notes": 23
+    "sessions": 335,
+    "days": 261,
+    "with_streams": 221,
+    "with_notes": 33
   },
   "stream_sampling": {
-    "n_streams": 213,
-    "dt_mean": 0.953,
+    "n_streams": 221,
+    "dt_mean": 0.9534,
     "dt_min": 0.213,
     "dt_max": 1.012,
     "assumed_1hz": false
   },
   "zones_source_dist": {
-    "icu": 321
+    "icu": 335
   }
 }

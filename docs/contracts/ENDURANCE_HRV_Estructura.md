@@ -7,6 +7,8 @@
 - `ENDURANCE_HRV_Spec_Tecnica.md` — Fórmulas, algoritmos y reglas de cálculo
 - `ENDURANCE_HRV_Diccionario.md` — Qué significa cada columna y cómo usarla
 
+**Convención de versión:** esta cabecera identifica la revisión de este documento (`r2026-03-19 v3.3`), no la versión global del sistema. La versión de sistema vigente se declara en `ENDURANCE_HRV_Spec_Tecnica.md`.
+
 ---
 
 ## Alcance y jerarquía

@@ -13,6 +13,37 @@
 
 ---
 
+## Convención de versionado
+
+Este repositorio usa **tres niveles distintos de versionado**. No deben compararse entre sí como si fueran la misma escala.
+
+1. **Versión de sistema**
+   `ENDURANCE HRV V4.2`
+   Identifica el comportamiento operativo global del sistema HRV vigente: reglas, outputs y contratos activos.
+
+2. **Revisión de documento**
+   Formato: `rYYYY-MM-DD vX.Y`
+   Se usa en los contratos (`Spec_Tecnica`, `Estructura`, `Sessions_Schema`, `Diccionario`) y versiona cada documento por separado.
+
+3. **Revisión de módulo**
+   Formato: `rYYYY-MM-DD`
+   Se usa en los scripts ejecutables para identificar la revisión declarada de ese fichero concreto. No equivale por sí sola a la versión del sistema completo.
+
+Reglas:
+- `Spec_Tecnica.md` declara la **versión de sistema vigente**.
+- Los demás documentos pueden tener otra versión propia porque versionan su capa documental, no el sistema entero.
+- Los scripts deben exponer `Revisión de módulo` y, si aplica, el `Sistema vigente` con el que están alineados.
+- Si una incidencia menciona solo "v4", debe aclararse si habla de sistema, documento o módulo.
+
+Mapa operativo actual:
+- Sistema vigente: `ENDURANCE HRV V4.2`
+- Módulo RR -> CORE/BETA: `endurance_hrv.py`, revisión `r2026-03-19`
+- Módulo CORE -> FINAL/DASHBOARD: `endurance_v4lite.py`, revisión `r2026-03-19`
+- Contrato estructural HRV: `ENDURANCE_HRV_Estructura.md`, revisión `r2026-03-19 v3.3`
+- Contrato de sesiones: `ENDURANCE_HRV_Sessions_Schema.md`, revisión `r2026-03-19 v3.2`
+
+---
+
 ## Alcance operativo (N=1)
 
 Esta especificación describe un sistema de uso personal para **un único atleta**. No define un producto multiusuario ni multiatleta.
@@ -428,7 +459,7 @@ Donde `RR_ref = mediana(RRbar_s)` en la ventana de 90 días. La idea: si tu RR d
 
 # PARTE II: Decisor CORE → FINAL/DASHBOARD (V4-lite)
 
-**Revisión de módulo:** V4-lite r2026-02-12  
+**Revisión de módulo:** V4-lite r2026-03-19  
 **Objetivo:** a partir de las métricas fisiológicas del día (CORE), decidir si puedes meter intensidad, si debes moderar, o si toca descansar. El decisor es robusto y **no depende operativamente del modelo beta/cRMSSD** (que queda relegado a BETA_AUDIT).
 
 El decisor funciona en 7 pasos: clasificación de calidad → suavizado → baselines → gate 2D → override por sombras → residual → acción.

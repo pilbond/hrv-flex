@@ -92,6 +92,7 @@ JOB_LABELS = {
     'hrv': 'sincronización HRV',
     'sessions': 'sincronización de sesiones',
     'seed_import': 'importación CSV seed',
+    'delete_rr': 'borrado del último RR',
 }
 
 
@@ -287,6 +288,56 @@ def _import_seed_csvs() -> dict:
     }
 
 
+def _rr_download_dir() -> Path:
+    raw = (os.environ.get("RR_DOWNLOAD_DIR") or "").strip()
+    return Path(raw) if raw else (DATA_DIR / "rr_downloads")
+
+
+def _list_rr_csv_files(rr_dir: Path) -> list[Path]:
+    files = []
+    for pattern in ("*_RR.csv", "*_RR.CSV", "*_rr.csv"):
+        files.extend(path for path in rr_dir.glob(pattern) if path.is_file())
+    return sorted(files, key=lambda path: (path.stat().st_mtime, path.name))
+
+
+def _latest_rr_diagnostics() -> dict:
+    rr_dir = _rr_download_dir()
+    files = _list_rr_csv_files(rr_dir) if rr_dir.exists() else []
+    latest = files[-1] if files else None
+    return {
+        "rr_download_dir": str(rr_dir),
+        "rr_download_exists": rr_dir.exists(),
+        "rr_csv_count": len(files),
+        "latest_rr_file": latest.name if latest else None,
+        "latest_rr_path": str(latest) if latest else None,
+        "latest_rr_mtime": datetime.fromtimestamp(latest.stat().st_mtime).isoformat() if latest else None,
+    }
+
+
+def _delete_latest_rr() -> dict:
+    rr_dir = _rr_download_dir()
+    if not rr_dir.exists():
+        raise FileNotFoundError(f"No existe el directorio RR: {rr_dir}")
+
+    files = _list_rr_csv_files(rr_dir)
+    if not files:
+        raise FileNotFoundError(f"No hay archivos RR CSV en {rr_dir}")
+
+    latest = files[-1]
+    quarantine_dir = DATA_DIR / "backup" / "deleted_rr" / datetime.now().strftime("%Y%m%d_%H%M%S")
+    quarantine_dir.mkdir(parents=True, exist_ok=True)
+    target = quarantine_dir / latest.name
+    shutil.move(str(latest), str(target))
+
+    return {
+        "deleted_rr_name": latest.name,
+        "deleted_rr_source": str(latest),
+        "deleted_rr_backup": str(target),
+        "rr_download_dir": str(rr_dir),
+        "remaining_rr_csv_count": len(files) - 1,
+    }
+
+
 def _csv_runtime_diagnostics() -> dict:
     data_dir = Path((os.environ.get("HRV_DATA_DIR") or "data").strip() or "data")
     core_path = data_dir / "ENDURANCE_HRV_master_CORE.csv"
@@ -372,6 +423,7 @@ def _build_status_payload() -> dict:
     csv_info = _csv_runtime_diagnostics()
     dropbox_info = _dropbox_runtime_diagnostics()
     seed_info = _seed_upload_diagnostics()
+    rr_info = _latest_rr_diagnostics()
 
     payload = dict(execution_state)
     payload["diagnostics"] = {
@@ -380,6 +432,7 @@ def _build_status_payload() -> dict:
         **csv_info,
         **dropbox_info,
         **seed_info,
+        **rr_info,
     }
     return payload
 
@@ -448,6 +501,7 @@ HTML_TEMPLATE = """
         .sync-button.success, .sessions-button.success { background: linear-gradient(135deg, #1d6b3f, #2a9d5b); color: #fffdf9; }
         .sessions-button { color: var(--brand-strong); background: rgba(15,118,110,0.08); border: 1px solid rgba(15,118,110,0.14); }
         .ghost-button { color: var(--accent); background: rgba(234,106,42,0.10); border: 1px solid rgba(234,106,42,0.14); }
+        .danger-button { color: #9f2f2f; background: rgba(159,47,47,0.10); border: 1px solid rgba(159,47,47,0.18); }
         .is-hidden { display: none; }
         .status { display: none; margin-top: 12px; padding: 8px 16px; border-radius: 0; font-size: 14px; line-height: 1.45; }
         .status.show { display: block; }
@@ -475,6 +529,7 @@ HTML_TEMPLATE = """
                 <button id="syncBtn" class="sync-button" onclick="syncPolar()"><span id="syncBtnText">Sincronizar HRV</span></button>
                 <button id="sessionsBtn" class="sessions-button" onclick="syncSessions()"><span id="sessionsBtnText">Sincronizar sesiones</span></button>
                 <button id="importBtn" class="ghost-button{% if not show_seed_import %} is-hidden{% endif %}" onclick="importSeedCsvs()" {% if not show_seed_import %}hidden{% endif %}><span id="importBtnText">Importar CSV seed</span></button>
+                <button id="deleteLastRrBtn" class="danger-button" onclick="deleteLastRr()"><span id="deleteLastRrBtnText">Borrar último RR</span></button>
             </div>
             <div id="status" class="status"></div>
         </section>
@@ -515,6 +570,7 @@ HTML_TEMPLATE = """
             const syncBtn = document.getElementById('syncBtn');
             const sessionsBtn = document.getElementById('sessionsBtn');
             const importBtn = document.getElementById('importBtn');
+            const deleteLastRrBtn = document.getElementById('deleteLastRrBtn');
             const rawText = data.last_output || data.output || data.last_error || '';
             setButtonState('hrv', 'idle');
             setButtonState('sessions', 'idle');
@@ -523,6 +579,10 @@ HTML_TEMPLATE = """
             syncBtn.disabled = Boolean(data.running);
             sessionsBtn.disabled = Boolean(data.running);
             if (importBtn) importBtn.disabled = Boolean(data.running);
+            if (deleteLastRrBtn) {
+                const latestRrPath = data?.diagnostics?.latest_rr_path;
+                deleteLastRrBtn.disabled = Boolean(data.running || !latestRrPath);
+            }
             renderTechnicalOutput(rawText);
         }
         async function refreshDashboard() {
@@ -581,6 +641,35 @@ HTML_TEMPLATE = """
             } finally {
                 btn.disabled = false;
                 btnText.textContent = 'Importar CSV seed';
+            }
+        }
+        async function deleteLastRr() {
+            const btn = document.getElementById('deleteLastRrBtn');
+            const btnText = document.getElementById('deleteLastRrBtnText');
+            const statusResponse = await fetch('/api/status');
+            const statusData = await statusResponse.json();
+            const latest = statusData?.diagnostics?.latest_rr_file;
+            if (!latest) {
+                showBanner('error', 'No hay ningún RR reciente para borrar.');
+                return;
+            }
+            const confirmed = window.confirm(`Se moverá a backup el último RR: ${latest}. Después tendrás que repetir la medición y volver a sincronizar. ¿Continuar?`);
+            if (!confirmed) return;
+            btn.disabled = true;
+            btnText.innerHTML = '<span class="spinner"></span> Borrando...';
+            showBanner('info', `Moviendo ${latest} a backup...`);
+            try {
+                const response = await fetch('/api/delete-latest-rr', { method: 'POST' });
+                const data = await response.json();
+                if (!response.ok || !data.success) throw new Error(data.error || 'Error borrando el último RR');
+                renderTechnicalOutput(JSON.stringify(data, null, 2));
+                showBanner('success', `Último RR movido a backup: ${data.deleted_rr_name}`);
+                await refreshDashboard();
+            } catch (error) {
+                showBanner('error', error.message);
+            } finally {
+                btn.disabled = false;
+                btnText.textContent = 'Borrar último RR';
             }
         }
         async function pollSyncStatus() {
@@ -643,7 +732,7 @@ def index():
     return render_template_string(
         HTML_TEMPLATE,
         sync_timeout_sec=_sync_timeout_seconds(),
-        show_seed_import=_env_flag('HRV_SHOW_SEED_IMPORT', False),
+        show_seed_import=_env_flag('HRV_SHOW_SEED_IMPORT', SEED_UPLOAD_DIR.exists()),
     )
 
 
@@ -821,6 +910,41 @@ def import_seed():
             'success': False,
             'error': str(exc),
             'job_type': 'seed_import',
+        }), 400
+
+
+@app.route('/api/delete-latest-rr', methods=['POST'])
+def delete_latest_rr():
+    """Mover a backup el último RR CSV del directorio operativo."""
+    global execution_state
+
+    if execution_state['running']:
+        return jsonify({
+            'success': False,
+            'error': f'Hay un proceso en curso: {_job_label(execution_state.get("job_type"))}. Espera a que termine antes de borrar el último RR.'
+        }), 409
+
+    try:
+        result = _delete_latest_rr()
+        _set_execution_result(
+            'delete_rr',
+            True,
+            json.dumps(result, ensure_ascii=False, indent=2),
+            '',
+            'Último RR movido a backup',
+        )
+        return jsonify({
+            'success': True,
+            'message': 'Último RR movido a backup',
+            'job_type': 'delete_rr',
+            **result,
+        })
+    except Exception as exc:
+        _set_execution_result('delete_rr', False, '', str(exc), 'Error borrando el último RR')
+        return jsonify({
+            'success': False,
+            'error': str(exc),
+            'job_type': 'delete_rr',
         }), 400
 
 

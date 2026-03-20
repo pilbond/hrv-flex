@@ -8,6 +8,8 @@
 - `ENDURANCE_HRV_Spec_Tecnica.md` — fórmulas y algoritmos del gate HRV
 - `ENDURANCE_HRV_Diccionario.md` — diccionario de columnas del gate HRV
 
+**Convención de versión:** esta cabecera identifica la revisión del pipeline de sesiones (`r2026-03-19 v3.2`), no la versión global del sistema HRV. La versión de sistema vigente se declara en `ENDURANCE_HRV_Spec_Tecnica.md`.
+
 ---
 
 ## 0. Para qué sirve este pipeline
