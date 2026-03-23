@@ -17,25 +17,25 @@
     "effort_anchor_end": "2025-08-31"
   },
   "params_hash": "c1c78a78",
-  "build_time": "2026-03-20T09:44:27.875293",
+  "build_time": "2026-03-22T22:39:15.872874",
   "input_range": {
     "oldest": "2025-05-12",
-    "newest": "2026-03-21"
+    "newest": "2026-03-23"
   },
   "counts": {
-    "sessions": 335,
-    "days": 261,
-    "with_streams": 221,
-    "with_notes": 33
+    "sessions": 338,
+    "days": 264,
+    "with_streams": 223,
+    "with_notes": 34
   },
   "stream_sampling": {
-    "n_streams": 221,
-    "dt_mean": 0.9534,
-    "dt_min": 0.213,
-    "dt_max": 1.012,
-    "assumed_1hz": false
+    "n_streams": 223,
+    "dt_mean": 1.0006,
+    "dt_min": 0.997,
+    "dt_max": 1.04,
+    "assumed_1hz": true
   },
   "zones_source_dist": {
-    "icu": 335
+    "icu": 338
   }
 }

@@ -297,4 +297,7 @@ Fecha,Calidad,HR_today,RMSSD_stable,gate_badge,Action,gate_razon_base60,decision
 2026-03-17,OK,52.33038780210396,28.95324277527273,VERDE---,INTENSIDAD_OK,2D_OK,BASE60_ONLY,True,
 2026-03-18,OK,51.28321907733285,37.326789573541824,VERDE+,INTENSIDAD_OK,2D_OK,BASE60_ONLY,True,
 2026-03-19,OK,48.87990255482415,49.94002581927433,VERDE+++,INTENSIDAD_OK,2D_OK,BASE60_ONLY,True,HRV excesivamente alto: posible saturación parasimpática
-2026-03-20,OK,50.970673843833886,35.43436660688302,VERDE--,INTENSIDAD_OK,2D_OK,BASE60_ONLY,True,HRV excesivamente alto: posible saturación parasimpática
+2026-03-20,OK,50.970673843833886,35.43436660688302,VERDE--,INTENSIDAD_OK,2D_OK,BASE60_ONLY,True,HRV excesivamente alto: posible saturación parasimpática | Carga acumulada alta (load_3d=257) | VERDE con carga acumulada (load_3d=257): precaución intensidad
+2026-03-21,OK,51.56401033519329,59.53806364284819,VERDE+++,INTENSIDAD_OK,2D_OK,BASE60_ONLY,True,HRV excesivamente alto: posible saturación parasimpática
+2026-03-22,FLAG_mecánico,53.16082513543464,34.281846308097755,VERDE++,SUAVE_O_DESCANSO,2D_OK,BASE60_ONLY,True,HRV excesivamente alto: posible saturación parasimpática | Dato dudoso: limitar a Z1-Z2 máx 90min | Noche corta (356min < P10=363) | VERDE con carga acumulada (load_3d=230): precaución intensidad
+2026-03-23,OK,48.06163104925108,46.99653761856254,VERDE,INTENSIDAD_OK,2D_OK,BASE60_ONLY,True,HRV excesivamente alto: posible saturación parasimpática
