@@ -5,7 +5,7 @@ add_ans_balance_to_core.py — Calcula SI Baevsky + SD1/SD2 Poincaré desde arch
 ================================================================================
 
 Reprocesa todos los RR de rr_downloads/, extrae el tramo estable con la misma
-lógica que endurance_hrv.py, calcula las 4 métricas ANS balance y las añade como
+lógica que build_hrv_core.py, calcula las 4 métricas ANS balance y las añade como
 columnas nuevas al CORE.csv existente.
 
 Uso:
@@ -35,7 +35,7 @@ import pandas as pd
 
 
 # ============================================================================
-# CONSTANTES (idénticas a endurance_hrv.py)
+# CONSTANTES (idénticas a build_hrv_core.py)
 # ============================================================================
 
 CONSTANTS = {
@@ -92,13 +92,13 @@ def poincare_sd(rr_ms: np.ndarray):
 
 
 # ============================================================================
-# EXTRACCIÓN DEL TRAMO ESTABLE (replica endurance_hrv.py líneas 198-288)
+# EXTRACCIÓN DEL TRAMO ESTABLE (replica build_hrv_core.py líneas 198-288)
 # ============================================================================
 
 def extract_stable_segment_ms(rr_source) -> np.ndarray:
     """
     Dado un archivo RR (Path o file-like), devuelve el array de RR del tramo estable en ms.
-    Misma lógica que endurance_hrv.py: filtros → tail-trim → latencia → tramo.
+    Misma lógica que build_hrv_core.py: filtros → tail-trim → latencia → tramo.
     Devuelve array vacío si el archivo es inválido.
     """
     C = CONSTANTS
@@ -199,7 +199,7 @@ def extract_stable_segment_ms(rr_source) -> np.ndarray:
 
     # Tramo estable
     tramo = t_eff >= t_start_eff
-    rr_tramo_ms = rr_eff[tramo]  # ← en milisegundos, como lo usa endurance_hrv.py
+    rr_tramo_ms = rr_eff[tramo]  # ← en milisegundos, como lo usa build_hrv_core.py
 
     return rr_tramo_ms
 
@@ -416,3 +416,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

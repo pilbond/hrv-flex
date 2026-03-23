@@ -15,11 +15,11 @@ El sistema se organiza en 4 capas conceptuales. Las 3 primeras se ejecutan en un
 | Capa | Responsabilidad | Qué contiene | Dónde vive |
 |------|----------------|--------------|------------|
 | **CORE** | Medición y métricas base | RR → RMSSD, HR, calidad, latencia, Tier 2 (SI, SD1/SD2), datos Polar sueño, datos Intervals carga | Columnas en CORE.csv |
-| **V4-lite** | Estado fisiológico | gate_final, sombras, residual, warnings, quality_flag, veto_agudo, SWC floor | Lógica decisora en pipeline |
+| **FINAL/DASHBOARD** | Estado fisiológico | gate_final, sombras, residual, warnings, quality_flag, veto_agudo, SWC floor | Lógica decisora en pipeline |
 | **ACTION** | Recomendación de acción | recommended_action, reason_text, action_override_reason. Consume gate + confusores + contexto | Bloque final integrado en pipeline |
 | **QA/REPORT** | Gobernanza y evaluación | labels.csv, reporte mensual, canary A/B, model cards | Archivos y scripts auxiliares |
 
-**Principio crítico:** CORE y V4-lite son fisiología/medición. ACTION es operativa. QA es auditoría. No se mezclan.
+**Principio crítico:** CORE y FINAL/DASHBOARD son fisiología/medición. ACTION es operativa. QA es auditoría. No se mezclan.
 
 ### 0.2 Regla fundamental: "Sugiere = Decide conductual"
 
@@ -53,7 +53,7 @@ No hay RECOMMENDER separado. No hay `morning_complexity.csv` aparte. No hay 4 ar
 
 ```
 Archivo RR (H10) + Polar sleep API + Intervals API + labels.csv
-    → endurance_v4lite.py
+    → build_hrv_final_dashboard.py
     → CORE.csv + FINAL.csv + DASHBOARD.csv + metadata.json
 ```
 
@@ -1235,3 +1235,4 @@ Total: 15 propuestas descartadas.
 | P4.8 SampEn (Tier 3) | 62 | ⚠️ Especulativo |
 | Protocolo repetibilidad | 82 | Firme |
 | P4.9 PNS/SNS dashboard | 72 | Límite |
+

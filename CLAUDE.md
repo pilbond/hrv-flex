@@ -1,24 +1,24 @@
 # CLAUDE.md - Polar HRV Automation (Railway) V4
 
-Documento de gobierno operativo y arquitectura para Claude Code. **Referencia principal:** `AGENTS.md`
+Documento de apoyo operativo y arquitectura para Claude Code. **Autoridad operativa principal:** `AGENTS.md`
 
 ---
 
 ## Alcance & Precedencia
 
-Este archivo es **vinculante** para:
+Este archivo es **subordinado a `AGENTS.md`** y solo concreta o replica:
 - Estructura del proyecto y componentes
 - Rutas canónicas de datos y outputs
 - Runtime, variables de entorno, endpoints
 - Seguridad y política de cambios
 
 **Jerarquía documental del repositorio:**
-1. Este `CLAUDE.md` (operación global, runtime, endpoints, despliegue)
-2. `AGENTS.md` (alineación arquitectónica en detalle)
-3. `docs/contracts/` (contratos HRV, esquemas, QA, gating)
-4. `analysis/AGENTS.md` (reglas locales del módulo analítico)
-5. `analysis/ENDURANCE_AGENT_DOMAIN.md` (rol, tono, baseline fisiológico)
-6. `analysis/SESSION_ANALYSIS_METHOD.md` (método operativo del análisis)
+1. `AGENTS.md` (operación global, runtime, endpoints, despliegue)
+2. `docs/contracts/` (contratos HRV, esquemas, QA, gating)
+3. `analysis/AGENTS.md` (reglas locales del módulo analítico)
+4. `analysis/ENDURANCE_AGENT_DOMAIN.md` (rol, tono, baseline fisiológico)
+5. `analysis/SESSION_ANALYSIS_METHOD.md` (método operativo del análisis)
+6. Este `CLAUDE.md` (guía adaptada para Claude Code; no prevalece sobre los documentos anteriores)
 
 ---
 
@@ -28,8 +28,8 @@ Sistema automatizado HRV para un **único atleta**:
 - Autentica con **Polar AccessLink** vía OAuth2 Authorization Code
 - Intenta cubrir RR faltantes desde `ECG.jsonl + ACC.jsonl` en Dropbox primero
 - Usa Polar como fallback cuando Dropbox no está disponible o falta cobertura
-- Procesa RR con `endurance_hrv.py` → `CORE.csv` + `BETA_AUDIT.csv`
-- Genera `FINAL.csv` y `DASHBOARD.csv` con `endurance_v4lite.py`
+- Procesa RR con `build_hrv_core.py` → `CORE.csv` + `BETA_AUDIT.csv`
+- Genera `FINAL.csv` y `DASHBOARD.csv` con `build_hrv_final_dashboard.py`
 - Expone UI web Flask con endpoints de sincronización
 - Sincroniza wellness a Intervals.icu (opcional)
 - Se despliega en **Railway** con volumen persistente en `/data`
@@ -52,7 +52,7 @@ Sistema automatizado HRV para un **único atleta**:
 ```
 ├── data/                              # Datos operativos
 │   ├── rr_downloads/                 # RR crudos, reprocesables
-│   ├── ENDURANCE_HRV_sleep.csv       # Contexto: sueño + carga
+│   ├── ENDURANCE_HRV_sleep.csv       # Sueño Polar (sin carga; carga en sessions_day.csv)
 │   ├── ENDURANCE_HRV_master_CORE.csv
 │   ├── ENDURANCE_HRV_master_FINAL.csv
 │   ├── ENDURANCE_HRV_master_DASHBOARD.csv
@@ -68,8 +68,8 @@ Sistema automatizado HRV para un **único atleta**:
 │   └── SESSION_ANALYSIS_METHOD.md
 ├── web_ui.py                          # Flask + UI móvil
 ├── polar_hrv_automation.py            # Orquestador principal
-├── endurance_hrv.py                   # RR → CORE + BETA_AUDIT
-├── endurance_v4lite.py                # CORE + sleep → FINAL + DASHBOARD
+├── build_hrv_core.py                   # RR → CORE + BETA_AUDIT
+├── build_hrv_final_dashboard.py                # CORE + sleep → FINAL + DASHBOARD
 ├── build_sessions.py                  # Pipeline sesiones Intervals.icu
 ├── egc_to_rr.py                       # ECG.jsonl + ACC.jsonl → RR
 ├── Dockerfile                         # Python 3.11-slim
@@ -89,7 +89,7 @@ Sistema automatizado HRV para un **único atleta**:
 | `ENDURANCE_HRV_master_BETA_AUDIT.csv` | 13 | Auditoría RR, diagnostics |
 | `ENDURANCE_HRV_master_FINAL.csv` | 58 | CORE + gates + contexto + reason_text |
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | 10 | Resumen operativo para dashboard |
-| `ENDURANCE_HRV_sleep.csv` | 34 | Contexto: sueño Polar + carga Intervals |
+| `ENDURANCE_HRV_sleep.csv` | 17 | Sueño Polar (sidecar; carga en sessions_day.csv) |
 | `ENDURANCE_HRV_sessions.csv` | - | Sesiones Intervals.icu (histórico) |
 | `ENDURANCE_HRV_sessions_day.csv` | - | Carga por día (usado por v4lite) |
 
@@ -115,23 +115,21 @@ Orquestador del flujo principal.
 - Descarga RR desde Polar AccessLink (`/v3/exercises`)
 - Intenta cubrir RR faltantes desde **Dropbox primero**
 - Fallback a Polar si Dropbox no cubre las fechas necesarias
-- Ejecuta `endurance_hrv.py` (RR → CORE)
-- Ejecuta `endurance_v4lite.py` (CORE + sleep → FINAL + DASHBOARD)
-- **NUEVO (v4):** Fetch sleep, nightly recharge, actividades Intervals
-- **NUEVO (v4):** Append/upsert contexto a `ENDURANCE_HRV_sleep.csv`
+- Ejecuta `build_hrv_core.py` (RR → CORE)
+- Ejecuta `build_hrv_final_dashboard.py` (CORE + sleep + sessions_day → FINAL + DASHBOARD)
+- Fetch sleep y nightly recharge de Polar; append/upsert a `ENDURANCE_HRV_sleep.csv`
 - Push wellness a Intervals.icu (opcional, según config)
 
-### `endurance_hrv.py`
+### `build_hrv_core.py`
 Procesamiento de RR crudo.
 `RR arrays` → `ENDURANCE_HRV_master_CORE.csv` + `ENDURANCE_HRV_master_BETA_AUDIT.csv`
 
 **Nota:** NO modificar sin cambio de alcance explícito.
 
-### `endurance_v4lite.py`
+### `build_hrv_final_dashboard.py`
 Decisor HRV con contexto.
-Inputs: `CORE.csv` + `sleep.csv` (si existe)
+Inputs: `CORE.csv` + `sleep.csv` + `sessions_day.csv` (ambos opcionales, solo para reason_text)
 Outputs: `FINAL.csv` (58 cols) + `DASHBOARD.csv` (10 cols)
-**v4 nuevo:**
 - Veto agudo: bypass ROLL3 si caída > 2×SWC bajo baseline
 - Reason_text: contexto operativo (sueño, carga, nightly RMSSD discordancia)
 - ln_pre_veto, swc_ln_floor: trazabilidad del veto
@@ -324,16 +322,25 @@ python egc_to_rr.py --dropbox-folder /ruta/carpeta --dropbox-recursive --outdir 
 
 ---
 
-## Snapshot Actual (2026-03-17)
+## Snapshot Actual (2026-03-23)
 
+### HRV global
 - ✅ UI expone `/api/sync`, `/api/sync-sessions`, `/api/status`, endpoints OAuth
 - ✅ `build_sessions.py` genera sesiones + metadata
 - ✅ Flujo recomendado: Dropbox primero, Polar fallback
-- ✅ `ENDURANCE_HRV_sleep.csv` es archivo canónico de contexto
+- ✅ `ENDURANCE_HRV_sleep.csv` es archivo canónico de sueño (17 cols; carga en sessions_day.csv)
 - ✅ UI no permite ejecutar sync HRV y sync-sessions simultáneamente
 - ✅ UI prioriza bloque técnico visible
-- **NUEVO:** Veto agudo + reason_text en v4lite (validado con datos históricos)
-- **NUEVO:** Fetch sleep/nightly/intervals en polar_hrv_automation.py
+- ✅ Veto agudo + reason_text en v4lite operativo
+- ✅ Fetch sleep/nightly/intervals en polar_hrv_automation.py operativo
+
+### Análisis de sesiones (v4 nuevo)
+- ✅ `analysis/analyze_session.py` tolera sesiones sin RR exportable
+- ✅ RR es opcional: `prepare_bundle()` registra fallo sin crashear
+- ✅ `run_analysis()` bifurca: con RR→análisis completo; sin RR→análisis degradado con cost model
+- ✅ `render_report_markdown()` omite secciones RR cuando `rr_unavailable=true`
+- ✅ Report parcial sin RR mantiene cardio/mecánico score + contexto intactos
+- ✅ Documentación actualizada: `AGENTS.md`, `SESSION_ANALYSIS_METHOD.md`, `GUIA_PYTHON_SCRIPTS.md`
 
 Si este snapshot queda desactualizado, actualizar o reducir.
 
@@ -356,3 +363,4 @@ Siempre leer desde:
 
 NO desde worktrees como:
 - `.claude/worktrees/*`
+

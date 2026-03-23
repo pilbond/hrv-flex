@@ -24,7 +24,10 @@ Este comando:
 2. Intenta cubrir faltantes con `egc_to_rr.py` desde Dropbox (JSONL/ZIP -> RR), si está habilitado.
 3. Para fechas restantes, usa Polar como fallback (Body&Mind).
 4. Actualiza `ENDURANCE_HRV_sleep.csv`.
-5. Genera/actualiza:
+5. Ejecuta:
+   - `build_hrv_core.py` para generar `CORE` y `BETA_AUDIT`
+   - `build_hrv_final_dashboard.py` para generar `FINAL` y `DASHBOARD`
+6. Genera/actualiza:
    - `ENDURANCE_HRV_master_CORE.csv`
    - `ENDURANCE_HRV_master_BETA_AUDIT.csv`
    - `ENDURANCE_HRV_master_FINAL.csv`
@@ -82,6 +85,8 @@ scripts\run-python.bat
 scripts\run-web-ui.bat
 python build_sessions.py --update
 ```
+
+`scripts\run-python.bat` lanza `python polar_hrv_automation.py --process`, que a su vez ejecuta `build_hrv_core.py` y `build_hrv_final_dashboard.py`.
 
 ## Seguridad
 

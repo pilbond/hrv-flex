@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-Endurance session RR analyzer v4
---------------------------------
+Endurance session RR analyzer
+-----------------------------
 Session-focused RR analysis for the workflows used in this repo.
 
 Key features:
@@ -21,6 +21,7 @@ import argparse
 import csv
 import json
 import math
+import sys
 import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -34,6 +35,12 @@ try:
     from fitparse import FitFile
 except Exception:  # pragma: no cover - optional import at runtime
     FitFile = None
+
+try:
+    from session_cost_model import build_cost_model_result, load_session
+except Exception:  # pragma: no cover - optional import at runtime
+    build_cost_model_result = None
+    load_session = None
 
 
 RR_MIN_MS = 300.0
@@ -76,10 +83,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--rr", required=True, help="Path to RR CSV (duration,offline)")
     p.add_argument("--fit", help="Optional FIT file (preferred for HR mapping / blocks)")
     p.add_argument("--tcx", help="Optional TCX file (fallback for HR mapping)")
-    p.add_argument("--sport", default="trail", choices=["trail", "bike", "swim"])
+    p.add_argument("--hr-stream-csv", help="Optional normalized stream CSV with sec/hr/speed_kmh/cadence")
+    p.add_argument("--sport", default="trail", choices=["trail", "road", "bike", "swim", "elliptical", "hike"])
     p.add_argument("--vt1", type=float, default=None)
     p.add_argument("--vt2", type=float, default=None)
     p.add_argument("--out-prefix", help="Optional prefix for CSV / JSON outputs")
+    p.add_argument("--sessions-csv", default=None, help="Optional sessions.csv path for local cost model integration")
+    p.add_argument("--session-id", default=None, help="Optional session_id from sessions.csv")
 
     p.add_argument("--rmssd-1m-min-valid-frac", type=float, default=0.85)
     p.add_argument("--rmssd-5m-min-valid-frac", type=float, default=0.90)
@@ -294,7 +304,6 @@ def load_fit_records(fit_path: str) -> tuple[SessionMeta, pd.DataFrame]:
             total_calories=fields.get("total_calories"),
         )
 
-    fit = FitFile(str(fit_path))
     rows: list[dict[str, object]] = []
     start_ts = None
     for msg in fit.get_messages("record"):
@@ -357,6 +366,34 @@ def parse_tcx_hr(tcx_path: str) -> pd.DataFrame:
     return out[["sec", "hr", "speed_kmh", "cadence"]]
 
 
+def load_hr_stream_csv(path: str) -> pd.DataFrame:
+    df = pd.read_csv(path)
+    if df.empty:
+        return pd.DataFrame(columns=["sec", "hr", "speed_kmh", "cadence"])
+
+    rename_map = {}
+    if "time_sec" in df.columns and "sec" not in df.columns:
+        rename_map["time_sec"] = "sec"
+    if "heart_rate" in df.columns and "hr" not in df.columns:
+        rename_map["heart_rate"] = "hr"
+    if "velocity_mps" in df.columns and "speed_kmh" not in df.columns:
+        df["speed_kmh"] = pd.to_numeric(df["velocity_mps"], errors="coerce") * 3.6
+    if rename_map:
+        df = df.rename(columns=rename_map)
+
+    required = {"sec", "hr"}
+    if not required.issubset(df.columns):
+        raise ValueError(f"hr stream CSV must contain at least columns {sorted(required)}")
+
+    out = pd.DataFrame()
+    out["sec"] = pd.to_numeric(df["sec"], errors="coerce")
+    out["hr"] = pd.to_numeric(df["hr"], errors="coerce")
+    out["speed_kmh"] = pd.to_numeric(df["speed_kmh"], errors="coerce") if "speed_kmh" in df.columns else np.nan
+    out["cadence"] = pd.to_numeric(df["cadence"], errors="coerce") if "cadence" in df.columns else np.nan
+    out = out.dropna(subset=["sec"]).sort_values("sec").reset_index(drop=True)
+    return out[["sec", "hr", "speed_kmh", "cadence"]]
+
+
 def interpolate_hr_at_seconds(hr_df: pd.DataFrame, seconds: np.ndarray) -> np.ndarray:
     if hr_df.empty or seconds.size == 0 or hr_df["hr"].dropna().empty:
         return np.full(seconds.shape, np.nan, dtype=float)
@@ -386,6 +423,20 @@ def choose_hr_source(args: argparse.Namespace) -> tuple[SessionMeta, pd.DataFram
                 return meta, fit_df, "FIT", " | ".join(notes) if notes else None
         except Exception as exc:
             notes.append(f"FIT load failed: {exc}")
+
+    if args.hr_stream_csv:
+        try:
+            df = load_hr_stream_csv(args.hr_stream_csv)
+            if not df.empty:
+                return (
+                    SessionMeta(None, None, None, None, None, None, None, None, None),
+                    df,
+                    "STREAM_CSV",
+                    " | ".join(notes) if notes else None,
+                )
+            notes.append("HR stream CSV loaded but empty")
+        except Exception as exc:
+            notes.append(f"HR stream CSV load failed: {exc}")
 
     if args.tcx:
         try:
@@ -536,17 +587,12 @@ def build_rmssd_windows_v4(
 
 
 def rmssd_band_minutes(rmssd_1m_df: pd.DataFrame) -> dict[str, float]:
-    out = {"<=7": 0.0, "8-11": 0.0, ">=12": 0.0}
-    usable = rmssd_1m_df.loc[rmssd_1m_df["usable"]]
-    for _, row in usable.iterrows():
-        val = float(row["rmssd_ms"])
-        if val <= 7:
-            out["<=7"] += 1.0
-        elif val <= 11:
-            out["8-11"] += 1.0
-        else:
-            out[">=12"] += 1.0
-    return {k: round(v, 2) for k, v in out.items()}
+    usable = rmssd_1m_df.loc[rmssd_1m_df["usable"], "rmssd_ms"].astype(float)
+    return {
+        "<=7": round(float((usable <= 7).sum()), 2),
+        "8-11": round(float(((usable > 7) & (usable <= 11)).sum()), 2),
+        ">=12": round(float((usable > 11).sum()), 2),
+    }
 
 
 def build_dfa_windows_v4(
@@ -955,7 +1001,84 @@ def estimate_hr_at_alpha075_v4(
     }
 
 
-def alpha1_by_hr_zone(dfa_df: pd.DataFrame, sport: str, dfa_gate: dict[str, object]) -> dict[str, float | None]:
+def estimate_hr_at_alpha075_crossing(
+    dfa_df: pd.DataFrame,
+    dfa_gate: dict[str, object],
+    min_windows: int = 20,
+    min_near_windows: int = 4,
+) -> dict[str, object]:
+    """Secondary HR@0.75 estimate via crossing interpolation on HR-sorted median bins.
+
+    Relaxes the global r² gate of the strict method. Returns confidence='approximate'
+    (single crossing) or confidence='low' (multiple crossings / marginal bracketing).
+    Only runs when dfa_gate == DFA_OK.
+    """
+    _null = {
+        "hr_at_075_crossing": None,
+        "usable": False,
+        "method": "crossing_hr_sorted",
+        "confidence": None,
+    }
+    if dfa_gate["state"] != "DFA_OK":
+        return {**_null, "reason": f"dfa_gate_{dfa_gate['state'].lower()}"}
+
+    df = dfa_df.loc[
+        dfa_df["usable"] & dfa_df["alpha1"].notna() & dfa_df["center_hr"].notna()
+    ].copy()
+    if len(df) < min_windows:
+        return {**_null, "reason": "too_few_dfa_windows_with_hr"}
+
+    below = (df["alpha1"] < 0.75).sum()
+    above = (df["alpha1"] > 0.75).sum()
+    if below < min_near_windows or above < min_near_windows:
+        return {**_null, "reason": "insufficient_windows_bracketing_075"}
+
+    # Median bins by HR (3 bpm) sorted ascending — same granularity as strict method
+    df["hr_bin"] = np.floor(df["center_hr"].astype(float) / 3.0) * 3.0
+    grouped = (
+        df.groupby("hr_bin", as_index=False)
+        .agg(hr_med=("center_hr", "median"), a1_med=("alpha1", "median"), n=("alpha1", "size"))
+        .sort_values("hr_med")
+        .reset_index(drop=True)
+    )
+    x = grouped["hr_med"].to_numpy(dtype=float)
+    y = grouped["a1_med"].to_numpy(dtype=float)
+
+    crossings: list[float] = []
+    for i in range(len(x) - 1):
+        a1, a2 = y[i], y[i + 1]
+        h1, h2 = x[i], x[i + 1]
+        if a1 == a2:
+            continue
+        if (a1 - 0.75) * (a2 - 0.75) <= 0:
+            hr_est = h1 + (0.75 - a1) * (h2 - h1) / (a2 - a1)
+            if np.isfinite(hr_est):
+                crossings.append(float(hr_est))
+
+    if not crossings:
+        return {**_null, "reason": "no_crossing_found_in_hr_sorted_bins"}
+
+    hr075 = float(np.median(crossings))
+    n_crossings = len(crossings)
+    confidence = "approximate" if n_crossings == 1 else "low"
+
+    return {
+        "hr_at_075_crossing": hr075,
+        "usable": True,
+        "reason": "ok",
+        "n_crossings": n_crossings,
+        "method": "crossing_hr_sorted",
+        "confidence": confidence,
+    }
+
+
+def alpha1_by_hr_zone(
+    dfa_df: pd.DataFrame,
+    sport: str,
+    dfa_gate: dict[str, object],
+    vt1: float | None = None,
+    vt2: float | None = None,
+) -> dict[str, float | None]:
     if dfa_gate["state"] == "DFA_NO_INTERPRETABLE":
         return {
             "alpha1_med_z1_hr": None,
@@ -965,12 +1088,17 @@ def alpha1_by_hr_zone(dfa_df: pd.DataFrame, sport: str, dfa_gate: dict[str, obje
     if dfa_df.empty or dfa_df["center_hr"].dropna().empty:
         return {}
 
-    if sport.lower() == "trail":
-        z1_max, z2_min, z2_max, z3_min = 144, 145, 161, 162
+    if vt1 is not None and vt2 is not None:
+        z1_max = float(vt1)
+        z2_min = float(vt1)
+        z2_max = float(vt2)
+        z3_min = float(vt2)
+    elif sport.lower() in {"trail", "road", "hike", "elliptical"}:
+        z1_max, z2_min, z2_max, z3_min = 144.0, 144.0, 161.0, 161.0
     elif sport.lower() == "bike":
-        z1_max, z2_min, z2_max, z3_min = 139, 140, 156, 157
+        z1_max, z2_min, z2_max, z3_min = 139.0, 139.0, 156.0, 156.0
     elif sport.lower() == "swim":
-        z1_max, z2_min, z2_max, z3_min = 134, 135, 149, 150
+        z1_max, z2_min, z2_max, z3_min = 134.0, 134.0, 149.0, 149.0
     else:
         return {}
 
@@ -981,7 +1109,7 @@ def alpha1_by_hr_zone(dfa_df: pd.DataFrame, sport: str, dfa_gate: dict[str, obje
     a1 = df["alpha1"].to_numpy(dtype=float)
     masks = {
         "alpha1_med_z1_hr": hr <= z1_max,
-        "alpha1_med_z2_hr": (hr >= z2_min) & (hr <= z2_max),
+        "alpha1_med_z2_hr": (hr > z2_min) & (hr <= z2_max),
         "alpha1_med_z3_hr": hr >= z3_min,
     }
     out: dict[str, float | None] = {}
@@ -1102,6 +1230,200 @@ def format_summary(summary: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
+def build_integrated_session_cost(args: argparse.Namespace) -> dict[str, object] | None:
+    if not args.sessions_csv or not args.session_id:
+        return None
+    if load_session is None or build_cost_model_result is None:
+        return {"usable": False, "reason": "session_cost_model_import_unavailable"}
+    try:
+        row = load_session(Path(args.sessions_csv), args.session_id)
+        result = build_cost_model_result(row)
+        result["usable"] = True
+        return result
+    except Exception as exc:
+        return {"usable": False, "reason": f"session_cost_model_error: {exc}"}
+
+
+def build_rr_context(
+    dfa_gate: dict[str, object],
+    hr075_summary: dict[str, object],
+    rmssd_1m_usable: dict[str, object],
+    alpha1_zone_medians: dict[str, float | None],
+    duration_consistency: dict[str, object] | None = None,
+    hr075_crossing: dict[str, object] | None = None,
+) -> dict[str, object]:
+    evidence: list[str] = []
+    modifier = "unavailable"
+    interpretation = "RR no disponible o no interpretable para modular la lectura de sessions"
+
+    if dfa_gate["state"] != "DFA_OK":
+        if rmssd_1m_usable["usable"]:
+            modifier = "soften"
+            interpretation = "RR parcialmente usable: aporta contexto de variabilidad, pero no sostiene una lectura DFA robusta"
+            evidence.append(f"dfa_gate = {dfa_gate['state']}")
+            evidence.append("rmssd_1min usable")
+        else:
+            evidence.append(f"dfa_gate = {dfa_gate['state']}")
+            evidence.append("rmssd_1min no usable")
+        return {
+            "modifier": modifier,
+            "interpretation": interpretation,
+            "evidence": evidence,
+        }
+
+    evidence.append("dfa_gate = DFA_OK")
+    if hr075_summary["usable"]:
+        modifier = "confirm"
+        interpretation = "RR confirma una lectura interna coherente y usable para matizar la carga"
+        evidence.append("HR@0.75 usable")
+    else:
+        modifier = "soften"
+        crossing_usable = hr075_crossing is not None and hr075_crossing.get("usable", False)
+        if crossing_usable:
+            hr_cross_val = hr075_crossing.get("hr_at_075_crossing")
+            cross_conf = hr075_crossing.get("confidence", "low")
+            interpretation = (
+                f"RR usable para contexto; HR@0.75 estricto no usable ({hr075_summary['reason']}), "
+                f"pero interpolacion de cruce HR-sorted estima ~{hr_cross_val:.0f} lpm (confianza: {cross_conf})"
+            )
+            evidence.append(f"HR@0.75 no usable (strict): {hr075_summary['reason']}")
+            evidence.append(f"HR@0.75 crossing approx: {hr_cross_val:.1f} lpm (confidence={cross_conf})")
+        else:
+            interpretation = "RR usable para contexto, pero sin HR@0.75 robusto; conviene prudencia en la inferencia fina"
+            evidence.append(f"HR@0.75 no usable: {hr075_summary['reason']}")
+
+    z2_a1 = alpha1_zone_medians.get("alpha1_med_z2_hr") if alpha1_zone_medians else None
+    z3_a1 = alpha1_zone_medians.get("alpha1_med_z3_hr") if alpha1_zone_medians else None
+    if z2_a1 is not None:
+        evidence.append(f"alpha1_med_z2_hr = {z2_a1:.3f}")
+    if z3_a1 is not None:
+        evidence.append(f"alpha1_med_z3_hr = {z3_a1:.3f}")
+    if z2_a1 is not None and z3_a1 is not None and z3_a1 >= z2_a1:
+        modifier = "question"
+        interpretation = "RR cuestiona la lectura fina: la gradiente alpha1 por zonas HR no es coherente"
+        evidence.append("gradiente alpha1 por zonas no coherente")
+
+    if duration_consistency:
+        state = duration_consistency.get("state")
+        if state == "WARN":
+            evidence.append(
+                f"coherencia temporal RR-sesion en advertencia: diff {duration_consistency.get('abs_diff_min')} min"
+            )
+            if modifier == "confirm":
+                modifier = "soften"
+                interpretation = "RR usable, pero la coherencia temporal RR-sesion introduce prudencia adicional"
+        elif state == "MISMATCH":
+            evidence.append(
+                f"coherencia temporal RR-sesion no valida: diff {duration_consistency.get('abs_diff_min')} min"
+            )
+            modifier = "question"
+            interpretation = "RR cuestionable para lectura fina: la duracion RR no es coherente con la sesion"
+
+    return {
+        "modifier": modifier,
+        "interpretation": interpretation,
+        "evidence": evidence,
+    }
+
+
+def build_final_cost_interpretation(
+    session_cost_model: dict[str, object] | None,
+    rr_context: dict[str, object],
+) -> dict[str, object] | None:
+    if not session_cost_model or not session_cost_model.get("usable", False):
+        return None
+
+    dominant = session_cost_model.get("coste_dominante")
+    rr_modifier = rr_context.get("modifier")
+    label = str(dominant)
+    note = "Lectura primaria derivada desde sessions"
+
+    if rr_modifier == "confirm":
+        note = f"Sessions sugiere `{dominant}` y RR lo confirma"
+    elif rr_modifier == "soften":
+        note = f"Sessions sugiere `{dominant}`; RR anade contexto pero con prudencia"
+    elif rr_modifier == "question":
+        note = f"Sessions sugiere `{dominant}`, pero RR cuestiona la lectura fina"
+    elif rr_modifier == "unavailable":
+        note = f"Sessions sugiere `{dominant}`; RR no fue interpretable"
+
+    return {
+        "label": label,
+        "rr_modifier": rr_modifier,
+        "note": note,
+    }
+
+
+def assess_duration_consistency(
+    rr_input_qa: dict[str, object],
+    session_meta: SessionMeta,
+    hr_df: pd.DataFrame,
+) -> dict[str, object]:
+    rr_raw_min = float(rr_input_qa.get("raw_duration_min_parseable") or 0.0)
+    rr_accepted_min = float(rr_input_qa.get("accepted_duration_min") or 0.0)
+
+    fit_elapsed_min = (
+        float(session_meta.total_elapsed_time) / 60.0
+        if session_meta.total_elapsed_time is not None
+        else None
+    )
+    hr_track_min = None
+    if not hr_df.empty and "sec" in hr_df.columns:
+        sec_vals = hr_df["sec"].dropna().to_numpy(dtype=float)
+        if sec_vals.size:
+            hr_track_min = float(np.nanmax(sec_vals) / 60.0)
+
+    reference_source = None
+    reference_duration_min = None
+    if fit_elapsed_min is not None:
+        reference_source = "fit_elapsed"
+        reference_duration_min = fit_elapsed_min
+    elif hr_track_min is not None:
+        reference_source = "hr_track"
+        reference_duration_min = hr_track_min
+
+    if reference_duration_min is None or rr_raw_min <= 0:
+        return {
+            "state": "UNKNOWN",
+            "reason": "missing_reference_duration",
+            "reference_source": reference_source,
+            "reference_duration_min": reference_duration_min,
+            "rr_raw_duration_min": rr_raw_min,
+            "rr_accepted_duration_min": rr_accepted_min,
+            "hr_track_duration_min": hr_track_min,
+            "fit_elapsed_duration_min": fit_elapsed_min,
+            "abs_diff_min": None,
+            "rel_diff": None,
+        }
+
+    abs_diff_min = abs(rr_raw_min - reference_duration_min)
+    rel_diff = abs_diff_min / max(reference_duration_min, 1e-9)
+    mismatch_threshold_min = max(8.0, reference_duration_min * 0.12)
+    warn_threshold_min = max(3.0, reference_duration_min * 0.05)
+    if abs_diff_min > mismatch_threshold_min:
+        state = "MISMATCH"
+        reason = "rr_duration_not_coherent_with_session_duration"
+    elif abs_diff_min > warn_threshold_min:
+        state = "WARN"
+        reason = "rr_duration_slightly_off_vs_session_duration"
+    else:
+        state = "OK"
+        reason = "ok"
+
+    return {
+        "state": state,
+        "reason": reason,
+        "reference_source": reference_source,
+        "reference_duration_min": round(reference_duration_min, 3),
+        "rr_raw_duration_min": round(rr_raw_min, 3),
+        "rr_accepted_duration_min": round(rr_accepted_min, 3),
+        "hr_track_duration_min": None if hr_track_min is None else round(hr_track_min, 3),
+        "fit_elapsed_duration_min": None if fit_elapsed_min is None else round(fit_elapsed_min, 3),
+        "abs_diff_min": round(abs_diff_min, 3),
+        "rel_diff": round(rel_diff, 4),
+    }
+
+
 def main() -> int:
     args = parse_args()
     rr_df_core, qa_base = load_rr_csv(args.rr)
@@ -1137,7 +1459,15 @@ def main() -> int:
             dfa_df = dfa_df.copy()
             dfa_df["center_hr"] = np.nan
     hr075_summary = estimate_hr_at_alpha075_v4(dfa_df, dfa_gate, args)
-    alpha1_zone_medians = alpha1_by_hr_zone(dfa_df, args.sport, dfa_gate)
+    hr075_crossing = estimate_hr_at_alpha075_crossing(dfa_df, dfa_gate)
+    alpha1_zone_medians = alpha1_by_hr_zone(
+        dfa_df,
+        args.sport,
+        dfa_gate,
+        vt1=args.vt1,
+        vt2=args.vt2,
+    )
+    duration_consistency = assess_duration_consistency(rr_input_qa, session_meta, hr_df)
 
     offset_sec = float(args.offset_sec)
     target_speeds = None
@@ -1152,6 +1482,16 @@ def main() -> int:
         offset_sec, observed_speeds = autodetect_offset(hr_df, target_speeds, args.block_sec, args.auto_offset_max_sec)
         block_labels = [f"{speed:.1f} km/h" for speed in target_speeds]
     blocks = summarize_blocks(dfa_df, hr_df, args, offset_sec, block_labels)
+    session_cost_model = build_integrated_session_cost(args)
+    rr_context = build_rr_context(
+        dfa_gate,
+        hr075_summary,
+        rmssd_1m_usable,
+        alpha1_zone_medians,
+        duration_consistency=duration_consistency,
+        hr075_crossing=hr075_crossing,
+    )
+    final_cost_interpretation = build_final_cost_interpretation(session_cost_model, rr_context)
 
     summary = {
         "rr_path": args.rr,
@@ -1175,7 +1515,12 @@ def main() -> int:
         "dfa_gate": dfa_gate,
         "hr_mapping": hr_mapping,
         "hr_at_075": hr075_summary,
+        "hr_at_075_crossing": hr075_crossing,
+        "duration_consistency": duration_consistency,
         "alpha1_median_by_hr_zone": alpha1_zone_medians,
+        "session_cost_model": session_cost_model,
+        "rr_context": rr_context,
+        "final_cost_interpretation": final_cost_interpretation,
         "blocks_count": len(blocks),
         "offset_sec": offset_sec,
         "target_speeds_kmh": target_speeds,
@@ -1212,7 +1557,7 @@ def main() -> int:
         with (out_dir / f"{prefix.name}_summary.json").open("w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2, ensure_ascii=False)
 
-    print("\n" + format_summary(summary))
+    print("\n" + format_summary(summary), file=sys.stderr)
     return 0
 
 

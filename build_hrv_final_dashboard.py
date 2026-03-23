@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ENDURANCE HRV — Decisor V4-lite
-===============================
+ENDURANCE HRV — Decisor FINAL/DASHBOARD
+======================================
 
 Revisión de módulo: r2026-03-19
 Contrato esperado: FINAL 58 cols, DASHBOARD 10 cols

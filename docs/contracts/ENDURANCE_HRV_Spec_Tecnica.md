@@ -37,8 +37,8 @@ Reglas:
 
 Mapa operativo actual:
 - Sistema vigente: `ENDURANCE HRV V4.2`
-- Módulo RR -> CORE/BETA: `endurance_hrv.py`, revisión `r2026-03-19`
-- Módulo CORE -> FINAL/DASHBOARD: `endurance_v4lite.py`, revisión `r2026-03-19`
+- Módulo RR -> CORE/BETA: `build_hrv_core.py`, revisión `r2026-03-19`
+- Módulo CORE -> FINAL/DASHBOARD: `build_hrv_final_dashboard.py`, revisión `r2026-03-19`
 - Contrato estructural HRV: `ENDURANCE_HRV_Estructura.md`, revisión `r2026-03-19 v3.3`
 - Contrato de sesiones: `ENDURANCE_HRV_Sessions_Schema.md`, revisión `r2026-03-19 v3.2`
 
@@ -355,7 +355,7 @@ Si el día NO es INVALID, se clasifica entre OK (fiable) y FLAG_mecánico (exist
 
 De lo contrario, `Calidad = OK` si se cumplen **todas** estas condiciones:
 ```
-Artifact_pct <= 10%  AND
+Artifact_pct <= 15%  AND
 60 <= Lat_eff <= 600  AND
 HRV_Stability = OK
 ```
@@ -382,7 +382,7 @@ Cada flag marca una incidencia específica detectada durante el procesamiento. U
 | Flag | Cuándo se activa | Consecuencia |
 |------|------------------|--------------|
 | `LAT_NAN` | No se detectó punto de estabilización | Fuerza FLAG_mecánico |
-| `ART_GT10` | Artifact_pct > 10% | Impide Calidad=OK |
+| `ART_GT15` | Artifact_pct > 15% | Impide Calidad=OK |
 | `ART_GT20` | Artifact_pct > 20% | Fuerza INVALID |
 | `STAB_TAIL_SHORT` | Cola < 75 s o n_pairs_tail < 60 | Fuerza Unstable |
 | `STAB_CV120_HIGH` | CV de cola > 0.20 | Fuerza Unstable |
@@ -410,7 +410,7 @@ Claves mínimas (siempre presentes):
 
 ## 6. Beta / cRMSSD (legacy, para BETA_AUDIT)
 
-**Objetivo:** calcular un modelo alométrico que captura la relación natural entre pulso y variabilidad cardíaca, y usarlo para "corregir" el RMSSD descontando el efecto del pulso. Este modelo era el corazón del sistema V3 pero en V4-lite ya no se usa para el gate — se conserva solo para comparación histórica.
+**Objetivo:** calcular un modelo alométrico que captura la relación natural entre pulso y variabilidad cardíaca, y usarlo para "corregir" el RMSSD descontando el efecto del pulso. Este modelo era el corazón del sistema V3 pero en el decisor FINAL/DASHBOARD ya no se usa para el gate — se conserva solo para comparación histórica.
 
 **IMPORTANTE:** Beta/cRMSSD se calcula como best-effort. Si falla por cualquier motivo, CORE se escribe igualmente (las columnas de BETA_AUDIT quedan con NaN).
 
@@ -457,9 +457,9 @@ Donde `RR_ref = mediana(RRbar_s)` en la ventana de 90 días. La idea: si tu RR d
 
 ---
 
-# PARTE II: Decisor CORE → FINAL/DASHBOARD (V4-lite)
+# PARTE II: Decisor CORE → FINAL/DASHBOARD
 
-**Revisión de módulo:** V4-lite r2026-03-19  
+**Revisión de módulo:** FINAL/DASHBOARD r2026-03-19
 **Objetivo:** a partir de las métricas fisiológicas del día (CORE), decidir si puedes meter intensidad, si debes moderar, o si toca descansar. El decisor es robusto y **no depende operativamente del modelo beta/cRMSSD** (que queda relegado a BETA_AUDIT).
 
 El decisor funciona en 7 pasos: clasificación de calidad → suavizado → baselines → gate 2D → override por sombras → residual → acción.
@@ -490,7 +490,7 @@ ENDURANCE_HRV_sleep.csv (entrada opcional, para reason_text)
                     │
                     ▼
 ┌─────────────────────────────────────────┐
-│  endurance_v4lite.py                    │
+│  build_hrv_final_dashboard.py                    │
 │  1. Clasificar calidad (clean/flag)     │
 │  2. Suavizado ROLL3 (solo clean)        │
 │  3. Baselines BASE60 + SWC             │
@@ -519,8 +519,8 @@ ENDURANCE_HRV_sleep.csv (entrada opcional, para reason_text)
 | Categoría | Condición | Qué pasa con el día |
 |-----------|-----------|---------------------|
 | INVALID | `Calidad == INVALID` | Se ignora completamente: no entra en ROLL3, ni en baselines, ni en residual. Gate = NO. |
-| quality_flag | `Calidad=FLAG_mecánico` OR `HRV_Stability=Unstable` OR `Artifact_pct>10%` | Se calcula el gate 2D (para no perder la señal de tendencia), pero la acción se fuerza a SUAVE — no se puede justificar intensidad con un dato dudoso. |
-| clean | `Calidad=OK` AND `HRV_Stability=OK` AND `Artifact_pct<=10%` | Opera normalmente. Es el único tipo de día que entra en ROLL3 y baselines. |
+| quality_flag | `Calidad=FLAG_mecánico` OR `HRV_Stability=Unstable` OR `Artifact_pct>15%` | Se calcula el gate 2D (para no perder la señal de tendencia), pero la acción se fuerza a SUAVE — no se puede justificar intensidad con un dato dudoso. |
+| clean | `Calidad=OK` AND `HRV_Stability=OK` AND `Artifact_pct<=15%` | Opera normalmente. Es el único tipo de día que entra en ROLL3 y baselines. |
 
 ### 9.2 Reglas clave
 
@@ -917,8 +917,8 @@ El contrato de sessions/sessions_day/metadata está en `ENDURANCE_HRV_Sessions_S
 python polar_hrv_automation.py --process
 
 # 2. Reproceso manual (si necesitas depurar por pasos)
-python endurance_hrv.py --rr-file data/rr_downloads/Franz_YYYY-MM-DD_RR.csv --data-dir data
-python endurance_v4lite.py --data-dir data
+python build_hrv_core.py --rr-file data/rr_downloads/Franz_YYYY-MM-DD_RR.csv --data-dir data
+python build_hrv_final_dashboard.py --data-dir data
 
 # 3. Ver resultado del día
 tail -1 data/ENDURANCE_HRV_master_DASHBOARD.csv
@@ -999,4 +999,5 @@ Secciones obligatorias:
 ---
 
 Fin del documento.
+
 

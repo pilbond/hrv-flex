@@ -40,11 +40,11 @@ Railway (con Volume en `/data`):
 ## Uso manual (si necesitas rehacer o depurar)
 1) Procesar RR a CORE/BETA_AUDIT:
 
-python endurance_hrv.py --rr-dir data/rr_downloads --data-dir data
+python build_hrv_core.py --rr-dir data/rr_downloads --data-dir data
 
-2) Generar gate V4-lite:
+2) Generar FINAL/DASHBOARD:
 
-python endurance_v4lite.py --data-dir data
+python build_hrv_final_dashboard.py --data-dir data
 
 3) (Opcional) Convertir cloud JSONL/ZIP -> RR manualmente:
 
@@ -65,3 +65,4 @@ Si no hay sesión en un día, el CSV simplemente no incluye esa fecha. Es normal
 
 ## Migración desde V3 (solo histórico)
 python __endurance_migrate.py --master-all ENDURANCE_HRV_master_ALL.csv
+

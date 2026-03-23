@@ -1,4 +1,4 @@
-# ENDURANCE HRV — Diccionario de Columnas (V4-lite)
+# ENDURANCE HRV — Diccionario de Columnas (FINAL/DASHBOARD)
 
 **Revisión:** r2026-03-01 v4.1 (context simplificado + sessions pipeline)  
 **Estado:** Producción
@@ -73,7 +73,8 @@
 |-------|---------|
 | <5% | Excelente |
 | 5-10% | Bueno |
-| 10-20% | Límite (FLAG_mecánico) |
+| 10-15% | Aceptable con vigilancia |
+| 15-20% | Límite (FLAG_mecánico) |
 | >20% | Malo (INVALID) |
 
 ### Tiempo_Estabilizacion
@@ -90,7 +91,7 @@
 
 ## 2. CORE (medición canónica) — 18 columnas
 
-Generado por `endurance_hrv.py`. Contiene la señal fisiológica **sin decisiones**.
+Generado por `build_hrv_core.py`. Contiene la señal fisiológica **sin decisiones**.
 
 ### Identificación
 
@@ -123,7 +124,7 @@ Generado por `endurance_hrv.py`. Contiene la señal fisiológica **sin decisione
 
 | Columna | Qué es | Uso |
 |---------|--------|-----|
-| `SI_baevsky` | Índice de estrés de Baevsky. Resume la compactación del histograma RR y suele aumentar cuando la señal apunta a mayor rigidez o carga simpática. En este pipeline queda como señal complementaria, útil para auditoría o análisis futuro. | Informativo; no afecta al gate V4-lite |
+| `SI_baevsky` | Índice de estrés de Baevsky. Resume la compactación del histograma RR y suele aumentar cuando la señal apunta a mayor rigidez o carga simpática. En este pipeline queda como señal complementaria, útil para auditoría o análisis futuro. | Informativo; no afecta al decisor FINAL/DASHBOARD |
 | `SD1` | SD1 del diagrama de Poincare. Captura la variabilidad de corto plazo, muy relacionada con la misma dinámica que refleja RMSSD. Sirve como métrica adicional para leer la forma de la nube RR. | Informativo |
 | `SD2` | SD2 del diagrama de Poincare. Captura la variabilidad de más largo plazo dentro de la serie RR estable. Ayuda a distinguir si la señal cambia solo beat-to-beat o también en una escala algo más lenta. | Informativo |
 | `SD1_SD2_ratio` | Relación entre la variabilidad rápida (`SD1`) y la más lenta (`SD2`). Útil para interpretar la "geometría" del Poincare y detectar patrones menos visibles si solo miras RMSSD. | Informativo |
@@ -132,14 +133,14 @@ Generado por `endurance_hrv.py`. Contiene la señal fisiológica **sin decisione
 
 | Columna | Qué es |
 |---------|--------|
-| `Flags` | Lista de incidencias detectadas durante el procesamiento, separadas por `\|`. Cada flag indica un problema o condición específica: estabilidad, artefactos, latencia, modo beta, etc. Ejemplo: `LAT_NAN\|ART_GT10` significa que no se detectó estabilización y además los artefactos superaron el 10%. Si está vacío, no se detectaron incidencias relevantes. |
+| `Flags` | Lista de incidencias detectadas durante el procesamiento, separadas por `\|`. Cada flag indica un problema o condición específica: estabilidad, artefactos, latencia, modo beta, etc. Ejemplo: `LAT_NAN\|ART_GT15` significa que no se detectó estabilización y además los artefactos superaron el 15%. Si está vacío, no se detectaron incidencias relevantes. |
 | `Notes` | Metadatos técnicos del procesamiento en formato `clave=valor`. Incluye el fichero fuente, duraciones de cada fase, conteos de latidos en cada etapa y desglose de artefactos por tipo. Está pensado para auditoría y depuración, no para lectura diaria. |
 
 ---
 
 ## 3. FINAL (gate + auditoría extendida) — 58 columnas
 
-Generado por `endurance_v4lite.py`. Contiene:
+Generado por `build_hrv_final_dashboard.py`. Contiene:
 
 - suavizado ROLL3 (solo días clean)
 - baseline BASE60 + SWC
@@ -265,7 +266,7 @@ Tags:
 
 | Columna | Qué es | Valores |
 |---------|--------|---------|
-| `quality_flag` | ¿El dato de hoy es sospechoso? True si la medición tiene algún problema de fiabilidad (FLAG_mecánico, Unstable, o artefactos >10%) pero no llega a ser INVALID. Cuando es True, la acción se fuerza a SUAVE aunque el gate pinte VERDE — no se confía en el dato para justificar intensidad. | True / False |
+| `quality_flag` | ¿El dato de hoy es sospechoso? True si la medición tiene algún problema de fiabilidad (FLAG_mecánico, Unstable, o artefactos >15%) pero no llega a ser INVALID. Cuando es True, la acción se fuerza a SUAVE aunque el gate pinte VERDE — no se confía en el dato para justificar intensidad. | True / False |
 | `Color_operativo` | Duplicado explícito de gate_final, sin transformaciones ni capas intermedias. Existe para que no haya duda de qué color gobierna la acción. Si lees gate_final, es exactamente lo mismo. | VERDE / ÁMBAR / ROJO / NO |
 | `Action` | La instrucción operativa del día: qué tipo de entrenamiento permite el gate. INTENSIDAD_OK = puedes ejecutar intervalos o sesiones duras. Z2_O_TEMPO_SUAVE = nada explosivo, pero puedes hacer volumen en zona aeróbica. SUAVE_O_DESCANSO = regenerativo o descanso total. | INTENSIDAD_OK / Z2_O_TEMPO_SUAVE / SUAVE_O_DESCANSO |
 | `Action_detail` | Matiza la acción con contexto: EJECUTAR_PLAN (verde limpio, adelante con lo planificado), SIN_HIIT (ámbar, quita intensidad pero mantén volumen), SUAVE_QUALITY (el gate podría ser bueno pero el dato no es fiable), SUAVE (rojo puntual o NO sin señal suficiente), DESCARGA (acumulación de rojos → reducir carga semanal). | EJECUTAR_PLAN / SIN_HIIT / SUAVE_QUALITY / SUAVE / DESCARGA |
@@ -332,11 +333,11 @@ Subconjunto de FINAL para mirar en 10 segundos. Solo lo esencial para decidir qu
 
 ## 5. BETA_AUDIT (forense V3) — 13 columnas
 
-Conservado para comparación histórica con el sistema anterior (V3). **No afecta al gate V4-lite.** Las primeras 5 columnas (`Fecha`, `HR_stable`, `RRbar_s`, `RMSSD_stable`, `lnRMSSD`) son idénticas a CORE y no se repiten aquí.
+Conservado para comparación histórica con el sistema anterior (V3). **No afecta al decisor FINAL/DASHBOARD.** Las primeras 5 columnas (`Fecha`, `HR_stable`, `RRbar_s`, `RMSSD_stable`, `lnRMSSD`) son idénticas a CORE y no se repiten aquí.
 
 | Columna | Qué es |
 |---------|--------|
-| `cRMSSD` | RMSSD "corregido" por la relación natural entre pulso y variabilidad. Descuenta el efecto de que si tu pulso sube, tu RMSSD baja naturalmente (sin que haya fatiga). En V3 era el indicador principal; en V4-lite lo sustituye el Gate 2D, que compara ambas señales simultáneamente en lugar de corregir una por la otra. |
+| `cRMSSD` | RMSSD "corregido" por la relación natural entre pulso y variabilidad. Descuenta el efecto de que si tu pulso sube, tu RMSSD baja naturalmente (sin que haya fatiga). En V3 era el indicador principal; en el decisor FINAL/DASHBOARD lo sustituye el Gate 2D, que compara ambas señales simultáneamente en lugar de corregir una por la otra. |
 | `beta_mode` | Estado del modelo alométrico que calcula la corrección. `active` = funcionando normal. `clipped` = el coeficiente beta salió fuera del rango plausible [0.1, 3.0] y se recortó. `frozen` = el modelo era inestable (R² bajo o salto grande), se usó el valor del día anterior. `none` = no había suficiente historial para estimar beta. |
 | `beta_est_90d` | El coeficiente beta estimado con los últimos 90 días. Indica cuánto cambia tu HRV por cada cambio unitario en tu pulso (en escala logarítmica). Típicamente entre 0.5 y 2.0. |
 | `beta_use_90d` | El beta realmente usado para la corrección. Puede diferir de beta_est si hubo clipping o freezing. |
@@ -406,15 +407,15 @@ El gate 2D solo ve HRV y pulso. Pero a menudo quieres saber *por qué* tu HRV ba
 | Flag | Qué ha pasado | Consecuencia |
 |------|---------------|--------------|
 | `LAT_NAN` | No se detectó ningún punto de estabilización en toda la grabación. La señal nunca dejó de moverse. Puede ser mecánico (banda suelta, movimiento) o fisiológico (activación simpática fuerte). | Fuerza `Calidad = FLAG_mecánico`. El día no será clean. |
-| `ART_GT10` | Los artefactos (latidos marcados como offline, fuera de rango, o con saltos bruscos) superan el 10% del registro total. Hay suficiente señal para calcular métricas, pero con ruido significativo. | Impide `Calidad = OK`. El día será FLAG_mecánico como mínimo. |
+| `ART_GT15` | Los artefactos (latidos marcados como offline, fuera de rango, o con saltos bruscos) superan el 15% del registro total. Hay suficiente señal para calcular métricas, pero con ruido significativo. | Impide `Calidad = OK`. El día será FLAG_mecánico como mínimo. |
 | `ART_GT20` | Artefactos por encima del 20%. Demasiado ruido para confiar en cualquier métrica. | Fuerza `Calidad = INVALID`. Día perdido. |
 | `STAB_TAIL_SHORT` | La cola de la grabación (últimos 120 s) tiene menos de 75 s de material utilizable o menos de 60 pares de latidos. No hay suficientes datos al final para verificar la estabilidad. | Fuerza `HRV_Stability = Unstable`. |
 | `STAB_CV120_HIGH` | El coeficiente de variación de la cola (últimos 120 s) supera el 20%. Los intervalos RR al final de la grabación oscilan demasiado — la señal no se había estabilizado realmente. | Fuerza `HRV_Stability = Unstable`. |
 | `STAB_LAST2_NAN` | No se pudo calcular RMSSD_stable_last2 (la variabilidad de la cola). Normalmente porque hay muy pocos pares de latidos válidos en los últimos 120 s. | Fuerza `HRV_Stability = Unstable`. |
 | `STAB_LAST2_MISMATCH` | La variabilidad de la cola (RMSSD_stable_last2) discrepa más de un 15% con la del tramo completo (RMSSD_stable). Indica que la señal estaba cambiando significativamente al final de la grabación. | Fuerza `HRV_Stability = Unstable`. |
-| `BETA_CLIPPED` | El coeficiente beta estimado cayó fuera del rango plausible [0.1, 3.0] y se recortó al límite más cercano. | Solo informativo (afecta a BETA_AUDIT, no al gate V4-lite). |
-| `BETA_FROZEN` | El modelo beta era inestable (R² < 0.10 o salto respecto al día anterior > 0.15). Se usó el beta del día anterior en lugar del nuevo. | Solo informativo (afecta a BETA_AUDIT, no al gate V4-lite). |
-| `BETA_NONE` | No había suficiente historial (< 60 días válidos en ventana de 90d, o variación de RR insuficiente) para estimar beta. | Solo informativo (afecta a BETA_AUDIT, no al gate V4-lite). |
+| `BETA_CLIPPED` | El coeficiente beta estimado cayó fuera del rango plausible [0.1, 3.0] y se recortó al límite más cercano. | Solo informativo (afecta a BETA_AUDIT, no al decisor FINAL/DASHBOARD). |
+| `BETA_FROZEN` | El modelo beta era inestable (R² < 0.10 o salto respecto al día anterior > 0.15). Se usó el beta del día anterior en lugar del nuevo. | Solo informativo (afecta a BETA_AUDIT, no al decisor FINAL/DASHBOARD). |
+| `BETA_NONE` | No había suficiente historial (< 60 días válidos en ventana de 90d, o variación de RR insuficiente) para estimar beta. | Solo informativo (afecta a BETA_AUDIT, no al decisor FINAL/DASHBOARD). |
 | `RESCUE_MODE` | El procesamiento normal falló en algún punto, pero se consiguió rescatar las métricas básicas de CORE. El dato existe pero se generó sin el pipeline completo. | Solo informativo. Revisar Notes para detalles del fallo. |
 
 ---
@@ -515,7 +516,7 @@ No todos los días con medición entran en los cálculos de ROLL3 y baselines. S
 Un día FLAG_mecánico **sí** genera gate y acción (con quality_flag=True), pero **no** contamina las ventanas de referencia. Así protegemos la calidad del baseline.
 
 ### quality_flag
-"El dato existe, pero no me fío lo suficiente como para meter intensidad." Salta cuando el día es `FLAG_mecánico`, `Unstable`, o tiene `Artifact_pct > 10%`, pero no llega a ser INVALID. El sistema calcula el gate 2D igualmente (porque perder la señal de tendencia es peor que no tenerla), pero la acción se **fuerza a SUAVE** (`Action_detail = SUAVE_QUALITY`) independientemente del color. En la práctica: si el gate sale VERDE pero tienes quality_flag, no te lances a hacer intervalos — el dato que lo justifica no es fiable.
+"El dato existe, pero no me fío lo suficiente como para meter intensidad." Salta cuando el día es `FLAG_mecánico`, `Unstable`, o tiene `Artifact_pct > 15%`, pero no llega a ser INVALID. El sistema calcula el gate 2D igualmente (porque perder la señal de tendencia es peor que no tenerla), pero la acción se **fuerza a SUAVE** (`Action_detail = SUAVE_QUALITY`) independientemente del color. En la práctica: si el gate sale VERDE pero tienes quality_flag, no te lances a hacer intervalos — el dato que lo justifica no es fiable.
 
 ### ROLL3
 Media móvil de los **últimos 3 días clean**. En vez de comparar contra el baseline con el dato crudo de hoy (que puede fluctuar mucho día a día), se suaviza promediando los 3 últimos días fiables. Esto filtra el ruido diario sin perder sensibilidad ante cambios reales: si llevas 2 días con HRV bajando y hoy también baja, ROLL3 lo refleja. Pero si ayer tuviste un pico raro y hoy estás normal, ROLL3 lo amortigua. Si no hay 3 días clean recientes, el gate queda como NO (`ROLL3_INSUF`).
@@ -554,10 +555,10 @@ Técnica para "domesticar" valores extremos sin eliminarlos: los datos por debaj
 "¿Cuántas desviaciones estoy de mi normal?" Pero usando estadísticos robustos: mediana en vez de media, y MAD×1.4826 en vez de SD. El z-score clásico (con media y SD) es muy sensible a outliers — un solo día extremo cambia la referencia y las unidades. El z-score robusto da una medida más estable de "cuánto me he movido respecto a lo habitual".
 
 ### Beta (modelo alométrico)
-Coeficiente que captura la relación natural entre tu pulso y tu HRV: cuando tu RR sube (pulso más lento), ¿cuánto sube tu RMSSD? Beta responde a eso. Se estima por regresión en espacio logarítmico (`ln(RMSSD) = a + beta × ln(RR)`) con datos de los últimos 90 días. Valores típicos: 0.5–2.0. Beta alto significa que tu HRV es muy sensible a cambios de pulso; beta bajo, que es relativamente estable. **Usado solo en BETA_AUDIT** como referencia forense del sistema V3 — no afecta al gate V4-lite.
+Coeficiente que captura la relación natural entre tu pulso y tu HRV: cuando tu RR sube (pulso más lento), ¿cuánto sube tu RMSSD? Beta responde a eso. Se estima por regresión en espacio logarítmico (`ln(RMSSD) = a + beta × ln(RR)`) con datos de los últimos 90 días. Valores típicos: 0.5–2.0. Beta alto significa que tu HRV es muy sensible a cambios de pulso; beta bajo, que es relativamente estable. **Usado solo en BETA_AUDIT** como referencia forense del sistema V3 — no afecta al decisor FINAL/DASHBOARD.
 
 ### cRMSSD ("c" = corrected)
-RMSSD "limpio" de la influencia del pulso: si tu pulso de hoy está más alto de lo normal, tu RMSSD bajará naturalmente (sin que haya fatiga real). cRMSSD usa beta para descontar ese efecto y quedarse solo con la variabilidad "genuina". **Usado solo en BETA_AUDIT** — el gate V4-lite usa el Gate 2D (que compara ambas señales simultáneamente) en lugar de corregir una por la otra.
+RMSSD "limpio" de la influencia del pulso: si tu pulso de hoy está más alto de lo normal, tu RMSSD bajará naturalmente (sin que haya fatiga real). cRMSSD usa beta para descontar ese efecto y quedarse solo con la variabilidad "genuina". **Usado solo en BETA_AUDIT** — el decisor FINAL/DASHBOARD usa el Gate 2D (que compara ambas señales simultáneamente) en lugar de corregir una por la otra.
 
 ---
 
@@ -717,4 +718,5 @@ reason_text: VERDE con carga acumulada (load_3d=210): precaución intensidad
 ---
 
 Fin del documento.
+
 

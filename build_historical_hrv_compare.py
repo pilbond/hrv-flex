@@ -3,8 +3,8 @@
 ENDURANCE HRV v4 — Generación histórica completa
 =================================================
 Genera los 3 archivos v4 a partir de datos históricos disponibles:
-  1. ENDURANCE_HRV_master_FINAL_v4.csv     (58 cols: incluye auditoría raw-vs-ref)
-  2. ENDURANCE_HRV_master_DASHBOARD_v4.csv  (10 cols: 9 originales + reason_text)
+1. Salidas históricas temporales de comparativa para FINAL
+2. Salidas históricas temporales de comparativa para DASHBOARD
 3. ENDURANCE_HRV_sleep.csv                (sueño Polar + métricas derivadas)
 
 Usa como entrada:
@@ -135,7 +135,7 @@ def build_context(rev: pd.DataFrame, acts: pd.DataFrame) -> pd.DataFrame:
 
 
 # =============================================================================
-# PART 2: V4-lite decisor WITH veto agudo (modified from endurance_v4lite.py)
+# PART 2: decisor FINAL/DASHBOARD WITH veto agudo (modified from build_hrv_final_dashboard.py)
 # =============================================================================
 
 VERDE = "VERDE"
@@ -687,11 +687,12 @@ if __name__ == "__main__":
     # Save
     out_dir = Path("/mnt/user-data/outputs")
     
-    final_v4.to_csv(out_dir / "ENDURANCE_HRV_master_FINAL_v4.csv", index=False)
-    dashboard_v4.to_csv(out_dir / "ENDURANCE_HRV_master_DASHBOARD_v4.csv", index=False)
+    final_v4.to_csv(out_dir / "ENDURANCE_HRV_master_FINAL_historical_compare.csv", index=False)
+    dashboard_v4.to_csv(out_dir / "ENDURANCE_HRV_master_DASHBOARD_historical_compare.csv", index=False)
     context.to_csv(out_dir / "ENDURANCE_HRV_sleep.csv", index=False)
     
     print(f"\n✅ Saved to {out_dir}:")
-    print(f"  ENDURANCE_HRV_master_FINAL_v4.csv ({final_v4.shape[0]} rows, {final_v4.shape[1]} cols)")
-    print(f"  ENDURANCE_HRV_master_DASHBOARD_v4.csv ({dashboard_v4.shape[0]} rows, {dashboard_v4.shape[1]} cols)")
+    print(f"  ENDURANCE_HRV_master_FINAL_historical_compare.csv ({final_v4.shape[0]} rows, {final_v4.shape[1]} cols)")
+    print(f"  ENDURANCE_HRV_master_DASHBOARD_historical_compare.csv ({dashboard_v4.shape[0]} rows, {dashboard_v4.shape[1]} cols)")
     print(f"  ENDURANCE_HRV_sleep.csv ({context.shape[0]} rows, {context.shape[1]} cols)")
+

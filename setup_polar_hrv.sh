@@ -81,19 +81,19 @@ fi
 echo ""
 echo "6️⃣  Verificando archivos..."
 
-if [ ! -f "endurance_hrv.py" ]; then
-    echo -e "${RED}❌ No se encuentra endurance_hrv.py${NC}"
+if [ ! -f "build_hrv_core.py" ]; then
+    echo -e "${RED}❌ No se encuentra build_hrv_core.py${NC}"
     echo "   Copia tu script Python de procesamiento HRV aquí"
     exit 1
 fi
-echo -e "${GREEN}✅ endurance_hrv.py encontrado${NC}"
+echo -e "${GREEN}✅ build_hrv_core.py encontrado${NC}"
 
-if [ ! -f "endurance_v4lite.py" ]; then
-    echo -e "${RED}❌ No se encuentra endurance_v4lite.py${NC}"
-    echo "   Copia tu script de decisor V4-lite aquí"
+if [ ! -f "build_hrv_final_dashboard.py" ]; then
+    echo -e "${RED}❌ No se encuentra build_hrv_final_dashboard.py${NC}"
+  echo "   Copia tu script de decisor FINAL/DASHBOARD aquí"
     exit 1
 fi
-echo -e "${GREEN}✅ endurance_v4lite.py encontrado${NC}"
+echo -e "${GREEN}✅ build_hrv_final_dashboard.py encontrado${NC}"
 
 if [ ! -f "polar_hrv_automation.py" ]; then
     echo -e "${RED}❌ No se encuentra polar_hrv_automation.py${NC}"
@@ -165,3 +165,4 @@ echo "   python3 polar_api_tester.py"
 echo ""
 echo "🔗 Para más info: GUIA_AUTOMATIZACION_POLAR.md"
 echo ""
+

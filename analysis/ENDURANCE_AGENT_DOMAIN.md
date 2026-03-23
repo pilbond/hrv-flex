@@ -1,3 +1,4 @@
+<!-- contract_version: 1.3 -->
 # ENDURANCE_AGENT_DOMAIN.md - Endurance domain baseline
 
 ## 1. Alcance
@@ -50,7 +51,7 @@ Responder como analista experto en deportes de resistencia con base en fisiologi
 - fecha de nacimiento: `1975-02-26`
 - disciplinas: trail running, ciclismo de carretera, natacion
 - FC max laboratorio: `182 lpm`
-- umbrales vigentes: `VT1 = 144 lpm`, `VT2 = 161 lpm`
+- umbrales vigentes de carrera / trail: `VT1 = 144 lpm`, `VT2 = 161 lpm`
 - historico clinico original: `VT1 = 142 lpm`, `VT2 = 163 lpm`
 
 ### Reglas
@@ -77,6 +78,9 @@ Responder como analista experto en deportes de resistencia con base en fisiologi
 
 Regla:
 
+- las zonas de trail / carrera remiten al baseline principal derivado del laboratorio y su actualizacion local,
+- las tablas de `bike` y `swim` son operativas y derivadas, no umbrales de laboratorio especificos de esas disciplinas,
+- por tanto, no deben leerse con la misma confianza fisiologica fina que las zonas de carrera cuando no exista un test especifico por deporte,
 - si una sesion ya trae zonas canonicas especificas y fiables para esa disciplina, pueden priorizarse frente al esquema base, explicando la fuente.
 - si `zones_source = fallback`, significa que `sessions` uso umbrales genericos por deporte por falta de zonas configuradas en Intervals para esa disciplina; no debe leerse como calibracion fina de la sesion.
 - si la disciplina no tiene tabla local en este documento, no inventar zonas especificas; priorizar `vt1_used / vt2_used` de `sessions.csv` y, si tampoco existen, usar el baseline general solo como aproximacion grosera con confianza rebajada.
@@ -96,16 +100,20 @@ Regla:
 - si el dato lo permite, describir por separado:
   - carga cardiometabolica
   - carga mecanica
+- tratar la semantica de `carga mecanica` como dependiente del deporte y remitir su calibracion operativa a `SESSION_ANALYSIS_METHOD.md`
+- tratar `VirtualRun` como carrera indoor, `Hike` como marcha en terreno y `Elliptical` como cardio indoor de bajo impacto; no heredar automaticamente la semantica de trail sin matices
 - usar `coste dominante` solo como sintesis final derivada, no como hecho medido:
   - cardiometabolico
   - mecanico
   - mixto
+  - bajo_estimulo
   - no_clasificable
 - explicitar comparabilidad de la sesion con otras del bloque.
 
 ### MUST NOT
 - no presentar `coste dominante` como metrica canonica del pipeline,
 - no clasificar `coste dominante` si faltan datos minimos para una de las dos dimensiones,
+- no asumir que `carga mecanica` significa lo mismo en trail, bike y swim,
 - no ocultar la base observacional de la etiqueta elegida.
 
 ## 7. Reglas especificas HRV / RR
@@ -142,7 +150,7 @@ Este documento gobierna la semantica que MUST estar presente en el analisis, ind
 
 - **Conclusion** que responda que fue y que no fue
 - **Interpretacion fisiologica** trazable al dato
-- **Implicacion practica** concreta y breve
+- **Implicacion practica** concreta y breve, con arbol de decision concreto cuando el contexto lo soporte
 - **Confianza** segun la semantica definida en el siguiente apartado
 - **Advertencias clave** cuando procedan
 
@@ -153,10 +161,32 @@ Si la sesion es trail, carrera variable o cinta con protocolo por bloques y el d
 - balance entre carga cardiometabolica y carga mecanica,
 - si RR confirma o corrige la lectura de FC.
 
+### Regla de tension gate_badge vs reason_text
+- si `gate_badge` es favorable (`VERDE`, `INTENSIDAD_OK` o equivalente) pero `reason_text` introduce una cautela material (p.ej. `baseline60_degraded`, saturacion parasimpatica, o advertencia de calidad de baseline), MUST resolverla de forma explicita en el cuerpo del informe,
+- no tratar `reason_text` como nota lateral cuando su contenido modifique materialmente la lectura practica del badge,
+- distinguir tipos de verde: un verde limpio de recuperacion no equivale a un verde con advertencia de saturacion; ambos permiten sesiones moderadas, pero con implicaciones diferentes para intensidad alta o sesiones clave,
+- la tension se resuelve explicando en el informe que tipo de verde es y que impide o permite operativamente.
+
 ## 10. Semantica de confianza
 - **Alta**: dato suficiente, coherente y conclusion robusta.
 - **Media**: conclusion util pero condicionada por calidad parcial, metodo indirecto o interpretacion sensible a contexto.
 - **Baja**: dato insuficiente o demasiado ambiguo para sostener una conclusion fuerte.
+
+### Desglose por capas cuando las capas tienen calidad diferente
+Cuando las distintas capas de evidencia tienen calidades claramente distintas, MUST NOT usar una unica etiqueta plana:
+- desglosa al menos: **Clasificacion global**, **Capa RR fina**, **Resultado neto**,
+- para cada sub-nivel, incluir en una linea breve que lo limita o justifica,
+- el resultado neto es la confianza global derivada de combinar todas las capas.
+
+Ejemplo de desglose:
+
+| Capa | Nivel | Limitacion |
+|---|---|---|
+| Clasificacion global | Alta | sessions, FIT y RR coherentes |
+| Capa RR fina (HR@0.75) | Baja | r2 = 0.22; gradiente alpha1 incoherente |
+| **Resultado neto** | **Media** | clasificacion robusta; inferencia fina no fiable |
+
+Regla: si todas las capas son coherentes y del mismo nivel, una etiqueta unica es suficiente.
 
 ## 11. Regla final
 Optimizar siempre por:

@@ -10,7 +10,7 @@ Uso:
     python polar_hrv_automation.py                # Después (últimos 7 días)
     python polar_hrv_automation.py --days 30      # Últimos 30 días
     python polar_hrv_automation.py --all          # Todas las sesiones
-    python polar_hrv_automation.py --process      # + ejecutar endurance_hrv.py + endurance_v4lite.py
+    python polar_hrv_automation.py --process      # + ejecutar build_hrv_core.py + build_hrv_final_dashboard.py
 """
 
 import os
@@ -1487,7 +1487,7 @@ def extract_rr_ms(exercise_json: dict):
 
 
 def write_rr_csv(rr, out_path: str):
-    """Escribe CSV formato endurance_hrv.py"""
+    """Escribe CSV formato build_hrv_core.py"""
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("duration,offline\n")
@@ -1867,24 +1867,24 @@ def calculate_missing_days():
     return days_missing, last_date
 
 
-def build_endurance_hrv_cmd(rr_files):
-    """Construye comando para endurance_hrv.py usando --rr-file."""
-    cmd = [sys.executable, "endurance_hrv.py"]
+def build_hrv_core_cmd(rr_files):
+    """Construye comando para build_hrv_core.py usando --rr-file."""
+    cmd = [sys.executable, "build_hrv_core.py"]
     for f in rr_files:
         cmd.extend(["--rr-file", str(f)])
     return cmd
 
 
-def run_endurance_v4lite_only() -> bool:
-    """Ejecuta endurance_v4lite.py sin reprocesar RR/CORE."""
-    if not Path("endurance_v4lite.py").exists():
-        print("❌ endurance_v4lite.py no encontrado")
+def run_build_hrv_final_dashboard_only() -> bool:
+    """Ejecuta build_hrv_final_dashboard.py sin reprocesar RR/CORE."""
+    if not Path("build_hrv_final_dashboard.py").exists():
+        print("❌ build_hrv_final_dashboard.py no encontrado")
         return False
     try:
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
         result = subprocess.run(
-            [sys.executable, "endurance_v4lite.py"],
+            [sys.executable, "build_hrv_final_dashboard.py"],
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -1896,7 +1896,7 @@ def run_endurance_v4lite_only() -> bool:
             print(result.stdout)
         return True
     except subprocess.CalledProcessError as exc:
-        print(f"⚠️  Error ejecutando endurance_v4lite.py (código {exc.returncode})")
+        print(f"⚠️  Error ejecutando build_hrv_final_dashboard.py (código {exc.returncode})")
         if exc.stdout:
             print(exc.stdout)
         if exc.stderr:
@@ -1904,12 +1904,12 @@ def run_endurance_v4lite_only() -> bool:
         return False
 
 
-def _refresh_sleep_and_outputs(access_token: str, x_user_id: Optional[str], run_v4lite: bool = False, dates: Optional[List] = None) -> None:
+def _refresh_sleep_and_outputs(access_token: str, x_user_id: Optional[str], run_final_dashboard: bool = False, dates: Optional[List] = None) -> None:
     target_dates = dates if dates is not None else _default_sleep_refresh_dates()
     _update_sleep_for_dates(access_token, x_user_id, target_dates)
-    if run_v4lite:
+    if run_final_dashboard:
         _qprint("▶️  Regenerando FINAL/DASHBOARD con sleep actualizado...")
-        run_endurance_v4lite_only()
+        run_build_hrv_final_dashboard_only()
 
 def main():
     parser = argparse.ArgumentParser(description='Polar HRV Automation')
@@ -1917,7 +1917,7 @@ def main():
     parser.add_argument('--days', type=int, help='Días hacia atrás (ignora --auto)')
     parser.add_argument('--all', action='store_true', help='Todas las sesiones (ignora --days y --auto)')
     parser.add_argument('--auto', action='store_true', help='Detectar automáticamente días faltantes desde último registro')
-    parser.add_argument('--process', action='store_true', help='Ejecutar endurance_hrv.py + endurance_v4lite.py después')
+    parser.add_argument('--process', action='store_true', help='Ejecutar build_hrv_core.py + build_hrv_final_dashboard.py después')
     parser.add_argument('--debug-sports', action='store_true', help='Mostrar deportes de todas las sesiones encontradas')
     parser.add_argument('--verbose', action='store_true', help='Mostrar detalles de cada archivo procesado')
     args = parser.parse_args()
@@ -1970,7 +1970,7 @@ def main():
         if days_missing == 0:
             if args.process:
                 _qprint("▶️  Sin RR nuevos: actualizando sleep.csv (hoy)...")
-                _refresh_sleep_and_outputs(access_token, x_user_id, run_v4lite=True)
+                _refresh_sleep_and_outputs(access_token, x_user_id, run_final_dashboard=True)
             _print_sync_completed(updated_date=datetime.now().date(), checkmark=False)
             
             # Mostrar último daily summary
@@ -2002,7 +2002,7 @@ def main():
         if days_missing == 0:
             if args.process:
                 _qprint("▶️  Sin RR nuevos: actualizando sleep.csv (hoy)...")
-                _refresh_sleep_and_outputs(access_token, x_user_id, run_v4lite=True)
+                _refresh_sleep_and_outputs(access_token, x_user_id, run_final_dashboard=True)
             _print_sync_completed(updated_date=None, checkmark=True)
             
             # Mostrar último daily summary
@@ -2075,7 +2075,7 @@ def main():
         else:
             if QUIET:
                 print("⚠️  No hay sesiones Body&Mind en el periodo")
-                _refresh_sleep_and_outputs(access_token, x_user_id, run_v4lite=args.process)
+                _refresh_sleep_and_outputs(access_token, x_user_id, run_final_dashboard=args.process)
                 show_latest_hrv_summaries()
                 _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
                 return
@@ -2116,7 +2116,7 @@ def main():
             print(f"\n💡 No se encontraron sesiones '{SPORTS_FILTER[0] if SPORTS_FILTER else 'N/A'}' en el periodo.")
             print(f"   Usa --days N para más días o --debug-sports para ver todas las sesiones.")
             
-            _refresh_sleep_and_outputs(access_token, x_user_id, run_v4lite=args.process)
+            _refresh_sleep_and_outputs(access_token, x_user_id, run_final_dashboard=args.process)
 
             # Mostrar último daily summary disponible aunque no haya nuevos datos
             _print_header("📊 Aunque no hay nuevos datos, aquí está tu última medición:")
@@ -2290,44 +2290,44 @@ def main():
             print("⚠️  No hay RR con fecha válida para procesar")
         else:
             _print_no_rr_files()
-        _refresh_sleep_and_outputs(access_token, x_user_id, run_v4lite=args.process)
+        _refresh_sleep_and_outputs(access_token, x_user_id, run_final_dashboard=args.process)
         _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
         show_latest_hrv_summaries()
         return
     
     if total_to_process == 0 and skipped_in_master > 0:
         _print_master_already_updated()
-        _refresh_sleep_and_outputs(access_token, x_user_id, run_v4lite=args.process)
+        _refresh_sleep_and_outputs(access_token, x_user_id, run_final_dashboard=args.process)
         _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
         show_latest_hrv_summaries()
         return
 
-    # Procesar con endurance_hrv.py
+    # Procesar con build_hrv_core.py
     if args.process:
-        _print_header("🔧 PROCESANDO CON ENDURANCE_HRV (V4)")
+        _print_header("🔧 PROCESANDO PIPELINE HRV")
 
-        if not Path("endurance_hrv.py").exists():
+        if not Path("build_hrv_core.py").exists():
             print("")
-            print("❌ endurance_hrv.py no encontrado")
-            print("   Copia endurance_hrv.py al directorio actual para usar --process")
+            print("❌ build_hrv_core.py no encontrado")
+            print("   Copia build_hrv_core.py al directorio actual para usar --process")
             return
-        if not Path("endurance_v4lite.py").exists():
+        if not Path("build_hrv_final_dashboard.py").exists():
             print("")
-            print("❌ endurance_v4lite.py no encontrado")
-            print("   Copia endurance_v4lite.py al directorio actual para usar --process")
+            print("❌ build_hrv_final_dashboard.py no encontrado")
+            print("   Copia build_hrv_final_dashboard.py al directorio actual para usar --process")
             return
 
-        cmd = build_endurance_hrv_cmd(rr_files)
+        cmd = build_hrv_core_cmd(rr_files)
         if len(cmd) <= 2:
             print("")
             print("⚠️  No hay archivos RR con fecha válida para procesar")
-            _refresh_sleep_and_outputs(access_token, x_user_id, run_v4lite=True)
+            _refresh_sleep_and_outputs(access_token, x_user_id, run_final_dashboard=True)
             _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
             show_latest_hrv_summaries()
             return
 
         _qprint("")
-        _qprint("▶️  Ejecutando endurance_hrv.py...")
+        _qprint("▶️  Ejecutando build_hrv_core.py...")
         _qprint("")
         try:
             # Configurar environment para UTF-8
@@ -2360,10 +2360,10 @@ def main():
             _update_sleep_for_dates(access_token, x_user_id, target_dates)
 
             _qprint("")
-            _qprint("▶️  Ejecutando endurance_v4lite.py...")
+            _qprint("▶️  Ejecutando build_hrv_final_dashboard.py...")
             _qprint("")
             result2 = subprocess.run(
-                [sys.executable, "endurance_v4lite.py"],
+                [sys.executable, "build_hrv_final_dashboard.py"],
                 capture_output=True,
                 text=True,
                 encoding='utf-8',
@@ -2414,4 +2414,5 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
         sys.exit(1)
+
 

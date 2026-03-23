@@ -12,13 +12,13 @@ Flujo operativo normal (Railway o UI local):
 4. Si hay faltantes y Dropbox RR esta habilitado, intenta generar RR desde JSONL/ZIP con `egc_to_rr.py`.
 5. Para lo que siga faltando, usa Polar como fallback.
 6. `polar_hrv_automation.py` actualiza sleep y luego llama:
-   - `endurance_hrv.py`
-   - `endurance_v4lite.py`
+   - `build_hrv_core.py`
+   - `build_hrv_final_dashboard.py`
 
 Importante:
 - El comando principal no cambia: `python polar_hrv_automation.py --process`.
 - `build_sessions.py` no se ejecuta automaticamente en ese flujo.
-- `endurance_v4lite.py` usa `ENDURANCE_HRV_sessions_day.csv` solo si ya existe.
+- `build_hrv_final_dashboard.py` usa `ENDURANCE_HRV_sessions_day.csv` solo si ya existe.
 
 ## 2) Script por script
 
@@ -50,7 +50,7 @@ Importante:
   - Descarga sesiones Body&Mind y extrae RR desde Polar para los faltantes restantes.
   - Guarda RR validos en `data/rr_downloads`.
 - Actualiza `ENDURANCE_HRV_sleep.csv`.
-  - Si se usa `--process`, ejecuta `endurance_hrv.py` y `endurance_v4lite.py`.
+  - Si se usa `--process`, ejecuta `build_hrv_core.py` y `build_hrv_final_dashboard.py`.
   - Sync opcional de wellness a Intervals.
 - Cuando usarlo:
   - Sync operativo principal (CLI o disparado desde web).
@@ -80,7 +80,7 @@ Importante:
 - Automatico o manual:
   - Ambos.
 
-## `endurance_hrv.py`
+## `build_hrv_core.py`
 - Que hace:
   - Procesa RR crudos.
   - Calcula metrica HRV estable por dia.
@@ -97,10 +97,10 @@ Importante:
   - Automatico dentro de `polar_hrv_automation.py --process`.
   - Tambien se puede correr manual.
 
-## `endurance_v4lite.py`
+## `build_hrv_final_dashboard.py`
 - Que hace:
   - Lee CORE + sleep.
-  - Aplica logica de gate V4-lite (decision operativa diaria).
+- Aplica la logica del decisor FINAL/DASHBOARD (decision operativa diaria).
   - Enriquce `reason_text` con contexto de sueno y carga.
   - Si existe `ENDURANCE_HRV_sessions_day.csv`, usa sus campos de carga.
   - Genera:
@@ -183,19 +183,16 @@ Importante:
 - Automatico o manual:
   - Manual, fuera del flujo principal.
 
-## `build_v4_context_historical.py`
+## `build_historical_hrv_compare.py`
 - Que hace:
-  - Script historico/one-off para reconstruir contexto y salidas v4 sobre datasets antiguos.
-  - Genera archivos tipo:
-    - `ENDURANCE_HRV_master_FINAL_v4.csv`
-    - `ENDURANCE_HRV_master_DASHBOARD_v4.csv`
-    - `ENDURANCE_HRV_sleep.csv`
+  - Script historico/one-off para reconstruir contexto y comparar salidas sobre datasets antiguos.
+  - Puede generar salidas temporales de comparativa con sufijos legacy, fuera del contrato canonico actual.
 - Cuando usarlo:
   - Analisis historico, validaciones, comparativas de version.
 - Entradas:
   - Fuentes historicas con rutas hardcodeadas (no pensado para Railway runtime actual).
 - Salidas:
-  - CSVs v4 historicos.
+  - CSVs historicos de comparativa, no canónicos.
 - Automatico o manual:
   - Manual, fuera del flujo operativo.
 
@@ -206,9 +203,10 @@ Si tu pregunta es "que scripts importan para operar dia a dia":
 1. `web_ui.py` (servidor web)
 2. `polar_hrv_automation.py` (sync y orquestacion)
 3. `egc_to_rr.py` (Dropbox/local JSONL -> RR, cuando faltan fechas o para validacion manual)
-4. `endurance_hrv.py` (RR -> CORE/BETA)
-5. `endurance_v4lite.py` (CORE -> FINAL/DASHBOARD)
+4. `build_hrv_core.py` (RR -> CORE/BETA)
+5. `build_hrv_final_dashboard.py` (CORE -> FINAL/DASHBOARD)
 
 Y aparte, opcional recomendado:
 
 1. `build_sessions.py` para mantener al dia `sessions_day.csv` y enriquecer `reason_text` de carga.
+

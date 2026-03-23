@@ -38,14 +38,14 @@ El sistema genera 7 archivos CSV + 1 JSON de trazabilidad. Cada uno tiene un rol
 
 | Archivo | Para qué sirve | Lo genera | Columnas |
 |---------|---------------|-----------|----------|
-| `ENDURANCE_HRV_master_CORE.csv` | La medición fisiológica del día: pulso, variabilidad, calidad de señal y trazabilidad mínima de estabilidad. Sin ninguna decisión de entrenamiento. | `endurance_hrv.py` | 18 |
-| `ENDURANCE_HRV_master_FINAL.csv` | El gate de entrenamiento, las sombras, el residual, el veto agudo, el reason_text y la auditoría raw-vs-ref necesaria para entender qué hizo el sistema con los datos inestables. | `endurance_v4lite.py` | 58 |
-| `ENDURANCE_HRV_master_DASHBOARD.csv` | Lo esencial para decidir en 10 segundos: semáforo, acción, warning, y reason_text contextual. Subconjunto de FINAL. | `endurance_v4lite.py` | 10 |
+| `ENDURANCE_HRV_master_CORE.csv` | La medición fisiológica del día: pulso, variabilidad, calidad de señal y trazabilidad mínima de estabilidad. Sin ninguna decisión de entrenamiento. | `build_hrv_core.py` | 18 |
+| `ENDURANCE_HRV_master_FINAL.csv` | El gate de entrenamiento, las sombras, el residual, el veto agudo, el reason_text y la auditoría raw-vs-ref necesaria para entender qué hizo el sistema con los datos inestables. | `build_hrv_final_dashboard.py` | 58 |
+| `ENDURANCE_HRV_master_DASHBOARD.csv` | Lo esencial para decidir en 10 segundos: semáforo, acción, warning, y reason_text contextual. Subconjunto de FINAL. | `build_hrv_final_dashboard.py` | 10 |
 | `ENDURANCE_HRV_sleep.csv` | Sueño nocturno y señales de recuperación (Polar). Alimenta el reason_text pero NO afecta al gate. | `polar_hrv_automation.py` | 17 |
 | `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento: zonas, work blocks, drift, effort, clasificación. | `build_sessions.py` | 43 |
 | `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios de entrenamiento + rolling con cobertura (_nobs). Alimenta el reason_text para checks de carga. | `build_sessions.py` | 40 |
 | `ENDURANCE_HRV_sessions_metadata.json` | Trazabilidad del pipeline de sesiones: versión, parámetros, hash, sampling rate, cobertura. | `build_sessions.py` | — |
-| `ENDURANCE_HRV_master_BETA_AUDIT.csv` | Modelo alométrico beta/cRMSSD del sistema V3. Se conserva para comparación histórica; no afecta al gate V4-lite. | `endurance_hrv.py` | 13 |
+| `ENDURANCE_HRV_master_BETA_AUDIT.csv` | Modelo alométrico beta/cRMSSD del sistema V3. Se conserva para comparación histórica; no afecta al decisor FINAL/DASHBOARD. | `build_hrv_core.py` | 13 |
 
 ---
 
@@ -293,7 +293,7 @@ Las 17 columnas se organizan en 3 bloques:
 
 ## 7. BETA_AUDIT (legacy) — columnas y orden exacto
 
-BETA_AUDIT conserva el modelo alométrico beta/cRMSSD del sistema V3 para comparación histórica. **No afecta al gate V4-lite.** Las primeras 5 columnas replican datos de CORE con los mismos nombres.
+BETA_AUDIT conserva el modelo alométrico beta/cRMSSD del sistema V3 para comparación histórica. **No afecta al decisor FINAL/DASHBOARD.** Las primeras 5 columnas replican datos de CORE con los mismos nombres.
 
 **Cabecera exacta (copiar literal):**
 
@@ -328,18 +328,18 @@ Muestra qué entra y qué sale de cada script, y cómo se encadenan:
                     (intervalos latido-a-latido del sensor)
                        │
                        ▼
-               ┌───────────────┐
-               │ endurance_hrv │  Procesa RR crudo → métricas del día
-               └───────────────┘
+               ┌────────────────┐
+               │ build_hrv_core │  Procesa RR crudo → métricas del día
+               └────────────────┘
                    │       │
                    ▼       ▼
               CORE.csv   BETA_AUDIT.csv
               (medición)  (modelo beta V3)
                    │
                    ▼
-           ┌──────────────────┐      ENDURANCE_HRV_sleep.csv   SESSIONS_DAY.csv
-           │ endurance_v4lite │ ◄─── (sueño Polar,     ◄── (carga, work blocks,
-           └──────────────────┘       solo reason_text)     solo reason_text)
+           ┌───────────────────────────┐      ENDURANCE_HRV_sleep.csv   SESSIONS_DAY.csv
+           │ build_hrv_final_dashboard │ ◄─── (sueño Polar,     ◄── (carga, work blocks,
+           └───────────────────────────┘       solo reason_text)     solo reason_text)
                    │
            ┌───────┴───────┐
            ▼               ▼
@@ -440,7 +440,7 @@ Monitoriza la calidad general de las mediciones:
 - % de días INVALID, % FLAG_mecánico, % HRV_Stability=Unstable
 - Top 20 días por Artifact_pct y por Tiempo_Estabilizacion (detectar sensor problemático o banda suelta)
 
-### QA gate V4-lite
+### QA decisor FINAL/DASHBOARD
 
 Verifica que la distribución de gates tiene sentido:
 - Distribución de gate_final (VERDE/ÁMBAR/ROJO/NO) y gate_badge
@@ -536,11 +536,12 @@ mv ENDURANCE_HRV_master_ALL.csv docs/legacy/
 mv *_20260209*.csv docs/legacy/
 
 # 5. A partir de aquí, usar los scripts nuevos para cada día
-python endurance_hrv.py --rr-file data/rr_downloads/nuevo_RR.csv --data-dir data
-python endurance_v4lite.py --data-dir data
+python build_hrv_core.py --rr-file data/rr_downloads/nuevo_RR.csv --data-dir data
+python build_hrv_final_dashboard.py --data-dir data
 ```
 
 ---
 
 Fin del documento.
+
 

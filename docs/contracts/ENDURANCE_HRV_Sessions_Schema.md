@@ -42,7 +42,7 @@ Este pipeline está diseñado para **un único atleta** y consume la cuenta pers
 | Archivo | Granularidad | Para qué sirve |
 |---------|-------------|-----------------|
 | `sessions.csv` | 1 fila por sesión | Detalle completo de cada entrenamiento: zonas, work blocks, drift, clasificación. Lo que miras cuando quieres entender una sesión concreta. |
-| `sessions_day.csv` | 1 fila por día | Agregados diarios + rolling 3d/7d/14d/28d con cobertura. Lo que lee `endurance_v4lite.py` para generar avisos de carga en reason_text. |
+| `sessions_day.csv` | 1 fila por día | Agregados diarios + rolling 3d/7d/14d/28d con cobertura. Lo que lee `build_hrv_final_dashboard.py` para generar avisos de carga en reason_text. |
 | `ENDURANCE_HRV_sessions_metadata.json` | 1 por corrida | Trazabilidad: versión del pipeline, parámetros usados, hash de configuración, sampling rate del stream. Para auditoría y depuración. |
 
 ### Fuente de datos
@@ -227,7 +227,7 @@ El session_group se usa para separar las estadísticas de effort_vs_recent: no t
 
 ## 4. SESSIONS_DAY.CSV — agregados diarios y rolling
 
-Sessions_day.csv tiene una fila por día-calendario (no por sesión). Si un día no entrenaste, no aparece. Si entrenaste dos veces, se agregan en una sola fila. **Este es el archivo que lee `endurance_v4lite.py` para generar avisos de carga en reason_text.**
+Sessions_day.csv tiene una fila por día-calendario (no por sesión). Si un día no entrenaste, no aparece. Si entrenaste dos veces, se agregan en una sola fila. **Este es el archivo que lee `build_hrv_final_dashboard.py` para generar avisos de carga en reason_text.**
 
 ### Campos del día (agregados directos)
 
@@ -346,7 +346,7 @@ Cada corrida del pipeline genera un `ENDURANCE_HRV_sessions_metadata.json` que d
 
 ## 6. Conexión con el gate HRV (reason_text)
 
-`endurance_v4lite.py` lee `sessions_day.csv` y genera avisos contextuales en `reason_text`. Los umbrales son absolutos (no percentiles):
+`build_hrv_final_dashboard.py` lee `sessions_day.csv` y genera avisos contextuales en `reason_text`. Los umbrales son absolutos (no percentiles):
 
 | Condición | Aviso generado |
 |-----------|----------------|
@@ -480,4 +480,5 @@ python build_sessions.py --date 2026-02-25
 ```
 
 Genera: `sessions.csv` + `sessions_day.csv` + `ENDURANCE_HRV_sessions_metadata.json`
+
 

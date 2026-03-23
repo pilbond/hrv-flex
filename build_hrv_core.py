@@ -12,12 +12,12 @@ Genera desde archivos RR crudos:
   - ENDURANCE_HRV_master_CORE.csv    (medición canónica, incluye métricas ANS balance)
   - ENDURANCE_HRV_master_BETA_AUDIT.csv (beta/cRMSSD/colores V3 legacy, 13 columnas)
 
-NO genera gate V4-lite ni decisiones operativas (eso lo hace endurance_v4lite.py, que produce FINAL/DASHBOARD).
+NO genera la decisión FINAL/DASHBOARD ni decisiones operativas (eso lo hace build_hrv_final_dashboard.py, que produce FINAL/DASHBOARD).
 
 Uso:
-  python endurance_hrv.py                           # procesa RR_FILES definidos en código
-  python endurance_hrv.py --rr-dir ./rr_downloads   # procesa todos los RR en directorio
-  python endurance_hrv.py --rr-file archivo_RR.csv  # procesa un archivo específico
+  python build_hrv_core.py                           # procesa RR_FILES definidos en código
+  python build_hrv_core.py --rr-dir ./rr_downloads   # procesa todos los RR en directorio
+  python build_hrv_core.py --rr-file archivo_RR.csv  # procesa un archivo específico
 
 Variables de entorno:
   HRV_DATA_DIR       Directorio de datos (default: ./data)
@@ -67,6 +67,7 @@ CONSTANTS = {
     "TAIL_S": 120.0,          # Segundos de cola para estabilidad
     "TAIL_MIN_S": 75.0,       # Mínimo de cola aceptable
     "TAIL_MIN_PAIRS": 60,     # Mínimo de pares en cola
+    "ARTIFACT_OK_MAX": 15.0,  # Umbral máximo para considerar una medición clean
     "RR_MIN_MS": 300.0,       # RR mínimo válido (ms)
     "RR_MAX_MS": 2000.0,      # RR máximo válido (ms)
     "DELTA_RR_MAX": 0.20,     # Máximo delta relativo entre RR consecutivos
@@ -381,7 +382,7 @@ def compute_day_from_rr(rr_path: Path, history_df: pd.DataFrame, C: dict) -> Tup
         Calidad = "INVALID"
     else:
         Lat_eff = 60.0 if np.isnan(lat) else max(lat, 60.0)
-        if (not np.isnan(lat)) and artifact_pct <= 10.0 and 60.0 <= Lat_eff <= 600.0 and HRV_Stability == "OK":
+        if (not np.isnan(lat)) and artifact_pct <= C["ARTIFACT_OK_MAX"] and 60.0 <= Lat_eff <= 600.0 and HRV_Stability == "OK":
             Calidad = "OK"
         else:
             Calidad = "FLAG_mecánico"
@@ -519,8 +520,8 @@ def compute_day_from_rr(rr_path: Path, history_df: pd.DataFrame, C: dict) -> Tup
     flags = []
     if np.isnan(lat):
         flags.append("LAT_NAN")
-    if artifact_pct > 10.0:
-        flags.append("ART_GT10")
+    if artifact_pct > C["ARTIFACT_OK_MAX"]:
+        flags.append("ART_GT15")
     if artifact_pct > 20.0:
         flags.append("ART_GT20")
     if stab_flag:
@@ -900,8 +901,9 @@ def main():
         print(f"\nÚltimas fechas procesadas:")
         for p in processed[-5:]:
             print(f"   {p['Fecha']}: HR={p['HR']:.1f} lpm, RMSSD={p['RMSSD']:.1f} ms")
-        print("\n➡️  Ejecuta 'python endurance_v4lite.py' para generar FINAL y DASHBOARD")
+        print("\n➡️  Ejecuta 'python build_hrv_final_dashboard.py' para generar FINAL y DASHBOARD")
 
 
 if __name__ == "__main__":
     main()
+

@@ -95,7 +95,7 @@ REQUEST_DELAY = 0.4
 # ─── Sport config ─────────────────────────────────────────────────────────────
 
 SPORT_MAP = {
-    "TrailRun": "trail_run", "Hike": "trail_run",
+    "TrailRun": "trail_run", "Hike": "hike",
     "Run": "road_run", "VirtualRun": "road_run",
     "Ride": "bike", "VirtualRide": "bike",
     "Swim": "swim",
@@ -105,11 +105,12 @@ SPORT_MAP = {
     "Other": "other",
 }
 
-AEROBIC_SPORTS = {"trail_run", "road_run", "bike", "swim", "elliptical"}
+AEROBIC_SPORTS = {"trail_run", "hike", "road_run", "bike", "swim", "elliptical"}
 
 # Fix C: fallback VT1/VT2 by sport
 VT_FALLBACK = {
     "trail_run": (143, 161),
+    "hike": (143, 161),
     "road_run":  (143, 161),
     "bike":      (139, 156),
     "swim":      (134, 149),
@@ -614,9 +615,11 @@ def build_session_row(activity: dict, client: IntervalsClient,
                     hr_stream, vt1, vt2, moving, velocity=vel_stream)
                 row.update(hr_derived)
 
-                # Fix 4: sampling rate canary
-                if moving > 0:
-                    row["stream_dt_est"] = round(moving / len(hr_stream), 3)
+                # Fix 4: sampling rate canary — usa elapsed (no moving) para que
+                # las pausas no distorsionen el ratio; el stream HR cubre todo el
+                # tiempo transcurrido, no solo el tiempo en movimiento.
+                if elapsed > 0:
+                    row["stream_dt_est"] = round(elapsed / len(hr_stream), 3)
 
                 if vel_stream is not None and len(vel_stream) > 0:
                     row["cardiac_drift_pct"] = compute_cardiac_drift(
@@ -875,6 +878,7 @@ NUMERIC_SESSION_COLS = [
     "hr_mean",
     "hr_max",
     "hr_p95",
+    "stream_dt_est",
     "z1_pct",
     "z2_pct",
     "z3_pct",
@@ -1058,7 +1062,7 @@ def run_pipeline(oldest: str, newest: str, output_dir: Path,
 
     dt_stats = None
     if "stream_dt_est" in df.columns:
-        dt_vals = df["stream_dt_est"].dropna()
+        dt_vals = pd.to_numeric(df["stream_dt_est"], errors="coerce").dropna()
         if len(dt_vals) > 0:
             dt_stats = {
                 "n_streams": int(len(dt_vals)),

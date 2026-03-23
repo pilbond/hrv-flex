@@ -39,8 +39,8 @@ Sistema automatizado HRV para un unico atleta que:
 - autentica con Polar AccessLink mediante OAuth2 Authorization Code,
 - intenta cubrir primero RR faltantes desde `ECG.jsonl + ACC.jsonl` en Dropbox,
 - usa Polar como fallback cuando Dropbox no cubre las fechas necesarias o no esta disponible,
-- procesa RR con `endurance_hrv.py` para generar `CORE` y `BETA_AUDIT`,
-- genera `FINAL` y `DASHBOARD` con `endurance_v4lite.py`,
+- procesa RR con `build_hrv_core.py` para generar `CORE` y `BETA_AUDIT`,
+- genera `FINAL` y `DASHBOARD` con `build_hrv_final_dashboard.py`,
 - expone una UI web Flask y endpoints de sincronizacion,
 - puede sincronizar wellness a Intervals.icu de forma opcional,
 - se despliega en Railway.
@@ -91,17 +91,17 @@ Si este bloque queda desactualizado, debe actualizarse o reducirse.
   Intenta cubrir RR faltantes desde Dropbox.
   Si no es posible, usa Polar como fallback.
   Actualiza `ENDURANCE_HRV_sleep.csv`.
-  Ejecuta `endurance_hrv.py` y `endurance_v4lite.py` cuando corresponde.
+  Ejecuta `build_hrv_core.py` y `build_hrv_final_dashboard.py` cuando corresponde.
   Puede sincronizar wellness a Intervals.icu.
 
 - `egc_to_rr.py`
   Convierte pares `ECG.jsonl + ACC.jsonl` a RR compatibles con la app.
   El uso recomendado actual es local o Dropbox.
 
-- `endurance_hrv.py`
+- `build_hrv_core.py`
   RR -> `ENDURANCE_HRV_master_CORE.csv` y `ENDURANCE_HRV_master_BETA_AUDIT.csv`.
 
-- `endurance_v4lite.py`
+- `build_hrv_final_dashboard.py`
   `CORE + sleep + sessions_day` -> `ENDURANCE_HRV_master_FINAL.csv` y `ENDURANCE_HRV_master_DASHBOARD.csv`.
   La carga de entrenamiento se lee desde `ENDURANCE_HRV_sessions_day.csv`.
 
@@ -282,3 +282,4 @@ Si un cambio afecta a:
 - significado operativo de metricas,
 
 entonces tambien hay que actualizar `docs/contracts/`.
+
