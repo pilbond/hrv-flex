@@ -486,7 +486,7 @@ HTML_TEMPLATE = """
             box-shadow: var(--shadow);
             padding: 18px;
         }
-        h1 { font-size: 30px; line-height: 1; letter-spacing: -0.04em; margin-bottom: 10px; }
+        h1 { font-size: 30px; line-height: 1; letter-spacing: -0.04em; margin-bottom: 14px; }
         .subtitle { color: var(--muted); font-size: 14px; line-height: 1.4; margin-bottom: 18px; }
         .button-stack { display: grid; gap: 10px; }
         button {
@@ -511,7 +511,7 @@ HTML_TEMPLATE = """
         .section-title { font-size: 16px; font-weight: 800; letter-spacing: -0.03em; color: var(--brand-strong); margin-bottom: 12px; }
         .raw-output {
             padding: 14px; border-radius: 4px; background: #16353a; color: #eef6f5; font-family: Consolas, "Courier New", monospace;
-            font-size: 12px; line-height: 1.5; min-height: 320px; max-height: 60vh; overflow: auto; white-space: pre-wrap; word-wrap: break-word;
+            font-size: 12px; line-height: 1.5; min-height: 320px; max-height: 60vh; overflow-x: hidden; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word;
         }
         .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.32); border-radius: 50%; border-top-color: #fff; animation: spin 1s linear infinite; }
         @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(0.99); } }
@@ -523,8 +523,8 @@ HTML_TEMPLATE = """
 <body>
     <div class="container">
         <section class="card">
-            <h1>⚡ HRV Sync v4</h1>
-            <p class="subtitle">Sincronización automática de datos HRV</p>
+            <h1>⚡ HRV Sync</h1>
+            <!--<p class="subtitle">Sincronización automática de datos HRV</p>-->
             <div class="button-stack">
                 <button id="syncBtn" class="sync-button" onclick="syncPolar()"><span id="syncBtnText">Sincronizar HRV</span></button>
                 <button id="sessionsBtn" class="sessions-button" onclick="syncSessions()"><span id="sessionsBtnText">Sincronizar sesiones</span></button>

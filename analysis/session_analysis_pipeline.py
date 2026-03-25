@@ -22,6 +22,11 @@ try:
 except Exception:  # pragma: no cover - optional import at runtime
     FitFile = None
 
+_ANALYSIS_DIR = Path(__file__).resolve().parent
+if str(_ANALYSIS_DIR) not in sys.path:
+    sys.path.insert(0, str(_ANALYSIS_DIR))
+from fit_speed_utils import compute_speed_metrics as _compute_speed_metrics
+
 from polar_hrv_automation import (
     FIELD_START_TIME,
     _get_field_variant,
@@ -60,7 +65,38 @@ def _parse_float(value: str | None) -> float | None:
 
 
 def style_reference_paths(limit: int = 3) -> list[str]:
-    return []
+    candidates = [
+        ANALYSIS_DIR / "delete",
+        ROOT / "delete",
+    ]
+    paths: list[str] = []
+    for base in candidates:
+        if not base.exists():
+            continue
+        for path in sorted(base.glob("session_report_*.md"), reverse=True):
+            paths.append(str(path))
+            if len(paths) >= limit:
+                return paths
+    return paths
+
+
+def infer_sport_family(summary: dict[str, Any]) -> str | None:
+    direct = summary.get("session_meta", {}).get("sport_family") or summary.get("session_row", {}).get("sport_family")
+    if direct:
+        return str(direct)
+    session_row = summary.get("session_row") or {}
+    if isinstance(session_row, dict) and session_row.get("sport"):
+        return analyzer_sport_from_session(session_row)
+    return None
+
+
+def rr_sections_visible(summary: dict[str, Any]) -> bool:
+    if summary.get("rr_unavailable", False):
+        return False
+    modifier = (summary.get("rr_context") or {}).get("modifier")
+    if modifier in {"unavailable", "no_rr"}:
+        return False
+    return True
 
 
 def read_contract_version(path: Path) -> str | None:
@@ -405,8 +441,9 @@ def render_report_markdown(summary: dict[str, Any]) -> str:
     final_cost = summary.get("final_cost_interpretation") or {}
     rmssd_1m = summary.get("rmssd_1min") or {}
     rmssd_5m = summary.get("rmssd_5min") or {}
-    sport_family = summary.get("session_meta", {}).get("sport_family") or summary.get("session_row", {}).get("sport_family")
+    sport_family = infer_sport_family(summary)
     rr_unavailable = summary.get("rr_unavailable", False)
+    show_rr = rr_sections_visible(summary)
 
     lines = [
         f"# Session Analysis - {summary.get('session_cost_model', {}).get('session_id') or 'unknown'}",
@@ -443,7 +480,7 @@ def render_report_markdown(summary: dict[str, Any]) -> str:
         "",
     ])
 
-    if not rr_unavailable:
+    if show_rr:
         lines.extend([
             "## Key Metrics",
             f"- dfa_gate: `{summary.get('dfa_gate', {}).get('state')}`",
@@ -477,6 +514,7 @@ def build_conversational_payload(
     summary: dict[str, Any],
     manifest: dict[str, Any],
     session_row: dict[str, str],
+    artifacts_dir: Path | None = None,
 ) -> dict[str, Any]:
     sport_family = analyzer_sport_from_session(session_row)
     session_date = session_row.get("Fecha") or manifest.get("date")
@@ -547,6 +585,15 @@ def build_conversational_payload(
         stream_sampling = sessions_metadata.get("stream_sampling")
     versions = contract_version_status()
 
+    # --- Vector velocidad desde FIT artifact ---
+    speed_metrics: dict | None = None
+    if artifacts_dir is not None:
+        fit_artifact = artifacts_dir / "session.fit"
+        vt1 = _parse_float(session_row.get("vt1_used"))
+        wbm = session_row.get("work_blocks_min") or ""
+        wbn = len([x for x in wbm.split(";") if x.strip()]) if wbm else 0
+        speed_metrics = _compute_speed_metrics(fit_artifact, vt1, wbn, sport_family)
+
     return {
         "meta": {
             "session_id": manifest.get("session_id"),
@@ -601,6 +648,7 @@ def build_conversational_payload(
             "sport_family": sport_family,
             "sport_family_notes": session_family_notes(sport_family),
         },
+        "speed_metrics": speed_metrics,
     }
 
 
@@ -807,9 +855,23 @@ def _build_no_rr_summary(session_row: dict[str, str], manifest: dict[str, Any]) 
     try:
         from session_cost_model import build_cost_model_result
         cost = build_cost_model_result(session_row)
+        if isinstance(cost, dict):
+            cost["usable"] = True
     except Exception as exc:
-        cost = {"error": str(exc)}
+        cost = {"error": str(exc), "usable": False}
     rr_error = manifest.get("rr_error") or "RR no disponible"
+    rr_context = {
+        "modifier": "no_rr",
+        "interpretation": "RR no disponible para esta sesion. Solo se calculan metricas de coste desde sessions.csv.",
+        "evidence": [rr_error],
+    }
+    final_cost = None
+    if isinstance(cost, dict) and cost.get("usable", False):
+        final_cost = {
+            "label": str(cost.get("coste_dominante")),
+            "rr_modifier": "no_rr",
+            "note": f"Sessions sugiere `{cost.get('coste_dominante')}`; RR no disponible",
+        }
     return {
         "rr_unavailable": True,
         "rr_error": rr_error,
@@ -826,12 +888,8 @@ def _build_no_rr_summary(session_row: dict[str, str], manifest: dict[str, Any]) 
         "dfa_gate": None,
         "hr_at_075": None,
         "hr_at_075_crossing": None,
-        "rr_context": {
-            "modifier": "no_rr",
-            "interpretation": "RR no disponible para esta sesion. Solo se calculan metricas de coste desde sessions.csv.",
-            "evidence": [rr_error],
-        },
-        "final_cost_interpretation": None,
+        "rr_context": rr_context,
+        "final_cost_interpretation": final_cost,
     }
 
 
@@ -936,7 +994,7 @@ def run_analysis(bundle_manifest: Path, reports_dir: Path, keep_debug_artifacts:
             fit_artifact_path = artifacts_dir / "session.fit"
             shutil.copy2(fit_src, fit_artifact_path)
 
-    payload = build_conversational_payload(summary, manifest, session_row)
+    payload = build_conversational_payload(summary, manifest, session_row, artifacts_dir=artifacts_dir)
     payload_path = artifacts_dir / "session_payload.json"
     write_json(payload_path, payload)
 

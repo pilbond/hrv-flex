@@ -1344,7 +1344,7 @@ def build_final_cost_interpretation(
         note = f"Sessions sugiere `{dominant}`; RR anade contexto pero con prudencia"
     elif rr_modifier == "question":
         note = f"Sessions sugiere `{dominant}`, pero RR cuestiona la lectura fina"
-    elif rr_modifier == "unavailable":
+    elif rr_modifier in {"unavailable", "no_rr"}:
         note = f"Sessions sugiere `{dominant}`; RR no fue interpretable"
 
     return {
@@ -1499,7 +1499,10 @@ def main() -> int:
         "tcx_path": args.tcx,
         "hr_source": hr_source,
         "hr_source_note": hr_source_note,
-        "session_meta": asdict(session_meta),
+        "session_meta": {
+            **asdict(session_meta),
+            "sport_family": args.sport,
+        },
         "rr_input_qa": rr_input_qa,
         "usability": {
             "rmssd_1min": rmssd_1m_usable,

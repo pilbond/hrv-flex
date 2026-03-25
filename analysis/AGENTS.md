@@ -20,8 +20,9 @@ Para cualquier tarea analitica del modulo, cargar y respetar este orden:
 1. `../AGENTS.md`
 2. `AGENTS.md`
 3. `ENDURANCE_AGENT_DOMAIN.md`
-4. `SESSION_ANALYSIS_METHOD.md`
-5. documentos HRV canonicos en `../docs/contracts/` solo cuando aplique integracion HRV normativa:
+4. `SESSION_ANALYSIS_METHOD.md` para analisis de sesion individual
+5. `WEEKLY_ANALYSIS_METHOD.md` para analisis semanal
+6. documentos HRV canonicos en `../docs/contracts/` solo cuando aplique integracion HRV normativa:
    - `ENDURANCE_HRV_Spec_Tecnica.md`
    - `ENDURANCE_HRV_Estructura.md`
    - `ENDURANCE_HRV_Diccionario.md`
@@ -31,6 +32,7 @@ Reglas:
 
 - si falta `ENDURANCE_AGENT_DOMAIN.md`, el analisis queda sin baseline interpretativo,
 - si falta `SESSION_ANALYSIS_METHOD.md`, el analisis pierde su procedimiento operativo,
+- si falta `WEEKLY_ANALYSIS_METHOD.md` en una tarea semanal, el analisis pierde su procedimiento agregado especifico,
 - si alguno falta, debe declararse la limitacion.
 
 ## 3. Precedencia en caso de conflicto
@@ -38,7 +40,8 @@ Manda:
 
 - infraestructura y operacion global -> `../AGENTS.md`
 - dominio, tono, baseline y semantica de confianza -> `ENDURANCE_AGENT_DOMAIN.md`
-- metodo operativo y definiciones del analisis -> `SESSION_ANALYSIS_METHOD.md`
+- metodo operativo y definiciones del analisis de sesion -> `SESSION_ANALYSIS_METHOD.md`
+- metodo operativo y definiciones del analisis semanal -> `WEEKLY_ANALYSIS_METHOD.md`
 - HRV normativa del proyecto -> documentos canonicos `ENDURANCE_HRV_*` en `../docs/contracts/`, con precedencia:
   1. `ENDURANCE_HRV_Spec_Tecnica.md`
   2. `ENDURANCE_HRV_Estructura.md`
@@ -66,6 +69,13 @@ Todo analisis debe responder, de forma trazable al dato, a estas seis preguntas:
 4. si la capa RR confirma o matiza la FC
 5. si procede, cual fue el balance cardiometabolico vs mecanico
 6. como debe releerse la sesion mas adelante
+
+En analisis semanal, el modulo debe responder ademas:
+
+1. que estructura tuvo realmente la semana
+2. que carga util y mecanica dejo
+3. si esa carga parece absorbida o no
+4. que condiciona la decision de la semana siguiente
 
 ## 5. Inputs validos
 ### MUST aceptar
@@ -160,6 +170,12 @@ debe interpretarse con este contrato por defecto, sin que el usuario tenga que r
 - guardar el resultado final en `analysis/reports/<slug>/report.md`,
 - preservar `analysis/reports/<slug>/technical_report.md` como artefacto tecnico separado.
 
+### MUST - disciplina de fuentes
+- tratar `session_payload.json` como fuente humana principal y `summary.json` como fuente tecnica reproducible,
+- usar `technical_report.md`, `report.md`, informes previos, prompts previos o handoffs solo como apoyo operacional, nunca como evidencia primaria,
+- si una conclusion no puede sostenerse con `session_payload.json` o `summary.json`, declararla como no demostrada o eliminarla,
+- cuando `session_payload.json` y otra fuente textual discrepen, priorizar el payload salvo error evidente y declarado.
+
 ### MUST - estructura del informe
 - seguir el orden de secciones definido en `SESSION_ANALYSIS_METHOD.md` seccion 15,
 - en **Fuentes**, jerarquizar por funcion analitica (no como inventario de archivos),
@@ -182,6 +198,8 @@ debe interpretarse con este contrato por defecto, sin que el usuario tenga que r
 - usar `report.md` para un resumen tecnico corto,
 - exigir al usuario un prompt largo cuando el `slug` de sesion ya identifica el caso,
 - usar etiqueta plana de confianza si las capas tienen calidad claramente diferente.
+- usar `technical_report.md`, `report.md` o informes previos como si fueran dato medido,
+- convertir texto narrativo previo en evidencia fisiologica nueva.
 
 ## 9. Comparacion con informes externos
 Si el usuario aporta un informe externo:
@@ -203,8 +221,19 @@ Si el usuario aporta un informe externo:
 - separar calidad del dato y conclusion,
 - no inventar causalidad,
 - preferir artefactos reproducibles frente a analisis opacos.
+- separar explicitamente, al menos de forma semantica, `dato observado`, `interpretacion` y `nivel de certeza`,
+- usar lenguaje modal cuando la evidencia no cierre la conclusion: `compatible con`, `sugiere`, `orienta`, `no confirma`,
+- tratar proxies y heuristicas como aproximaciones operativas, no como equivalencias fisiologicas exactas.
+
+### MUST NOT
+- convertir proxies como Naismith, drift, residual_z, `hr_at_075_crossing` o molestias subjetivas en pruebas fuertes por si solos,
+- inferir lesiones, diagnosticos clinicos o entidades patologicas a partir de una unica sesion o de notas subjetivas,
+- presentar mecanismos fisiologicos finos como hechos cuando el dato solo soporta una lectura plausible.
 
 ## 11. Regla final
-El metodo concreto de analisis lo define `SESSION_ANALYSIS_METHOD.md`.
+El metodo concreto de analisis de sesion lo define
+`SESSION_ANALYSIS_METHOD.md`.
+El metodo concreto de analisis semanal lo define
+`WEEKLY_ANALYSIS_METHOD.md`.
 El tono, baseline, confianza e interpretacion los define `ENDURANCE_AGENT_DOMAIN.md`.
 Este archivo no debe duplicar su contenido salvo para fijar alcance, precedencia y outputs del modulo.

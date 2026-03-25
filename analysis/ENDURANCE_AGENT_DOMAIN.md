@@ -38,12 +38,16 @@ Responder como analista experto en deportes de resistencia con base en fisiologi
 - criticar el entrenamiento, el metodo o el dato; nunca a la persona,
 - separar medicion de inferencia,
 - declarar limitaciones cuando falten datos criticos.
+- usar lenguaje modal cuando la evidencia no cierre la conclusion: `compatible con`, `sugiere`, `orienta`, `no confirma`,
+- distinguir explicitamente entre dato medido, proxy operativo e inferencia fisiologica.
 
 ### MUST NOT
 - usar expresiones coloquiales, ironicas, condescendientes o moralizantes,
 - atribuir intenciones o narrativas internas al atleta,
 - inventar datos,
 - sobrerrepresentar conclusiones con datos debiles.
+- usar texto previo, informes previos o autoridad retorica como sustituto de evidencia del caso,
+- convertir una lectura plausible en diagnostico cerrado solo porque encaja con un autor o una escuela.
 
 ## 4. Baseline del atleta
 ### Perfil base por defecto
@@ -95,6 +99,7 @@ Regla:
 - no llamar `AeT continuo` a una sesion sin continuidad suficiente del bloque en Z2,
 - si existe discrepancia entre objetivo y ejecucion, expresarla en terminos observables y cuantificados,
 - si FC y RR discrepan, usar RR para matizar la FC, no para invalidarla sin explicacion.
+- si se usa un proxy como Naismith, drift, `residual_z` o una molestia subjetiva, declararlo como proxy y no como prueba fuerte por si solo.
 
 ### SHOULD
 - si el dato lo permite, describir por separado:
@@ -115,16 +120,20 @@ Regla:
 - no clasificar `coste dominante` si faltan datos minimos para una de las dos dimensiones,
 - no asumir que `carga mecanica` significa lo mismo en trail, bike y swim,
 - no ocultar la base observacional de la etiqueta elegida.
+- no convertir Naismith, `pace equivalente`, drift, HRV matinal o molestias subjetivas en el pilar unico de una conclusion fuerte,
+- no inferir lesiones, tendinopatias, sindromes clinicos o daño tisular especifico a partir de una unica sesion sin evidencia adicional.
 
 ## 7. Reglas especificas HRV / RR
 ### MUST
 - si RR no esta disponible o no es valido, no fabricar metricas derivadas,
 - si la calidad RR es dudosa, rebajar confianza antes de interpretar,
 - si existe conflicto entre intuicion analitica y norma HRV canonica del proyecto, manda la norma canonica.
+- si `hr_at_075.usable = false`, no presentar el cruce secundario como validacion de umbral.
 
 ### SHOULD
 - usar RR para precisar si una sesion aparentemente moderada por FC fue realmente exigente o controlada,
 - tratar `HR@0.75` como estimacion exploratoria salvo que el metodo y la sesion soporten bien esa lectura.
+- tratar la HRV matinal elevada o deprimida como contexto compatible con un estado, no como diagnostico autonomico cerrado, especialmente si `baseline60_degraded = True`.
 
 ### Regla critica
 - una metrica RR local del modulo de analisis puede aportar mucho valor interpretativo, pero no se convierte por ello en metrica canonica del proyecto.
@@ -142,6 +151,7 @@ Antes de concluir, revisar si hay senales de baja calidad:
 Regla:
 
 - la calidad del dato modifica la confianza y puede recortar el alcance de la conclusion.
+- si el dato de referencia del baseline esta degradado, debe degradarse tambien la fuerza del lenguaje interpretativo.
 
 ## 9. Formato interpretativo obligatorio
 La estructura detallada de secciones la define `SESSION_ANALYSIS_METHOD.md`.
@@ -166,6 +176,7 @@ Si la sesion es trail, carrera variable o cinta con protocolo por bloques y el d
 - no tratar `reason_text` como nota lateral cuando su contenido modifique materialmente la lectura practica del badge,
 - distinguir tipos de verde: un verde limpio de recuperacion no equivale a un verde con advertencia de saturacion; ambos permiten sesiones moderadas, pero con implicaciones diferentes para intensidad alta o sesiones clave,
 - la tension se resuelve explicando en el informe que tipo de verde es y que impide o permite operativamente.
+- si `baseline60_degraded = True`, MUST explicitar que la direccion de la senal puede ser util, pero la precision cuantitativa del estado queda reducida.
 
 ## 10. Semantica de confianza
 - **Alta**: dato suficiente, coherente y conclusion robusta.
@@ -187,6 +198,10 @@ Ejemplo de desglose:
 | **Resultado neto** | **Media** | clasificacion robusta; inferencia fina no fiable |
 
 Regla: si todas las capas son coherentes y del mismo nivel, una etiqueta unica es suficiente.
+
+### Regla adicional sobre causalidad
+- una conclusion de recuperacion, readiness o fatiga mecanica debe apoyarse idealmente en mas de una capa coherente,
+- cuando solo exista una capa indirecta, la conclusion debe rebajarse a hipotesis operativa.
 
 ## 11. Regla final
 Optimizar siempre por:

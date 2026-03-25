@@ -68,6 +68,8 @@ Regla:
 - si existe `summary.json` del modulo local de analisis, revisar `duration_consistency`:
   - si `duration_consistency = OK`, registrar la diferencia en minutos como trazabilidad,
   - si `duration_consistency = WARN` o el campo indica inconsistencia, declararlo y priorizar la fuente mas fiable para anclar la duracion real.
+- si existen `session_payload.json` y `summary.json` del slug, usarlos como capa compacta primaria antes de explorar otros artefactos del caso,
+- tratar `technical_report.md`, `report.md`, prompts previos o handoffs solo como apoyo operacional, nunca como fuente primaria del analisis.
 
 ### MUST, si hay trail o carrera con serie suficiente
 - revisar stop&go relevante,
@@ -203,6 +205,7 @@ Para `Z2` y, si procede, `Z3`:
 ### Regla interpretativa critica
 - no presentar tiempo acumulado en `Z2` como `AeT util` si la continuidad es insuficiente,
 - si la mayor parte del `Z2` proviene de bloques cortos, expresarlo explicitamente como discrepancia entre `tiempo en zona` y `continuidad del estimulo`.
+- no convertir una heuristica externa o un proxy de terreno en intensidad fisiologica exacta si el dato medido no alcanza para sostenerlo.
 
 ### Evidencia negativa
 Cuando la ausencia de senal sea relevante para la lectura, hacerla explicitamente visible:
@@ -344,6 +347,7 @@ Reglas:
 
 - no comparar directamente el numero de ventanas entre modos distintos como si midieran lo mismo,
 - si se usa `HR@0.75`, declarar tambien si el cruce es robusto o debil.
+- si `hr_at_075.usable = false`, MUST NOT usar el cruce secundario para recalibrar umbrales, reclasificar zonas o `validar` VT1/VT2.
 
 ### 10.5 HR@alpha1~0.75
 Estimar solo si el cruce es interpretable.
@@ -370,6 +374,10 @@ Buscar y expresar en terminos cuantificados:
 - discrepancia entre objetivo esperado y ejecucion real,
 - si FC y RR cuentan historias distintas.
 
+Regla:
+
+- una discrepancia entre capas no autoriza por si sola una conclusion fuerte; primero debe declararse que capa manda y por que.
+
 ## 12. Contexto de recuperacion y carga reciente
 ### SHOULD integrar cuando existan fuentes fiables
 - `data/ENDURANCE_HRV_sleep.csv`
@@ -395,6 +403,12 @@ Si existe `data/ENDURANCE_HRV_sessions_metadata.json` del pipeline de sesiones:
   - rolling agregados que dependan de esas conversiones,
 - explicitar la limitacion en la salida.
 - nota: pausas o tiempo detenido durante la sesion NO causan este flag (el calculo usa elapsed_time, no moving_time).
+
+### Regla critica HRV / recuperacion
+- `gate_badge`, `residual_z`, `RMSSD_stable`, `sleep`, `feel` y `reason_text` son contexto potente, pero no equivalen a diagnostico por si solos,
+- si `baseline60_degraded = True`, rebajar automaticamente la fuerza de cualquier conclusion fina sobre recuperacion, saturacion vagal o readiness,
+- en ese caso, el lenguaje permitido debe ser prudente: `compatible con`, `sugiere`, `no confirma`,
+- MUST NOT presentar `saturacion parasimpatica`, `supercompensacion` o estados equivalentes como hechos cerrados si solo se apoyan en HRV matinal y percepcion subjetiva.
 
 ### MAY omitir si
 - no existen fuentes de recuperacion
@@ -688,6 +702,8 @@ Regla:
 La seccion Fuentes no es un inventario de archivos; es la declaracion de que dato manda para cada aspecto del analisis.
 - jerarquizar por funcion analitica: continuidad temporal, FC, contexto integrado, comparativa de bloque,
 - cuando la sesion usa 3 o mas fuentes, presentarlas en tabla con columnas `Rol analitico` y `Fuente`; la tabla permite ver de un vistazo que archivo sostiene cada lectura.
+- `session_payload.json` y `summary.json` deben figurar como capa principal cuando existan,
+- `technical_report.md`, `report.md` o informes previos no deben citarse como evidencia del caso.
 
 ### Reglas de seccion Datos
 Los datos de la sesion deben facilitar la lectura posterior, no competir con ella.
@@ -705,6 +721,7 @@ La Capa RR tiene varias metricas cuantitativas que se leen mejor en tabla que en
 - tras las metricas, incluir un apartado **Sintesis de coste** que conecte `cardio_score`, `mecanico_score` y `coste_dominante` con los anclajes observacionales que los justifican,
 - si existe una limitacion que recorte la lectura fina (HR@0.75 no usable, gradiente alpha1 incoherente, etc.), declararla en un apartado **Limitacion clave** antes de cerrar,
 - cerrar la seccion con una **Jerarquia de evidencia** numerada en 3 niveles: que sostiene la lectura estructural principal, que aporta la capa RR, y que no permite hacer.
+- si `hr_at_075.usable = false`, cualquier `crossing` de baja confianza debe presentarse solo como orientacion secundaria; nunca como base de validacion de umbral.
 
 ### Reglas de seccion Contexto de recuperacion y carga
 El contexto previo condiciona la lectura de la sesion. Para que sea rapido de consultar:
@@ -728,12 +745,15 @@ La conclusion debe integrar la lectura cualitativa con sus anclajes numericos.
 La interpretacion fisiologica no es una repeticion de la conclusion; es la lectura de que ocurrio a nivel de sistemas.
 - anclar al menos una observacion a un valor numerico medido (RMSSD, alpha1 o equivalente) para que la lectura no quede desconectada del dato,
 - cuando la huella mecanica condicione mas la recuperacion que la fatiga central, decirlo; en trail esto es frecuente y cambia la decision siguiente.
+- distinguir explicitamente cuando se usa un valor medido frente a una aproximacion, heuristica o proxy.
+- MUST NOT convertir Naismith, `pace equivalente`, drift, `residual_z`, `hr_at_075_crossing` o molestias subjetivas en prueba central de una conclusion fuerte sin respaldo adicional.
 
 ### Reglas de seccion Implicacion practica
 La implicacion practica solo es util si es concreta y condicional.
 - incluir un arbol de decision para la sesion siguiente con 2-3 escenarios,
 - anclar cada escenario a una variable observable (estado musculoesqueletico, carga reciente, gate_badge),
 - evitar recomendaciones genericas; si la recomendacion sirve para cualquier sesion, no aporta valor.
+- MUST NOT basar una decision importante en una unica heuristica debil o en una unica molestia subjetiva aislada.
 
 ### Reglas de seccion Confianza
 La confianza global puede ocultar que las capas tienen calidades muy distintas.
@@ -745,6 +765,10 @@ El formato no es decorativo; estructura la lectura.
 - usar separadores `---` entre secciones principales para marcar transiciones,
 - usar negrita para apartados dentro de secciones,
 - preferir tablas sobre listas de bullets cuando el contenido sea cuantitativo y comparable (RMSSD, DFA, sesiones del bloque, confianza por capas).
+
+### Regla explicita sobre proxies
+- Naismith, `pace equivalente`, drift, `residual_z`, `hr_at_075_crossing` y molestias subjetivas son proxies o apoyos contextuales,
+- pueden reencuadrar la lectura, pero MUST NOT convertirse en la prueba central de una conclusion fuerte sin respaldo adicional.
 
 ## 16. Nota resumen de calidad
 Tras el analisis completo:

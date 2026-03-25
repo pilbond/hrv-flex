@@ -45,11 +45,11 @@ def normalize_sport(raw: str | None) -> str:
     sport = (raw or "").strip().lower()
     aliases = {
         "trail_run": "trail",
-        "road_run": "trail",
-        "run": "trail",
-        "running": "trail",
-        "virtual_run": "trail",
-        "virtualrun": "trail",
+        "road_run": "road",
+        "run": "road",
+        "running": "road",
+        "virtual_run": "road",
+        "virtualrun": "road",
         "bike": "bike",
         "ride": "bike",
         "virtual_ride": "bike",
@@ -365,7 +365,7 @@ def swim_mechanical_score(row: dict[str, str]) -> tuple[int | None, str, list[st
 
 def mechanical_score(row: dict[str, str]) -> tuple[int | None, str, list[str]]:
     sport = normalize_sport(row.get("sport"))
-    if sport == "trail":
+    if sport in {"trail", "road"}:
         return trail_mechanical_score(row)
     if sport == "hike":
         return hike_mechanical_score(row)
