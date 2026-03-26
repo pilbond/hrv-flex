@@ -1,113 +1,285 @@
-# AGENTS.md — Polar HRV Automation (Railway)
+# AGENTS.md - Polar HRV Automation (Railway) V4
 
-## Objetivo del proyecto
-Sistema automatizado de monitoreo HRV que:
-- Autentica con Polar AccessLink (OAuth2 Authorization Code).
-- Descarga datos (p.ej. sesiones Body&Mind/HRV) vía API.
-- Procesa HRV con algoritmos propios (`endurance_hrv.py`).
-- Expone UI web móvil (Flask) y endpoints de sincronización.
-- Despliegue en Railway para acceso remoto.
+## 1. Alcance de este archivo
+Este `AGENTS.MD` gobierna la capa operativa global del repositorio:
 
-## Arquitectura (actual)
-- `web_ui.py`: Servidor Flask + UI móvil + endpoints `/auth`, `/auth/callback`, `/api/sync`, `/api/status`.
-- `polar_hrv_automation.py`: Lógica de descarga/sync contra Polar API usando tokens ya obtenidos.
-- `endurance_hrv.py`: Procesamiento HRV.
-- `Dockerfile`: Python 3.11-slim.
-- `requirements_web.txt`: dependencias.
-- Railway: servicio web en puerto `PORT` (8080).
+- estructura del proyecto,
+- componentes principales,
+- rutas y outputs canonicos,
+- runtime y variables de entorno,
+- OAuth, endpoints y despliegue,
+- seguridad y politica de cambios operativos.
 
-## Principio clave (para evitar fallos recurrentes)
-Debe existir **un único flujo OAuth “web”** en producción (Railway).  
-Está prohibido en producción:
-- abrir navegador desde backend (`webbrowser.open`)
-- levantar un “callback server local” con `HTTPServer().bind()` para capturar el `code`
+No gobierna:
 
-En Railway el callback debe entrar por el **Flask app**.
+- el analisis deportivo detallado,
+- el tono del agente de analisis,
+- el perfil fisiologico del atleta,
+- el metodo paso a paso del analisis de sesiones.
 
-## Variables de entorno (Railway / local)
+Esos aspectos viven en el modulo local `analysis/`.
+
+## 2. Regla de precedencia
+La precedencia documental del repositorio es:
+
+1. este `AGENTS.MD` para operacion, runtime, ficheros, endpoints y despliegue
+2. `docs/contracts/` para logica HRV normativa, columnas, QA y gating
+3. `analysis/AGENTS.md` para reglas locales del modulo analitico
+4. `analysis/ENDURANCE_AGENT_DOMAIN.md` para rol, tono y baseline fisiologico
+5. `analysis/SESSION_ANALYSIS_METHOD.md` para el metodo operativo del analisis
+
+Regla:
+
+- no mezclar capas,
+- si hay conflicto, clasificar primero si es operativo, normativo HRV o analitico.
+
+## 3. Objetivo del proyecto
+Sistema automatizado HRV para un unico atleta que:
+
+- autentica con Polar AccessLink mediante OAuth2 Authorization Code,
+- intenta cubrir primero RR faltantes desde `ECG.jsonl + ACC.jsonl` en Dropbox,
+- usa Polar como fallback cuando Dropbox no cubre las fechas necesarias o no esta disponible,
+- procesa RR con `build_hrv_core.py` para generar `CORE` y `BETA_AUDIT`,
+- genera `FINAL` y `DASHBOARD` con `build_hrv_final_dashboard.py`,
+- expone una UI web Flask y endpoints de sincronizacion,
+- puede sincronizar wellness a Intervals.icu de forma opcional,
+- se despliega en Railway.
+
+## 4. Alcance funcional del proyecto
+Este proyecto es para uso personal de un unico atleta.
+
+Reglas:
+
+- no tratarlo como producto multiusuario,
+- no introducir abstracciones multi-athlete o multi-tenant sin cambio de alcance explicito,
+- no introducir soporte multi-cuenta o seleccion de atleta salvo cambio de alcance explicito,
+- priorizar simplicidad operativa, trazabilidad y robustez para el caso N=1.
+
+## 5. Estado estructural
+Elementos estructurales estables del repo:
+
+- datos operativos en `data/`,
+- RR crudos y reprocesables en `data/rr_downloads/`,
+- archivo canonico de sueno en `ENDURANCE_HRV_sleep.csv`,
+- scripts operativos locales en `scripts/`,
+- norma HRV activa en `docs/contracts/`,
+- documentacion historica en `docs/legacy/`,
+- modulo analitico local en `analysis/`.
+
+## 6. Snapshot actual (2026-03-17)
+Estado actual de implementacion observado:
+
+- la UI expone `/api/sync`, `/api/sync-sessions`, `/api/status` y endpoints OAuth,
+- `build_sessions.py` genera `ENDURANCE_HRV_sessions.csv`, `ENDURANCE_HRV_sessions_day.csv` y `ENDURANCE_HRV_sessions_metadata.json`,
+- el flujo recomendado de cobertura RR es Dropbox primero y Polar como fallback,
+- `ENDURANCE_HRV_sleep.csv` es el unico archivo canonico de sueno,
+- la UI no debe permitir ejecutar `sync` HRV y `sync-sessions` al mismo tiempo,
+- la UI actual prioriza `Detalle tecnico` o `raw output` como bloque principal visible.
+
+Si este bloque queda desactualizado, debe actualizarse o reducirse.
+
+## 7. Arquitectura actual
+- `web_ui.py`
+  Flask + UI movil.
+  Endpoints: `/`, `/auth`, `/auth/callback`, `/oauth/callback`, `/api/sync`, `/api/sync-sessions`, `/api/status`, `/health`.
+  `POST /api/sync` ejecuta `polar_hrv_automation.py --process` en thread.
+  `POST /api/sync-sessions` ejecuta `build_sessions.py --update` en thread.
+  Ambos jobs comparten estado operativo y no deben ejecutarse en paralelo.
+
+- `polar_hrv_automation.py`
+  Orquesta el flujo principal.
+  Intenta cubrir RR faltantes desde Dropbox.
+  Si no es posible, usa Polar como fallback.
+  Actualiza `ENDURANCE_HRV_sleep.csv`.
+  Ejecuta `build_hrv_core.py` y `build_hrv_final_dashboard.py` cuando corresponde.
+  Puede sincronizar wellness a Intervals.icu.
+
+- `egc_to_rr.py`
+  Convierte pares `ECG.jsonl + ACC.jsonl` a RR compatibles con la app.
+  El uso recomendado actual es local o Dropbox.
+
+- `build_hrv_core.py`
+  RR -> `ENDURANCE_HRV_master_CORE.csv` y `ENDURANCE_HRV_master_BETA_AUDIT.csv`.
+
+- `build_hrv_final_dashboard.py`
+  `CORE + sleep + sessions_day` -> `ENDURANCE_HRV_master_FINAL.csv` y `ENDURANCE_HRV_master_DASHBOARD.csv`.
+  La carga de entrenamiento se lee desde `ENDURANCE_HRV_sessions_day.csv`.
+
+- `build_sessions.py`
+  Pipeline de sesiones desde Intervals.icu.
+  Genera `ENDURANCE_HRV_sessions.csv`, `ENDURANCE_HRV_sessions_day.csv` y `ENDURANCE_HRV_sessions_metadata.json`.
+  Soporta `--backfill`, `--daily`, `--update` y `--date`.
+
+- `Dockerfile`
+  Imagen base Python 3.11-slim.
+
+- `requirements_web.txt`
+  Dependencias de la app web y del pipeline.
+  Incluye `scipy`.
+
+- `analysis/`
+  Modulo local para analisis de sesiones.
+  Su operativa interna esta gobernada por `analysis/AGENTS.md`.
+
+## 8. Outputs operativos canonicos
+Canonicos:
+
+- `ENDURANCE_HRV_master_CORE.csv` (18 columnas)
+- `ENDURANCE_HRV_master_BETA_AUDIT.csv` (13 columnas)
+- `ENDURANCE_HRV_master_FINAL.csv` (58 columnas)
+- `ENDURANCE_HRV_master_DASHBOARD.csv` (10 columnas)
+- `ENDURANCE_HRV_sleep.csv` (17 columnas)
+
+Complementarios:
+
+- `ENDURANCE_HRV_sessions.csv`
+- `ENDURANCE_HRV_sessions_day.csv`
+- `ENDURANCE_HRV_sessions_metadata.json`
+
+## 9. Defaults runtime
+Defaults actuales si no hay variables:
+
+- `HRV_DATA_DIR = data`
+- `RR_DOWNLOAD_DIR = data/rr_downloads`
+- `POLAR_TOKEN_PATH = .polar_tokens.json`
+
+Por tanto, en local:
+
+- RR nuevos y reprocesables van a `data/rr_downloads/`,
+- CSV maestros, `sleep` y `sessions` se leen y escriben en `data/`.
+
+## 10. Variables de entorno
 Requeridas:
-- `POLAR_CLIENT_ID`
+
 - `POLAR_CLIENT_SECRET`
-- `PUBLIC_URL` (ej. `https://web-production-xxxx.up.railway.app`)
-- `PORT` (Railway lo define; local usar 8080 o el que corresponda)
+- `PORT`
 
-Recomendadas:
-- `POLAR_TOKEN_PATH` (para persistencia de tokens; en Railway con Volume: `/data/polar_tokens.json`)
-- `POLAR_USER_NAME` (opcional; no debe ser requisito funcional)
+Requerida una de estas:
 
-## Persistencia: Railway Volume
-En Railway, el filesystem del contenedor puede ser efímero. Para no perder autorización:
-- Crear y montar Volume en `/data`
-- Configurar `POLAR_TOKEN_PATH=/data/polar_tokens.json`
+- `POLAR_CLIENT_ID`
+- `POLAR_CLIENT_ID2`
 
-Requisitos de implementación:
-- El backend debe:
-  - crear el directorio padre (`mkdir -p`) antes de escribir
-  - guardar tokens con escritura atómica (tmp + replace)
-  - aplicar permisos restrictivos si aplica (chmod 600)
-- Nunca servir `polar_tokens.json` por HTTP ni imprimirlo en logs.
+Nota:
 
-## OAuth (flujo esperado)
-Canon:
-1) Usuario abre `GET /auth`
-2) Backend redirige a `https://flow.polar.com/oauth2/authorization` con:
-   - `response_type=code`
-   - `client_id=...`
-   - `redirect_uri=${PUBLIC_URL}/auth/callback`
-   - `scope=accesslink.read_all` (si aplica; no omitir)
-   - `state=<random>` (recomendado)
-3) Polar redirige a:
-   - `${PUBLIC_URL}/auth/callback?code=XXXXX&state=...`
-4) Backend en `/auth/callback`:
-   - valida `code` (y `state` si se usa)
-   - intercambia `code` por tokens:
-     - `POST https://polarremote.com/v2/oauth2/token`
-   - guarda tokens en `POLAR_TOKEN_PATH`
-   - registra usuario en Polar AccessLink:
-     - `POST https://www.polaraccesslink.com/v3/users` con `Authorization: Bearer <access_token>`
-     - tratar 409 (already registered) como éxito
-5) Usuario vuelve a `/` y puede ejecutar sync
+- el codigo actual da precedencia a `POLAR_CLIENT_ID2` si ambas existen.
 
-Compatibilidad:
-- Se puede mantener `/oauth/callback` como alias a `/auth/callback` si existía legado, pero el canon debe ser `/auth/callback`.
+Muy recomendadas:
 
-## Endpoints (contrato)
-- `GET /` → UI
-- `GET /auth` → inicia OAuth (302)
-- `GET /auth/callback` → completa OAuth (200 o error explícito)
-- `POST /api/sync` → ejecuta sync; si no hay token → 400 con mensaje “Falta autorización. Abre /auth…”
-- `GET /api/status` → estado (incluye si hay tokens y última sync)
-- `GET /health` → healthcheck simple (200)
+- `PUBLIC_URL` (ej. `https://tu-app.up.railway.app`)
+- `POLAR_TOKEN_PATH` (ej. `/data/polar_tokens.json`)
+- `HRV_DATA_DIR` (ej. `/data`)
+- `RR_DOWNLOAD_DIR` (ej. `/data/rr_downloads`)
+- `INTERVALS_API_KEY`
+- `INTERVALS_ATHLETE_ID`
 
-## Seguridad (no negociable)
-- No commitear: `.env`, `.polar_tokens.json`, `polar_tokens.json`, `.oauth_code.txt`, CSV/HRV personales.
-- No loguear tokens, ni `client_secret`, ni respuestas completas del token endpoint.
-- No exponer endpoints de “descarga de tokens”.
-- Si un secreto se filtra, rotarlo en Polar y actualizar Railway.
+Operativas:
 
-## Criterios de aceptación (tests de “done”)
-1) En Railway:
-   - `GET /auth` devuelve 302 a Polar con `scope` y `redirect_uri` correctos.
-2) Tras autorizar en Polar:
-   - `GET /auth/callback` devuelve 200 y guarda tokens en `POLAR_TOKEN_PATH`.
-3) Sin reautorizar:
-   - `POST /api/sync` devuelve 200 (o respuesta de éxito) y usa tokens existentes.
-4) Persistencia:
-   - tras redeploy/restart en Railway, `POST /api/sync` sigue funcionando (si Volume montado).
-5) Observabilidad:
-   - logs muestran errores útiles (status_code, endpoint) sin filtrar secretos.
+- `HRV_QUIET=1`
+- `HRV_DISABLE_BACKUP=1`
+- `HRV_SYNC_TIMEOUT_SEC`
 
-## Diagnóstico rápido (si algo falla)
-- Si `/auth/callback` da 400:
-  - inspeccionar querystring: ¿viene `error=...` en lugar de `code`?
-  - revisar exactitud de `redirect_uri` (https, dominio, path)
-  - confirmar `scope` requerido y presente
-- Si hay 401 en AccessLink API:
-  - confirmar que el token exchange funcionó y se está leyendo el token correcto desde `POLAR_TOKEN_PATH`
-  - confirmar que la app en Polar AccessLink está “Active” y callbacks coinciden al 100%
+Dropbox RR:
 
-## Estilo de cambios (para agentes)
-- Cambios mínimos, sin reestructurar el repo salvo necesidad.
-- Mantener compatibilidad Python 3.11.
-- Evitar dependencias nuevas si no aportan valor claro.
-- No introducir nuevas columnas/formatos en outputs personales sin justificación.
+- `HRV_DROPBOX_RR_ENABLED=1`
+- `HRV_DROPBOX_RR_SCRIPT=egc_to_rr.py`
+- `HRV_DROPBOX_NO_AUX=1`
+- `HRV_DROPBOX_PAIR_LIMIT=<N>`
+- `HRV_DROPBOX_FOLDER_PATH=<dropbox_path>`
+- `HRV_DROPBOX_RECURSIVE=1`
+- `DROPBOX_ACCESS_TOKEN`
+- o `DROPBOX_REFRESH_TOKEN + DROPBOX_APP_KEY + DROPBOX_APP_SECRET`
+
+## 11. Persistencia, OAuth y despliegue
+Principio no negociable de produccion:
+
+- en Railway debe existir un unico flujo OAuth web,
+- esta prohibido abrir navegador desde backend,
+- esta prohibido usar HTTPServer local para callback en produccion.
+
+Persistencia Railway recomendada:
+
+- volumen montado en `/data`
+- `POLAR_TOKEN_PATH=/data/polar_tokens.json`
+- `HRV_DATA_DIR=/data`
+- `RR_DOWNLOAD_DIR=/data/rr_downloads`
+
+Reglas:
+
+- escribir tokens de forma atomica,
+- no exponer tokens por HTTP.
+
+Flujo esperado:
+
+1. usuario abre `GET /auth`
+2. backend redirige a Polar
+3. callback en `/auth/callback` o `/oauth/callback`
+4. intercambio de `code` por tokens
+5. persistencia en `POLAR_TOKEN_PATH`
+
+## 12. Endpoints y jobs
+Contrato:
+
+- `GET /`
+- `GET /auth`
+- `GET /auth/callback`
+- `GET /oauth/callback`
+- `POST /api/sync`
+- `POST /api/sync-sessions`
+- `GET /api/status`
+- `GET /health`
+
+Regla operativa:
+
+- `/api/sync` y `/api/sync-sessions` comparten estado de ejecucion en memoria,
+- no deben ejecutarse en paralelo,
+- si un job esta corriendo, el otro debe rechazarse.
+
+## 13. Seguridad
+- no commitear `.env`, `.polar_tokens.json`, RR ni CSV personales,
+- no loguear tokens ni `client_secret`,
+- rotar secretos si se exponen,
+- no exponer tokens ni artefactos sensibles por HTTP,
+- tratar `docs/legacy/` como material historico sensible.
+
+## 14. Criterios de aceptacion
+1. `/auth` devuelve 302 a Polar con `redirect_uri` correcto.
+2. `/auth/callback` guarda tokens en `POLAR_TOKEN_PATH`.
+3. `POST /api/sync` genera o actualiza `CORE`, `BETA_AUDIT`, `sleep`, `FINAL` y `DASHBOARD`.
+4. Tras redeploy, `/api/sync` sigue funcionando si hay Volume.
+5. Logs utiles sin secretos.
+6. RR se almacenan y leen desde `data/rr_downloads/`.
+7. Si faltan fechas en `CORE`, se intenta primero cubrirlas desde Dropbox antes del fallback Polar.
+8. `POST /api/sync-sessions` ejecuta `build_sessions.py --update`.
+9. La UI web no permite ejecutar `sync` HRV y `sync-sessions` al mismo tiempo.
+
+## 15. Comandos operativos
+Windows:
+
+- `scripts\\run-web-ui.bat`
+- `scripts\\run-python.bat`
+
+Pipeline de sesiones:
+
+- `python build_sessions.py --update`
+
+Conversion manual cloud -> RR:
+
+- `python egc_to_rr.py --dropbox-folder /ruta/carpeta --dropbox-recursive --outdir data/rr_downloads`
+
+## 16. Politica de cambios
+- cambios minimos,
+- compatibilidad con Python 3.11,
+- evitar dependencias nuevas salvo valor claro,
+- preservar nombres, rutas y outputs operativos salvo instruccion explicita,
+- no reintroducir rutas, outputs o flujos ya retirados sin cambio de alcance explicito.
+
+Si un cambio afecta a:
+
+- logica HRV,
+- esquema de columnas,
+- criterios QA,
+- gating o semaforos,
+- significado operativo de metricas,
+
+entonces tambien hay que actualizar `docs/contracts/`.
+
