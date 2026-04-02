@@ -106,7 +106,9 @@ En este contexto, `fallback` significa que `sessions` uso umbrales genericos por
 
 ## 7. Reconstruccion externa
 ### 7.1 Metricas obligatorias
-#### Para trail, carrera y cinta cuando el dato lo permita
+#### Para sesiones realizadas a pie cuando el dato lo permita
+- familia a pie: `trail`, `road run`, `run`, `VirtualRun` / cinta,
+  `Hike` y otras locomociones equivalentes sobre pie
 - `elapsed_time`
 - `moving_time` si es interpretable
 - `non_moving_time` si es interpretable
@@ -117,7 +119,35 @@ En este contexto, `fallback` significa que `sessions` uso umbrales genericos por
 - ritmo o velocidad
 - `D+ / D-` estimado si existe altitud usable
 - segmentacion por terreno o pendiente cuando tenga sentido
-- splits por km o por bloques comparables
+- splits por km como capa obligatoria de lectura cuando la distancia
+  sea interpretable
+- si la distancia por km no es interpretable, usar bloques
+  comparables y declarar explicitamente la limitacion
+
+#### Reglas obligatorias para splits en sesiones a pie
+- MUST generar una tabla de splits por km en toda sesion realizada a
+  pie cuando el dato espacial sea interpretable,
+- la tabla recomendada por km debe incluir, cuando el dato lo
+  permita:
+  - `km`
+  - `ritmo`
+  - `FC_media`
+  - `D+`
+  - `D-`
+  - `gap_stopgo`
+  - `gap_pendiente`
+- `gap_stopgo` = diferencia del split entre `elapsed` y `moving`;
+  describe contaminacion por pausas, cruces o stop&go,
+- `gap_pendiente` = ajuste o aproximacion del split por pendiente;
+  describe cuanto del ritmo observado puede estar explicado por el
+  relieve y MUST declararse como aproximacion, no como intensidad
+  fisiologica exacta,
+- si uno de los dos gaps no es interpretable con calidad suficiente,
+  declararlo y omitirlo en lugar de fabricarlo,
+- en trail o terreno muy variable, los splits por km MUST seguir
+  presentes, pero su interpretacion debe quedar subordinada al
+  terreno, al desnivel y a bloques comparables cuando estos aporten
+  mas senal.
 
 #### Para ciclismo cuando el dato lo permita
 - `elapsed_time`
@@ -149,6 +179,13 @@ Si se usan otros, deben declararse.
 - deadband recomendado para trail/carrera: `0.5 m`,
 - si la altitud esta muy cuantizada, declarar que el `D+ / D-` es solo orden de magnitud.
 
+#### Gap por pendiente en sesiones a pie
+- si se calcula `gap_pendiente`, MUST declararse la estrategia usada,
+- el `gap_pendiente` es una aproximacion contextual del split; sirve
+  para reencuadrar el ritmo observado frente al relieve,
+- MUST NOT tratarse como ritmo equivalente exacto ni como prueba
+  principal de intensidad interna.
+
 #### Terreno / pendiente
 - pendiente sobre altitud suavizada,
 - ventana temporal recomendada: `10 s`,
@@ -161,11 +198,25 @@ Si se usan otros, deben declararse.
 - en cinta, priorizar `FIT` sobre `TCX` para continuidad real si ambos discrepan,
 - si el archivo indoor representa mal velocidad o distancia, reducir el peso interpretativo de `moving/pause` y priorizar bloques o protocolo declarado,
 - no llamar continua a una sesion con stop&go apreciable sin explicitarlo.
+- en sesiones a pie, los splits por km son obligatorios si la
+  distancia es interpretable; si no lo es, declarar la limitacion y
+  sustituirlos por bloques comparables.
 
 ### 7.4 Familias operativas
 - `VirtualRun` / cinta: tratar como familia de carrera indoor; usar la parte cardiometabolica con normalidad, pero rebajar el peso de terreno, `moving/pause` y cualquier lectura espacial si el archivo cuantiza mal la velocidad o la distancia.
 - `Hike`: tratar como familia de terreno con locomocion de marcha, no como carrera continua; mantener la lectura de desnivel y continuidad, pero rebajar la semantica de bloque corrible y tempo de carrera.
 - `Elliptical`: tratar como cardio indoor de bajo impacto; no aplicar semantica de terreno, y usar `SWOLF` no aplica. Si faltan ritmo por bloques, cadence o serie interpretable, preferir `no_clasificable` en la dimension mecanica.
+
+Regla:
+
+- toda familia de locomocion a pie debe intentar lectura por splits
+  por km, con interpretacion adaptada al contexto:
+  - `road run` / `run`: los splits por km suelen tener peso alto para
+    pacing y deriva,
+  - `VirtualRun` / cinta: mantener splits si la distancia es
+    interpretable; si no, priorizar bloques o protocolo declarado,
+  - `Hike` y `trail`: mantener splits por km, pero no tratarlos como
+    unidad autosuficiente cuando el perfil o el terreno cambian mucho.
 
 ## 8. Reconstruccion interna
 ### MUST calcular

@@ -66,7 +66,7 @@ El bundle en `.cache/` es temporal: se elimina automaticamente tras el analisis 
 **Ejemplo:**
 ```bash
 # Ultima sesion (desde analysis/)
-python analyze_session.py  -> python analysis/analyze_session.py
+python analyze_session.py  -> python analysis/analyze_session.py --keep-bundle
 
 # Sesion concreta
 python analyze_session.py --session-id i133874358

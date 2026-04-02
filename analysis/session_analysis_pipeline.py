@@ -4,11 +4,12 @@ from __future__ import annotations
 import csv
 import gzip
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -329,12 +330,21 @@ def _match_polar_exercise(row: dict[str, str], exercises: list[dict[str, Any]]) 
     target_duration = _parse_float(row.get("duration_min"))
     candidates: list[tuple[float, float, dict[str, Any]]] = []
 
+    # POLAR_TZ_OFFSET_MIN: corrección de offset de zona horaria entre sessions.csv y API Polar.
+    # Útil cuando sessions.csv tiene timestamps en una TZ distinta a la que devuelve _iso_to_dt.
+    # Ej: sesión grabada en UK (BST=UTC+1), sessions.csv en hora española (CEST=UTC+2):
+    #   _iso_to_dt convierte Polar BST→UTC en shell UTC → start_dt queda 1h por detrás de target_dt
+    #   → POLAR_TZ_OFFSET_MIN=-60 (restar 60 min a target_dt para igualar los marcos).
+    # Valor negativo cuando sessions.csv está adelantado respecto a Polar (caso UK→España).
+    tz_offset_min = int(os.environ.get("POLAR_TZ_OFFSET_MIN", "0"))
+    adjusted_target_dt = target_dt + timedelta(minutes=tz_offset_min)
+
     for ex in exercises:
         start_raw = _get_field_variant(ex, *FIELD_START_TIME, default="")
         start_dt = _iso_to_dt(start_raw)
-        if not start_dt or start_dt.date() != target_date:
+        if not start_dt or start_dt.date() != adjusted_target_dt.date():
             continue
-        delta_min = abs((start_dt - target_dt).total_seconds()) / 60.0
+        delta_min = abs((start_dt - adjusted_target_dt).total_seconds()) / 60.0
         dur_raw = ex.get("duration", "")
         duration_min = parse_duration_to_minutes(dur_raw) if dur_raw else None
         duration_gap = abs(duration_min - target_duration) if duration_min is not None and target_duration is not None else 999.0
