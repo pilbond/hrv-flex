@@ -37,6 +37,7 @@ import argparse
 import logging
 from datetime import datetime, timedelta, date
 from pathlib import Path
+from urllib.parse import urlparse
 from typing import Optional
 
 import requests
@@ -92,6 +93,27 @@ ATHLETE_ID = os.environ.get("INTERVALS_ATHLETE_ID", "")
 BASE_URL = "https://intervals.icu/api/v1"
 REQUEST_DELAY = 0.4
 
+
+def _env_uses_blackhole_proxy() -> bool:
+    proxy_keys = (
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+    )
+    for key in proxy_keys:
+        value = os.environ.get(key, "").strip()
+        if not value:
+            continue
+        parsed = urlparse(value)
+        host = (parsed.hostname or "").lower()
+        port = parsed.port
+        if host in {"127.0.0.1", "localhost", "::1"} and port == 9:
+            return True
+    return False
+
 # ─── Sport config ─────────────────────────────────────────────────────────────
 
 SPORT_MAP = {
@@ -126,6 +148,9 @@ VT_FALLBACK = {
 class IntervalsClient:
     def __init__(self, api_key: str, athlete_id: str):
         self.session = requests.Session()
+        # Ignore the localhost:9 "disabled proxy" sentinel that some shells export.
+        if _env_uses_blackhole_proxy():
+            self.session.trust_env = False
         self.session.auth = ("API_KEY", api_key)
         self.athlete_id = athlete_id
         self._last_request = 0.0

@@ -128,12 +128,22 @@ Esto es una **degradación del análisis, no un error operativo**. La sesión ge
 - si no hay RR valido o el archivo no cumple los criterios operativos, marcar en payload `rr_unavailable: true`,
 - motivos tipicos: no hay RR, archivo roto, muy pocas filas, sesion solo OHR sin serie RR usable.
 
+### Fuentes validas de RR para el analista IA
+El RR de una sesion solo puede venir de estas tres fuentes, en este orden:
+
+1. `session_payload.json → rr_csv` (ruta al bundle del pipeline en cache)
+2. Archivo `*_RR.CSV` depositado explicitamente por el usuario en la carpeta raiz de la sesion (`analysis/reports/<slug>/`)
+3. Ruta del cache del pipeline: `analysis/.cache/session_bundles/<slug>/session_rr.csv`
+
+Si `rr_csv: null` en el payload y el usuario no ha declarado ni depositado un archivo RR, aceptar `rr_unavailable: true` sin busqueda adicional. No buscar RR en `data/rr_downloads/` ni en ninguna otra ruta fuera de este listado — ese directorio pertenece al pipeline global, no al modulo de analisis.
+
 ### MUST NOT
 - calcular `DFA-alpha1` sin RR valido,
 - calcular `RMSSD` en ejercicio sin RR valido,
 - inferir `HR@0.75` con base debil,
 - presentar una utilidad local como si fuera el pipeline canonico del proyecto,
-- crashear si falta RR; en cambio, generar report degradado con cost model intacto.
+- crashear si falta RR; en cambio, generar report degradado con cost model intacto,
+- buscar RR fuera de las fuentes validas listadas arriba cuando `rr_csv: null` en el payload y el usuario no ha indicado disponibilidad.
 
 ## 8. Outputs obligatorios del modulo
 ### MUST generar, cuando proceda

@@ -3,16 +3,52 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import sys
 from pathlib import Path
 
-from session_analysis_pipeline import (
-    DEFAULT_BUNDLE_ROOT,
-    DEFAULT_REPORTS_DIR,
-    DEFAULT_SESSIONS_CSV,
-    cleanup_bundle,
-    prepare_bundle,
-    run_analysis,
-)
+
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_SESSIONS_CSV = ROOT / "data" / "ENDURANCE_HRV_sessions.csv"
+DEFAULT_REPORTS_DIR = ROOT / "analysis" / "reports"
+DEFAULT_BUNDLE_ROOT = ROOT / "analysis" / ".cache" / "session_bundles"
+
+
+def _load_pipeline():
+    try:
+        from session_analysis_pipeline import cleanup_bundle, prepare_bundle, run_analysis
+    except ModuleNotFoundError as exc:
+        if exc.name == "requests":
+            python_path = Path(sys.executable)
+            venv_python = ROOT / ".venv" / "Scripts" / "python.exe"
+            if venv_python.exists() and python_path.resolve() != venv_python.resolve():
+                os.execv(
+                    str(venv_python),
+                    [str(venv_python), str(Path(__file__).resolve()), *sys.argv[1:]],
+                )
+            lines = [
+                "Falta la dependencia 'requests' en el Python con el que estás ejecutando el script.",
+                f"Python actual: {python_path}",
+            ]
+            if venv_python.exists():
+                lines.extend(
+                    [
+                        f"Este repo ya tiene entorno virtual: {venv_python}",
+                        "No se pudo relanzar automaticamente el script con .venv.",
+                        "Ejecuta:",
+                        rf"  .\.venv\Scripts\python.exe analysis\analyze_session.py",
+                    ]
+                )
+            else:
+                lines.extend(
+                    [
+                        "Instala dependencias con:",
+                        r"  pip install -r requirements_web.txt",
+                    ]
+                )
+            raise SystemExit("\n".join(lines)) from exc
+        raise
+    return cleanup_bundle, prepare_bundle, run_analysis
 
 
 def parse_args() -> argparse.Namespace:
@@ -27,6 +63,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    cleanup_bundle, prepare_bundle, run_analysis = _load_pipeline()
     args = parse_args()
     manifest = prepare_bundle(
         sessions_csv=Path(args.sessions_csv),

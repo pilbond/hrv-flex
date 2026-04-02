@@ -1019,9 +1019,15 @@ def run_analysis(bundle_manifest: Path, reports_dir: Path, keep_debug_artifacts:
         ]
         for path in debug_files:
             if path.exists():
-                path.unlink()
+                try:
+                    path.unlink()
+                except PermissionError:
+                    pass
         if stderr_path.exists() and stderr_path.read_text(encoding="utf-8").strip() == "":
-            stderr_path.unlink()
+            try:
+                stderr_path.unlink()
+            except PermissionError:
+                pass
         if debug_dir.exists() and not any(debug_dir.iterdir()):
             debug_dir.rmdir()
     else:
@@ -1065,4 +1071,4 @@ def run_analysis(bundle_manifest: Path, reports_dir: Path, keep_debug_artifacts:
 
 def cleanup_bundle(bundle_dir: Path) -> None:
     if bundle_dir.exists():
-        shutil.rmtree(bundle_dir)
+        shutil.rmtree(bundle_dir, ignore_errors=True)
