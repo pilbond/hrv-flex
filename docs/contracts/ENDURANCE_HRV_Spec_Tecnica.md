@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Especificación Técnica
 
-**Revisión:** r2026-03-09 v4.2 (sleep sidecar + rutas data/ + reason_text dual source)  
+**Revisión:** r2026-04-07 v4.3 (contexto de carga canónico ACWR/monotony/strain)
 **Estado:** Producción
 
 ---
@@ -40,7 +40,7 @@ Mapa operativo actual:
 - Módulo RR -> CORE/BETA: `build_hrv_core.py`, revisión `r2026-03-19`
 - Módulo CORE -> FINAL/DASHBOARD: `build_hrv_final_dashboard.py`, revisión `r2026-03-19`
 - Contrato estructural HRV: `ENDURANCE_HRV_Estructura.md`, revisión `r2026-03-19 v3.3`
-- Contrato de sesiones: `ENDURANCE_HRV_Sessions_Schema.md`, revisión `r2026-04-06 v3.3`
+- Contrato de sesiones: `ENDURANCE_HRV_Sessions_Schema.md`, revisión `r2026-04-07 v3.4`
 
 ---
 
@@ -831,7 +831,7 @@ bad_7d = nº de ROJO en los últimos 7 días
 
 **Fuentes:** combina datos del pipeline HRV (veto agudo, saturación, quality) con:
 - `ENDURANCE_HRV_sleep.csv` — sueño Polar (noche corta, fragmentada, nightly_rmssd)
-- `ENDURANCE_HRV_sessions_day.csv` — carga de entrenamiento (load_3d, work_7d, z3_7d)
+- `ENDURANCE_HRV_sessions_day.csv` — carga de entrenamiento (`ACWR`, `monotony`, `strain`, `work_7d`, `z3_7d`)
 
 **Generación:** Se evalúan las siguientes condiciones en orden. Las que se cumplen se concatenan con separador ` | `:
 
@@ -845,16 +845,25 @@ bad_7d = nº de ROJO en los últimos 7 días
 | 6 | VERDE + `polar_night_rmssd < 25` | sleep.csv | `VERDE pero nightly_rmssd bajo: vigilar` |
 | 7 | ROJO + `polar_night_rmssd > 45` | sleep.csv | `ROJO con nightly_rmssd alto: posible confusor` |
 | 8 | `load_3d > 250` (con `load_3d_nobs >= 2`) | sessions_day.csv | `Carga acumulada alta (load_3d=X)` |
-| 9 | `work_7d_sum > 200` | sessions_day.csv | `Volumen semanal alto (work_7d=Xmin)` |
-| 10 | `z3_7d_sum > 60` | sessions_day.csv | `Z3 acumulado alto (z3_7d=Xmin)` |
-| 11 | ROJO + `load_day < 30` + sueño OK | sessions_day.csv | `ROJO sin carga previa ni sueño malo: revisar otros factores` |
-| 12 | VERDE + `load_3d > 200` | sessions_day.csv | `VERDE con carga acumulada: precaución intensidad` |
+| 9 | `load_ctx_ready` + `acwr_simple_prev >= 1.3` | sessions_day.csv | `ACWR alto/muy alto: carga aguda por encima de la base crónica` |
+| 10 | `load_ctx_ready` + `monotony_7d_prev >= 1.8` | sessions_day.csv | `Monotonía elevada/alta: patrón de carga poco variable` |
+| 11 | `load_ctx_ready` + `strain_7d_prev >= P75/P90 local` | sessions_day.csv | `Strain alto/muy alto: semana exigente y poco descargada` |
+| 12 | `work_7d_sum > 200` | sessions_day.csv | `Volumen semanal alto (work_7d=Xmin)` |
+| 13 | `z3_7d_sum > 60` | sessions_day.csv | `Z3 acumulado alto (z3_7d=Xmin)` |
+| 14 | ROJO + `load_day < 30` + sueño OK | sessions_day.csv | `ROJO sin carga previa ni sueño malo: revisar otros factores` |
+| 15 | VERDE + `load_3d > 200` | sessions_day.csv | `VERDE con carga acumulada (load_3d=X): precaución intensidad` |
+| 16 | VERDE + contexto canónico exigente | sessions_day.csv | `VERDE con contexto de carga exigente: precaución intensidad` |
+| 17 | VERDE + `load_3d > 200` + señal canónica exigente | sessions_day.csv | `VERDE con convergencia de carga (load_3d + ACWR/monotonía/strain): precaución intensidad reforzada` |
 
 **Umbrales de sueño:** Basados en percentiles propios (P10, P90), NO en valores fijos. Se recalculan con todo el histórico disponible. Esto adapta los avisos a TU patrón de sueño.
 
-**Umbrales de carga:** Valores absolutos. El check de load_3d solo se ejecuta si `load_3d_nobs >= 2` (cobertura real de la métrica, no "días con sesiones").
+**Umbrales de carga:** `load_3d` se mantiene como sidecar agudo de corto plazo (`>250` aviso de acumulación; `>200` cautela de intensidad si el gate sale VERDE). La capa canónica sigue siendo `ACWR` + `monotony` + `strain`: `ACWR` usa bandas fijas interpretativas (`>=1.3` alto, `>=1.5` muy alto; `<=0.8` descarga), `monotony` usa bandas orientativas (`>=1.8` elevada, `>=2.0` alta), y `strain` se calibra por percentiles del histórico local (`P75/P90`) cuando hay al menos 8 observaciones listas. Todo sigue siendo contexto, no gate.
 
-**Si sleep.csv no existe:** Solo se generan las condiciones 1-3 (basadas en datos HRV) + 8-12 (si sessions_day.csv existe). Si tampoco existe sessions_day.csv, solo condiciones 1-3.
+**Propagación temporal de carga:** `ACWR`, `monotony`, `strain` y `load_ctx_ready` se reindexan a calendario diario y se propagan con `ffill(limit=7)` para poder contextualizar días HRV sin sesión el mismo día. Superado ese límite, el contexto deja de mostrarse.
+
+**Lectura operativa de convergencia:** si `load_3d` y la capa canónica (`ACWR`, `monotony`, `strain`) convergen en el mismo día VERDE, el cierre no se repite dos veces; se sintetiza en un único mensaje reforzado de convergencia.
+
+**Si sleep.csv no existe:** Solo se generan las condiciones 1-3 (basadas en datos HRV) + 8-17 (si sessions_day.csv existe). Si tampoco existe sessions_day.csv, solo condiciones 1-3.
 
 ---
 
@@ -901,7 +910,7 @@ Si tu baseline actual está por debajo del P20 de todos tus baselines histórico
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | Lo esencial para decidir en 10 segundos + reason_text | 10 |
 | `ENDURANCE_HRV_sleep.csv` | Sueño nocturno y recuperación (Polar) | 17 |
 | `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento | 57 |
-| `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios + rolling con cobertura (_nobs) | 40 |
+| `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios + rolling con cobertura (_nobs) + contexto canónico de carga | 44 |
 | `ENDURANCE_HRV_sessions_metadata.json` | Trazabilidad pipeline sesiones (versión, params, sampling rate) | — |
 | `ENDURANCE_HRV_master_BETA_AUDIT.csv` | Modelo beta del V3, para comparación histórica | 13 |
 
@@ -980,7 +989,7 @@ Secciones obligatorias:
 |-------|--------|
 | 2026-03-01 v4.1 | sleep.csv simplificado: 34→17 cols (solo Polar sleep/nightly, sin Intervals) |
 | 2026-03-01 v4.1 | reason_text dual source: sueño de sleep.csv, carga de sessions_day.csv |
-| 2026-03-01 v4.1 | Nuevos archivos sessions.csv (43 cols), sessions_day.csv (40 cols), ENDURANCE_HRV_sessions_metadata.json |
+| 2026-03-01 v4.1 | Nuevos archivos sessions.csv (43 cols), sessions_day.csv (44 cols en revisión actual), ENDURANCE_HRV_sessions_metadata.json |
 | 2026-04-06 v4.2 | sessions.csv bumped 43→57 cols con capa mecánica opcional; fuente prioritaria `Intervals FIT`, fallback `Polar AccessLink` |
 | 2026-03-01 v4.1 | reason_text: TSB/load_3d_p90 reemplazados por load_3d+nobs, work_7d, z3_7d (umbrales absolutos) |
 | 2026-02-23 v4 | Añadido veto agudo (§11bis): bypass ROLL3 en caídas agudas, con SWC_FLOOR y VETO_MULT |

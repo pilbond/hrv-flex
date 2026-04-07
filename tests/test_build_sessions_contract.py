@@ -60,6 +60,10 @@ EXPECTED_SESSIONS_DAY_COLUMNS = [
     "load_14d_nobs",
     "load_28d",
     "load_28d_nobs",
+    "acwr_simple_prev",
+    "monotony_7d_prev",
+    "strain_7d_prev",
+    "load_ctx_ready",
     "elev_loss_7d_sum",
 ]
 
@@ -238,7 +242,7 @@ class BuildSessionsContractTests(unittest.TestCase):
         )
         day = build_sessions_day(sessions)
         self.assertEqual(day.columns.tolist(), EXPECTED_SESSIONS_DAY_COLUMNS)
-        self.assertEqual(len(day.columns), 40)
+        self.assertEqual(len(day.columns), 44)
 
     def test_finish_strong_maps_to_endurance_easy(self):
         self.assertEqual(classify_session_group("trail_run", "finish_strong"), "endurance_easy")
@@ -339,6 +343,41 @@ class BuildSessionsContractTests(unittest.TestCase):
         self.assertTrue(pd.isna(strength_day["late_intensity_day"]))
         self.assertEqual(later_day["z3_7d_nobs"], 1)
         self.assertEqual(later_day["work_7d_nobs"], 1)
+
+    def test_canonical_load_context_uses_continuous_calendar_and_shifted_windows(self):
+        sessions = pd.DataFrame(
+            [
+                _session(session_id="i1", Fecha="2026-03-01", load=100.0),
+                _session(session_id="i2", Fecha="2026-03-03", load=100.0),
+                _session(session_id="i3", Fecha="2026-03-05", load=100.0),
+                _session(session_id="i4", Fecha="2026-03-07", load=100.0),
+                _session(session_id="i5", Fecha="2026-03-08", load=100.0),
+            ]
+        )
+
+        day = build_sessions_day(sessions)
+        row = day.loc[day["Fecha"] == "2026-03-08"].iloc[0]
+
+        self.assertAlmostEqual(row["acwr_simple_prev"], 4.0, places=3)
+        self.assertAlmostEqual(row["monotony_7d_prev"], 1.155, places=3)
+        self.assertAlmostEqual(row["strain_7d_prev"], 461.9, places=1)
+        self.assertFalse(bool(row["load_ctx_ready"]))
+
+    def test_load_ctx_ready_requires_14_prior_load_observations(self):
+        sessions = pd.DataFrame(
+            [
+                _session(session_id=f"i{idx}", Fecha=f"2026-03-{idx:02d}", load=50.0)
+                for idx in range(1, 16)
+            ]
+        )
+
+        day = build_sessions_day(sessions)
+        row = day.loc[day["Fecha"] == "2026-03-15"].iloc[0]
+
+        self.assertTrue(bool(row["load_ctx_ready"]))
+        self.assertAlmostEqual(row["acwr_simple_prev"], 2.0, places=3)
+        self.assertTrue(pd.isna(row["monotony_7d_prev"]))
+        self.assertTrue(pd.isna(row["strain_7d_prev"]))
 
     def test_intensity_cat_day_uses_highest_load_session(self):
         sessions = pd.DataFrame(

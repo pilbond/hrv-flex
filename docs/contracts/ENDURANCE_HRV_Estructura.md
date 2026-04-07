@@ -43,7 +43,7 @@ El sistema genera 7 archivos CSV + 1 JSON de trazabilidad. Cada uno tiene un rol
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | Lo esencial para decidir en 10 segundos: semáforo, acción, warning, y reason_text contextual. Subconjunto de FINAL. | `build_hrv_final_dashboard.py` | 10 |
 | `ENDURANCE_HRV_sleep.csv` | Sueño nocturno y señales de recuperación (Polar). Alimenta el reason_text pero NO afecta al gate. | `polar_hrv_automation.py` | 17 |
 | `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento: zonas, work blocks, drift, effort, clasificación y capa mecánica opcional. | `build_sessions.py` | 57 |
-| `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios de entrenamiento + rolling con cobertura (_nobs). Alimenta el reason_text para checks de carga. | `build_sessions.py` | 40 |
+| `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios de entrenamiento + rolling con cobertura (_nobs), más contexto canónico de carga (`ACWR`, `monotony`, `strain`). Alimenta el reason_text para checks de carga. | `build_sessions.py` | 44 |
 | `ENDURANCE_HRV_sessions_metadata.json` | Trazabilidad del pipeline de sesiones: versión, parámetros, hash, sampling rate, cobertura. | `build_sessions.py` | — |
 | `ENDURANCE_HRV_master_BETA_AUDIT.csv` | Modelo alométrico beta/cRMSSD del sistema V3. Se conserva para comparación histórica; no afecta al decisor FINAL/DASHBOARD. | `build_hrv_core.py` | 13 |
 
@@ -354,7 +354,7 @@ Muestra qué entra y qué sale de cada script, y cómo se encadenan:
                     │
   Intervals.icu ────┤
                     ├──► build_sessions.py ──► SESSIONS.csv (57 cols)
-                    │                     ├──► SESSIONS_DAY.csv (40 cols)
+│                     ├──► SESSIONS_DAY.csv (44 cols)
                     │                     └──► ENDURANCE_HRV_sessions_metadata.json
 ```
 

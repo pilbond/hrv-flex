@@ -885,6 +885,28 @@ def build_sessions_day(sessions_df: pd.DataFrame) -> pd.DataFrame:
     day_df["load_14d"], day_df["load_14d_nobs"] = safe_rolling(day_df["load_day"], 14)
     day_df["load_28d"], day_df["load_28d_nobs"] = safe_rolling(day_df["load_day"], 28)
 
+    # Canonical load context uses a continuous calendar and always excludes the
+    # current day via shift(1), so HRV on day D only sees prior training load.
+    load_day_calendar = pd.to_numeric(day_df["load_day"], errors="coerce").fillna(0.0)
+    load_day_shifted = load_day_calendar.shift(1)
+    load_nobs_7d = day_df["load_day"].shift(1).notna().rolling(7, min_periods=1).sum().astype("Int64")
+
+    # ACWR can reuse the canonical rolling load sums already computed above.
+    acute_mean_7d = day_df["load_7d"] / 7.0
+    chronic_mean_28d = day_df["load_28d"] / 28.0
+    acwr_simple_prev = acute_mean_7d.divide(chronic_mean_28d.where(chronic_mean_28d > 0))
+
+    monotony_mean_7d = load_day_shifted.rolling(7, min_periods=1).mean()
+    monotony_std_7d = load_day_shifted.rolling(7, min_periods=1).std(ddof=0)
+    monotony_valid = (load_nobs_7d >= 3) & monotony_std_7d.notna() & (monotony_std_7d > 0)
+    monotony_7d_prev = monotony_mean_7d.divide(monotony_std_7d.where(monotony_valid))
+    strain_7d_prev = load_day_shifted.rolling(7, min_periods=1).sum() * monotony_7d_prev
+
+    day_df["acwr_simple_prev"] = acwr_simple_prev.round(3)
+    day_df["monotony_7d_prev"] = monotony_7d_prev.round(3)
+    day_df["strain_7d_prev"] = strain_7d_prev.round(1)
+    day_df["load_ctx_ready"] = day_df["load_28d_nobs"].fillna(0).astype(int) >= 14
+
     if "elev_loss_day" in day_df:
         day_df["elev_loss_7d_sum"], _ = safe_rolling(day_df["elev_loss_day"], 7)
 

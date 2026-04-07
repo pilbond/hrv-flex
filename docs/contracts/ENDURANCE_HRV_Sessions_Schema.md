@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Sessions Schema
 
-**Revisión:** r2026-04-06 v3.3 (params_hash: c1c78a78)  
+**Revisión:** r2026-04-07 v3.4 (params_hash: c1c78a78)  
 **Estado:** Producción
 
 **Documentos relacionados:**
@@ -18,7 +18,7 @@ El gate HRV (CORE → FINAL → DASHBOARD) responde a la pregunta "¿cómo está
 
 Sessions extrae de Intervals.icu el detalle de cada entrenamiento — stream de HR segundo a segundo, velocidad, desnivel — y lo transforma en métricas que describen **la estructura real del trabajo**: cuántos minutos pasaste por encima de VT1 en bloques sostenidos, cuánto de ese trabajo fue en Z3, si terminaste la sesión con el corazón más alto que al principio (drift), y cómo se compara esa sesión con tu histórico reciente.
 
-El resultado alimenta el `reason_text` del gate HRV con avisos de carga ("Volumen semanal alto", "Z3 acumulado alto"), pero **nunca modifica el gate ni la acción** — es contexto informativo para tu decisión.
+El resultado alimenta el `reason_text` del gate HRV con avisos de carga ("ACWR alto", "Monotonía alta", "Volumen semanal alto"), pero **nunca modifica el gate ni la acción** — es contexto informativo para tu decisión.
 
 ### Alcance
 
@@ -42,7 +42,7 @@ Este pipeline está diseñado para **un único atleta** y consume la cuenta pers
 | Archivo | Granularidad | Para qué sirve |
 |---------|-------------|-----------------|
 | `sessions.csv` | 1 fila por sesión | Detalle completo de cada entrenamiento: zonas, work blocks, drift, clasificación. Lo que miras cuando quieres entender una sesión concreta. |
-| `sessions_day.csv` | 1 fila por día | Agregados diarios + rolling 3d/7d/14d/28d con cobertura. Lo que lee `build_hrv_final_dashboard.py` para generar avisos de carga en reason_text. |
+| `sessions_day.csv` | 1 fila por día | Agregados diarios + rolling 3d/7d/14d/28d con cobertura, más la capa canónica de contexto de carga (`ACWR`, `monotony`, `strain`). Lo que lee `build_hrv_final_dashboard.py` para generar avisos de carga en reason_text. |
 | `ENDURANCE_HRV_sessions_metadata.json` | 1 por corrida | Trazabilidad: versión del pipeline, parámetros usados, hash de configuración, sampling rate del stream. Para auditoría y depuración. |
 
 ### Fuente de datos
@@ -307,6 +307,10 @@ Los campos rolling son sumas o medias de los últimos N días, con un campo `_no
 | `z3_7d_sum` / `z3_7d_nobs` | 7 días | **Minutos totales de Z3 en los 7 días previos.** Este valor genera el aviso "Z3 acumulado alto" en reason_text cuando supera 60 minutos. |
 | `load_14d` / `load_14d_nobs` | 14 días | Carga total de las 2 semanas anteriores. |
 | `load_28d` / `load_28d_nobs` | 28 días | Carga total del mes anterior. |
+| `acwr_simple_prev` | 7d / 28d | `((sum load d-1..d-7)/7) / ((sum load d-1..d-28)/28)`. Rolling simple, con `shift(1)`. Si la base crónica es 0, queda `NaN`. |
+| `monotony_7d_prev` | 7 días | `media(load_day previos 7d calendario) / sd(load_day previos 7d calendario)`. Se calcula sobre calendario continuo; los días sin sesión cuentan como `0`. Si `std == 0` o `load_7d_nobs < 3`, queda `NaN`. |
+| `strain_7d_prev` | 7 días | `sum(load_day previos 7d) * monotony_7d_prev`. Hereda `NaN` si `monotony_7d_prev` no está disponible. |
+| `load_ctx_ready` | bool | `True` cuando `load_28d_nobs >= 14`. Señala que la capa canónica de contexto de carga ya tiene suficiente soporte histórico para uso interpretativo estable. |
 | `finish_strong_7d_count` | 7 días | Conteo rolling de días con `late_intensity_day = 1` en la semana previa. |
 | `elev_loss_7d_sum` | 7 días | Suma rolling de desnivel negativo en la semana previa. Campo descriptivo; no lo usa el gate. |
 
@@ -381,17 +385,22 @@ Cada corrida del pipeline genera un `ENDURANCE_HRV_sessions_metadata.json` que d
 
 ## 6. Conexión con el gate HRV (reason_text)
 
-`build_hrv_final_dashboard.py` lee `sessions_day.csv` y genera avisos contextuales en `reason_text`. Los umbrales son absolutos (no percentiles):
+`build_hrv_final_dashboard.py` lee `sessions_day.csv` y genera avisos contextuales en `reason_text`. La carga canónica sigue siendo informativa: no recolorea el gate.
 
 | Condición | Aviso generado |
 |-----------|----------------|
 | `load_3d > 250` (con `load_3d_nobs >= 2`) | "Carga acumulada alta (load_3d=X)" |
+| `load_ctx_ready` + `acwr_simple_prev >= 1.3` | "ACWR alto: carga aguda por encima de la base crónica" |
+| `load_ctx_ready` + `monotony_7d_prev >= 1.8` | "Monotonía elevada/alta: patrón de carga poco variable" |
+| `load_ctx_ready` + `strain_7d_prev >= P75/P90 local` | "Strain alto/muy alto: semana exigente y poco descargada" |
 | `work_7d_sum > 200` | "Volumen semanal alto (work_7d=Xmin)" |
 | `z3_7d_sum > 60` | "Z3 acumulado alto (z3_7d=Xmin)" |
 | ROJO + `load_day < 30` + sueño OK | "ROJO sin carga previa ni sueño malo: revisar otros factores" |
-| VERDE + `load_3d > 200` | "VERDE con carga acumulada: precaución intensidad" |
+| VERDE + `load_3d > 200` | "VERDE con carga acumulada (load_3d=X): precaución intensidad" |
+| VERDE + contexto canónico exigente | "VERDE con contexto de carga exigente: precaución intensidad" |
+| VERDE + `load_3d > 200` + señal canónica exigente | "VERDE con convergencia de carga (load_3d + ACWR/monotonía/strain): precaución intensidad reforzada" |
 
-**Principio:** Los avisos informan, nunca cambian el semáforo. El gate sigue dependiendo exclusivamente de HRV + pulso.
+**Principio:** Los avisos informan, nunca cambian el semáforo. El gate sigue dependiendo exclusivamente de HRV + pulso. `load_3d` se mantiene como sidecar agudo de corto plazo; la capa canónica sigue siendo `ACWR` + `monotony` + `strain`. Si ambas convergen en un día VERDE, el cierre operativo se refuerza en un único mensaje de convergencia.
 
 ---
 
@@ -428,6 +437,9 @@ assert (day["load_3d_nobs"] <= 3).all()
 
 # z3_7d_nobs <= 7
 assert (day["z3_7d_nobs"] <= 7).all()
+
+# load_ctx_ready solo puede activarse si hay al menos 14 observaciones reales
+assert (~day["load_ctx_ready"] | (day["load_28d_nobs"] >= 14)).all()
 ```
 
 ### ENDURANCE_HRV_sessions_metadata.json

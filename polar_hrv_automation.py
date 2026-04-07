@@ -791,32 +791,72 @@ def api_request(method: str, path: str, token: str, params=None, headers=None, d
     return r.text
 
 
-def register_user_if_needed(token: str, member_id: str):
-    """Paso obligatorio: registrar usuario"""
+def _response_excerpt(response: requests.Response, limit: int = 300) -> str:
+    text = (response.text or "").strip()
+    if len(text) > limit:
+        text = text[:limit].rstrip() + "..."
+    return text
+
+
+def register_user_if_needed(token: str, member_id: str, allow_transient_failure: bool = False):
+    """Paso obligatorio: registrar usuario. Reintenta fallos 5xx temporales."""
     xml = f"<register><member-id>{member_id}</member-id></register>"
     url = f"{API_BASE}/users"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+        "Content-Type": "application/xml",
+    }
+    transient_codes = {502, 503, 504}
+    last_error = None
 
-    r = requests.post(
-        url,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/json",
-            "Content-Type": "application/xml",
-        },
-        data=xml.encode("utf-8"),
-        timeout=30,
-    )
+    for attempt in range(1, 5):
+        try:
+            r = requests.post(
+                url,
+                headers=headers,
+                data=xml.encode("utf-8"),
+                timeout=30,
+            )
+        except requests.RequestException as exc:
+            last_error = f"register_user network error: {exc}"
+            if attempt < 4:
+                wait_s = 2 ** (attempt - 1)
+                _qprint(f"⚠️  register_user intento {attempt}/4 con error de red. Reintentando en {wait_s}s...")
+                time.sleep(wait_s)
+                continue
+            if allow_transient_failure:
+                _qprint(f"⚠️  register_user omitido temporalmente tras error de red persistente: {exc}")
+                return {"status": "temporary_failure", "detail": str(exc)}
+            raise RuntimeError(last_error) from exc
 
-    if r.status_code == 409:
-        return {"status": "already_registered"}
+        if r.status_code == 409:
+            return {"status": "already_registered"}
 
-    if r.status_code == 403:
-        raise RuntimeError(f"register_user 403 (no autorizado / consents):\n{r.text}")
+        if r.status_code == 403:
+            raise RuntimeError(f"register_user 403 (no autorizado / consents):\n{r.text}")
 
-    if r.status_code >= 400:
-        raise RuntimeError(f"register_user fallo: {r.status_code} {r.reason}\n{r.text}")
+        if r.status_code in transient_codes:
+            excerpt = _response_excerpt(r)
+            last_error = f"register_user fallo temporal: {r.status_code} {r.reason}\n{excerpt}"
+            if attempt < 4:
+                wait_s = 2 ** (attempt - 1)
+                _qprint(f"⚠️  register_user devolvió {r.status_code} en intento {attempt}/4. Reintentando en {wait_s}s...")
+                time.sleep(wait_s)
+                continue
+            if allow_transient_failure:
+                _qprint(f"⚠️  register_user sigue devolviendo {r.status_code}. Se continúa y se reintentará en futuras syncs.")
+                return {"status": "temporary_failure", "detail": last_error}
+            raise RuntimeError(last_error)
 
-    return {"status": "registered"}
+        if r.status_code >= 400:
+            raise RuntimeError(f"register_user fallo: {r.status_code} {r.reason}\n{r.text}")
+
+        return {"status": "registered"}
+
+    if allow_transient_failure:
+        return {"status": "temporary_failure", "detail": last_error or "unknown transient error"}
+    raise RuntimeError(last_error or "register_user fallo sin detalle")
 
 
 def list_exercises(token: str):
@@ -1947,7 +1987,9 @@ def main():
 
     # Registrar usuario (obligatorio)
     member_id = f"local_{x_user_id or 'user'}"
-    reg = register_user_if_needed(access_token, member_id)
+    reg = register_user_if_needed(access_token, member_id, allow_transient_failure=True)
+    if reg.get("status") == "temporary_failure":
+        _qprint("⚠️  Registro Polar no confirmado por error temporal del servicio. Continuando con la sync.")
     # print(f"📝 Usuario: {reg.get('status')}")
 
     # Listar ejercicios
