@@ -66,15 +66,18 @@ Elementos estructurales estables del repo:
 - documentacion historica en `docs/legacy/`,
 - modulo analitico local en `analysis/`.
 
-## 6. Snapshot actual (2026-03-17)
+## 6. Snapshot actual (2026-04-07)
 Estado actual de implementacion observado:
 
 - la UI expone `/api/sync`, `/api/sync-sessions`, `/api/status` y endpoints OAuth,
 - `build_sessions.py` genera `ENDURANCE_HRV_sessions.csv`, `ENDURANCE_HRV_sessions_day.csv` y `ENDURANCE_HRV_sessions_metadata.json`,
+- `ENDURANCE_HRV_sessions_day.csv` ya incluye contexto canonico de carga (`acwr_simple_prev`, `monotony_7d_prev`, `strain_7d_prev`, `load_ctx_ready`) y clustering reciente de intensidad (`intense_day`, `intense_days_prev_3d`, `intense_days_prev_5d`, `intensity_clustering_flag`, `intensity_clustering_level`),
+- `ENDURANCE_HRV_sessions_metadata.json` ya incluye `training_audit` por capas (`dataset_level`, `signal_level`, `metric_level`) para gobernar confianza de coaching/carga sin tocar el gate HRV,
+- `sessions.csv` ya incluye una capa mecanica minima opcional para deportes de pie con `run_power_*`, `speed_first_half`, `speed_second_half`, `cadence_first_half` y `cadence_second_half`,
 - el flujo recomendado de cobertura RR es Dropbox primero y Polar como fallback,
 - `ENDURANCE_HRV_sleep.csv` es el unico archivo canonico de sueno,
 - la UI no debe permitir ejecutar `sync` HRV y `sync-sessions` al mismo tiempo,
-- la UI actual prioriza `Detalle tecnico` o `raw output` como bloque principal visible.
+- `analysis/` ya consume `training_audit` y la capa mecanica minima como contexto reproducible del informe.
 
 Si este bloque queda desactualizado, debe actualizarse o reducirse.
 
@@ -104,10 +107,12 @@ Si este bloque queda desactualizado, debe actualizarse o reducirse.
 - `build_hrv_final_dashboard.py`
   `CORE + sleep + sessions_day` -> `ENDURANCE_HRV_master_FINAL.csv` y `ENDURANCE_HRV_master_DASHBOARD.csv`.
   La carga de entrenamiento se lee desde `ENDURANCE_HRV_sessions_day.csv`.
+  Consume `load_3d`, la capa canonica `ACWR/monotony/strain` y el clustering reciente de intensidad solo como contexto de `reason_text`.
 
 - `build_sessions.py`
   Pipeline de sesiones desde Intervals.icu.
   Genera `ENDURANCE_HRV_sessions.csv`, `ENDURANCE_HRV_sessions_day.csv` y `ENDURANCE_HRV_sessions_metadata.json`.
+  Canoniza la capa mecanica minima para deportes de pie, el contexto de carga `ACWR/monotony/strain` y `training_audit`.
   Soporta `--backfill`, `--daily`, `--update` y `--date`.
 
 - `Dockerfile`

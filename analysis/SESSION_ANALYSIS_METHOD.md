@@ -458,6 +458,7 @@ Si existe `data/ENDURANCE_HRV_sessions_metadata.json` del pipeline de sesiones:
 Si además existe `training_audit`:
 
 - usar `training_audit.signal_level.interpretability_limits` como fuente preferente de limitaciones globales de la capa de sesiones,
+- si `training_audit.metric_level.load_context.state != high`, rebajar la fuerza de cualquier lectura fuerte de carga reciente, `ACWR`, `monotony`, `strain` o clustering de intensidad,
 - si `training_audit.metric_level.coaching_load.state != high`, rebajar el tono de cualquier lectura fuerte de carga reciente o coaching,
 - si `training_audit.metric_level.zone_intensity.state` es `contextual` o `informational`, tratar distribución de zonas y work blocks como contexto orientativo, no como apoyo fuerte,
 - si `training_audit.metric_level.cardiac_drift.state != high`, explicitar que el drift reciente es parcial o no plenamente interpretable,
@@ -537,6 +538,19 @@ Mecanico:
 - continuidad del estimulo,
 - un proxy razonable de exigencia periferica o propulsiva,
 - nota de fatiga muscular local si existe.
+
+Para deportes de pie con capa mecanica canonica en `sessions.csv`, priorizar como anclajes reproducibles:
+
+- `run_power_mean` y `run_power_p95` cuando `run_power_available = 1`,
+- `speed_first_half` vs `speed_second_half` como lectura minima de sostenimiento o fade,
+- `cadence_first_half` vs `cadence_second_half` como apoyo locomotor,
+- `mechanics_source` para declarar si la señal viene de `intervals_fit` o `polar`.
+
+Reglas:
+
+- estos campos son evidencia mecanica minima, no sustituyen analitica de terreno ni GAP,
+- si `mechanics_source` existe pero la cobertura es parcial, usarlos como apoyo contextual y no como arbitro unico del coste mecanico,
+- si no existen, volver a proxies estructurales sin presentar una ausencia de mecanica como fallo del pipeline.
 
 ### Cardio score 0..3
 Usar al menos dos anclajes observables.
@@ -785,6 +799,7 @@ La Capa RR tiene varias metricas cuantitativas que se leen mejor en tabla que en
 ### Reglas de seccion Contexto de recuperacion y carga
 El contexto previo condiciona la lectura de la sesion. Para que sea rapido de consultar:
 - estructurar en apartados con negrita: **Sueno previo**, **HRV matinal**, **Carga reciente**,
+- si existe `training_audit.metric_level.load_context.state` y no es `high`, declararlo al abrir **Carga reciente** antes de citar `ACWR`, `monotony`, `strain` o clustering,
 - si hay tension entre un `gate_badge` favorable y un `reason_text` con cautela, no dejarla como nota al margen; resolverla en un apartado **Tension explicita** que diga que tipo de verde es y que permite o impide operativamente.
 
 ### Reglas de seccion Encaje en el bloque

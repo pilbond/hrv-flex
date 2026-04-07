@@ -36,11 +36,11 @@ Reglas:
 - Si una incidencia menciona solo "v4", debe aclararse si habla de sistema, documento o módulo.
 
 Mapa operativo actual:
-- Sistema vigente: `ENDURANCE HRV V4.2`
+- Sistema vigente: `ENDURANCE HRV V4.3`
 - Módulo RR -> CORE/BETA: `build_hrv_core.py`, revisión `r2026-03-19`
 - Módulo CORE -> FINAL/DASHBOARD: `build_hrv_final_dashboard.py`, revisión `r2026-03-19`
-- Contrato estructural HRV: `ENDURANCE_HRV_Estructura.md`, revisión `r2026-03-19 v3.3`
-- Contrato de sesiones: `ENDURANCE_HRV_Sessions_Schema.md`, revisión `r2026-04-07 v3.4`
+- Contrato estructural HRV: `ENDURANCE_HRV_Estructura.md`, revisión `r2026-04-07 v3.5`
+- Contrato de sesiones: `ENDURANCE_HRV_Sessions_Schema.md`, revisión `r2026-04-07 v3.5`
 
 ---
 
@@ -994,7 +994,10 @@ Secciones obligatorias:
 |-------|--------|
 | 2026-03-01 v4.1 | sleep.csv simplificado: 34→17 cols (solo Polar sleep/nightly, sin Intervals) |
 | 2026-03-01 v4.1 | reason_text dual source: sueño de sleep.csv, carga de sessions_day.csv |
-| 2026-03-01 v4.1 | Nuevos archivos sessions.csv (43 cols), sessions_day.csv (44 cols en revisión actual), ENDURANCE_HRV_sessions_metadata.json |
+| 2026-03-01 v4.1 | Nuevos archivos sessions.csv (43 cols), sessions_day.csv (40 cols iniciales), ENDURANCE_HRV_sessions_metadata.json |
+| 2026-04-07 v4.3 | sessions_day.csv: CDC-01 (+4 cols: acwr_simple_prev, monotony_7d_prev, strain_7d_prev, load_ctx_ready), AP-01 (+5 cols: intense_day, intense_days_prev_3d, intense_days_prev_5d, intensity_clustering_flag, intensity_clustering_level); total 40→49 cols |
+| 2026-04-07 v4.3 | sessions_metadata.json: ADC-01 añade `training_audit` con bloques dataset_level/signal_level/metric_level (estados high/contextual/informational/not_applicable por capa) |
+| 2026-04-07 v4.3 | reason_text: añadidas condiciones 9-18 (ACWR, monotony, strain, clustering AP-01 v1, convergencia de carga) |
 | 2026-04-06 v4.2 | sessions.csv bumped 43→57 cols con capa mecánica opcional; fuente prioritaria `Intervals FIT`, fallback `Polar AccessLink` |
 | 2026-03-01 v4.1 | reason_text: TSB/load_3d_p90 reemplazados por load_3d+nobs, work_7d, z3_7d (umbrales absolutos) |
 | 2026-02-23 v4 | Añadido veto agudo (§11bis): bypass ROLL3 en caídas agudas, con SWC_FLOOR y VETO_MULT |

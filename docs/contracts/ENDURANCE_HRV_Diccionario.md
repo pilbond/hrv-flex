@@ -1,11 +1,12 @@
 # ENDURANCE HRV — Diccionario de Columnas (FINAL/DASHBOARD)
 
-**Revisión:** r2026-03-01 v4.1 (context simplificado + sessions pipeline)  
+**Revisión:** r2026-04-07 v4.3 (sessions_day clustering + diccionario alineado)  
 **Estado:** Producción
 
 **Documentos relacionados:**
 - `ENDURANCE_HRV_Spec_Tecnica.md` — especificación técnica (fórmulas y reglas)
 - `ENDURANCE_HRV_Estructura.md` — contrato de datos (columnas y orden exacto)
+- `ENDURANCE_HRV_Sessions_Schema.md` — contrato del pipeline de sesiones (`sessions.csv`, `sessions_day.csv`, `ENDURANCE_HRV_sessions_metadata.json`)
 
 ---
 
@@ -308,7 +309,7 @@ Mapping:
 | `veto_agudo` | ¿Se activó el bypass de ROLL3 por caída aguda? True si tu lnRMSSD crudo de hoy cayó más de 2×SWC por debajo de tu baseline (una caída demasiado brusca para que ROLL3 la suavice sin peligro). Cuando se activa, `lnRMSSD_used` y `HR_used` se fuerzan al dato crudo del día en vez del promedio de 3 días. Esto hace que el gate refleje la caída inmediatamente. |
 | `ln_pre_veto` | El valor de lnRMSSD_used (ROLL3) que tenías antes de que el veto lo sobrescribiera. Permite auditar cuánto habría enmascarado el suavizado: la diferencia `ln_pre_veto - lnRMSSD_used` muestra lo que ROLL3 estaba "ocultando". NaN si no hubo veto. |
 | `swc_ln_floor` | El SWC efectivo que se usó para evaluar el veto: `max(SWC_ln, 0.04879)`. El floor de 0.04879 (= ln(1.05)) garantiza que el umbral del veto nunca sea trivialmente pequeño, evitando falsos positivos en periodos de variabilidad muy baja. NaN si no se calculó BASE60. |
-| `reason_text` | Texto explicativo contextual que combina información del gate con datos de sueño y carga. Múltiples razones separadas por ` \| `. Puede incluir: caída aguda HRV, noche corta/fragmentada (basado en tus percentiles, no en umbrales fijos), carga acumulada alta, fatiga profunda (TSB), saturación parasimpática, divergencias gate↔contexto. Vacío si no hay nada que reportar. **No recolorea** el gate — es contexto para tu decisión. |
+| `reason_text` | Texto explicativo contextual que combina información del gate con datos de sueño y carga. Múltiples razones separadas por ` \| `. Puede incluir: caída aguda HRV, noche corta/fragmentada (basado en tus percentiles, no en umbrales fijos), carga acumulada alta (`load_3d`), `ACWR`, `monotony`, `strain`, clustering reciente de intensidad, saturación parasimpática y divergencias gate↔contexto. Si varias señales de carga convergen en un día VERDE, el cierre puede escalar a una formulación reforzada de convergencia. Vacío si no hay nada que reportar. **No recolorea** el gate — es contexto para tu decisión. |
 
 ---
 
@@ -383,6 +384,150 @@ El gate 2D solo ve HRV y pulso. Pero a menudo quieres saber *por qué* tu HRV ba
 | `sleep_int_p90` | Encima = noche fragmentada para TI |
 
 **Si el sleep.csv no existe o Polar API falla:** El gate y la acción no se ven afectados. Solo se pierden los avisos de sueño en reason_text. Los avisos de carga (de sessions_day.csv) siguen funcionando independientemente.
+
+---
+
+## 5ter. SESSIONS_DAY (carga diaria y clustering) — sidecar CSV
+
+Generado por `build_sessions.py` como `ENDURANCE_HRV_sessions_day.csv`. No decide el color del día, pero aporta contexto estructurado para interpretar el gate y enriquecer `reason_text`.
+
+### ¿Para qué sirve?
+
+`sessions_day.csv` responde a preguntas que el gate HRV no puede responder por sí solo:
+
+- ¿has acumulado mucha carga en pocos días?
+- ¿la intensidad reciente está mal distribuida?
+- ¿vienes de una semana monótona o muy exigente?
+- ¿el verde de hoy llega con contexto de prudencia?
+
+### Capa de clustering de intensidad (AP-01)
+
+Estas columnas viven en `sessions_day.csv` y alimentan directamente el aviso proactivo de clustering:
+
+| Columna | Qué es | Cómo leerla |
+|---------|--------|-------------|
+| `intense_day` | Flag binario diario. Vale `1` si ese día hubo al menos una sesión con `intensity_category = work_intense`; `0` si no. | Es la semilla mínima de la capa proactiva. No mide cuánta intensidad hubo, solo si existió una sesión intensa. |
+| `intense_days_prev_3d` | Conteo de `intense_day` en los 3 días previos, sobre calendario continuo y excluyendo el día actual. | Detecta apilamiento muy corto. Un valor `2` significa que en 2 de los últimos 3 días hubo sesión intensa. |
+| `intense_days_prev_5d` | Conteo de `intense_day` en los 5 días previos, también excluyendo hoy. | Es la ventana principal del flag de clustering en la v1 actual. |
+| `intensity_clustering_flag` | Flag binario de clustering reciente. Vale `1` si `intense_days_prev_5d >= 2`. | Señala que la intensidad reciente ya está lo bastante concentrada como para merecer contexto preventivo. |
+| `intensity_clustering_level` | Severidad del clustering. `high` si `intense_days_prev_3d >= 2` o `intense_days_prev_5d >= 3`; `low` si solo activa el flag suave; vacío si no hay clustering. | `low` = aviso suave; `high` = apilamiento claro de intensidad. |
+
+### Semántica operativa de esta capa
+
+- Es un **proxy estructural**, no un NDLI power-based.
+- Usa calendario continuo: los días sin sesión cuentan como `0` para esta capa concreta.
+- Siempre mira **días previos**, nunca incluye el día actual.
+- En `FINAL`, el clustering se propaga con `ffill(limit=2)` para poder avisar en días HRV sin sesión si el apilamiento ocurrió ayer o anteayer.
+- No recolorea el gate: solo añade contexto textual.
+
+### Relación con `reason_text`
+
+Cuando el clustering está activo, `reason_text` puede mostrar mensajes como:
+
+- `VERDE pero clustering reciente de intensidad: considera Z1 mañana`
+- `VERDE pero clustering alto de intensidad reciente: considera Z1 mañana`
+- `Clustering reciente de intensidad: vigilar recuperación`
+- `Clustering alto de intensidad reciente: vigilar recuperación`
+
+La formulación exacta depende de:
+
+- si el gate final salió `VERDE` o no,
+- y de si el nivel es `low` o `high`.
+
+### Capa canónica de carga
+
+Además del clustering, `sessions_day.csv` sigue siendo la fuente de:
+
+- `load_3d`
+- `work_7d_sum`
+- `z3_7d_sum`
+- `acwr_simple_prev`
+- `monotony_7d_prev`
+- `strain_7d_prev`
+- `load_ctx_ready`
+
+Estas métricas explican *cuánta* carga hay. La capa de clustering explica si la intensidad reciente está **mal espaciada**.
+
+### Cómo leer la convergencia de carga en `reason_text`
+
+Cuando el día sale `VERDE`, la capa de carga puede cerrar de tres formas:
+
+- `VERDE con carga acumulada (load_3d=X): precaución intensidad`
+  Uso: solo la señal aguda de 3 días dispara cautela.
+- `VERDE con contexto de carga exigente: precaución intensidad`
+  Uso: dispara la capa canónica (`ACWR`, `monotony` o `strain`) sin apoyo de `load_3d`.
+- `VERDE con convergencia de carga (load_3d + ACWR/monotonía/strain): precaución intensidad reforzada`
+  Uso: convergen el sidecar agudo y al menos una señal canónica. La conclusión no se repite dos veces; se sintetiza y se refuerza.
+
+---
+
+## 5cuater. SESSIONS METADATA / TRAINING_AUDIT (sidecar JSON)
+
+Generado por `build_sessions.py` como `ENDURANCE_HRV_sessions_metadata.json`. No afecta al gate HRV ni a `Action`, pero documenta **si la capa de sesiones es interpretable** antes de sacar conclusiones de carga, zonas o drift.
+
+### ¿Para qué sirve?
+
+Hay una diferencia importante entre:
+
+- dato disponible,
+- dato interpretable,
+- y dato accionable.
+
+`training_audit` existe para hacer esa separación explícita. Si faltan streams, hay zonas en `fallback`, o la cobertura de drift es parcial, la capa de sesiones puede seguir existiendo pero ya no merece el mismo grado de confianza para coaching o análisis fino.
+
+### Bloques principales
+
+| Campo | Qué es |
+|-------|--------|
+| `stream_sampling` | Canary técnico del sampling del stream HR. Si `assumed_1hz = false`, conviene desconfiar de métricas derivadas de conversiones `muestras -> minutos`. |
+| `zones_source_dist` | Distribución global de origen de zonas. Si aparece `fallback > 0`, hay deportes o sesiones sin zonas de Intervals bien configuradas. |
+| `training_audit.dataset_level` | Cobertura gruesa del dataset: cuántos deportes hay, cuántos días con sesión, cuántas sesiones aeróbicas y cuántos días tienen `load_ctx_ready`. |
+| `training_audit.signal_level` | Calidad de señal de la capa de sesiones: cobertura de stream aeróbico, cobertura de drift, fallback de zonas y límites globales de interpretabilidad. |
+| `training_audit.metric_level` | Estado operativo mínimo por métrica/capa: `load_context`, `zone_intensity`, `cardiac_drift`, `coaching_load`. No es texto narrativo; es una etiqueta estructural de confianza. |
+
+### `training_audit.signal_level`
+
+| Campo | Qué mirar |
+|-------|-----------|
+| `sampling_ok` | `true` si el dataset parece ~1 Hz y las conversiones de stream son razonables. `false` = warning técnico fuerte. |
+| `aerobic_stream_coverage_pct` | Qué porcentaje de sesiones aeróbicas tiene stream utilizable. Si baja mucho, zonas/work blocks/drift pierden fuerza interpretativa. |
+| `aerobic_drift_coverage_pct` | Qué porcentaje de sesiones aeróbicas tiene drift calculable. Si es parcial, el drift reciente existe pero no representa a toda la capa. |
+| `zones_fallback_pct` | Qué porcentaje total de sesiones usa `zones_source = fallback`. Ayuda a distinguir una incidencia puntual de un problema estructural de configuración. |
+| `fallback_sports` | Qué deportes están afectados por fallback de zonas. |
+| `interpretability_limits` | Lista corta de límites globales del dataset, por ejemplo `stream_sampling_not_1hz`, `partial_aerobic_stream_coverage`, `partial_aerobic_drift_coverage`, `zones_fallback_present`. |
+
+### `training_audit.metric_level.*.state`
+
+| Valor | Significado |
+|------|-------------|
+| `high` | La capa tiene señal suficiente y la lectura puede tomarse como apoyo fuerte. |
+| `contextual` | La métrica existe, pero debe leerse con prudencia. Sirve como contexto, no como apoyo fuerte. |
+| `informational` | El dato existe más como traza técnica que como señal utilizable para interpretación fina. |
+| `not_applicable` | Esa métrica/capa no aplica al dataset actual o a ese tipo de sesiones. |
+
+### `training_audit.metric_level.*.reasons`
+
+Lista de causas concretas de degradación. Ejemplos frecuentes:
+
+- `load_context_not_ready`
+- `limited_ready_days`
+- `zones_fallback_present`
+- `partial_aerobic_stream_coverage`
+- `partial_aerobic_drift_coverage`
+- `no_valid_drift_sessions`
+- `stream_sampling_not_1hz`
+
+### Qué NO debes hacer
+
+- ❌ Usar `training_audit` para recolorear el gate HRV
+- ❌ Interpretar `contextual` como "malo"; significa "usable con prudencia"
+- ❌ Confundir un límite global del dataset con un problema de la sesión concreta
+
+### Qué sí debes hacer
+
+- ✅ Usar `training_audit` para decidir cuánta fuerza dar a zonas, drift, clustering y contexto de carga
+- ✅ Tratar `interpretability_limits` como límites estructurales del dataset, no como un diagnóstico de una sesión concreta
+- ✅ Dejar que el informe conversacional module el lenguaje usando estas etiquetas, en vez de reconstruir limitaciones a mano
 
 ---
 
@@ -684,7 +829,7 @@ reason_text: Caída aguda HRV: raw=3.408 vs base=3.798 (drop=-0.390, umbral=-0.2
 
 **Interpretación:** El veto agudo detectó una caída brusca que ROLL3 habría enmascarado. El reason_text explica tres factores convergentes: la caída fue real, dormiste poco, y acumulaste mucha carga. Alta confianza de que el ROJO es legítimo.
 
-### Caso 6: VERDE con aviso de fatiga acumulada
+### Caso 6: VERDE con convergencia de carga
 
 ```
 Fecha: 2026-02-10
@@ -697,10 +842,10 @@ Action_detail: EJECUTAR_PLAN
 gate_razon_base60: 2D_OK
 decision_path: BASE60_ONLY
 veto_agudo: False
-reason_text: VERDE con carga acumulada (load_3d=210): precaución intensidad
+reason_text: ACWR muy alto: carga aguda muy por encima de la base crónica (1.69) | VERDE con convergencia de carga (load_3d + ACWR): precaución intensidad reforzada
 ```
 
-**Interpretación:** Tu HRV y pulso están bien (VERDE), pero sessions_day muestra carga acumulada alta en los últimos 3 días. El gate permite intensidad, pero el reason_text sugiere no ir al máximo.
+**Interpretación:** Tu HRV y pulso están bien (VERDE), pero la lectura operativa no es un verde limpio. La carga aguda de 3 días y el ACWR apuntan en la misma dirección, así que el cierre de `reason_text` escala la cautela: el gate permite intensidad, pero no justifica exprimirla.
 
 ---
 
@@ -713,7 +858,7 @@ reason_text: VERDE con carga acumulada (load_3d=210): precaución intensidad
 - **Sombras (28/42)** = miran si tu normal "reciente" está cambiando antes de que lo vea BASE60.
 - **Residual** = "¿para este pulso, tu HRV está mejor o peor de lo esperable?"
 - **quality_flag** = "el dato de hoy es sospechoso": aunque pinte bonito, **no toca apretar**.
-- **reason_text** = "te explico por qué": sueño malo (de Polar), carga alta (de sessions_day), caída aguda de HRV, etc. **No cambia el gate**, solo informa.
+- **reason_text** = "te explico por qué": sueño malo (de Polar), carga alta o convergente (de `sessions_day`), caída aguda de HRV, clustering reciente, etc. **No cambia el gate**, solo informa.
 
 ---
 

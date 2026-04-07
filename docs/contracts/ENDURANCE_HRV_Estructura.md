@@ -354,7 +354,7 @@ Muestra qué entra y qué sale de cada script, y cómo se encadenan:
                     │
   Intervals.icu ────┤
                     ├──► build_sessions.py ──► SESSIONS.csv (57 cols)
-│                     ├──► SESSIONS_DAY.csv (44 cols)
+│                     ├──► SESSIONS_DAY.csv (49 cols)
                     │                     └──► ENDURANCE_HRV_sessions_metadata.json
 ```
 

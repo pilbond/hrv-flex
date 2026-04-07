@@ -91,7 +91,7 @@ Sistema automatizado HRV para un **único atleta**:
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | 10 | Resumen operativo para dashboard |
 | `ENDURANCE_HRV_sleep.csv` | 17 | Sueño Polar (sidecar; carga en sessions_day.csv) |
 | `ENDURANCE_HRV_sessions.csv` | - | Sesiones Intervals.icu (histórico) |
-| `ENDURANCE_HRV_sessions_day.csv` | - | Carga por día (usado por v4lite) |
+| `ENDURANCE_HRV_sessions_day.csv` | 49 | Carga por día + rolling con cobertura + clustering reciente de intensidad (usado por v4lite) |
 
 ---
 
@@ -131,14 +131,14 @@ Decisor HRV con contexto.
 Inputs: `CORE.csv` + `sleep.csv` + `sessions_day.csv` (ambos opcionales, solo para reason_text)
 Outputs: `FINAL.csv` (58 cols) + `DASHBOARD.csv` (10 cols)
 - Veto agudo: bypass ROLL3 si caída > 2×SWC bajo baseline
-- Reason_text: contexto operativo (sueño, carga, nightly RMSSD discordancia)
+- Reason_text: contexto operativo (sueño, carga, clustering reciente de intensidad, nightly RMSSD discordancia)
 - ln_pre_veto, swc_ln_floor: trazabilidad del veto
 
 ### `build_sessions.py`
 Pipeline de sesiones desde Intervals.icu.
 Genera:
 - `ENDURANCE_HRV_sessions.csv` (histórico de sesiones)
-- `ENDURANCE_HRV_sessions_day.csv` (carga agregada por día)
+- `ENDURANCE_HRV_sessions_day.csv` (carga agregada por día + rolling + clustering)
 - `ENDURANCE_HRV_sessions_metadata.json`
 
 Soporta: `--backfill`, `--daily`, `--update`, `--date`
@@ -326,7 +326,7 @@ python egc_to_rr.py --dropbox-folder /ruta/carpeta --dropbox-recursive --outdir 
 
 ### HRV global
 - ✅ UI expone `/api/sync`, `/api/sync-sessions`, `/api/status`, endpoints OAuth
-- ✅ `build_sessions.py` genera sesiones + metadata
+- ✅ `build_sessions.py` genera sesiones + metadata (`pipeline_version v3.4`)
 - ✅ Flujo recomendado: Dropbox primero, Polar fallback
 - ✅ `ENDURANCE_HRV_sleep.csv` es archivo canónico de sueño (17 cols; carga en sessions_day.csv)
 - ✅ UI no permite ejecutar sync HRV y sync-sessions simultáneamente

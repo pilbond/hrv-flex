@@ -1,4 +1,4 @@
-<!-- contract_version: 0.1-draft -->
+<!-- contract_version: 0.2-draft -->
 # WEEKLY_ANALYSIS_METHOD.md - Weekly analysis method
 
 ## 1. Alcance
@@ -73,6 +73,7 @@ El usuario MAY anadir:
 ### Primarias
 - `data/ENDURANCE_HRV_sessions_day.csv`
 - `data/ENDURANCE_HRV_sessions.csv`
+- `data/ENDURANCE_HRV_sessions_metadata.json`
 - `data/ENDURANCE_HRV_master_FINAL.csv`
 - `data/ENDURANCE_HRV_master_DASHBOARD.csv`
 - `data/ENDURANCE_HRV_master_CORE.csv`
@@ -82,6 +83,9 @@ El usuario MAY anadir:
 - `sessions_day.csv`: agregados diarios, rolling y estructura resumida
   de carga,
 - `sessions.csv`: detalle por sesion, deporte y distribucion por zonas,
+- `ENDURANCE_HRV_sessions_metadata.json`: limites globales de
+  interpretabilidad de la capa de sesiones (`training_audit`,
+  `stream_sampling`, `zones_source_dist`),
 - `ENDURANCE_HRV_master_FINAL.csv`: auditoria fina del gate,
   residuales, warning y contexto avanzado cuando haga falta,
 - `ENDURANCE_HRV_master_DASHBOARD.csv`: capa operativa resumida para
@@ -115,6 +119,29 @@ El usuario MAY anadir:
 - `sessions_day.csv` no incluye dias sin entrenamiento; por tanto, la
   tabla semanal MUST construirse con un calendario de 7 dias y join
   de fuentes, no solo con `sessions_day`.
+
+### Regla de confianza por metadata de sesiones
+Si existe `data/ENDURANCE_HRV_sessions_metadata.json` y contiene
+`training_audit`:
+
+- usar `training_audit.signal_level.interpretability_limits` como
+  limites globales del dataset de sesiones,
+- distinguir siempre entre:
+  - limites globales del dataset,
+  - y senal realmente observada en la semana analizada,
+- si `training_audit.metric_level.load_context.state != high`,
+  rebajar la fuerza de cualquier lectura fuerte de `ACWR`,
+  `monotony`, `strain` o clustering reciente de intensidad,
+- si `training_audit.metric_level.coaching_load.state != high`,
+  rebajar la fuerza de cualquier lectura fuerte de carga semanal,
+- si `training_audit.metric_level.zone_intensity.state` es
+  `contextual` o `informational`, tratar distribucion por zonas y
+  `work_*` como contexto orientativo, no como apoyo fuerte,
+- si `training_audit.metric_level.cardiac_drift.state != high`,
+  declarar que el drift semanal existe con cobertura parcial o
+  interpretabilidad reducida,
+- `training_audit` MUST NOT cambiar outputs canonicos ni sustituir la
+  evidencia observada de la propia semana; solo gobierna confianza.
 
 ## 7. Flujo obligatorio
 1. construir el calendario semanal de 7 dias,
@@ -203,6 +230,15 @@ SHOULD:
   como hipotesis explicativa y declararla como inferencia, no como
   hecho demostrado.
 
+Regla de confianza:
+
+- si `training_audit.metric_level.coaching_load.state != high`,
+  explicitar que la lectura semanal de carga es estructuralmente
+  parcial aunque la semana concreta parezca limpia,
+- si la semana concreta tiene buena cobertura de sesiones pero el
+  dataset arrastra limites globales, declararlo como limitacion de
+  fondo y no como problema especifico de esa semana.
+
 ### Seccion 3 - Distribucion observada por deporte
 Esta seccion describe la distribucion de intensidad realmente
 observada, no la intencion del plan.
@@ -217,6 +253,14 @@ SHOULD:
 
 - describir si el patron observado se parece mas a polarizado,
   piramidal, threshold o mixto, con lenguaje neutro y descriptivo.
+
+Regla de confianza:
+
+- si `training_audit.metric_level.zone_intensity.state != high`,
+  rebajar la fuerza de cualquier etiqueta estructural de distribucion
+  y declarar que describe patron observado bajo confianza parcial,
+- si la semana concreta tiene deportes con `zones_source = fallback`,
+  esa limitacion semanal manda sobre cualquier confianza global mejor.
 
 Presentacion recomendada cuando haya multimodalidad material:
 
@@ -296,6 +340,17 @@ Reglas adicionales HRV:
 - si el inicio de la semana ya llega degradado por carga previa,
   reducir la fuerza de la comparacion intra-semana.
 
+Regla de confianza por drift y sesiones:
+
+- si `training_audit.metric_level.cardiac_drift.state != high`,
+  evitar usar el drift semanal como apoyo fuerte de absorcion o
+  fatiga cardiaca,
+- si el drift existe solo en una parte pequena de las sesiones
+  aerobicas, declararlo como lectura parcial de la semana,
+- si la semana concreta si contiene drift interpretable en las
+  sesiones clave, puede citarse esa senal, pero sin ignorar el limite
+  global del dataset.
+
 Presentacion recomendada para sueno:
 
 - comparar el agregado semanal con `2-3` semanas anteriores,
@@ -327,6 +382,10 @@ Reglas:
   computan como `load_day = 0`,
 - si un dia tiene solo fuerza o movilidad con `load < 10`, usar el
   valor real, no cero,
+- si existen `acwr_simple_prev`, `monotony_7d_prev` y `strain_7d_prev`
+  en `sessions_day.csv`, tratarlos como capa canonica preferente de
+  contexto de carga; cualquier recalculo semanal local debe declararse
+  como lectura auxiliar y no sustituir la columna canonica,
 - presentar como indicador de contexto, no como diagnostico autonomo
   de sobrecarga,
 - si la semana tiene cobertura rara, distribucion atipica de fuerza,
@@ -398,6 +457,20 @@ Debe declarar:
 - calidad de HRV y sueno,
 - ausencias o incoherencias relevantes,
 - que parte de la conclusion es robusta y cual es tentativa.
+
+SHOULD incluir explicitamente:
+
+- si existe `training_audit`, un bloque corto separando:
+  - `dataset_limits`: limites globales del pipeline de sesiones,
+  - `week_specific_limits`: limitaciones propias de la semana,
+- cuando aplique, indicar explicitamente si `load_context` viene en
+  estado `high`, `contextual`, `informational` o `not_applicable`,
+- si ambas capas no coinciden, decirlo de forma explicita,
+- ejemplo:
+  - "dataset con cobertura parcial de drift, pero semana actual con
+    sesiones clave bien cubiertas",
+  - o "dataset correcto en global, pero esta semana con zonas fallback
+    en trail".
 
 ## 9. Regla de compresion
 Si la semana es simple y sin hallazgos materiales, el informe se

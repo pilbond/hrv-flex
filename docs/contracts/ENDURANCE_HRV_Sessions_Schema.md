@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Sessions Schema
 
-**Revisión:** r2026-04-07 v3.4 (params_hash: c1c78a78)  
+**Revisión:** r2026-04-07 v3.5 (params_hash: c1c78a78)  
 **Estado:** Producción
 
 **Documentos relacionados:**
