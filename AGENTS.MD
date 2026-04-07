@@ -283,3 +283,40 @@ Si un cambio afecta a:
 
 entonces tambien hay que actualizar `docs/contracts/`.
 
+
+## Workflow Kanvas
+
+Si existe `Project.canvas` en la raiz del proyecto, usar Kanvas como tablero visual de tareas.
+
+Reglas:
+- Nunca editar `Project.canvas` directamente.
+- Todas las modificaciones del canvas deben hacerse con el CLI de Kanvas.
+- CLI canonico:
+  `python Kanvas\canvas-tool.py polar-hrv-automation\Project.canvas <command>`
+- Al inicio de cada sesion:
+  `python Kanvas\canvas-tool.py polar-hrv-automation\Project.canvas status`
+- Si hay inconsistencias visuales o tareas sin ID:
+  `python Kanvas\canvas-tool.py polar-hrv-automation\Project.canvas normalize`
+
+Politica de estados:
+- `purple`: propuesta del agente
+- `red`: tarea aprobada y lista
+- `orange`: en curso
+- `cyan`: terminada por el agente, pendiente de revision humana
+- `green`: solo el humano puede marcarla como completada
+- `gray`: bloqueada por dependencias
+
+Permisos del agente:
+- Puede leer el tablero con `status`, `show`, `list`, `ready`, `blocked`, `blocking`, `dump`
+- Puede proponer tareas con `propose`, `batch`, `propose-group`
+- Puede empezar y cerrar trabajo con `start`, `finish`, `pause`
+- Puede editar solo tareas en `orange` con `edit`
+- Puede anadir dependencias con `add-dep`
+- No puede marcar tareas en `green`
+- No puede borrar tarjetas ni editar el JSON del canvas a mano
+
+Integracion con este repositorio:
+- Las reglas operativas de `polar-hrv-automation` siguen teniendo prioridad
+- Kanvas solo organiza planificacion, dependencias y estado del trabajo
+- Si hay conflicto entre Kanvas y las reglas del dominio HRV, manda `AGENTS.MD` del proyecto y la documentacion de `docs/contracts/`
+

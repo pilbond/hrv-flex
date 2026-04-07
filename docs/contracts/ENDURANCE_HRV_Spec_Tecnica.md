@@ -40,7 +40,7 @@ Mapa operativo actual:
 - Módulo RR -> CORE/BETA: `build_hrv_core.py`, revisión `r2026-03-19`
 - Módulo CORE -> FINAL/DASHBOARD: `build_hrv_final_dashboard.py`, revisión `r2026-03-19`
 - Contrato estructural HRV: `ENDURANCE_HRV_Estructura.md`, revisión `r2026-03-19 v3.3`
-- Contrato de sesiones: `ENDURANCE_HRV_Sessions_Schema.md`, revisión `r2026-03-19 v3.2`
+- Contrato de sesiones: `ENDURANCE_HRV_Sessions_Schema.md`, revisión `r2026-04-06 v3.3`
 
 ---
 
@@ -900,7 +900,7 @@ Si tu baseline actual está por debajo del P20 de todos tus baselines histórico
 | `ENDURANCE_HRV_master_FINAL.csv` | Gate, veto agudo, sombras, residual, reason_text y auditoría completa raw-vs-ref | 58 |
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | Lo esencial para decidir en 10 segundos + reason_text | 10 |
 | `ENDURANCE_HRV_sleep.csv` | Sueño nocturno y recuperación (Polar) | 17 |
-| `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento | 43 |
+| `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento | 57 |
 | `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios + rolling con cobertura (_nobs) | 40 |
 | `ENDURANCE_HRV_sessions_metadata.json` | Trazabilidad pipeline sesiones (versión, params, sampling rate) | — |
 | `ENDURANCE_HRV_master_BETA_AUDIT.csv` | Modelo beta del V3, para comparación histórica | 13 |
@@ -981,6 +981,7 @@ Secciones obligatorias:
 | 2026-03-01 v4.1 | sleep.csv simplificado: 34→17 cols (solo Polar sleep/nightly, sin Intervals) |
 | 2026-03-01 v4.1 | reason_text dual source: sueño de sleep.csv, carga de sessions_day.csv |
 | 2026-03-01 v4.1 | Nuevos archivos sessions.csv (43 cols), sessions_day.csv (40 cols), ENDURANCE_HRV_sessions_metadata.json |
+| 2026-04-06 v4.2 | sessions.csv bumped 43→57 cols con capa mecánica opcional; fuente prioritaria `Intervals FIT`, fallback `Polar AccessLink` |
 | 2026-03-01 v4.1 | reason_text: TSB/load_3d_p90 reemplazados por load_3d+nobs, work_7d, z3_7d (umbrales absolutos) |
 | 2026-02-23 v4 | Añadido veto agudo (§11bis): bypass ROLL3 en caídas agudas, con SWC_FLOOR y VETO_MULT |
 | 2026-02-23 v4 | Añadido reason_text (§15.3): texto explicativo contextual con sueño, carga y coherencia gate↔contexto |

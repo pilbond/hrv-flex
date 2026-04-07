@@ -43,10 +43,11 @@ from typing import Optional
 import requests
 import numpy as np
 import pandas as pd
+from polar_sessions import PolarSessionClient, extract_mechanical_metrics_from_fit_payload
 
 # ─── Version & params ─────────────────────────────────────────────────────────
 
-PIPELINE_VERSION = "v3.2"
+PIPELINE_VERSION = "v3.3"
 
 PARAMS = {
     "gap_max_s": 60,
@@ -189,6 +190,10 @@ class IntervalsClient:
             return self.get(f"/activity/{activity_id}/messages").json()
         except requests.HTTPError:
             return []
+
+    def get_fit_payload(self, activity_id: str) -> bytes:
+        response = self.get(f"/activity/{activity_id}/fit-file")
+        return response.content
 
 
 # ─── Smart block merge ────────────────────────────────────────────────────────
@@ -577,7 +582,8 @@ def compute_effort_anchor(df: pd.DataFrame) -> pd.Series:
 
 def build_session_row(activity: dict, client: IntervalsClient,
                       fetch_streams: bool = True,
-                      fetch_notes: bool = True) -> dict:
+                      fetch_notes: bool = True,
+                      polar_client: Optional[PolarSessionClient] = None) -> dict:
     aid = activity["id"]
     sport_raw = activity.get("type", "Other")
     sport = SPORT_MAP.get(sport_raw, "other")
@@ -621,6 +627,25 @@ def build_session_row(activity: dict, client: IntervalsClient,
         "feel": activity.get("feel"),
     }
 
+    row.update(
+        {
+            "mechanics_source": "",
+            "polar_sport_raw": "",
+            "polar_start_delta_min": None,
+            "polar_duration_gap_min": None,
+            "run_power_available": 0,
+            "run_power_mean": None,
+            "run_power_max": None,
+            "run_power_p95": None,
+            "speed_first_half": None,
+            "speed_second_half": None,
+            "cadence_first_half": None,
+            "cadence_second_half": None,
+            "polar_speed_available": 0,
+            "polar_cadence_available": 0,
+        }
+    )
+
     # Elevation density
     gain, dist = row["elev_gain_m"], row["distance_km"]
     if gain is not None and dist and dist > 0.5:
@@ -652,6 +677,26 @@ def build_session_row(activity: dict, client: IntervalsClient,
 
         except Exception as e:
             log.warning(f"Stream error for {aid}: {e}")
+
+    if sport in {"road_run", "trail_run", "hike"}:
+        try:
+            fit_payload = client.get_fit_payload(aid) if hasattr(client, "get_fit_payload") else None
+            fit_metrics = (
+                extract_mechanical_metrics_from_fit_payload(fit_payload, source="intervals_fit")
+                if fit_payload else {}
+            )
+            if fit_metrics.get("mechanics_source"):
+                row.update(fit_metrics)
+            elif polar_client is not None:
+                row.update(polar_client.enrich_row(row))
+        except Exception as fit_exc:
+            if polar_client is not None:
+                try:
+                    row.update(polar_client.enrich_row(row))
+                except Exception as polar_exc:
+                    log.warning(f"Mechanics enrichment error for {aid}: FIT={fit_exc}; Polar={polar_exc}")
+            else:
+                log.warning(f"Intervals FIT mechanics error for {aid}: {fit_exc}")
 
     # Non-aerobic fallback zones from Intervals
     if not is_aerobic or "z1_pct" not in row:
@@ -915,10 +960,22 @@ NUMERIC_SESSION_COLS = [
     "work_avg_z3_pct",
     "late_intensity",
     "cardiac_drift_pct",
+    "polar_start_delta_min",
+    "polar_duration_gap_min",
     "load",
     "rpe",
     "rpe_present",
     "notes_present",
+    "run_power_available",
+    "run_power_mean",
+    "run_power_max",
+    "run_power_p95",
+    "speed_first_half",
+    "speed_second_half",
+    "cadence_first_half",
+    "cadence_second_half",
+    "polar_speed_available",
+    "polar_cadence_available",
 ]
 
 
@@ -1015,6 +1072,11 @@ def run_pipeline(oldest: str, newest: str, output_dir: Path,
     log.info(f"Range: {oldest} → {newest}")
 
     client = IntervalsClient(API_KEY, ATHLETE_ID)
+    polar_client = PolarSessionClient()
+    if polar_client.available:
+        log.info("Mechanical enrichment enabled: Intervals FIT primary, Polar fallback")
+    else:
+        log.info("Mechanical enrichment enabled: Intervals FIT primary, no Polar fallback available")
 
     log.info("Fetching activities...")
     activities = client.get_activities(oldest, newest)
@@ -1033,7 +1095,7 @@ def run_pipeline(oldest: str, newest: str, output_dir: Path,
             f"{act['type']} {act['start_date_local'][:10]}"
             f"{' (+stream)' if fetch_streams and is_aerobic else ''}")
 
-        row = build_session_row(act, client, fetch_streams, fetch_notes)
+        row = build_session_row(act, client, fetch_streams, fetch_notes, polar_client=polar_client)
         sessions.append(row)
 
     new_df = pd.DataFrame(sessions)
@@ -1060,6 +1122,12 @@ def run_pipeline(oldest: str, newest: str, output_dir: Path,
         "work_n_blocks", "work_total_min", "work_longest_min",
         "work_avg_z3_pct", "work_blocks_min", "work_blocks_z3pct",
         "late_intensity", "cardiac_drift_pct",
+        "mechanics_source", "polar_sport_raw",
+        "polar_start_delta_min", "polar_duration_gap_min",
+        "run_power_available", "run_power_mean", "run_power_max", "run_power_p95",
+        "speed_first_half", "speed_second_half",
+        "cadence_first_half", "cadence_second_half",
+        "polar_speed_available", "polar_cadence_available",
         "load", "rpe", "feel",
         "intensity_category", "effort_vs_recent", "effort_vs_anchor",
         "session_group",

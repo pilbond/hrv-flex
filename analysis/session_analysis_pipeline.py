@@ -29,16 +29,13 @@ if str(_ANALYSIS_DIR) not in sys.path:
 from fit_speed_utils import compute_speed_metrics as _compute_speed_metrics
 
 from polar_hrv_automation import (
-    FIELD_START_TIME,
-    _get_field_variant,
-    _iso_to_dt,
     extract_rr_ms,
     get_exercise_with_samples,
     list_exercises,
     load_tokens,
-    parse_duration_to_minutes,
     write_rr_csv,
 )
+from polar_sessions import match_polar_exercise
 
 
 ANALYSIS_DIR = ROOT / "analysis"
@@ -323,47 +320,12 @@ def _target_session_datetime(row: dict[str, str]) -> datetime:
         raise ValueError("session row lacks Fecha/start_time")
     return datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
 
-
 def _match_polar_exercise(row: dict[str, str], exercises: list[dict[str, Any]]) -> dict[str, Any]:
-    target_dt = _target_session_datetime(row)
-    target_date = target_dt.date()
-    target_duration = _parse_float(row.get("duration_min"))
-    candidates: list[tuple[float, float, dict[str, Any]]] = []
-
-    # POLAR_TZ_OFFSET_MIN: corrección de offset de zona horaria entre sessions.csv y API Polar.
-    # Útil cuando sessions.csv tiene timestamps en una TZ distinta a la que devuelve _iso_to_dt.
-    # Ej: sesión grabada en UK (BST=UTC+1), sessions.csv en hora española (CEST=UTC+2):
-    #   _iso_to_dt convierte Polar BST→UTC en shell UTC → start_dt queda 1h por detrás de target_dt
-    #   → POLAR_TZ_OFFSET_MIN=-60 (restar 60 min a target_dt para igualar los marcos).
-    # Valor negativo cuando sessions.csv está adelantado respecto a Polar (caso UK→España).
-    tz_offset_min = int(os.environ.get("POLAR_TZ_OFFSET_MIN", "0"))
-    adjusted_target_dt = target_dt + timedelta(minutes=tz_offset_min)
-
-    for ex in exercises:
-        start_raw = _get_field_variant(ex, *FIELD_START_TIME, default="")
-        start_dt = _iso_to_dt(start_raw)
-        if not start_dt or start_dt.date() != adjusted_target_dt.date():
-            continue
-        delta_min = abs((start_dt - adjusted_target_dt).total_seconds()) / 60.0
-        dur_raw = ex.get("duration", "")
-        duration_min = parse_duration_to_minutes(dur_raw) if dur_raw else None
-        duration_gap = abs(duration_min - target_duration) if duration_min is not None and target_duration is not None else 999.0
-        candidates.append((delta_min, duration_gap, ex))
-
-    if not candidates:
-        raise RuntimeError(f"no se encontro ejercicio Polar para {row.get('session_id')} en {target_date}")
-
-    candidates.sort(key=lambda item: (item[0], item[1]))
-    best_delta, best_duration_gap, best = candidates[0]
-    if best_delta > 20:
-        raise RuntimeError(
-            f"match Polar demasiado lejano: {best.get('id')} a {best_delta:.1f} min del inicio esperado"
-        )
-    return {
-        "exercise": best,
-        "start_delta_min": round(best_delta, 3),
-        "duration_gap_min": None if best_duration_gap == 999.0 else round(best_duration_gap, 3),
-    }
+    return match_polar_exercise(
+        row,
+        exercises,
+        tz_offset_min=int(os.environ.get("POLAR_TZ_OFFSET_MIN", "0")),
+    )
 
 
 def fetch_session_rr_csv(row: dict[str, str], target_csv: Path) -> dict[str, Any]:

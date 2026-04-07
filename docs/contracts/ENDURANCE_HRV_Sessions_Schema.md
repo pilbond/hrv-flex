@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Sessions Schema
 
-**Revisión:** r2026-03-19 v3.2 (params_hash: c1c78a78)  
+**Revisión:** r2026-04-06 v3.3 (params_hash: c1c78a78)  
 **Estado:** Producción
 
 **Documentos relacionados:**
@@ -8,7 +8,7 @@
 - `ENDURANCE_HRV_Spec_Tecnica.md` — fórmulas y algoritmos del gate HRV
 - `ENDURANCE_HRV_Diccionario.md` — diccionario de columnas del gate HRV
 
-**Convención de versión:** esta cabecera identifica la revisión del pipeline de sesiones (`r2026-03-19 v3.2`), no la versión global del sistema HRV. La versión de sistema vigente se declara en `ENDURANCE_HRV_Spec_Tecnica.md`.
+**Convención de versión:** esta cabecera identifica la revisión del pipeline de sesiones (`r2026-04-06 v3.3`), no la versión global del sistema HRV. La versión de sistema vigente se declara en `ENDURANCE_HRV_Spec_Tecnica.md`.
 
 ---
 
@@ -32,7 +32,7 @@ Este pipeline está diseñado para **un único atleta** y consume la cuenta pers
 
 - ❌ No cambia el semáforo (gate_final sigue dependiendo solo de HRV + pulso)
 - ❌ No sustituye a Intervals.icu (que sigue siendo la fuente de carga/TSS/ATL/CTL)
-- ❌ No procesa datos Polar directos (el sueño está en sleep.csv)
+- ❌ No sustituye a Intervals.icu como fuente principal; Polar solo aporta una capa mecánica opcional en deportes de pie cuando hay match fiable
 - ❌ No calcula zonas por potencia (solo HR)
 
 ---
@@ -51,6 +51,14 @@ El pipeline consume la API de Intervals.icu:
 - `/api/v1/athlete/{id}/activities` — lista de actividades con metadatos (load, duration, type, RPE...)
 - `/api/v1/activity/{id}/streams` — stream de HR y velocidad segundo a segundo
 
+De forma **opcional y no bloqueante**, el pipeline puede enriquecer sesiones de `road_run`, `trail_run` y `hike` con muestras mecánicas. La prioridad actual es:
+- `FIT` descargado desde Intervals (`/activity/{id}/fit-file`)
+- Polar AccessLink como fallback cuando el FIT no está disponible o no trae señal útil
+
+Como fallback secundario, el pipeline puede enriquecer con muestras mecánicas de Polar AccessLink:
+- `GET /v3/exercises`
+- `GET /v3/exercises/{id}?samples=true`
+
 El stream HR de Intervals es idéntico al TCX del sensor (verificado empíricamente: 4844 vs 4843 puntos, Δ=0). No se necesita descargar TCX.
 
 **Sampling rate:** Intervals re-muestrea todos los streams a 1 Hz. El pipeline verifica esto con `stream_dt_est` (canary). Si alguna sesión se desvía significativamente de 1.0, las conversiones de muestras a minutos serían incorrectas.
@@ -59,7 +67,7 @@ El stream HR de Intervals es idéntico al TCX del sensor (verificado empíricame
 
 ## 2. SESSIONS.CSV — columnas y significado
 
-43 columnas organizadas en 7 bloques. Cada bloque agrupa campos relacionados.
+57 columnas organizadas en bloques funcionales. Cada bloque agrupa campos relacionados.
 
 ### Bloque A — Identidad (9 campos)
 
@@ -149,6 +157,33 @@ Un "bloque de trabajo" es un periodo continuo donde tu corazón estuvo por encim
 | `cardiac_drift_pct` | float? | Porcentaje de aumento de HR por unidad de velocidad a lo largo de la sesión. Si corres a la misma velocidad pero tu HR va subiendo, hay drift. Valores >5% sugieren fatiga, calor, o deshidratación. Solo se calcula en sesiones de ≥30 minutos con datos de velocidad; NaN si no hay velocidad (indoor) o sesión corta. HR y velocidad se alinean a la misma longitud para evitar errores de desfase. | 0-15% (normal: 3-7%) |
 
 **¿Por qué "mitades" y no "últimos 20 minutos"?** El diseño por mitades es más robusto para sesiones de distinta duración: en una sesión de 45 min, "últimos 20 min" es casi la mitad; en una de 120 min, es solo el último sexto. Las mitades se adaptan automáticamente a la duración.
+
+### Capa opcional — Señal mecánica (14 campos)
+
+Cuando existe señal utilizable, `sessions.csv` añade una capa mecánica mínima para deportes de pie (`road_run`, `trail_run`, `hike`). La prioridad es `Intervals FIT` y el fallback es `Polar AccessLink`. Si ninguna fuente está disponible, las columnas quedan vacías o en `0` y el pipeline sigue funcionando igual.
+
+| Campo | Tipo | Qué es |
+|-------|------|--------|
+| `mechanics_source` | enum | `intervals_fit` si la señal salió del FIT de Intervals, `polar` si salió de AccessLink; vacío en caso contrario. |
+| `polar_sport_raw` | string | Deporte crudo de la fuente mecánica usada. Si la fuente fue Polar, suele venir como `RUNNING`, `TRAIL_RUNNING`, `HIKING`, `TREADMILL_RUNNING`; si la fuente fue `Intervals FIT`, conserva el `sport/sub_sport` del FIT. |
+| `polar_start_delta_min` | float? | Diferencia absoluta en minutos entre la sesión de Intervals y el ejercicio de Polar usado para el match. Solo aplica cuando `mechanics_source = polar`; en `intervals_fit` queda vacío. |
+| `polar_duration_gap_min` | float? | Diferencia absoluta en minutos entre `duration_min` y la duración declarada por Polar. Solo aplica cuando `mechanics_source = polar`; en `intervals_fit` queda vacío. |
+| `run_power_available` | 0/1 | 1 solo si la fuente mecánica tiene cobertura útil de potencia y valores >0; evita tratar un stream todo a cero como potencia real. |
+| `run_power_mean` | float? | Potencia media útil en vatios de la fuente mecánica seleccionada. |
+| `run_power_max` | float? | Potencia máxima útil en vatios de la fuente mecánica seleccionada. |
+| `run_power_p95` | float? | Percentil 95 de potencia útil en vatios de la fuente mecánica seleccionada. |
+| `speed_first_half` | float? | Velocidad media de la primera mitad útil de la sesión, en km/h, usando la fuente mecánica seleccionada. |
+| `speed_second_half` | float? | Velocidad media de la segunda mitad útil de la sesión, en km/h, usando la fuente mecánica seleccionada. |
+| `cadence_first_half` | float? | Cadencia media de la primera mitad útil usando la fuente mecánica seleccionada. |
+| `cadence_second_half` | float? | Cadencia media de la segunda mitad útil usando la fuente mecánica seleccionada. |
+| `polar_speed_available` | 0/1 | 1 si la fuente mecánica tiene cobertura útil de velocidad. |
+| `polar_cadence_available` | 0/1 | 1 si la fuente mecánica tiene cobertura útil de cadencia. |
+
+**Límites de la v1:** esta capa no introduce GAP, zonas por potencia ni métricas derivadas nuevas. Su objetivo es canonizar una base mecánica mínima para futuras tareas (`AP-01`, `FP-01`, etc.) sin romper compatibilidad.
+
+**Limitación semántica importante:** `speed_first_half`, `speed_second_half`, `cadence_first_half` y `cadence_second_half` se calculan hoy cortando la serie en su mitad cronológica y filtrando dentro de cada mitad las muestras no útiles. Esto corrige el sesgo de partir por conteo de muestras válidas, pero sigue siendo una aproximación por índice de muestra: si la señal tiene huecos largos o muestreo muy irregular, la frontera no equivale exactamente a la mitad del tiempo absoluto.
+
+**Cobertura Polar:** cuando `mechanics_source = polar`, la cobertura depende de la ventana reciente realmente expuesta por Polar AccessLink en `/v3/exercises`. No debe asumirse como fuente de backfill histórico completo.
 
 ### Bloque F — Clasificación y percepción (7 campos)
 
@@ -300,7 +335,7 @@ Cada corrida del pipeline genera un `ENDURANCE_HRV_sessions_metadata.json` que d
 
 ```json
 {
-  "pipeline_version": "v3.2",
+  "pipeline_version": "v3.3",
   "params": {
     "VT1_DEFAULT": 143,
     "VT2_DEFAULT": 161,
@@ -440,7 +475,7 @@ Cuántos días de la ventana rolling tenían un valor real (no NaN) para esa mé
 
 ## 9. Historial de versiones y fixes
 
-**Versión operativa actual:** `v3.2`
+**Versión operativa actual:** `v3.3`
 
 Lo siguiente es historial de cambios acumulados. No sustituye al estado vigente declarado al inicio del documento.
 
@@ -463,6 +498,12 @@ F) effort split aerobic/strength
 1) `elev_density` = `elev_gain / distance` (verticalidad ascendente, no relieve total)  
 2) `PIPELINE_VERSION` bumped a `v3.2` en sessions + metadata  
 3) metadata renombrado a `ENDURANCE_HRV_sessions_metadata.json`  
+
+### v3.3 (capa mecánica mínima y prioridad de fuentes)
+1) `sessions.csv` bumped `43 -> 57` columnas con capa mecánica opcional para deportes de pie  
+2) fuente prioritaria de mecánica: `FIT` descargado desde Intervals (`/activity/{id}/fit-file`)  
+3) Polar AccessLink queda como fallback cuando el FIT no está disponible o no trae señal útil  
+4) columnas nuevas: `mechanics_source`, `polar_sport_raw`, `polar_start_delta_min`, `polar_duration_gap_min`, `run_power_*`, `speed_first_half`, `speed_second_half`, `cadence_first_half`, `cadence_second_half`, `polar_speed_available`, `polar_cadence_available`
 
 ---
 
