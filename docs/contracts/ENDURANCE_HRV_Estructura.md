@@ -1,13 +1,13 @@
 # ENDURANCE HRV — Estructura de Datos
 
-**Revisión:** r2026-03-19 v3.3 (FINAL 58 cols + naming SLEEP + guía DASHBOARD corregida)  
+**Revisión:** r2026-04-07 v3.5 (sessions_day 49 cols + metadata con auditoría ligera por capas)  
 **Estado:** Producción
 
 **Documentos relacionados:**
 - `ENDURANCE_HRV_Spec_Tecnica.md` — Fórmulas, algoritmos y reglas de cálculo
 - `ENDURANCE_HRV_Diccionario.md` — Qué significa cada columna y cómo usarla
 
-**Convención de versión:** esta cabecera identifica la revisión de este documento (`r2026-03-19 v3.3`), no la versión global del sistema. La versión de sistema vigente se declara en `ENDURANCE_HRV_Spec_Tecnica.md`.
+**Convención de versión:** esta cabecera identifica la revisión de este documento (`r2026-04-07 v3.5`), no la versión global del sistema. La versión de sistema vigente se declara en `ENDURANCE_HRV_Spec_Tecnica.md`.
 
 ---
 
@@ -43,8 +43,8 @@ El sistema genera 7 archivos CSV + 1 JSON de trazabilidad. Cada uno tiene un rol
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | Lo esencial para decidir en 10 segundos: semáforo, acción, warning, y reason_text contextual. Subconjunto de FINAL. | `build_hrv_final_dashboard.py` | 10 |
 | `ENDURANCE_HRV_sleep.csv` | Sueño nocturno y señales de recuperación (Polar). Alimenta el reason_text pero NO afecta al gate. | `polar_hrv_automation.py` | 17 |
 | `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento: zonas, work blocks, drift, effort, clasificación y capa mecánica opcional. | `build_sessions.py` | 57 |
-| `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios de entrenamiento + rolling con cobertura (_nobs), más contexto canónico de carga (`ACWR`, `monotony`, `strain`). Alimenta el reason_text para checks de carga. | `build_sessions.py` | 44 |
-| `ENDURANCE_HRV_sessions_metadata.json` | Trazabilidad del pipeline de sesiones: versión, parámetros, hash, sampling rate, cobertura. | `build_sessions.py` | — |
+| `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios de entrenamiento + rolling con cobertura (_nobs), más contexto canónico de carga (`ACWR`, `monotony`, `strain`) y clustering reciente de intensidad. Alimenta el reason_text para checks de carga. | `build_sessions.py` | 49 |
+| `ENDURANCE_HRV_sessions_metadata.json` | Trazabilidad del pipeline de sesiones: versión, parámetros, hash, sampling rate, cobertura y auditoría ligera `dataset/signal/metric` para coaching/carga. | `build_sessions.py` | — |
 | `ENDURANCE_HRV_master_BETA_AUDIT.csv` | Modelo alométrico beta/cRMSSD del sistema V3. Se conserva para comparación histórica; no afecta al decisor FINAL/DASHBOARD. | `build_hrv_core.py` | 13 |
 
 ---

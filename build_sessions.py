@@ -47,7 +47,7 @@ from polar_sessions import PolarSessionClient, extract_mechanical_metrics_from_f
 
 # ─── Version & params ─────────────────────────────────────────────────────────
 
-PIPELINE_VERSION = "v3.3"
+PIPELINE_VERSION = "v3.5"
 
 PARAMS = {
     "gap_max_s": 60,
@@ -805,6 +805,7 @@ def build_sessions_day(sessions_df: pd.DataFrame) -> pd.DataFrame:
 
             "load_day": round(group["load"].sum(), 1) if group["load"].notna().any() else None,
             "intensity_cat_day": primary_intensity_cat if pd.notna(primary_intensity_cat) else None,
+            "intense_day": 1 if (group["intensity_category"] == "work_intense").any() else 0,
             "work_total_min_day": work_total_day,
             "work_n_blocks_day": work_n_blocks_day,
             "z3_min_day": z3_min_day,
@@ -855,6 +856,23 @@ def build_sessions_day(sessions_df: pd.DataFrame) -> pd.DataFrame:
 
     # Mark which days have real data
     has_data = day_df["n_sessions"].notna()
+
+    # Short-window clustering is calendar-based: no-session days count as
+    # zero intense days rather than "unknown".
+    intense_day_calendar = pd.to_numeric(day_df["intense_day"], errors="coerce").fillna(0)
+    intense_shifted = intense_day_calendar.shift(1).fillna(0)
+    day_df["intense_day"] = intense_day_calendar.astype("Int64")
+    day_df["intense_days_prev_3d"] = intense_shifted.rolling(3, min_periods=1).sum().astype("Int64")
+    day_df["intense_days_prev_5d"] = intense_shifted.rolling(5, min_periods=1).sum().astype("Int64")
+
+    high_cluster = (day_df["intense_days_prev_3d"] >= 2) | (day_df["intense_days_prev_5d"] >= 3)
+    cluster_triggered = day_df["intense_days_prev_5d"] >= 2
+    day_df["intensity_clustering_flag"] = cluster_triggered.astype(int)
+    day_df["intensity_clustering_level"] = np.where(
+        high_cluster,
+        "high",
+        np.where(cluster_triggered, "low", pd.NA),
+    )
 
     # For rolling: use actual values where we have data, NaN otherwise
     # (NOT fillna(0) blindly — Fix E)
@@ -915,17 +933,298 @@ def build_sessions_day(sessions_df: pd.DataFrame) -> pd.DataFrame:
     day_df = day_df.reset_index()
     day_df["Fecha"] = day_df["Fecha"].dt.strftime("%Y-%m-%d")
 
+    day_col_order = [
+        "Fecha",
+        "n_sessions",
+        "total_duration_min",
+        "has_aerobic",
+        "has_strength",
+        "has_mobility",
+        "load_day",
+        "intensity_cat_day",
+        "intense_day",
+        "work_total_min_day",
+        "work_n_blocks_day",
+        "z3_min_day",
+        "hr_max_day",
+        "hr_p95_max_day",
+        "late_intensity_day",
+        "cardiac_drift_worst",
+        "elev_gain_day",
+        "elev_loss_day",
+        "strength_min_day",
+        "mobility_min_day",
+        "rpe_max_day",
+        "effort_above_typical_aerobic",
+        "effort_above_typical_strength",
+        "effort_above_anchor_aerobic",
+        "n_with_rpe",
+        "n_with_notes",
+        "elev_density_day",
+        "intense_days_prev_3d",
+        "intense_days_prev_5d",
+        "intensity_clustering_flag",
+        "intensity_clustering_level",
+        "z3_7d_sum",
+        "z3_7d_nobs",
+        "work_7d_sum",
+        "work_7d_nobs",
+        "finish_strong_7d_count",
+        "load_3d",
+        "load_3d_nobs",
+        "load_7d",
+        "load_7d_nobs",
+        "load_14d",
+        "load_14d_nobs",
+        "load_28d",
+        "load_28d_nobs",
+        "acwr_simple_prev",
+        "monotony_7d_prev",
+        "strain_7d_prev",
+        "load_ctx_ready",
+        "elev_loss_7d_sum",
+    ]
+    day_col_order = [c for c in day_col_order if c in day_df.columns]
+    extra_cols = [c for c in day_df.columns if c not in day_col_order]
+    day_df = day_df[day_col_order + extra_cols]
+
     return day_df
 
 
 # ─── Metadata ─────────────────────────────────────────────────────────────────
 
 
+def _safe_pct(part: int, total: int) -> Optional[float]:
+    if total <= 0:
+        return None
+    return round((part / total) * 100.0, 1)
+
+
+def _coerce_bool_series(series: pd.Series) -> pd.Series:
+    return series.astype(str).str.strip().str.lower().isin({"1", "true", "yes"})
+
+
+def _audit_state(state: str, reasons: list[str]) -> dict:
+    return {
+        "state": state,
+        "reasons": reasons,
+    }
+
+
+def build_training_audit(
+    sessions_df: pd.DataFrame,
+    day_df: pd.DataFrame,
+    dt_stats: Optional[dict] = None,
+    zones_dist: Optional[dict] = None,
+) -> dict:
+    sessions = sessions_df.copy()
+    if sessions.empty:
+        return {
+            "dataset_level": {
+                "sports_seen": 0,
+                "days_with_sessions": 0,
+                "aerobic_sessions": 0,
+                "load_days_ready": 0,
+            },
+            "signal_level": {
+                "sampling_ok": dt_stats.get("assumed_1hz") if dt_stats else None,
+                "aerobic_stream_coverage_pct": None,
+                "aerobic_drift_coverage_pct": None,
+                "zones_fallback_pct": None,
+                "fallback_sports": [],
+                "interpretability_limits": ["no_sessions"],
+            },
+            "metric_level": {
+                "load_context": _audit_state("not_applicable", ["no_sessions"]),
+                "zone_intensity": _audit_state("not_applicable", ["no_aerobic_sessions"]),
+                "cardiac_drift": _audit_state("not_applicable", ["no_aerobic_sessions"]),
+                "coaching_load": _audit_state("not_applicable", ["no_sessions"]),
+            },
+        }
+
+    sport_series = sessions["sport"].astype(str).str.strip() if "sport" in sessions.columns else pd.Series("", index=sessions.index)
+    session_group = (
+        sessions["session_group"].astype(str).str.strip()
+        if "session_group" in sessions.columns
+        else pd.Series("", index=sessions.index)
+    )
+    aerobic_mask = session_group.str.startswith("endurance")
+
+    if "stream_dt_est" in sessions.columns:
+        stream_mask = pd.to_numeric(sessions["stream_dt_est"], errors="coerce").notna()
+    elif "hr_p95" in sessions.columns:
+        stream_mask = pd.to_numeric(sessions["hr_p95"], errors="coerce").notna()
+    else:
+        stream_mask = pd.Series(False, index=sessions.index)
+
+    drift_mask = (
+        pd.to_numeric(sessions["cardiac_drift_pct"], errors="coerce").notna()
+        if "cardiac_drift_pct" in sessions.columns
+        else pd.Series(False, index=sessions.index)
+    )
+
+    fallback_mask = (
+        sessions["zones_source"].astype(str).str.strip().str.lower().eq("fallback")
+        if "zones_source" in sessions.columns
+        else pd.Series(False, index=sessions.index)
+    )
+
+    sampling_ok = dt_stats.get("assumed_1hz") if dt_stats else None
+    total_sessions = int(len(sessions))
+    aerobic_sessions = int(aerobic_mask.sum())
+    aerobic_stream_sessions = int((aerobic_mask & stream_mask).sum())
+    aerobic_drift_sessions = int((aerobic_mask & drift_mask).sum())
+    fallback_sessions = int(fallback_mask.sum())
+    fallback_sports = sorted(set(sport_series[fallback_mask].tolist()))
+    sports_seen = sorted({sport for sport in sport_series.tolist() if sport})
+
+    day_counts = (
+        pd.to_numeric(day_df["n_sessions"], errors="coerce")
+        if "n_sessions" in day_df.columns
+        else pd.Series(dtype=float)
+    )
+    days_with_sessions = int(day_counts.fillna(0).gt(0).sum()) if not day_counts.empty else 0
+    load_ready_mask = (
+        _coerce_bool_series(day_df["load_ctx_ready"])
+        if "load_ctx_ready" in day_df.columns
+        else pd.Series(False, index=day_df.index)
+    )
+    load_days_ready = int(load_ready_mask.sum())
+
+    interpretability_limits: list[str] = []
+    if sampling_ok is False:
+        interpretability_limits.append("stream_sampling_not_1hz")
+    if fallback_sessions > 0:
+        interpretability_limits.append("zones_fallback_present")
+    if aerobic_sessions > 0 and aerobic_stream_sessions < aerobic_sessions:
+        interpretability_limits.append("partial_aerobic_stream_coverage")
+    if aerobic_sessions > 0 and aerobic_drift_sessions < aerobic_sessions:
+        interpretability_limits.append("partial_aerobic_drift_coverage")
+    if days_with_sessions > 0 and load_days_ready == 0:
+        interpretability_limits.append("load_context_not_ready")
+
+    load_reasons: list[str] = []
+    if days_with_sessions == 0:
+        load_state = "not_applicable"
+        load_reasons.append("no_session_days")
+    elif load_days_ready == 0:
+        load_state = "informational"
+        load_reasons.append("load_context_not_ready")
+    elif load_days_ready < 7:
+        load_state = "contextual"
+        load_reasons.append("limited_ready_days")
+    else:
+        load_state = "high"
+
+    zone_reasons: list[str] = []
+    if aerobic_sessions == 0:
+        zone_state = "not_applicable"
+        zone_reasons.append("no_aerobic_sessions")
+    else:
+        if aerobic_sessions < 2:
+            zone_state = "informational"
+            zone_reasons.append("too_few_aerobic_sessions")
+        elif aerobic_sessions < 3:
+            zone_state = "contextual"
+            zone_reasons.append("limited_aerobic_sessions")
+        else:
+            zone_state = "high"
+
+        aerobic_stream_pct = _safe_pct(aerobic_stream_sessions, aerobic_sessions)
+        if aerobic_stream_pct is not None:
+            if aerobic_stream_pct < 80.0 and zone_state == "high":
+                zone_state = "contextual"
+            if aerobic_stream_pct < 100.0:
+                zone_reasons.append("partial_aerobic_stream_coverage")
+        elif aerobic_sessions > 0:
+            zone_state = "informational"
+            zone_reasons.append("no_aerobic_streams")
+
+        if fallback_sessions > 0 and zone_state == "high":
+            zone_state = "contextual"
+        if fallback_sessions > 0:
+            zone_reasons.append("zones_fallback_present")
+
+        if sampling_ok is False and zone_state == "high":
+            zone_state = "contextual"
+        if sampling_ok is False:
+            zone_reasons.append("stream_sampling_not_1hz")
+
+    drift_reasons: list[str] = []
+    if aerobic_sessions == 0:
+        drift_state = "not_applicable"
+        drift_reasons.append("no_aerobic_sessions")
+    elif aerobic_stream_sessions == 0:
+        drift_state = "informational"
+        drift_reasons.append("no_aerobic_streams")
+    elif aerobic_drift_sessions == 0:
+        drift_state = "informational"
+        drift_reasons.append("no_valid_drift_sessions")
+    else:
+        drift_pct = _safe_pct(aerobic_drift_sessions, aerobic_sessions)
+        if drift_pct is not None and drift_pct >= 80.0 and sampling_ok is not False:
+            drift_state = "high"
+        elif drift_pct is not None and drift_pct >= 40.0:
+            drift_state = "contextual"
+        else:
+            drift_state = "informational"
+        if drift_pct is not None and drift_pct < 100.0:
+            drift_reasons.append("partial_aerobic_drift_coverage")
+        if sampling_ok is False:
+            if drift_state == "high":
+                drift_state = "contextual"
+            drift_reasons.append("stream_sampling_not_1hz")
+
+    metric_states = [load_state, zone_state]
+    if all(state == "high" for state in metric_states):
+        coaching_state = "high"
+    elif all(state == "not_applicable" for state in metric_states):
+        coaching_state = "not_applicable"
+    elif all(state in {"high", "contextual"} for state in metric_states):
+        coaching_state = "contextual"
+    else:
+        coaching_state = "informational"
+
+    coaching_reasons = sorted(
+        {
+            *load_reasons,
+            *zone_reasons,
+            *(["stream_sampling_not_1hz"] if sampling_ok is False else []),
+        }
+    )
+    if not coaching_reasons and coaching_state == "not_applicable":
+        coaching_reasons = ["no_sessions"]
+
+    return {
+        "dataset_level": {
+            "sports_seen": int(len(sports_seen)),
+            "days_with_sessions": days_with_sessions,
+            "aerobic_sessions": aerobic_sessions,
+            "load_days_ready": load_days_ready,
+        },
+        "signal_level": {
+            "sampling_ok": sampling_ok,
+            "aerobic_stream_coverage_pct": _safe_pct(aerobic_stream_sessions, aerobic_sessions),
+            "aerobic_drift_coverage_pct": _safe_pct(aerobic_drift_sessions, aerobic_sessions),
+            "zones_fallback_pct": _safe_pct(fallback_sessions, total_sessions),
+            "fallback_sports": fallback_sports,
+            "interpretability_limits": interpretability_limits,
+        },
+        "metric_level": {
+            "load_context": _audit_state(load_state, load_reasons),
+            "zone_intensity": _audit_state(zone_state, zone_reasons),
+            "cardiac_drift": _audit_state(drift_state, drift_reasons),
+            "coaching_load": _audit_state(coaching_state, coaching_reasons),
+        },
+    }
+
+
 def write_metadata(output_dir: Path, oldest: str, newest: str,
                    n_sessions: int, n_days: int,
                    n_streams: int, n_notes: int,
                    dt_stats: Optional[dict] = None,
-                   zones_dist: Optional[dict] = None):
+                   zones_dist: Optional[dict] = None,
+                   training_audit: Optional[dict] = None):
     meta = {
         "pipeline_version": PIPELINE_VERSION,
         "params": PARAMS,
@@ -943,6 +1242,8 @@ def write_metadata(output_dir: Path, oldest: str, newest: str,
         meta["stream_sampling"] = dt_stats
     if zones_dist:
         meta["zones_source_dist"] = zones_dist
+    if training_audit:
+        meta["training_audit"] = training_audit
     path = output_dir / "ENDURANCE_HRV_sessions_metadata.json"
     path.write_text(json.dumps(meta, indent=2, ensure_ascii=False))
     log.info(f"Metadata → {path}")
@@ -1188,9 +1489,10 @@ def run_pipeline(oldest: str, newest: str, output_dir: Path,
             }
             warn_if_stream_sampling_suspicious(dt_stats)
     zones_dist = df["zones_source"].value_counts().to_dict() if "zones_source" in df.columns else None
+    training_audit = build_training_audit(df, day_df, dt_stats=dt_stats, zones_dist=zones_dist)
 
     write_metadata(output_dir, oldest, newest, len(df), len(day_df),
-                   n_streams_total, n_notes_total, dt_stats, zones_dist)
+                   n_streams_total, n_notes_total, dt_stats, zones_dist, training_audit)
 
     # Summary
     log.info("─── Summary ───")

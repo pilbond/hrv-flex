@@ -831,7 +831,7 @@ bad_7d = nº de ROJO en los últimos 7 días
 
 **Fuentes:** combina datos del pipeline HRV (veto agudo, saturación, quality) con:
 - `ENDURANCE_HRV_sleep.csv` — sueño Polar (noche corta, fragmentada, nightly_rmssd)
-- `ENDURANCE_HRV_sessions_day.csv` — carga de entrenamiento (`ACWR`, `monotony`, `strain`, `work_7d`, `z3_7d`)
+- `ENDURANCE_HRV_sessions_day.csv` — carga de entrenamiento (`ACWR`, `monotony`, `strain`, `work_7d`, `z3_7d`) y clustering reciente de intensidad
 
 **Generación:** Se evalúan las siguientes condiciones en orden. Las que se cumplen se concatenan con separador ` | `:
 
@@ -850,16 +850,21 @@ bad_7d = nº de ROJO en los últimos 7 días
 | 11 | `load_ctx_ready` + `strain_7d_prev >= P75/P90 local` | sessions_day.csv | `Strain alto/muy alto: semana exigente y poco descargada` |
 | 12 | `work_7d_sum > 200` | sessions_day.csv | `Volumen semanal alto (work_7d=Xmin)` |
 | 13 | `z3_7d_sum > 60` | sessions_day.csv | `Z3 acumulado alto (z3_7d=Xmin)` |
-| 14 | ROJO + `load_day < 30` + sueño OK | sessions_day.csv | `ROJO sin carga previa ni sueño malo: revisar otros factores` |
-| 15 | VERDE + `load_3d > 200` | sessions_day.csv | `VERDE con carga acumulada (load_3d=X): precaución intensidad` |
-| 16 | VERDE + contexto canónico exigente | sessions_day.csv | `VERDE con contexto de carga exigente: precaución intensidad` |
-| 17 | VERDE + `load_3d > 200` + señal canónica exigente | sessions_day.csv | `VERDE con convergencia de carga (load_3d + ACWR/monotonía/strain): precaución intensidad reforzada` |
+| 14 | `intensity_clustering_flag == 1` + severidad `low/high` | sessions_day.csv | `VERDE pero clustering (...)` o `Clustering (...) reciente: vigilar recuperación` |
+| 15 | ROJO + `load_day < 30` + sueño OK | sessions_day.csv | `ROJO sin carga previa ni sueño malo: revisar otros factores` |
+| 16 | VERDE + `load_3d > 200` | sessions_day.csv | `VERDE con carga acumulada (load_3d=X): precaución intensidad` |
+| 17 | VERDE + contexto canónico exigente | sessions_day.csv | `VERDE con contexto de carga exigente: precaución intensidad` |
+| 18 | VERDE + `load_3d > 200` + señal canónica exigente | sessions_day.csv | `VERDE con convergencia de carga (load_3d + ACWR/monotonía/strain): precaución intensidad reforzada` |
 
 **Umbrales de sueño:** Basados en percentiles propios (P10, P90), NO en valores fijos. Se recalculan con todo el histórico disponible. Esto adapta los avisos a TU patrón de sueño.
 
 **Umbrales de carga:** `load_3d` se mantiene como sidecar agudo de corto plazo (`>250` aviso de acumulación; `>200` cautela de intensidad si el gate sale VERDE). La capa canónica sigue siendo `ACWR` + `monotony` + `strain`: `ACWR` usa bandas fijas interpretativas (`>=1.3` alto, `>=1.5` muy alto; `<=0.8` descarga), `monotony` usa bandas orientativas (`>=1.8` elevada, `>=2.0` alta), y `strain` se calibra por percentiles del histórico local (`P75/P90`) cuando hay al menos 8 observaciones listas. Todo sigue siendo contexto, no gate.
 
+**Clustering de intensidad (AP-01 v1):** `sessions_day.csv` añade `intense_day`, `intense_days_prev_3d`, `intense_days_prev_5d`, `intensity_clustering_flag` e `intensity_clustering_level`. Es un proxy local del concepto NDLI: cuenta días `work_intense` en ventana corta sobre calendario continuo. Regla v1: `flag = intense_days_prev_5d >= 2`; severidad `high` si `intense_days_prev_3d >= 2` o `intense_days_prev_5d >= 3`, `low` en caso contrario. Nunca recolorea el gate.
+
 **Propagación temporal de carga:** `ACWR`, `monotony`, `strain` y `load_ctx_ready` se reindexan a calendario diario y se propagan con `ffill(limit=7)` para poder contextualizar días HRV sin sesión el mismo día. Superado ese límite, el contexto deja de mostrarse.
+
+**Propagación temporal de clustering:** `intensity_clustering_flag` e `intensity_clustering_level` se reindexan a calendario diario y se propagan con `ffill(limit=2)`. Esto permite avisar en días HRV sin sesión si el apilamiento intenso ocurrió ayer o anteayer, pero evita arrastrar una alerta vieja más allá de la ventana corta que pretende modelar.
 
 **Lectura operativa de convergencia:** si `load_3d` y la capa canónica (`ACWR`, `monotony`, `strain`) convergen en el mismo día VERDE, el cierre no se repite dos veces; se sintetiza en un único mensaje reforzado de convergencia.
 
@@ -910,8 +915,8 @@ Si tu baseline actual está por debajo del P20 de todos tus baselines histórico
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | Lo esencial para decidir en 10 segundos + reason_text | 10 |
 | `ENDURANCE_HRV_sleep.csv` | Sueño nocturno y recuperación (Polar) | 17 |
 | `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento | 57 |
-| `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios + rolling con cobertura (_nobs) + contexto canónico de carga | 44 |
-| `ENDURANCE_HRV_sessions_metadata.json` | Trazabilidad pipeline sesiones (versión, params, sampling rate) | — |
+| `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios + rolling con cobertura (_nobs) + contexto canónico de carga + clustering reciente de intensidad | 49 |
+| `ENDURANCE_HRV_sessions_metadata.json` | Trazabilidad pipeline sesiones (versión, params, sampling rate) + auditoría ligera de interpretabilidad para coaching/carga | — |
 | `ENDURANCE_HRV_master_BETA_AUDIT.csv` | Modelo beta del V3, para comparación histórica | 13 |
 
 El contrato exacto (columnas, orden, tipos) de CORE/FINAL/DASHBOARD/SLEEP está en `ENDURANCE_HRV_Estructura.md`.

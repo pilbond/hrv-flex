@@ -553,8 +553,10 @@ def build_conversational_payload(
     )
     sessions_metadata = load_optional_json(ROOT / "data" / "ENDURANCE_HRV_sessions_metadata.json")
     stream_sampling = None
+    training_audit = None
     if sessions_metadata:
         stream_sampling = sessions_metadata.get("stream_sampling")
+        training_audit = sessions_metadata.get("training_audit")
     versions = contract_version_status()
 
     # --- Vector velocidad desde FIT artifact ---
@@ -593,6 +595,7 @@ def build_conversational_payload(
                 "pipeline_version": sessions_metadata.get("pipeline_version") if sessions_metadata else None,
                 "build_time": sessions_metadata.get("build_time") if sessions_metadata else None,
                 "stream_sampling": stream_sampling,
+                "training_audit": training_audit,
             }
             if sessions_metadata
             else None,

@@ -8,6 +8,7 @@ import pandas as pd
 from polar_sessions import extract_mechanical_metrics, match_polar_exercise
 
 from build_sessions import (
+    build_training_audit,
     build_sessions_day,
     build_session_row,
     classify_session_group,
@@ -29,6 +30,7 @@ EXPECTED_SESSIONS_DAY_COLUMNS = [
     "has_mobility",
     "load_day",
     "intensity_cat_day",
+    "intense_day",
     "work_total_min_day",
     "work_n_blocks_day",
     "z3_min_day",
@@ -47,6 +49,10 @@ EXPECTED_SESSIONS_DAY_COLUMNS = [
     "n_with_rpe",
     "n_with_notes",
     "elev_density_day",
+    "intense_days_prev_3d",
+    "intense_days_prev_5d",
+    "intensity_clustering_flag",
+    "intensity_clustering_level",
     "z3_7d_sum",
     "z3_7d_nobs",
     "work_7d_sum",
@@ -242,7 +248,7 @@ class BuildSessionsContractTests(unittest.TestCase):
         )
         day = build_sessions_day(sessions)
         self.assertEqual(day.columns.tolist(), EXPECTED_SESSIONS_DAY_COLUMNS)
-        self.assertEqual(len(day.columns), 44)
+        self.assertEqual(len(day.columns), 49)
 
     def test_finish_strong_maps_to_endurance_easy(self):
         self.assertEqual(classify_session_group("trail_run", "finish_strong"), "endurance_easy")
@@ -363,6 +369,52 @@ class BuildSessionsContractTests(unittest.TestCase):
         self.assertAlmostEqual(row["strain_7d_prev"], 461.9, places=1)
         self.assertFalse(bool(row["load_ctx_ready"]))
 
+    def test_intensity_clustering_uses_calendar_days_and_severity_levels(self):
+        high_sessions = pd.DataFrame(
+            [
+                _session(session_id="i1", Fecha="2026-03-01", intensity_category="work_intense"),
+                _session(session_id="i2", Fecha="2026-03-03", intensity_category="work_intense"),
+                _session(session_id="i3", Fecha="2026-03-04", intensity_category="work_intense"),
+            ]
+        )
+        low_sessions = pd.DataFrame(
+            [
+                _session(session_id="i10", Fecha="2026-03-01", intensity_category="work_intense"),
+                _session(session_id="i11", Fecha="2026-03-04", intensity_category="work_intense"),
+                _session(
+                    session_id="i12",
+                    Fecha="2026-03-05",
+                    intensity_category="easy",
+                    session_group="endurance_easy",
+                    work_total_min=0.0,
+                    work_n_blocks=0,
+                    work_longest_min=0.0,
+                    work_avg_z3_pct=0.0,
+                    work_blocks_min="",
+                    work_blocks_z3pct="",
+                    z3_total_min=0.0,
+                    late_intensity=0,
+                ),
+            ]
+        )
+
+        high_day = build_sessions_day(high_sessions)
+        low_day = build_sessions_day(low_sessions)
+        high_row = high_day.loc[high_day["Fecha"] == "2026-03-04"].iloc[0]
+        low_row = low_day.loc[low_day["Fecha"] == "2026-03-05"].iloc[0]
+
+        self.assertEqual(high_row["intense_day"], 1)
+        self.assertEqual(high_row["intense_days_prev_3d"], 2)
+        self.assertEqual(high_row["intense_days_prev_5d"], 2)
+        self.assertEqual(high_row["intensity_clustering_flag"], 1)
+        self.assertEqual(high_row["intensity_clustering_level"], "high")
+
+        self.assertEqual(low_row["intense_day"], 0)
+        self.assertEqual(low_row["intense_days_prev_3d"], 1)
+        self.assertEqual(low_row["intense_days_prev_5d"], 2)
+        self.assertEqual(low_row["intensity_clustering_flag"], 1)
+        self.assertEqual(low_row["intensity_clustering_level"], "low")
+
     def test_load_ctx_ready_requires_14_prior_load_observations(self):
         sessions = pd.DataFrame(
             [
@@ -457,6 +509,78 @@ class BuildSessionsContractTests(unittest.TestCase):
                 output_dir.rmdir()
         self.assertFalse(meta["stream_sampling"]["assumed_1hz"])
         self.assertEqual(meta["stream_sampling"]["dt_mean"], 0.9532)
+
+    def test_training_audit_is_embedded_in_metadata_and_degrades_confidence(self):
+        sessions = pd.DataFrame(
+            [
+                _session(session_id="i1", Fecha="2026-03-01", zones_source="icu", stream_dt_est=1.0),
+                _session(
+                    session_id="i2",
+                    Fecha="2026-03-02",
+                    zones_source="fallback",
+                    stream_dt_est=None,
+                    cardiac_drift_pct=None,
+                    notes_present=0,
+                    intensity_category="easy",
+                    session_group="endurance_easy",
+                    work_total_min=0.0,
+                    work_n_blocks=0,
+                    work_longest_min=0.0,
+                    work_avg_z3_pct=0.0,
+                    work_blocks_min="",
+                    work_blocks_z3pct="",
+                    z3_total_min=0.0,
+                    late_intensity=0,
+                ),
+            ],
+            columns=EXPECTED_SESSIONS_COLUMNS,
+        )
+        day = build_sessions_day(sessions)
+        dt_stats = {
+            "n_streams": 1,
+            "dt_mean": 1.2,
+            "dt_min": 1.2,
+            "dt_max": 1.2,
+            "assumed_1hz": False,
+        }
+        training_audit = build_training_audit(
+            sessions,
+            day,
+            dt_stats=dt_stats,
+            zones_dist={"icu": 1, "fallback": 1},
+        )
+
+        output_dir = Path("tests") / f"_tmp_metadata_{uuid4().hex}"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            write_metadata(
+                output_dir=output_dir,
+                oldest="2026-03-01",
+                newest="2026-03-02",
+                n_sessions=2,
+                n_days=2,
+                n_streams=1,
+                n_notes=1,
+                dt_stats=dt_stats,
+                zones_dist={"icu": 1, "fallback": 1},
+                training_audit=training_audit,
+            )
+            meta = json.loads((output_dir / "ENDURANCE_HRV_sessions_metadata.json").read_text(encoding="utf-8"))
+        finally:
+            metadata_path = output_dir / "ENDURANCE_HRV_sessions_metadata.json"
+            if metadata_path.exists():
+                metadata_path.unlink()
+            if output_dir.exists():
+                output_dir.rmdir()
+
+        audit = meta["training_audit"]
+        self.assertFalse(audit["signal_level"]["sampling_ok"])
+        self.assertEqual(audit["signal_level"]["zones_fallback_pct"], 50.0)
+        self.assertIn("zones_fallback_present", audit["signal_level"]["interpretability_limits"])
+        self.assertIn("partial_aerobic_stream_coverage", audit["signal_level"]["interpretability_limits"])
+        self.assertEqual(audit["metric_level"]["zone_intensity"]["state"], "contextual")
+        self.assertEqual(audit["metric_level"]["load_context"]["state"], "informational")
+        self.assertEqual(audit["metric_level"]["coaching_load"]["state"], "informational")
 
     def test_merge_sessions_incremental_preserves_literal_na_enum(self):
         output_dir = Path("tests") / f"_tmp_sessions_{uuid4().hex}"
