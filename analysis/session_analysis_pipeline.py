@@ -700,6 +700,10 @@ def build_conversational_payload(
             "gate_badge",
             "Action",
             "baseline60_degraded",
+            "recovery_context_quality",
+            "recovery_support_class",
+            "recovery_discordance_flag",
+            "recovery_discordance_reason",
             "reason_text",
         ],
     )

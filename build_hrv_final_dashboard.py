@@ -4,15 +4,15 @@
 ENDURANCE HRV — Decisor FINAL/DASHBOARD
 ======================================
 
-Revisión de módulo: r2026-03-19
-Contrato esperado: FINAL 58 cols, DASHBOARD 10 cols
-Sistema vigente: ENDURANCE HRV V4.2
+Revisión de módulo: r2026-04-08
+Contrato esperado: FINAL 62 cols, DASHBOARD 10 cols
+Sistema vigente: ENDURANCE HRV V4.6
 
 Lee:
   - ENDURANCE_HRV_master_CORE.csv
 
 Genera:
-  - ENDURANCE_HRV_master_FINAL.csv     (58 cols, gate + sombras + residual + auditoría raw-vs-ref)
+  - ENDURANCE_HRV_master_FINAL.csv     (62 cols, gate + sombras + residual + auditoría raw-vs-ref + RE-01)
   - ENDURANCE_HRV_master_DASHBOARD.csv (10 cols, vista operativa compacta)
 
 Normativa:
@@ -31,7 +31,7 @@ from __future__ import annotations
 import os
 import sys
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Dict, Optional, Tuple, List
 
@@ -120,7 +120,10 @@ COLS_FINAL = [
     "baseline60_degraded","healthy_rmssd","healthy_hr","healthy_period",
     "flag_sistemico","flag_razon",
     "warning_threshold","warning_mode",
-    "veto_agudo","ln_pre_veto","swc_ln_floor","reason_text",
+    "veto_agudo","ln_pre_veto","swc_ln_floor",
+    "recovery_context_quality","recovery_support_class",
+    "recovery_discordance_flag","recovery_discordance_reason",
+    "reason_text",
 ]
 
 COLS_DASHBOARD = [
@@ -339,15 +342,109 @@ def _build_sessions_day_lookups(
     return exact_lookup, ctx_lookup, clustering_lookup, thresholds
 
 
+def _append_unique(items: List[str], value: str) -> None:
+    if value and value not in items:
+        items.append(value)
+
+
+def _split_recovery_codes(codes: List[str]) -> Tuple[List[str], List[str]]:
+    sleep_codes = [
+        code
+        for code in codes
+        if code in {"sleep_basic_poor", "sleep_score_low", "nightly_rmssd_low"}
+    ]
+    load_codes = [
+        code
+        for code in codes
+        if code in {"load_3d_high", "load_context_high", "intensity_clustering", "recent_load_low"}
+    ]
+    return sleep_codes, load_codes
+
+
+def _recovery_context_quality(
+    has_basic_sleep: bool,
+    has_load_signal: bool,
+    has_rich_sleep: bool,
+) -> str:
+    if has_rich_sleep:
+        return "rich"
+    if has_basic_sleep or has_load_signal:
+        return "basic"
+    return "none"
+
+
+def _classify_recovery_support(
+    gate: str,
+    coverage: str,
+    support_codes: List[str],
+    caution_codes: List[str],
+) -> Tuple[str, bool]:
+    has_support = bool(support_codes)
+    has_caution = bool(caution_codes)
+    sleep_caution_codes, load_caution_codes = _split_recovery_codes(caution_codes)
+
+    if coverage == "none" or gate == NO:
+        return "neutral", False
+    if gate == VERDE:
+        cross_domain_caution = bool(sleep_caution_codes) and bool(load_caution_codes)
+        repeated_sleep_caution = len(sleep_caution_codes) >= 2
+        if cross_domain_caution or repeated_sleep_caution:
+            return "fragile", True
+        if has_support:
+            return "supported", False
+        return "neutral", False
+    if gate == AMBAR:
+        if has_support and not has_caution:
+            return "supported", False
+        if has_caution and not has_support:
+            return "fragile", True
+        return "neutral", False
+    if gate == ROJO:
+        if has_support and not has_caution:
+            return "conflicted", True
+        if has_caution:
+            return "supported", False
+        return "neutral", False
+    return "neutral", False
+
+
+def _recovery_message(gate: str, recovery_class: str, support_codes: List[str], caution_codes: List[str]) -> str:
+    caution_set = set(caution_codes)
+    support_set = set(support_codes)
+
+    if gate == VERDE and recovery_class == "fragile":
+        if (
+            {"sleep_basic_poor", "sleep_score_low", "nightly_rmssd_low"} & caution_set
+            and {"load_3d_high", "load_context_high", "intensity_clustering"} & caution_set
+        ):
+            return "VERDE con recuperación frágil: mala noche + carga reciente piden contener la intensidad"
+        if {"sleep_basic_poor", "sleep_score_low", "nightly_rmssd_low"} & caution_set:
+            return "VERDE con recuperación nocturna frágil: contener la intensidad"
+        return "VERDE con recuperación frágil por carga reciente: contener la intensidad"
+    if gate == AMBAR and recovery_class == "supported":
+        if {"sleep_score_good", "nightly_rmssd_good"} & support_set:
+            return "ÁMBAR con soporte nocturno aceptable: Z2 controlado es razonable si sensaciones normales"
+        if "recent_load_low" in support_set:
+            return "ÁMBAR con poca carga reciente: Z2 controlado es razonable si sensaciones normales"
+        return "ÁMBAR con soporte objetivo aceptable: Z2 controlado es razonable si sensaciones normales"
+    if gate == AMBAR and recovery_class == "fragile":
+        return "ÁMBAR con recuperación frágil: mejor sesgo conservador hoy"
+    if gate == ROJO and recovery_class == "conflicted":
+        return "ROJO con discordancia objetiva: sueño y carga no explican del todo la señal"
+    if gate == ROJO and recovery_class == "supported":
+        return "ROJO respaldado por mala recuperación o carga reciente"
+    return ""
+
+
 def parse_args(argv: List[str]) -> Dict[str, str]:
     out: Dict[str, str] = {}
     i = 0
     while i < len(argv):
         a = argv[i]
-        if a in ("--decision-mode",):
+        if a in ("--decision-mode",) and i + 1 < len(argv):
             out["decision_mode"] = argv[i+1]
             i += 2
-        elif a in ("--data-dir",):
+        elif a in ("--data-dir",) and i + 1 < len(argv):
             out["data_dir"] = argv[i+1]
             i += 2
         else:
@@ -745,9 +842,27 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             clustering_lookup = None
             load_ctx_thresholds = {}
 
+    recovery_context_quality = np.array(["none"] * len(df), dtype=object)
+    recovery_support_class = np.array(["neutral"] * len(df), dtype=object)
+    recovery_discordance_flag = np.array([False] * len(df), dtype=bool)
+    recovery_discordance_reason = np.array([""] * len(df), dtype=object)
+
     for i in range(len(df)):
         fecha = str(df.iloc[i]["Fecha"])
         verde_load_3d_caution = False
+        sleep_bad = False
+        sleep_basic_signal = False
+        sleep_score = None
+        night_rmssd = None
+        night_rmssd_low_text = ""
+        night_rmssd_high_text = ""
+        load_3d = None
+        load_3d_nobs = None
+        load_day = None
+        load_ctx_caution = False
+        clustering_flag = False
+        support_codes: List[str] = []
+        caution_codes: List[str] = []
 
         # Saturación parasimpática
         if np.isfinite(d_ln[i]) and np.isfinite(swc_ln_floor_arr[i]):
@@ -768,28 +883,46 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             sleep_int = _safe_float(sleep_row, "polar_interruptions_long")
             sleep_dur_p10 = _safe_float(sleep_row, "sleep_dur_p10")
             sleep_int_p90 = _safe_float(sleep_row, "sleep_int_p90")
-            sleep_bad = False
+            sleep_basic_signal = (
+                (sleep_dur is not None and sleep_dur_p10 is not None)
+                or (sleep_int is not None and sleep_int_p90 is not None)
+            )
 
             if sleep_dur is not None and sleep_dur_p10 is not None and sleep_dur < sleep_dur_p10:
                 reason_parts[i].append(f"Noche corta ({sleep_dur:.0f}min < P10={sleep_dur_p10:.0f})")
                 sleep_bad = True
+                _append_unique(caution_codes, "sleep_basic_poor")
             if sleep_int is not None and sleep_int_p90 is not None and sleep_int > sleep_int_p90:
                 reason_parts[i].append(f"Noche fragmentada ({sleep_int:.0f} interr > P90={sleep_int_p90:.0f})")
                 sleep_bad = True
+                _append_unique(caution_codes, "sleep_basic_poor")
+            if sleep_basic_signal and not sleep_bad:
+                _append_unique(support_codes, "sleep_basic_ok")
+
+            sleep_score = _safe_float(sleep_row, "polar_sleep_score")
+            if sleep_score is not None:
+                if sleep_score <= 65:
+                    _append_unique(caution_codes, "sleep_score_low")
+                elif sleep_score >= 75:
+                    _append_unique(support_codes, "sleep_score_good")
 
             # Nightly RMSSD discordancia
             night_rmssd = _safe_float(sleep_row, "polar_night_rmssd")
             if night_rmssd is not None:
                 if gate_final[i] == VERDE and night_rmssd < 25:
-                    reason_parts[i].append(f"VERDE pero nightly_rmssd bajo ({night_rmssd:.0f}ms)")
+                    night_rmssd_low_text = f"VERDE pero nightly_rmssd bajo ({night_rmssd:.0f}ms)"
                 elif gate_final[i] == ROJO and night_rmssd > 45:
-                    reason_parts[i].append(f"ROJO con nightly_rmssd alto ({night_rmssd:.0f}ms): posible confusor")
+                    night_rmssd_high_text = f"ROJO con nightly_rmssd alto ({night_rmssd:.0f}ms): posible confusor"
+                if night_rmssd < 30:
+                    _append_unique(caution_codes, "nightly_rmssd_low")
+                elif night_rmssd >= 40:
+                    _append_unique(support_codes, "nightly_rmssd_good")
         else:
             sleep_dur = None
             sleep_dur_p10 = None
-            sleep_bad = False
+            sleep_int = None
+            sleep_int_p90 = None
 
-        load_3d = None
         load_ctx_row = None
         clustering_row = None
         if load_ctx_lookup is not None and fecha in load_ctx_lookup.index:
@@ -818,6 +951,8 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             if load_3d is not None and load_3d_nobs is not None and load_3d_nobs >= 2:
                 if load_3d > LOAD_3D_HIGH:
                     reason_parts[i].append(f"Carga acumulada alta (load_3d={load_3d:.0f})")
+                if load_3d > LOAD_3D_CAUTION:
+                    _append_unique(caution_codes, "load_3d_high")
 
             if work_7d is not None and work_7d > WORK_7D_HIGH:
                 reason_parts[i].append(f"Volumen semanal alto (work_7d={work_7d:.0f}min)")
@@ -826,8 +961,10 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
 
             # ROJO sin carga previa
             if gate_final[i] == ROJO and load_day is not None and load_day < 30:
-                if not sleep_bad:
+                if sleep_basic_signal and not sleep_bad:
                     reason_parts[i].append("ROJO sin carga previa ni sueño malo: revisar otros factores")
+                elif not sleep_basic_signal:
+                    reason_parts[i].append("ROJO sin carga previa reciente: revisar otros factores")
 
             if (
                 gate_final[i] == VERDE
@@ -849,6 +986,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             intense_days_prev_5d = _safe_float(clustering_row, "intense_days_prev_5d")
 
             if clustering_flag:
+                _append_unique(caution_codes, "intensity_clustering")
                 clustering_window_bits = []
                 if intense_days_prev_3d is not None:
                     clustering_window_bits.append(f"{intense_days_prev_3d:.0f}/3d")
@@ -887,12 +1025,14 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                     )
                     load_ctx_caution = True
                     load_ctx_caution_sources.append("ACWR")
+                    _append_unique(caution_codes, "load_context_high")
                 elif acwr_simple_prev >= 1.3:
                     reason_parts[i].append(
                         f"ACWR alto: carga aguda por encima de la base crónica ({acwr_simple_prev:.2f})"
                     )
                     load_ctx_caution = True
                     load_ctx_caution_sources.append("ACWR")
+                    _append_unique(caution_codes, "load_context_high")
                 elif acwr_simple_prev <= 0.8:
                     reason_parts[i].append(
                         f"ACWR bajo: descarga o infraexposición reciente ({acwr_simple_prev:.2f})"
@@ -905,12 +1045,14 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                     )
                     load_ctx_caution = True
                     load_ctx_caution_sources.append("monotonía")
+                    _append_unique(caution_codes, "load_context_high")
                 elif monotony_7d_prev >= 1.8:
                     reason_parts[i].append(
                         f"Monotonía elevada: conviene variar la estructura de carga ({monotony_7d_prev:.2f})"
                     )
                     load_ctx_caution = True
                     load_ctx_caution_sources.append("monotonía")
+                    _append_unique(caution_codes, "load_context_high")
 
             if load_ctx_ready and strain_7d_prev is not None and load_ctx_thresholds:
                 strain_p90 = load_ctx_thresholds.get("strain_p90")
@@ -921,12 +1063,14 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                     )
                     load_ctx_caution = True
                     load_ctx_caution_sources.append("strain")
+                    _append_unique(caution_codes, "load_context_high")
                 elif strain_p75 is not None and strain_7d_prev >= strain_p75:
                     reason_parts[i].append(
                         f"Strain alto: semana exigente y poco descargada ({strain_7d_prev:.0f})"
                     )
                     load_ctx_caution = True
                     load_ctx_caution_sources.append("strain")
+                    _append_unique(caution_codes, "load_context_high")
 
             if gate_final[i] == VERDE:
                 unique_sources = list(dict.fromkeys(load_ctx_caution_sources))
@@ -945,6 +1089,48 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             reason_parts[i].append(
                 f"VERDE con carga acumulada (load_3d={load_3d:.0f}): precaución intensidad"
             )
+
+        if (
+            gate_final[i] in (AMBAR, ROJO)
+            and load_day is not None
+            and load_day < 30
+            and not load_ctx_caution
+            and not clustering_flag
+            and (load_3d is None or load_3d <= LOAD_3D_CAUTION)
+        ):
+            _append_unique(support_codes, "recent_load_low")
+
+        coverage = _recovery_context_quality(
+            has_basic_sleep=sleep_basic_signal,
+            has_load_signal=(sday_lookup is not None and fecha in sday_lookup.index) or load_ctx_row is not None or clustering_row is not None,
+            has_rich_sleep=(sleep_score is not None or night_rmssd is not None),
+        )
+        recovery_class, recovery_is_discordant = _classify_recovery_support(
+            gate=gate_final[i],
+            coverage=coverage,
+            support_codes=support_codes,
+            caution_codes=caution_codes,
+        )
+        recovery_msg = _recovery_message(
+            gate=gate_final[i],
+            recovery_class=recovery_class,
+            support_codes=support_codes,
+            caution_codes=caution_codes,
+        )
+        # Un nightly_rmssd bajo aislado en un VERDE no abre mensaje por sí solo:
+        # RE-01 exige convergencia real para no sobrerreaccionar a un sidecar nocturno único.
+        if night_rmssd_low_text and recovery_class == "fragile":
+            reason_parts[i].append(night_rmssd_low_text)
+        if night_rmssd_high_text and recovery_class == "conflicted":
+            reason_parts[i].append(night_rmssd_high_text)
+        if recovery_msg:
+            reason_parts[i].append(recovery_msg)
+
+        discordance_codes = caution_codes if recovery_class == "fragile" else support_codes
+        recovery_context_quality[i] = coverage
+        recovery_support_class[i] = recovery_class
+        recovery_discordance_flag[i] = recovery_is_discordant
+        recovery_discordance_reason[i] = "|".join(discordance_codes if recovery_is_discordant else [])
 
     reason_text = np.array([" | ".join(p) if p else "" for p in reason_parts], dtype=object)
 
@@ -1057,6 +1243,10 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
         "veto_agudo": veto_agudo.astype(bool),
         "ln_pre_veto": ln_pre_veto,
         "swc_ln_floor": swc_ln_floor_arr,
+        "recovery_context_quality": recovery_context_quality,
+        "recovery_support_class": recovery_support_class,
+        "recovery_discordance_flag": recovery_discordance_flag.astype(bool),
+        "recovery_discordance_reason": recovery_discordance_reason,
         "reason_text": reason_text,
     })
 
@@ -1079,7 +1269,7 @@ def main(argv: List[str]) -> int:
 
     cfg = CFG
     if "decision_mode" in args:
-        cfg = Config(**{**CFG.__dict__, "decision_mode": args["decision_mode"]})
+        cfg = replace(CFG, decision_mode=args["decision_mode"])
 
     if not IN_CORE.exists():
         print(f"[ERROR] No existe: {IN_CORE}")

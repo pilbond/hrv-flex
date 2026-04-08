@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Diccionario de Columnas (FINAL/DASHBOARD)
 
-**Revisión:** r2026-04-07 v4.5 (wellness subjetivo fuera de reason_text)
+**Revisión:** r2026-04-08 v4.6 (RE-01 recovery context multiseñal)
 **Estado:** Producción
 
 **Documentos relacionados:**
@@ -139,7 +139,7 @@ Generado por `build_hrv_core.py`. Contiene la señal fisiológica **sin decision
 
 ---
 
-## 3. FINAL (gate + auditoría extendida) — 58 columnas
+## 3. FINAL (gate + auditoría extendida) — 62 columnas
 
 Generado por `build_hrv_final_dashboard.py`. Contiene:
 
@@ -152,12 +152,14 @@ Generado por `build_hrv_final_dashboard.py`. Contiene:
 - residual (BASE60) + sufijo (`+/-`)
 - acción + acumulación + warnings
 - **reason_text** (contexto de sueño + carga)
+- **recovery_context_quality / recovery_support_class** (capa RE-01 de soporte o discordancia objetiva)
 
 ### Lo mínimo que debes mirar a diario
 
 - `gate_badge` (semáforo final + matiz)
 - `Action` y `Action_detail`
 - `reason_text` (contexto: sueño, carga, veto agudo)
+- `recovery_support_class` si quieres saber rápido si ese color viene apoyado, frágil o en conflicto con sueño/carga
 - `quality_flag`
 - `gate_razon_base60`
 - `decision_path` (para ver si hubo override)
@@ -309,7 +311,11 @@ Mapping:
 | `veto_agudo` | ¿Se activó el bypass de ROLL3 por caída aguda? True si tu lnRMSSD crudo de hoy cayó más de 2×SWC por debajo de tu baseline (una caída demasiado brusca para que ROLL3 la suavice sin peligro). Cuando se activa, `lnRMSSD_used` y `HR_used` se fuerzan al dato crudo del día en vez del promedio de 3 días. Esto hace que el gate refleje la caída inmediatamente. |
 | `ln_pre_veto` | El valor de lnRMSSD_used (ROLL3) que tenías antes de que el veto lo sobrescribiera. Permite auditar cuánto habría enmascarado el suavizado: la diferencia `ln_pre_veto - lnRMSSD_used` muestra lo que ROLL3 estaba "ocultando". NaN si no hubo veto. |
 | `swc_ln_floor` | El SWC efectivo que se usó para evaluar el veto: `max(SWC_ln, 0.04879)`. El floor de 0.04879 (= ln(1.05)) garantiza que el umbral del veto nunca sea trivialmente pequeño, evitando falsos positivos en periodos de variabilidad muy baja. NaN si no se calculó BASE60. |
-| `reason_text` | Texto explicativo contextual que combina información del gate con datos de sueño y carga. Múltiples razones separadas por ` \| `. Puede incluir: caída aguda HRV, noche corta/fragmentada (basado en tus percentiles, no en umbrales fijos), carga acumulada alta (`load_3d`), `ACWR`, `monotony`, `strain`, clustering reciente de intensidad, saturación parasimpática y divergencias gate↔contexto. El wellness subjetivo de Intervals queda fuera de `reason_text` y se reserva para capas retrospectivas o separadas. Si varias señales de carga convergen en un día VERDE, el cierre puede escalar a una formulación reforzada de convergencia. **No recolorea** el gate — es contexto para tu decisión. |
+| `recovery_context_quality` | Cobertura objetiva de la capa RE-01. `none` = solo gate, sin soporte externo usable; `basic` = hay sueño básico y/o carga reciente; `rich` = además existe señal nocturna rica (`polar_sleep_score` y/o `polar_night_rmssd`). Sirve para no vender precisión falsa en días sin sueño rico. |
+| `recovery_support_class` | Lectura resumida de cómo encajan gate, sueño Polar y carga reciente. `supported` = el contexto externo acompaña la lectura; `neutral` = no añade gran cosa o está mezclado; `fragile` = el gate sale razonable pero sueño/carga meten cautela; `conflicted` = el gate sale mal pero sueño/carga no lo explican bien. No cambia la acción por sí mismo. |
+| `recovery_discordance_flag` | True cuando RE-01 detecta una tensión operativa material entre el gate y el soporte objetivo externo. Hoy se activa en clases `fragile` y `conflicted`. |
+| `recovery_discordance_reason` | Códigos transparentes que explican la discordancia detectada por RE-01. Ejemplos: `sleep_basic_poor`, `nightly_rmssd_low`, `load_context_high`, `sleep_score_good`, `recent_load_low`. Pensado para auditoría o análisis posterior; no es texto para consumo diario. |
+| `reason_text` | Texto explicativo contextual que combina información del gate con datos de sueño y carga. Múltiples razones separadas por ` \| `. Puede incluir: caída aguda HRV, noche corta/fragmentada (basado en tus percentiles, no en umbrales fijos), carga acumulada alta (`load_3d`), `ACWR`, `monotony`, `strain`, clustering reciente de intensidad, saturación parasimpática y divergencias gate↔contexto. Desde RE-01 también puede cerrar con mensajes semánticos como `VERDE con recuperación frágil...`, `ÁMBAR con soporte nocturno aceptable...` o `ROJO con discordancia objetiva...`. El wellness subjetivo de Intervals queda fuera de `reason_text` y se reserva para capas retrospectivas o separadas. **No recolorea** el gate — es contexto para tu decisión. |
 
 ---
 

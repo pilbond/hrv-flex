@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Especificación Técnica
 
-**Revisión:** r2026-04-07 v4.5 (wellness subjetivo como sidecar retrospectivo; fuera de reason_text)
+**Revisión:** r2026-04-08 v4.6 (RE-01 recovery context multiseñal)
 **Estado:** Producción
 
 ---
@@ -36,10 +36,10 @@ Reglas:
 - Si una incidencia menciona solo "v4", debe aclararse si habla de sistema, documento o módulo.
 
 Mapa operativo actual:
-- Sistema vigente: `ENDURANCE HRV V4.5`
+- Sistema vigente: `ENDURANCE HRV V4.6`
 - Módulo RR -> CORE/BETA: `build_hrv_core.py`, revisión `r2026-03-19`
 - Módulo CORE -> FINAL/DASHBOARD: `build_hrv_final_dashboard.py`, revisión `r2026-04-07`
-- Contrato estructural HRV: `ENDURANCE_HRV_Estructura.md`, revisión `r2026-04-07 v3.7`
+- Contrato estructural HRV: `ENDURANCE_HRV_Estructura.md`, revisión `r2026-04-08 v3.8`
 - Contrato de sesiones: `ENDURANCE_HRV_Sessions_Schema.md`, revisión `r2026-04-07 v3.7`
 
 ---
@@ -503,7 +503,7 @@ ENDURANCE_HRV_sleep.csv (entrada opcional, para reason_text)
 │  9. Reason_text (sleep.csv si existe) │
 └─────────────────────────────────────────┘
      │
-     ├──► ENDURANCE_HRV_master_FINAL.csv (auditable, 58 cols)
+├──► ENDURANCE_HRV_master_FINAL.csv (auditable, 62 cols)
      │
      └──► ENDURANCE_HRV_master_DASHBOARD.csv (operativo, 10 cols)
 ```
@@ -855,6 +855,10 @@ bad_7d = nº de ROJO en los últimos 7 días
 | 16 | VERDE + `load_3d > 200` | sessions_day.csv | `VERDE con carga acumulada (load_3d=X): precaución intensidad` |
 | 17 | VERDE + contexto canónico exigente | sessions_day.csv | `VERDE con contexto de carga exigente: precaución intensidad` |
 | 18 | VERDE + `load_3d > 200` + señal canónica exigente | sessions_day.csv | `VERDE con convergencia de carga (load_3d + ACWR/monotonía/strain): precaución intensidad reforzada` |
+| 19 | RE-01: VERDE + mala noche y/o carga reciente exigente | sleep.csv + sessions_day.csv | `VERDE con recuperación frágil...` |
+| 20 | RE-01: ÁMBAR + sueño nocturno bueno y poca carga reciente | sleep.csv + sessions_day.csv | `ÁMBAR con soporte nocturno aceptable...` |
+| 21 | RE-01: ÁMBAR + contexto objetivo empeorado | sleep.csv + sessions_day.csv | `ÁMBAR con recuperación frágil...` |
+| 22 | RE-01: ROJO + sueño/carga objetivamente mejores de lo esperado | sleep.csv + sessions_day.csv | `ROJO con discordancia objetiva...` |
 
 **Umbrales de sueño:** Basados en percentiles propios (P10, P90), NO en valores fijos. Se recalculan con todo el histórico disponible. Esto adapta los avisos a TU patrón de sueño.
 
@@ -868,7 +872,15 @@ bad_7d = nº de ROJO en los últimos 7 días
 
 **Lectura operativa de convergencia:** si `load_3d` y la capa canónica (`ACWR`, `monotony`, `strain`) convergen en el mismo día VERDE, el cierre no se repite dos veces; se sintetiza en un único mensaje reforzado de convergencia.
 
-**Si sleep.csv no existe:** Solo se generan las condiciones 1-3 (basadas en datos HRV) + 8-17 (si sessions_day.csv existe). Si tampoco existe sessions_day.csv, solo condiciones 1-3.
+**RE-01 (recuperación multiseñal):** además del texto libre, FINAL expone cuatro columnas de auditoría ligera:
+- `recovery_context_quality` = `none/basic/rich`
+- `recovery_support_class` = `supported/neutral/fragile/conflicted`
+- `recovery_discordance_flag` = True/False
+- `recovery_discordance_reason` = códigos transparentes de la señal que genera la tensión
+
+Esta capa usa solo soporte objetivo (`sleep.csv` + `sessions_day.csv`) y **no toca** `gate_final`, `Action` ni `Action_detail`. Su función es separar mejor un VERDE limpio de un VERDE frágil, o un ROJO bien explicado de un ROJO objetivamente discordante.
+
+**Si sleep.csv no existe:** Solo se generan las condiciones 1-3 (basadas en datos HRV) + 8-22 (si sessions_day.csv existe, aunque RE-01 quedará con cobertura `basic` o `none`). Si tampoco existe sessions_day.csv, solo condiciones 1-3 y RE-01 quedará sin soporte externo.
 
 ---
 
@@ -911,7 +923,7 @@ Si tu baseline actual está por debajo del P20 de todos tus baselines histórico
 | Archivo | Para qué | Columnas |
 |---------|----------|----------|
 | `ENDURANCE_HRV_master_CORE.csv` | La medición fisiológica del día, sin decisiones | 18 |
-| `ENDURANCE_HRV_master_FINAL.csv` | Gate, veto agudo, sombras, residual, reason_text y auditoría completa raw-vs-ref | 58 |
+| `ENDURANCE_HRV_master_FINAL.csv` | Gate, veto agudo, sombras, residual, reason_text, auditoría raw-vs-ref y RE-01 recovery context | 62 |
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | Lo esencial para decidir en 10 segundos + reason_text | 10 |
 | `ENDURANCE_HRV_sleep.csv` | Sueño nocturno y recuperación (Polar) | 17 |
 | `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento | 57 |
@@ -995,6 +1007,8 @@ Secciones obligatorias:
 | 2026-03-01 v4.1 | sleep.csv simplificado: 34→17 cols (solo Polar sleep/nightly, sin Intervals) |
 | 2026-03-01 v4.1 | reason_text dual source: sueño de sleep.csv, carga de sessions_day.csv |
 | 2026-03-01 v4.1 | Nuevos archivos sessions.csv (43 cols), sessions_day.csv (40 cols iniciales), ENDURANCE_HRV_sessions_metadata.json |
+| 2026-04-08 v4.6 | RE-01: `build_hrv_final_dashboard.py` añade `recovery_context_quality`, `recovery_support_class`, `recovery_discordance_flag` y `recovery_discordance_reason`; `reason_text` gana cierres semánticos de recuperación sin tocar `gate_final` |
+| 2026-04-08 v4.6 | FINAL bumped 58→62 cols para exponer la capa RE-01 sin tocar DASHBOARD |
 | 2026-04-07 v4.5 | RE-02 (decisión final): wellness subjetivo queda como sidecar retrospectivo; `build_hrv_final_dashboard.py` NO consume `wellness_subjective.csv`; `_merge_daily_rows_incremental` filtra fechas futuras al persistir |
 | 2026-04-07 v4.4 | RE-02: nuevo sidecar `ENDURANCE_HRV_wellness_subjective.csv` (17 cols: Fecha + 6×raw + 6×label + comment + n_fields + available + coverage_7d); `build_sessions.py` fetcha `/athlete/{id}/wellness`; sidecar para análisis retrospectivo o capas separadas |
 | 2026-04-07 v4.3 | sessions_day.csv: CDC-01 (+4 cols: acwr_simple_prev, monotony_7d_prev, strain_7d_prev, load_ctx_ready), AP-01 (+5 cols: intense_day, intense_days_prev_3d, intense_days_prev_5d, intensity_clustering_flag, intensity_clustering_level); total 40→49 cols |

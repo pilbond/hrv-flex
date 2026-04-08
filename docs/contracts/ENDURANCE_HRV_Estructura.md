@@ -1,13 +1,13 @@
 # ENDURANCE HRV — Estructura de Datos
 
-**Revisión:** r2026-04-07 v3.7 (wellness subjetivo retrospectivo sidecar)
+**Revisión:** r2026-04-08 v3.8 (RE-01 recovery context multiseñal en FINAL)
 **Estado:** Producción
 
 **Documentos relacionados:**
 - `ENDURANCE_HRV_Spec_Tecnica.md` — Fórmulas, algoritmos y reglas de cálculo
 - `ENDURANCE_HRV_Diccionario.md` — Qué significa cada columna y cómo usarla
 
-**Convención de versión:** esta cabecera identifica la revisión de este documento (`r2026-04-07 v3.7`), no la versión global del sistema. La versión de sistema vigente se declara en `ENDURANCE_HRV_Spec_Tecnica.md`.
+**Convención de versión:** esta cabecera identifica la revisión de este documento (`r2026-04-08 v3.8`), no la versión global del sistema. La versión de sistema vigente se declara en `ENDURANCE_HRV_Spec_Tecnica.md`.
 
 ---
 
@@ -39,7 +39,7 @@ El sistema genera 7 archivos CSV + 1 JSON de trazabilidad. Cada uno tiene un rol
 | Archivo | Para qué sirve | Lo genera | Columnas |
 |---------|---------------|-----------|----------|
 | `ENDURANCE_HRV_master_CORE.csv` | La medición fisiológica del día: pulso, variabilidad, calidad de señal y trazabilidad mínima de estabilidad. Sin ninguna decisión de entrenamiento. | `build_hrv_core.py` | 18 |
-| `ENDURANCE_HRV_master_FINAL.csv` | El gate de entrenamiento, las sombras, el residual, el veto agudo, el reason_text y la auditoría raw-vs-ref necesaria para entender qué hizo el sistema con los datos inestables. | `build_hrv_final_dashboard.py` | 58 |
+| `ENDURANCE_HRV_master_FINAL.csv` | El gate de entrenamiento, las sombras, el residual, el veto agudo, el reason_text y la capa RE-01 de recuperación multiseñal necesaria para contextualizar soporte o discordancia sin tocar el gate. | `build_hrv_final_dashboard.py` | 62 |
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | Lo esencial para decidir en 10 segundos: semáforo, acción, warning, y reason_text contextual. Subconjunto de FINAL. | `build_hrv_final_dashboard.py` | 10 |
 | `ENDURANCE_HRV_sleep.csv` | Sueño nocturno y señales de recuperación (Polar). Alimenta el reason_text pero NO afecta al gate. | `polar_hrv_automation.py` | 17 |
 | `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento: zonas, work blocks, drift, effort, clasificación y capa mecánica opcional. | `build_sessions.py` | 57 |
@@ -110,12 +110,12 @@ FINAL es el archivo de auditoría completo: contiene la medición del día, el s
 **Cabecera exacta (copiar literal):**
 
 ```
-Fecha,Calidad,HRV_Stability,Artifact_pct,Tiempo_Estabilizacion,Stability_Subtype,tail_mismatch_pct,HR_today,RMSSD_stable,lnRMSSD_today,lnRMSSD_used,HR_used,n_roll3,gate_raw_today,gate_raw_reason,unstable_note,ln_base60,HR_base60,n_base60,SWC_ln,SWC_HR,d_ln,d_HR,gate_base60,gate_razon_base60,gate_shadow42,gate_razon_shadow42,n_base42,gate_shadow28,gate_razon_shadow28,n_base28,decision_mode,gate_final,gate_final_delta,decision_path,override_reason,residual_ln,residual_z,residual_tag,gate_badge,quality_flag,Color_operativo,Action,Action_detail,bad_streak,bad_7d,baseline60_degraded,healthy_rmssd,healthy_hr,healthy_period,flag_sistemico,flag_razon,warning_threshold,warning_mode,veto_agudo,ln_pre_veto,swc_ln_floor,reason_text
+Fecha,Calidad,HRV_Stability,Artifact_pct,Tiempo_Estabilizacion,Stability_Subtype,tail_mismatch_pct,HR_today,RMSSD_stable,lnRMSSD_today,lnRMSSD_used,HR_used,n_roll3,gate_raw_today,gate_raw_reason,unstable_note,ln_base60,HR_base60,n_base60,SWC_ln,SWC_HR,d_ln,d_HR,gate_base60,gate_razon_base60,gate_shadow42,gate_razon_shadow42,n_base42,gate_shadow28,gate_razon_shadow28,n_base28,decision_mode,gate_final,gate_final_delta,decision_path,override_reason,residual_ln,residual_z,residual_tag,gate_badge,quality_flag,Color_operativo,Action,Action_detail,bad_streak,bad_7d,baseline60_degraded,healthy_rmssd,healthy_hr,healthy_period,flag_sistemico,flag_razon,warning_threshold,warning_mode,veto_agudo,ln_pre_veto,swc_ln_floor,recovery_context_quality,recovery_support_class,recovery_discordance_flag,recovery_discordance_reason,reason_text
 ```
 
 ### Agrupación lógica
 
-Las 58 columnas se organizan en 13 bloques lógicos. Cada bloque agrupa campos relacionados:
+Las 62 columnas se organizan en 13 bloques lógicos. Cada bloque agrupa campos relacionados:
 
 #### A) Identidad / medición base (10 cols)
 
@@ -194,11 +194,11 @@ El umbral y el modo usados para calcular el warning de baseline degradado.
 
 Columnas 53-54: `warning_threshold`, `warning_mode`
 
-#### M) v4 Enhancement (4 cols)
+#### M) v4 Enhancement (8 cols)
 
-Veto agudo (bypass de ROLL3 ante caídas bruscas) y texto explicativo contextual.
+Veto agudo (bypass de ROLL3 ante caídas bruscas), capa RE-01 de recuperación multiseñal y texto explicativo contextual.
 
-Columnas 55-58: `veto_agudo`, `ln_pre_veto`, `swc_ln_floor`, `reason_text`
+Columnas 55-62: `veto_agudo`, `ln_pre_veto`, `swc_ln_floor`, `recovery_context_quality`, `recovery_support_class`, `recovery_discordance_flag`, `recovery_discordance_reason`, `reason_text`
 
 **Nuevas columnas de auditoría mínima:**
 - `Stability_Subtype`: subtipo explícito de estabilidad (`OK`, `STAB_LAST2_MISMATCH`, `STAB_TAIL_SHORT`, etc.)
@@ -206,6 +206,10 @@ Columnas 55-58: `veto_agudo`, `ln_pre_veto`, `swc_ln_floor`, `reason_text`
 - `gate_raw_today`: semáforo 2D contrafactual usando el raw del día (`lnRMSSD_today`, `HR_today`) frente a la misma baseline
 - `gate_raw_reason`: razón de ese gate raw (`2D_OK`, `2D_LN`, `2D_HR`, `2D_AMBOS`)
 - `unstable_note`: resumen corto `raw vs ref` cuando `quality_flag=True`
+- `recovery_context_quality`: cobertura del contexto RE-01 (`none`, `basic`, `rich`)
+- `recovery_support_class`: lectura multiseñal resumida (`supported`, `neutral`, `fragile`, `conflicted`)
+- `recovery_discordance_flag`: marca explícita cuando el soporte objetivo discrepa materialmente del gate
+- `recovery_discordance_reason`: códigos transparentes que explican esa discordancia (`sleep_basic_poor`, `sleep_score_good`, `recent_load_low`, etc.)
 
 **Importante:** `gate_raw_today`, `gate_raw_reason` y `unstable_note` son solo auditoría. No cambian `gate_final`.
 
@@ -346,7 +350,7 @@ Muestra qué entra y qué sale de cada script, y cómo se encadenan:
            ▼               ▼
       FINAL.csv      DASHBOARD.csv
       (auditoría,     (operativo,
-       58 cols)        10 cols)
+       62 cols)        10 cols)
 
   Polar Sleep API ──┐
   Polar Nightly  ───┤
@@ -378,11 +382,12 @@ assert df["HRV_Stability"].isin(["OK", "Unstable"]).all()             # vocabula
 
 ```python
 assert df["Fecha"].is_unique                                                           # sin duplicados
-assert df.shape[1] == 58                                                               # schema v4 actual
+assert df.shape[1] == 62                                                               # schema v4 + RE-01
 assert df["gate_final"].isin(["VERDE", "ÁMBAR", "ROJO", "NO"]).all()                 # vocabulario cerrado
 assert df["Action"].isin(["INTENSIDAD_OK", "Z2_O_TEMPO_SUAVE", "SUAVE_O_DESCANSO"]).all()
 assert df["warning_mode"].isin(["healthy85", "p20"]).all()
 assert "veto_agudo" in df.columns                                                      # v4 columns present
+assert "recovery_support_class" in df.columns                                          # RE-01 present
 assert "reason_text" in df.columns
 assert df["reason_text"].dtype == object                                                # string type
 
