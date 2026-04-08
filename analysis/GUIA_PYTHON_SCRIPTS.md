@@ -141,9 +141,13 @@ python run_session_analysis.py \
   - `prepare_bundle()` — descarga FIT, stream CSV y RR; construye manifest.
   - `run_analysis()` — ejecuta `endurance_rr_session_v4.py` como subprocess; genera todos los artefactos del report.
   - `build_conversational_payload()` — ensambla el JSON compacto para el analista IA.
+    - incrusta contexto canonico de `sessions.csv`, `sessions_day.csv` y `ENDURANCE_HRV_sessions_metadata.json`
+    - anida `training_audit` dentro de `sessions_metadata` cuando existe
   - `build_analyst_prompt_markdown()` — genera `analyst_prompt.md` desde `analyst_prompt_rules.md` + rutas de sesion.
   - `build_ai_handoff_markdown()` — genera `ai_handoff.md` con instrucciones de uso para la IA.
   - `render_report_markdown()` — genera `technical_report.md` con metricas clave en markdown.
+    - ya expone `Training Audit`, `Dataset Audit Limits` y `Session Audit Flags` cuando hay `training_audit`
+    - ya expone evidencia mecanica minima de AP-02 en deportes de pie (`run_power_mean`, `speed_first_half/second_half`, `cadence_first_half/second_half`) cuando existe en `sessions.csv`
   - `cleanup_bundle()` — elimina el bundle de cache tras el analisis.
 
 **Dependencias externas en runtime:**
@@ -155,6 +159,7 @@ python run_session_analysis.py \
 - Para cambiar la estructura del report o del payload.
 - Para ajustar la logica de construccion del `analyst_prompt.md`.
 - Para añadir nuevos campos al payload conversacional.
+- Si cambia el contrato de `training_audit`, de `sessions_metadata` o de la capa mecanica minima de `sessions.csv`, este modulo tambien debe actualizarse.
 
 ---
 
@@ -199,6 +204,7 @@ python run_session_analysis.py \
 - Calcula los scores de coste de sesion desde las columnas de `sessions.csv`.
 - `cardio_score` (0-3): basado en tiempo en Z2/Z3, bloques de trabajo, HR P95 vs VT2.
 - `mecanico_score` (0-3): basado en D+/h, D-/h, densidad de desnivel, locomotion blocks (trail/hike); o cadencia y bloques (bike, elliptical); o distancia y SWOLF (swim).
+- En deportes de pie puede convivir con la capa mecanica minima canonica (`run_power_*`, `speed_*`, `cadence_*`), pero no la sustituye: el score sigue siendo una sintesis local del modulo, no una salida canonica global.
 - Determina `coste_dominante` y `confidence` para cada dimension.
 - Devuelve `cardio_evidence[]` y `mecanico_evidence[]` con los valores observacionales que sostienen cada score.
 - Es importado por `endurance_rr_session_v4.py`; tambien se puede usar como CLI independiente.
@@ -237,7 +243,7 @@ Cada report se genera en `reports/YYYY/MM/[slug]/`:
 | `technical_report.md` | `render_report_markdown()` | Resumen tecnico de metricas clave en markdown. Lectura rapida sin IA. |
 | `analyst_prompt.md` | `build_analyst_prompt_markdown()` | Prompt listo para pegar en Claude/GPT. Incluye rutas de sesion, sport family, reglas y seccion de output. |
 | `ai_handoff.md` | `build_ai_handoff_markdown()` | Instrucciones de uso para la IA: que archivos pasar y en que orden. |
-| `artifacts/session_payload.json` | `build_conversational_payload()` | JSON compacto con todo el contexto de la sesion para el analista IA. Fuente principal del informe. |
+| `artifacts/session_payload.json` | `build_conversational_payload()` | JSON compacto con todo el contexto de la sesion para el analista IA. Fuente principal del informe. Incluye `sessions_metadata.training_audit` cuando existe. |
 | `artifacts/summary.json` | `endurance_rr_session_v4.py` | Todas las metricas calculadas en detalle. Apoyo tecnico al payload. |
 | `artifacts/session.fit` | `run_analysis()` (copia) | FIT de la sesion copiado desde el bundle para que el report sea autocontenido. |
 | `artifacts/manifest.json` | `run_analysis()` | Manifest del bundle: rutas de origen, info de descarga, errores. |
@@ -267,6 +273,19 @@ session_payload.json incluye indicador rr_unavailable para el analista IA
 **Salida:** Report válido con cost model (cardio/mecánico) + contexto, sin métricas RR.
 
 **No es un error operativo**, es una degradación esperada. Útil para análisis de carga/coste aunque sin RMSSD/DFA/HR@0.75.
+
+### Sesion con `training_audit` o mecanica minima
+
+Si `sessions_metadata` incluye `training_audit` y/o la fila de `sessions.csv` trae señal mecánica mínima:
+
+- `session_analysis_pipeline.py` lo incorpora al `session_payload.json`,
+- `technical_report.md` añade bloques estructurados de auditoría (`Training Audit`, `Dataset Audit Limits`, `Session Audit Flags`),
+- en sesiones de pie puede añadir evidencia mecánica reproducible como:
+  - `run_power_mean = ... W`
+  - `speed_first_half = ... , speed_second_half = ...`
+  - `cadence_first_half = ... , cadence_second_half = ...`
+
+Esto alinea el informe con `ADC-01` y `AP-02` sin convertir esas capas en outputs canonicos del proyecto.
 
 ---
 

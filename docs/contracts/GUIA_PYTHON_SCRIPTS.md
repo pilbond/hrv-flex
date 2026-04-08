@@ -19,6 +19,7 @@ Importante:
 - El comando principal no cambia: `python polar_hrv_automation.py --process`.
 - `build_sessions.py` no se ejecuta automaticamente en ese flujo.
 - `build_hrv_final_dashboard.py` usa `ENDURANCE_HRV_sessions_day.csv` solo si ya existe.
+- Si `sessions_day.csv` y `sessions_metadata.json` estan al dia, `FINAL` puede incorporar contexto de carga canonico (`ACWR`, `monotony`, `strain`, clustering de intensidad) y capas de recuperacion multisenal sin tocar el gate.
 
 ## 2) Script por script
 
@@ -102,9 +103,25 @@ Importante:
   - Lee CORE + sleep.
 - Aplica la logica del decisor FINAL/DASHBOARD (decision operativa diaria).
   - Enriquce `reason_text` con contexto de sueno y carga.
+  - Consume la capa CDC-01 de contexto canonico de carga desde `ENDURANCE_HRV_sessions_day.csv`:
+    - `acwr_simple_prev`
+    - `monotony_7d_prev`
+    - `strain_7d_prev`
+    - `load_ctx_ready`
+  - Consume la capa AP-01 de clustering reciente de intensidad:
+    - `intense_day`
+    - `intense_days_prev_3d`
+    - `intense_days_prev_5d`
+    - `intensity_clustering_flag`
+    - `intensity_clustering_level`
+  - Construye la capa RE-01 de contexto de recuperacion multisenal sin tocar el gate:
+    - `recovery_context_quality`
+    - `recovery_support_class`
+    - `recovery_discordance_flag`
+    - `recovery_discordance_reason`
   - Si existe `ENDURANCE_HRV_sessions_day.csv`, usa sus campos de carga.
   - Genera:
-    - `ENDURANCE_HRV_master_FINAL.csv`
+    - `ENDURANCE_HRV_master_FINAL.csv` (62 columnas)
     - `ENDURANCE_HRV_master_DASHBOARD.csv`
 - Cuando usarlo:
   - Siempre que quieras pasar de CORE a salida operativa FINAL/DASHBOARD.
@@ -114,6 +131,9 @@ Importante:
   - Opcional: `ENDURANCE_HRV_sessions_day.csv`
 - Salidas:
   - FINAL y DASHBOARD.
+  - `FINAL` mantiene `gate_final`, `Action` y `Action_detail` como arbitros operativos.
+  - RE-01 solo aporta soporte o discordancia objetiva via columnas y `reason_text`.
+  - CDC-01 y AP-01 solo aportan contexto de carga/clustering en `reason_text`; no recolorean el gate.
 - Automatico o manual:
   - Automatico dentro de `polar_hrv_automation.py --process`.
   - Tambien se puede correr manual.
@@ -125,6 +145,27 @@ Importante:
     - `ENDURANCE_HRV_sessions.csv` (detalle por sesion)
     - `ENDURANCE_HRV_sessions_day.csv` (agregado diario + rolling)
     - `ENDURANCE_HRV_sessions_metadata.json`
+    - `ENDURANCE_HRV_wellness_subjective.csv` (wellness subjetivo diario desde Intervals, si hay cobertura)
+  - Canoniza la capa AP-02 de señal mecanica minima en `sessions.csv` para deportes de pie:
+    - `mechanics_source`
+    - `run_power_*`
+    - `speed_first_half`, `speed_second_half`
+    - `cadence_first_half`, `cadence_second_half`
+  - Canoniza la capa CDC-01 de contexto de carga en `sessions_day.csv`:
+    - `acwr_simple_prev`
+    - `monotony_7d_prev`
+    - `strain_7d_prev`
+    - `load_ctx_ready`
+  - Canoniza la capa AP-01 de clustering proactivo en `sessions_day.csv`:
+    - `intense_day`
+    - `intense_days_prev_3d`
+    - `intense_days_prev_5d`
+    - `intensity_clustering_flag`
+    - `intensity_clustering_level`
+  - Embebe la capa ADC-01 de auditoria ligera por capas en `ENDURANCE_HRV_sessions_metadata.json`:
+    - `training_audit.dataset_level`
+    - `training_audit.signal_level`
+    - `training_audit.metric_level`
 - Cuando usarlo:
   - Cuando quieras actualizar la capa de carga de entrenamiento.
   - Recomendado en cron separado (diario/backfill), no dentro del sync Polar.
@@ -136,7 +177,10 @@ Importante:
   - `--update`: desde el ultimo dia con datos hasta hoy, releyendo tambien ese ultimo dia.
   - `--date YYYY-MM-DD`: un dia concreto.
 - Salidas:
-  - CSVs de sesiones y metadata.
+  - CSVs de sesiones, wellness subjetivo y metadata.
+  - `sessions.csv` pasa a ser la fuente canonica de detalle por sesion, incluidos coste, zonas, drift y mecanica minima.
+  - `sessions_day.csv` pasa a ser la fuente canonica de rolling de carga y clustering para `reason_text`.
+  - `sessions_metadata.json` pasa a ser la fuente canonica de `training_audit` para rebajar confianza de coaching/carga sin bloquear pipeline.
 - Automatico o manual:
   - Manual (no lo llama el flujo principal por defecto).
 
@@ -204,9 +248,9 @@ Si tu pregunta es "que scripts importan para operar dia a dia":
 2. `polar_hrv_automation.py` (sync y orquestacion)
 3. `egc_to_rr.py` (Dropbox/local JSONL -> RR, cuando faltan fechas o para validacion manual)
 4. `build_hrv_core.py` (RR -> CORE/BETA)
-5. `build_hrv_final_dashboard.py` (CORE -> FINAL/DASHBOARD)
+5. `build_hrv_final_dashboard.py` (CORE -> FINAL/DASHBOARD + RE-01 recovery context)
 
 Y aparte, opcional recomendado:
 
-1. `build_sessions.py` para mantener al dia `sessions_day.csv` y enriquecer `reason_text` de carga.
+1. `build_sessions.py` para mantener al dia `sessions.csv`, `sessions_day.csv`, `sessions_metadata.json` y `wellness_subjective.csv`, y asi habilitar AP-01, AP-02, CDC-01, ADC-01 y RE-02 en el contexto del sistema.
 
