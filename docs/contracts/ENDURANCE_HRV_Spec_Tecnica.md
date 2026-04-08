@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Especificación Técnica
 
-**Revisión:** r2026-04-07 v4.3 (contexto de carga canónico ACWR/monotony/strain)
+**Revisión:** r2026-04-07 v4.5 (wellness subjetivo como sidecar retrospectivo; fuera de reason_text)
 **Estado:** Producción
 
 ---
@@ -36,11 +36,11 @@ Reglas:
 - Si una incidencia menciona solo "v4", debe aclararse si habla de sistema, documento o módulo.
 
 Mapa operativo actual:
-- Sistema vigente: `ENDURANCE HRV V4.3`
+- Sistema vigente: `ENDURANCE HRV V4.5`
 - Módulo RR -> CORE/BETA: `build_hrv_core.py`, revisión `r2026-03-19`
-- Módulo CORE -> FINAL/DASHBOARD: `build_hrv_final_dashboard.py`, revisión `r2026-03-19`
-- Contrato estructural HRV: `ENDURANCE_HRV_Estructura.md`, revisión `r2026-04-07 v3.5`
-- Contrato de sesiones: `ENDURANCE_HRV_Sessions_Schema.md`, revisión `r2026-04-07 v3.5`
+- Módulo CORE -> FINAL/DASHBOARD: `build_hrv_final_dashboard.py`, revisión `r2026-04-07`
+- Contrato estructural HRV: `ENDURANCE_HRV_Estructura.md`, revisión `r2026-04-07 v3.7`
+- Contrato de sesiones: `ENDURANCE_HRV_Sessions_Schema.md`, revisión `r2026-04-07 v3.7`
 
 ---
 
@@ -995,6 +995,8 @@ Secciones obligatorias:
 | 2026-03-01 v4.1 | sleep.csv simplificado: 34→17 cols (solo Polar sleep/nightly, sin Intervals) |
 | 2026-03-01 v4.1 | reason_text dual source: sueño de sleep.csv, carga de sessions_day.csv |
 | 2026-03-01 v4.1 | Nuevos archivos sessions.csv (43 cols), sessions_day.csv (40 cols iniciales), ENDURANCE_HRV_sessions_metadata.json |
+| 2026-04-07 v4.5 | RE-02 (decisión final): wellness subjetivo queda como sidecar retrospectivo; `build_hrv_final_dashboard.py` NO consume `wellness_subjective.csv`; `_merge_daily_rows_incremental` filtra fechas futuras al persistir |
+| 2026-04-07 v4.4 | RE-02: nuevo sidecar `ENDURANCE_HRV_wellness_subjective.csv` (17 cols: Fecha + 6×raw + 6×label + comment + n_fields + available + coverage_7d); `build_sessions.py` fetcha `/athlete/{id}/wellness`; sidecar para análisis retrospectivo o capas separadas |
 | 2026-04-07 v4.3 | sessions_day.csv: CDC-01 (+4 cols: acwr_simple_prev, monotony_7d_prev, strain_7d_prev, load_ctx_ready), AP-01 (+5 cols: intense_day, intense_days_prev_3d, intense_days_prev_5d, intensity_clustering_flag, intensity_clustering_level); total 40→49 cols |
 | 2026-04-07 v4.3 | sessions_metadata.json: ADC-01 añade `training_audit` con bloques dataset_level/signal_level/metric_level (estados high/contextual/informational/not_applicable por capa) |
 | 2026-04-07 v4.3 | reason_text: añadidas condiciones 9-18 (ACWR, monotony, strain, clustering AP-01 v1, convergencia de carga) |

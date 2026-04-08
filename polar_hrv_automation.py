@@ -32,6 +32,7 @@ from typing import Optional, Dict, Any, List, Tuple
 import requests
 import base64
 from requests.auth import _basic_auth_str
+from polar_utils import env_flag, get_field_variant, parse_duration_to_minutes, parse_float, response_excerpt
 
 # pandas es opcional, solo para --auto
 try:
@@ -64,17 +65,7 @@ else:
 # =========================
 # CONFIG
 # =========================
-def _env_flag(name: str, default: bool = False) -> bool:
-    raw = os.environ.get(name)
-    if raw is None:
-        return default
-    value = raw.strip().lower()
-    if value == "":
-        return default
-    return value in {"1", "true", "yes", "on"}
-
-
-QUIET = _env_flag("HRV_QUIET", False)
+QUIET = env_flag("HRV_QUIET", False)
 
 
 def _qprint(*args, **kwargs):
@@ -209,16 +200,16 @@ UNKNOWN_SESSION_ID = "unknown"  # ID para sesiones sin fecha
 DEBUG_JSON = False  # True = guarda JSON debug de sesiones sin RR
 
 # Integración Dropbox RR (ECG/ACC JSONL -> RR) con fallback a Polar.
-DROPBOX_RR_ENABLED = _env_flag("HRV_DROPBOX_RR_ENABLED", True)
+DROPBOX_RR_ENABLED = env_flag("HRV_DROPBOX_RR_ENABLED", True)
 DROPBOX_RR_SCRIPT = (os.environ.get("HRV_DROPBOX_RR_SCRIPT") or "egc_to_rr.py").strip() or "egc_to_rr.py"
-DROPBOX_RR_NO_AUX = _env_flag("HRV_DROPBOX_NO_AUX", True)
+DROPBOX_RR_NO_AUX = env_flag("HRV_DROPBOX_NO_AUX", True)
 DROPBOX_RR_PAIR_LIMIT = (os.environ.get("HRV_DROPBOX_PAIR_LIMIT") or "").strip()
 DROPBOX_FOLDER_PATH = (
     os.environ.get("HRV_DROPBOX_FOLDER_PATH")
     or os.environ.get("DROPBOX_FOLDER_PATH")
     or ""
 ).strip()
-DROPBOX_RECURSIVE = _env_flag("HRV_DROPBOX_RECURSIVE", True)
+DROPBOX_RECURSIVE = env_flag("HRV_DROPBOX_RECURSIVE", True)
 
 # =========================
 # Intervals.icu wellness sync
@@ -440,16 +431,6 @@ def _run_dropbox_rr_import_for_dates(target_dates: set, outdir: Path, verbose: b
 
     return covered, new_created
 
-
-def _get_field_variant(data: dict, *keys, default=None):
-    """Obtiene el primer valor no-None de múltiples variantes de clave."""
-    for key in keys:
-        val = data.get(key)
-        if val is not None:
-            return val
-    return default
-
-
 def _get_color_emoji(color_value, default='⚪'):
     """Convierte valor de color ('Verde', 'Amarillo', 'Rojo') a emoji."""
     return COLOR_EMOJI.get(color_value, default)
@@ -525,19 +506,6 @@ def _normalize_color_value(raw_value: str) -> Optional[int]:
     except ValueError:
         return None
 
-
-def _parse_float(value: str) -> Optional[float]:
-    if value is None:
-        return None
-    value_str = str(value).strip()
-    if not value_str or value_str.lower() in {"nan", "none", "n/a"}:
-        return None
-    try:
-        return float(value_str)
-    except ValueError:
-        return None
-
-
 def _read_latest_master_row(master_path: Path) -> Optional[Dict[str, Any]]:
     if not master_path.exists():
         print(f"⚠️  Intervals: no se encontró {master_path}")
@@ -570,7 +538,7 @@ def _build_intervals_payload(row: Dict[str, Any]) -> Dict[str, Any]:
         if source_key.startswith("Color_"):
             mapped = _normalize_color_value(raw_value)
         else:
-            mapped = _parse_float(raw_value)
+            mapped = parse_float(raw_value)
         if mapped is not None:
             payload[field_id] = mapped
     return payload
@@ -791,13 +759,6 @@ def api_request(method: str, path: str, token: str, params=None, headers=None, d
     return r.text
 
 
-def _response_excerpt(response: requests.Response, limit: int = 300) -> str:
-    text = (response.text or "").strip()
-    if len(text) > limit:
-        text = text[:limit].rstrip() + "..."
-    return text
-
-
 def register_user_if_needed(token: str, member_id: str, allow_transient_failure: bool = False):
     """Paso obligatorio: registrar usuario. Reintenta fallos 5xx temporales."""
     xml = f"<register><member-id>{member_id}</member-id></register>"
@@ -837,7 +798,7 @@ def register_user_if_needed(token: str, member_id: str, allow_transient_failure:
             raise RuntimeError(f"register_user 403 (no autorizado / consents):\n{r.text}")
 
         if r.status_code in transient_codes:
-            excerpt = _response_excerpt(r)
+            excerpt = response_excerpt(r)
             last_error = f"register_user fallo temporal: {r.status_code} {r.reason}\n{excerpt}"
             if attempt < 4:
                 wait_s = 2 ** (attempt - 1)
@@ -875,26 +836,6 @@ def get_exercise_with_samples(token: str, exercise_id: str):
 
 def _normalize_key(key: str) -> str:
     return str(key).strip().lower().replace("-", "_")
-
-
-def _to_float(value) -> Optional[float]:
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
-    value_str = str(value).strip()
-    if not value_str or value_str.lower() in {"nan", "none", "null", "n/a"}:
-        return None
-    value_str = value_str.replace(",", ".")
-    try:
-        return float(value_str)
-    except ValueError:
-        return None
 
 
 def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
@@ -948,7 +889,7 @@ def _iso_duration_to_minutes(value) -> Optional[float]:
             total += float(seconds.group(1)) / 60.0
         return total
 
-    return _to_float(text)
+    return parse_float(text)
 
 
 def _normalize_sleep_minutes(value) -> Optional[float]:
@@ -974,7 +915,7 @@ def _normalize_sleep_minutes(value) -> Optional[float]:
 
 def _normalize_resp_rate(value) -> Optional[float]:
     """Normalize nightly respiration to breaths/min."""
-    v = _to_float(value)
+    v = parse_float(value)
     if v is None or v <= 0:
         return None
     # If value seems to be respiration interval in ms, convert to brpm.
@@ -986,7 +927,7 @@ def _normalize_resp_rate(value) -> Optional[float]:
 
 
 def _normalize_pct(value) -> Optional[float]:
-    v = _to_float(value)
+    v = parse_float(value)
     if v is None:
         return None
     if v <= 1.0:
@@ -1003,7 +944,7 @@ def _find_first_value(payload, candidate_keys: List[str], as_float: bool = False
             for raw_key, raw_value in current.items():
                 if _normalize_key(raw_key) in keys:
                     if as_float:
-                        f = _to_float(raw_value)
+                        f = parse_float(raw_value)
                         if f is not None:
                             return f
                     else:
@@ -1022,10 +963,10 @@ def _extract_interruptions_counts(sleep_json: dict) -> Tuple[Optional[float], Op
     if not isinstance(sleep_json, dict):
         return None, None
 
-    evaluation = _get_field_variant(sleep_json, "evaluation", "sleep-evaluation", "sleep_evaluation", default=None)
+    evaluation = get_field_variant(sleep_json, "evaluation", "sleep-evaluation", "sleep_evaluation", default=None)
     interruptions = None
     if isinstance(evaluation, dict):
-        interruptions = _get_field_variant(
+        interruptions = get_field_variant(
             evaluation,
             "interruptions",
             "sleep-interruptions",
@@ -1036,8 +977,8 @@ def _extract_interruptions_counts(sleep_json: dict) -> Tuple[Optional[float], Op
     long_count = None
     total_count = None
     if isinstance(interruptions, dict):
-        long_count = _to_float(_get_field_variant(interruptions, "longCount", "long_count", "long-count", default=None))
-        total_count = _to_float(_get_field_variant(interruptions, "totalCount", "total_count", "total-count", "count", default=None))
+        long_count = parse_float(get_field_variant(interruptions, "longCount", "long_count", "long-count", default=None))
+        total_count = parse_float(get_field_variant(interruptions, "totalCount", "total_count", "total-count", "count", default=None))
     elif isinstance(interruptions, list):
         total_items = 0
         long_items = 0
@@ -1114,20 +1055,20 @@ def _extract_sleep_fields(sleep_json: Optional[dict]) -> Dict[str, Any]:
         if parts:
             asleep_duration_min = float(sum(parts))
 
-    deep_pct = _to_float(_find_first_value(sleep_json, ["polar_deep_pct", "deep_pct", "deep_percentage"]))
-    rem_pct = _to_float(_find_first_value(sleep_json, ["polar_rem_pct", "rem_pct", "rem_percentage"]))
+    deep_pct = parse_float(_find_first_value(sleep_json, ["polar_deep_pct", "deep_pct", "deep_percentage"]))
+    rem_pct = parse_float(_find_first_value(sleep_json, ["polar_rem_pct", "rem_pct", "rem_percentage"]))
     if asleep_duration_min and asleep_duration_min > 0:
         if deep_pct is None and deep_min is not None:
             deep_pct = 100.0 * deep_min / asleep_duration_min
         if rem_pct is None and rem_min is not None:
             rem_pct = 100.0 * rem_min / asleep_duration_min
 
-    continuity = _to_float(_find_first_value(sleep_json, ["continuity", "sleep_continuity"]))
-    continuity_index = _to_float(_find_first_value(sleep_json, ["continuity_index", "continuity-class", "continuity_class"]))
+    continuity = parse_float(_find_first_value(sleep_json, ["continuity", "sleep_continuity"]))
+    continuity_index = parse_float(_find_first_value(sleep_json, ["continuity_index", "continuity-class", "continuity_class"]))
     efficiency_pct = _normalize_pct(_find_first_value(sleep_json, ["efficiency_pct", "sleep_efficiency", "efficiency"]))
     if efficiency_pct is None and asleep_duration_min is not None and span_min is not None and span_min > 0:
         efficiency_pct = 100.0 * asleep_duration_min / span_min
-    sleep_score = _to_float(_find_first_value(sleep_json, ["sleep_score", "sleep-score"]))
+    sleep_score = parse_float(_find_first_value(sleep_json, ["sleep_score", "sleep-score"]))
     long_count, total_count = _extract_interruptions_counts(sleep_json)
 
     out: Dict[str, Any] = {}
@@ -1158,21 +1099,21 @@ def _extract_nightly_fields(nightly_json: Optional[dict]) -> Dict[str, Any]:
     if not isinstance(nightly_json, dict):
         return {}
 
-    night_rmssd = _to_float(
+    night_rmssd = parse_float(
         _find_first_value(
             nightly_json,
             ["heart_rate_variability_avg", "heart-rate-variability-avg", "nightly_rmssd"],
             as_float=True,
         )
     )
-    night_rri = _to_float(
+    night_rri = parse_float(
         _find_first_value(
             nightly_json,
             ["nightly_rri", "rri_avg", "heart_rate_rri_avg", "heart-rate-rri-avg"],
             as_float=True,
         )
     )
-    hr_avg = _to_float(_find_first_value(nightly_json, ["heart_rate_avg", "heart-rate-avg", "hr_avg"], as_float=True))
+    hr_avg = parse_float(_find_first_value(nightly_json, ["heart_rate_avg", "heart-rate-avg", "hr_avg"], as_float=True))
     if night_rri is None and hr_avg is not None and hr_avg > 0:
         night_rri = 60000.0 / hr_avg
 
@@ -1508,7 +1449,7 @@ def extract_rr_ms(exercise_json: dict):
     rr = []
     samples = exercise_json.get("samples") or []
     for s in samples:
-        st = _get_field_variant(s, *FIELD_SAMPLE_TYPE)
+        st = get_field_variant(s, *FIELD_SAMPLE_TYPE)
         if str(st) != "11":
             continue
 
@@ -1542,7 +1483,7 @@ def passes_filters(ex_item: dict, from_d, to_d, sports_set, max_duration_min, de
         print(f"\n  🔍 Evaluando: {ex_item.get('id', 'N/A')}")
     
     # Filtro fecha
-    st = _get_field_variant(ex_item, *FIELD_START_TIME)
+    st = get_field_variant(ex_item, *FIELD_START_TIME)
     dt = _iso_to_dt(st)
     if dt:
         d = dt.date()
@@ -1566,7 +1507,7 @@ def passes_filters(ex_item: dict, from_d, to_d, sports_set, max_duration_min, de
 
     # Filtro deporte (comparación EXACTA)
     if sports_set:
-        sp = _get_field_variant(ex_item, *FIELD_SPORT, default="")
+        sp = get_field_variant(ex_item, *FIELD_SPORT, default="")
 
         if debug:
             print(f"     Sport: '{sp}' | Buscando: {sports_set}")
@@ -1600,29 +1541,6 @@ def passes_filters(ex_item: dict, from_d, to_d, sports_set, max_duration_min, de
         print(f"     ✅✅ PASA TODOS LOS FILTROS")
     
     return True
-
-
-def parse_duration_to_minutes(duration_str):
-    """
-    PT10M30S -> 10.5
-    PT506.615S -> 8.44
-    PT1H30M -> 90
-    """
-    # Soportar decimales en cada componente
-    hours = re.search(r'([\d.]+)H', duration_str)
-    minutes = re.search(r'([\d.]+)M', duration_str)
-    seconds = re.search(r'([\d.]+)S', duration_str)
-    
-    total_minutes = 0.0
-    if hours:
-        total_minutes += float(hours.group(1)) * 60
-    if minutes:
-        total_minutes += float(minutes.group(1))
-    if seconds:
-        total_minutes += float(seconds.group(1)) / 60
-    
-    return total_minutes
-
 
 def do_oauth_flow():
     """Ejecuta flujo OAuth completo"""
@@ -2077,8 +1995,8 @@ def main():
     if args.debug_sports:
         _print_header("🔍 DEBUG: TODAS LAS SESIONES ENCONTRADAS")
         for i, e in enumerate(exercises):
-            st = _get_field_variant(e, *FIELD_START_TIME, default="N/A")
-            sport = _get_field_variant(e, *FIELD_SPORT, default="N/A")
+            st = get_field_variant(e, *FIELD_START_TIME, default="N/A")
+            sport = get_field_variant(e, *FIELD_SPORT, default="N/A")
             duration = e.get("duration", "N/A")
             dt = _iso_to_dt(st)
             date_str = dt.strftime("%Y-%m-%d") if dt else "N/A"
@@ -2128,8 +2046,8 @@ def main():
                 print("\n🔍 Mostrando TODAS las sesiones encontradas para debug:")
                 _print_divider()
                 for i, e in enumerate(exercises[:DEBUG_PREVIEW_LIMIT]):
-                    st = _get_field_variant(e, *FIELD_START_TIME, default="N/A")
-                    sport = _get_field_variant(e, *FIELD_SPORT, default="N/A")
+                    st = get_field_variant(e, *FIELD_START_TIME, default="N/A")
+                    sport = get_field_variant(e, *FIELD_SPORT, default="N/A")
                     duration = e.get("duration", "N/A")
                     dt = _iso_to_dt(st)
                     date_str = dt.strftime("%Y-%m-%d") if dt else "N/A"
@@ -2148,7 +2066,7 @@ def main():
                 # DEBUG DETALLADO: Re-evaluar con debug activado
                 _print_header("🔍 DEBUG DETALLADO de cada sesión en rango:", leading_blank=True)
                 for i, e in enumerate(exercises[:10]):
-                    st = _get_field_variant(e, *FIELD_START_TIME, default="N/A")
+                    st = get_field_variant(e, *FIELD_START_TIME, default="N/A")
                     dt = _iso_to_dt(st)
                     if dt and from_d and to_d and from_d <= dt.date() <= to_d:
                         print(f"\n  Sesión [{i}] - {dt.date()}:")
@@ -2208,7 +2126,7 @@ def main():
             continue
 
         # Si ya tenemos RR (CORE o cloud JSONL) para la fecha del índice, evitar descarga de detalle.
-        st_hint = _get_field_variant(e, *FIELD_START_TIME, default="")
+        st_hint = get_field_variant(e, *FIELD_START_TIME, default="")
         st_hint_dt = _iso_to_dt(st_hint)
         session_date_hint = st_hint_dt.date() if st_hint_dt else None
         if session_date_hint and session_date_hint in existing_dates:
@@ -2233,12 +2151,12 @@ def main():
             continue
 
         # Obtener start-time del ejercicio completo
-        st = _get_field_variant(ex_full, *FIELD_START_TIME, default="")
+        st = get_field_variant(ex_full, *FIELD_START_TIME, default="")
         
         if not st:
             print(f"  [{idx}] ⚠️ Sin start-time, usando del índice previo")
             # Intentar con el del listado original
-            st = _get_field_variant(e, "start-time", "start_time", "startTime", default="")
+            st = get_field_variant(e, "start-time", "start_time", "startTime", default="")
         
         if not st:
             print(f"  [{idx}] ⚠️ No se puede determinar fecha/hora, usando ID")

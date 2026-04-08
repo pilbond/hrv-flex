@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Diccionario de Columnas (FINAL/DASHBOARD)
 
-**Revisión:** r2026-04-07 v4.3 (sessions_day clustering + diccionario alineado)  
+**Revisión:** r2026-04-07 v4.5 (wellness subjetivo fuera de reason_text)
 **Estado:** Producción
 
 **Documentos relacionados:**
@@ -309,7 +309,7 @@ Mapping:
 | `veto_agudo` | ¿Se activó el bypass de ROLL3 por caída aguda? True si tu lnRMSSD crudo de hoy cayó más de 2×SWC por debajo de tu baseline (una caída demasiado brusca para que ROLL3 la suavice sin peligro). Cuando se activa, `lnRMSSD_used` y `HR_used` se fuerzan al dato crudo del día en vez del promedio de 3 días. Esto hace que el gate refleje la caída inmediatamente. |
 | `ln_pre_veto` | El valor de lnRMSSD_used (ROLL3) que tenías antes de que el veto lo sobrescribiera. Permite auditar cuánto habría enmascarado el suavizado: la diferencia `ln_pre_veto - lnRMSSD_used` muestra lo que ROLL3 estaba "ocultando". NaN si no hubo veto. |
 | `swc_ln_floor` | El SWC efectivo que se usó para evaluar el veto: `max(SWC_ln, 0.04879)`. El floor de 0.04879 (= ln(1.05)) garantiza que el umbral del veto nunca sea trivialmente pequeño, evitando falsos positivos en periodos de variabilidad muy baja. NaN si no se calculó BASE60. |
-| `reason_text` | Texto explicativo contextual que combina información del gate con datos de sueño y carga. Múltiples razones separadas por ` \| `. Puede incluir: caída aguda HRV, noche corta/fragmentada (basado en tus percentiles, no en umbrales fijos), carga acumulada alta (`load_3d`), `ACWR`, `monotony`, `strain`, clustering reciente de intensidad, saturación parasimpática y divergencias gate↔contexto. Si varias señales de carga convergen en un día VERDE, el cierre puede escalar a una formulación reforzada de convergencia. Vacío si no hay nada que reportar. **No recolorea** el gate — es contexto para tu decisión. |
+| `reason_text` | Texto explicativo contextual que combina información del gate con datos de sueño y carga. Múltiples razones separadas por ` \| `. Puede incluir: caída aguda HRV, noche corta/fragmentada (basado en tus percentiles, no en umbrales fijos), carga acumulada alta (`load_3d`), `ACWR`, `monotony`, `strain`, clustering reciente de intensidad, saturación parasimpática y divergencias gate↔contexto. El wellness subjetivo de Intervals queda fuera de `reason_text` y se reserva para capas retrospectivas o separadas. Si varias señales de carga convergen en un día VERDE, el cierre puede escalar a una formulación reforzada de convergencia. **No recolorea** el gate — es contexto para tu decisión. |
 
 ---
 
@@ -328,7 +328,7 @@ Subconjunto de FINAL para mirar en 10 segundos. Solo lo esencial para decidir qu
 | `gate_razon_base60` | Por qué salió ese color. 2D_OK = todo dentro de rango. 2D_LN = HRV baja. 2D_HR = pulso alto. 2D_AMBOS = las dos cosas → máxima confianza de fatiga. |
 | `decision_path` | Si el gate fue ajustado por una sombra (BASE28 o BASE42) aparece aquí. Si dice BASE60_ONLY, no hubo override. |
 | `baseline60_degraded` | Warning a medio plazo: True si tu baseline de los últimos 2 meses está por debajo de tu referencia "sano". No cambia el gate de hoy, pero avisa de que tu capacidad de absorción está reducida. |
-| `reason_text` | Contexto textual del día: por qué el sistema tomó esa decisión y qué factores externos hay (sueño, carga, divergencias). Vacío si no hay nada que reportar. |
+| `reason_text` | Contexto textual del día: por qué el sistema tomó esa decisión y qué factores externos hay (sueño, carga, divergencias). El wellness subjetivo no entra en esta capa. Vacío si no hay nada que reportar. |
 
 ---
 

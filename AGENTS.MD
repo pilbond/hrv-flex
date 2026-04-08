@@ -71,6 +71,7 @@ Estado actual de implementacion observado:
 
 - la UI expone `/api/sync`, `/api/sync-sessions`, `/api/status` y endpoints OAuth,
 - `build_sessions.py` genera `ENDURANCE_HRV_sessions.csv`, `ENDURANCE_HRV_sessions_day.csv` y `ENDURANCE_HRV_sessions_metadata.json`,
+- `build_sessions.py` genera `ENDURANCE_HRV_sessions.csv`, `ENDURANCE_HRV_sessions_day.csv`, `ENDURANCE_HRV_sessions_metadata.json` y `ENDURANCE_HRV_wellness_subjective.csv`,
 - `ENDURANCE_HRV_sessions_day.csv` ya incluye contexto canonico de carga (`acwr_simple_prev`, `monotony_7d_prev`, `strain_7d_prev`, `load_ctx_ready`) y clustering reciente de intensidad (`intense_day`, `intense_days_prev_3d`, `intense_days_prev_5d`, `intensity_clustering_flag`, `intensity_clustering_level`),
 - `ENDURANCE_HRV_sessions_metadata.json` ya incluye `training_audit` por capas (`dataset_level`, `signal_level`, `metric_level`) para gobernar confianza de coaching/carga sin tocar el gate HRV,
 - `sessions.csv` ya incluye una capa mecanica minima opcional para deportes de pie con `run_power_*`, `speed_first_half`, `speed_second_half`, `cadence_first_half` y `cadence_second_half`,
@@ -111,7 +112,7 @@ Si este bloque queda desactualizado, debe actualizarse o reducirse.
 
 - `build_sessions.py`
   Pipeline de sesiones desde Intervals.icu.
-  Genera `ENDURANCE_HRV_sessions.csv`, `ENDURANCE_HRV_sessions_day.csv` y `ENDURANCE_HRV_sessions_metadata.json`.
+  Genera `ENDURANCE_HRV_sessions.csv`, `ENDURANCE_HRV_sessions_day.csv`, `ENDURANCE_HRV_sessions_metadata.json` y `ENDURANCE_HRV_wellness_subjective.csv`.
   Canoniza la capa mecanica minima para deportes de pie, el contexto de carga `ACWR/monotony/strain` y `training_audit`.
   Soporta `--backfill`, `--daily`, `--update` y `--date`.
 
@@ -140,6 +141,7 @@ Complementarios:
 - `ENDURANCE_HRV_sessions.csv`
 - `ENDURANCE_HRV_sessions_day.csv`
 - `ENDURANCE_HRV_sessions_metadata.json`
+- `ENDURANCE_HRV_wellness_subjective.csv`
 
 ## 9. Defaults runtime
 Defaults actuales si no hay variables:

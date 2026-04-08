@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Sessions Schema
 
-**Revisión:** r2026-04-07 v3.5 (params_hash: c1c78a78)  
+**Revisión:** r2026-04-07 v3.7 (params_hash: c1c78a78)  
 **Estado:** Producción
 
 **Documentos relacionados:**
@@ -8,7 +8,7 @@
 - `ENDURANCE_HRV_Spec_Tecnica.md` — fórmulas y algoritmos del gate HRV
 - `ENDURANCE_HRV_Diccionario.md` — diccionario de columnas del gate HRV
 
-**Convención de versión:** esta cabecera identifica la revisión del pipeline de sesiones (`r2026-04-07 v3.5`), no la versión global del sistema HRV. La versión de sistema vigente se declara en `ENDURANCE_HRV_Spec_Tecnica.md`.
+**Convención de versión:** esta cabecera identifica la revisión del pipeline de sesiones (`r2026-04-07 v3.7`), no la versión global del sistema HRV. La versión de sistema vigente se declara en `ENDURANCE_HRV_Spec_Tecnica.md`.
 
 ---
 
@@ -44,12 +44,14 @@ Este pipeline está diseñado para **un único atleta** y consume la cuenta pers
 | `sessions.csv` | 1 fila por sesión | Detalle completo de cada entrenamiento: zonas, work blocks, drift, clasificación. Lo que miras cuando quieres entender una sesión concreta. |
 | `sessions_day.csv` | 1 fila por día | Agregados diarios + rolling 3d/7d/14d/28d con cobertura, más la capa canónica de contexto de carga (`ACWR`, `monotony`, `strain`) y una señal corta de clustering reciente de intensidad. Lo que lee `build_hrv_final_dashboard.py` para generar avisos de carga en reason_text. |
 | `ENDURANCE_HRV_sessions_metadata.json` | 1 por corrida | Trazabilidad: versión del pipeline, parámetros usados, hash de configuración, sampling rate del stream y una auditoría ligera por capas (`dataset/signal/metric`) para coaching y carga. |
+| `ENDURANCE_HRV_wellness_subjective.csv` | 1 fila por día | Wellness subjetivo diario desde Intervals (`fatigue`, `stress`, `mood`, `motivation`, `soreness`, `injury`, comentario), con labels y cobertura 7d para análisis retrospectivo o capas separadas. |
 
 ### Fuente de datos
 
 El pipeline consume la API de Intervals.icu:
 - `/api/v1/athlete/{id}/activities` — lista de actividades con metadatos (load, duration, type, RPE...)
 - `/api/v1/activity/{id}/streams` — stream de HR y velocidad segundo a segundo
+- `/api/v1/athlete/{id}/wellness` — wellness diario subjetivo y campos de recuperación
 
 De forma **opcional y no bloqueante**, el pipeline puede enriquecer sesiones de `road_run`, `trail_run` y `hike` con muestras mecánicas. La prioridad actual es:
 - `FIT` descargado desde Intervals (`/activity/{id}/fit-file`)
@@ -363,7 +365,8 @@ Cada corrida del pipeline genera un `ENDURANCE_HRV_sessions_metadata.json` que d
     "sessions": 306,
     "days": 240,
     "with_streams": 204,
-    "with_notes": 6
+    "with_notes": 6,
+    "with_subjective_wellness": 51
   },
   "stream_sampling": {
     "n_streams": 204,
@@ -407,6 +410,7 @@ Cada corrida del pipeline genera un `ENDURANCE_HRV_sessions_metadata.json` que d
 | `stream_sampling.dt_mean` | Debería ser ~1.000. Si se aleja mucho (ej: 0.5 o 2.0), Intervals cambió su re-muestreo. |
 | `zones_source_dist` | Si `fallback > 0`, hay deportes sin zonas configuradas en Intervals. Revisa tu configuración de zonas. |
 | `counts.with_streams` | Sesiones con stream HR disponible. Si es mucho menor que `sessions`, hay sesiones sin stream (ej: fuerza sin HR, sesiones muy cortas). Las métricas de zonas serán NaN para esas sesiones. |
+| `counts.with_subjective_wellness` | Días del output canónico de wellness subjetivo con al menos una señal subjetiva o comentario libre disponible. |
 | `training_audit.dataset_level` | Cobertura gruesa del dataset que sí soporta lecturas de carga: deportes vistos, días con sesión, sesiones aeróbicas y días donde la capa canónica de carga (`load_ctx_ready`) ya es utilizable. |
 | `training_audit.signal_level` | Calidad de señal para métricas de coaching/carga: sampling, cobertura de stream aeróbico, cobertura de drift, porcentaje de fallback de zonas y límites de interpretabilidad activos. |
 | `training_audit.metric_level.*.state` | Estado operativo mínimo por métrica: `high`, `contextual`, `informational` o `not_applicable`. La salida no bloquea el pipeline; sirve para rebajar interpretación cuando la capa de sesiones es parcial. |
@@ -522,7 +526,7 @@ Cuántos días de la ventana rolling tenían un valor real (no NaN) para esa mé
 
 ## 9. Historial de versiones y fixes
 
-**Versión operativa actual:** `v3.5`
+**Versión operativa actual:** `v3.7`
 
 Lo siguiente es historial de cambios acumulados. No sustituye al estado vigente declarado al inicio del documento.
 
@@ -563,6 +567,16 @@ F) effort split aerobic/strength
 2) la auditoría separa `dataset_level`, `signal_level` y `metric_level`  
 3) `metric_level` expone estados mínimos por capa (`load_context`, `zone_intensity`, `cardiac_drift`, `coaching_load`)  
 4) el objetivo es rebajar confianza de coaching/carga cuando falten streams, haya zonas en fallback o la cobertura sea parcial, sin bloquear el pipeline ni tocar el gate HRV
+
+### v3.7 (alineación documental)
+1) la cabecera del contrato y la versión operativa se alinean con la revisión documental posterior a RE-02
+2) no hay cambios de esquema, columnas ni semántica respecto a v3.6
+
+### v3.6 (RE-02 wellness subjetivo)
+1) `build_sessions.py` añade lectura de `/athlete/{id}/wellness` desde Intervals  
+2) nuevo sidecar `ENDURANCE_HRV_wellness_subjective.csv` con `fatigue`, `stress`, `mood`, `motivation`, `soreness`, `injury`, comentario, labels y cobertura 7d  
+3) `ENDURANCE_HRV_sessions_metadata.json` añade `counts.with_subjective_wellness`  
+4) la capa queda disponible para análisis retrospectivo o capas separadas; no entra en `reason_text`
 
 ---
 

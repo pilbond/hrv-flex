@@ -47,7 +47,7 @@ from polar_sessions import PolarSessionClient, extract_mechanical_metrics_from_f
 
 # ─── Version & params ─────────────────────────────────────────────────────────
 
-PIPELINE_VERSION = "v3.5"
+PIPELINE_VERSION = "v3.6"
 
 PARAMS = {
     "gap_max_s": 60,
@@ -93,6 +93,15 @@ API_KEY = os.environ.get("INTERVALS_API_KEY", "")
 ATHLETE_ID = os.environ.get("INTERVALS_ATHLETE_ID", "")
 BASE_URL = "https://intervals.icu/api/v1"
 REQUEST_DELAY = 0.4
+SUBJECTIVE_WELLNESS_PATH = "ENDURANCE_HRV_wellness_subjective.csv"
+SUBJECTIVE_WELLNESS_FIELDS = [
+    "fatigue",
+    "stress",
+    "mood",
+    "motivation",
+    "soreness",
+    "injury",
+]
 
 
 def _env_uses_blackhole_proxy() -> bool:
@@ -194,6 +203,204 @@ class IntervalsClient:
     def get_fit_payload(self, activity_id: str) -> bytes:
         response = self.get(f"/activity/{activity_id}/fit-file")
         return response.content
+
+    def get_wellness(self, oldest: str, newest: str) -> list[dict]:
+        return self.get(
+            f"/athlete/{self.athlete_id}/wellness",
+            {"oldest": oldest, "newest": newest},
+        ).json()
+
+
+def _normalize_wellness_payload(payload: object) -> list[dict]:
+    if isinstance(payload, list):
+        return [row for row in payload if isinstance(row, dict)]
+    if isinstance(payload, dict):
+        for key in ("wellness", "data", "items", "results"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return [row for row in value if isinstance(row, dict)]
+    return []
+
+
+def _normalize_text(value: object) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if text.lower() in {"", "nan", "none", "null"}:
+        return ""
+    return text
+
+
+def _coerce_int_or_none(value: object) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        text = _normalize_text(value)
+        if not text:
+            return None
+        try:
+            num = float(text)
+        except (TypeError, ValueError):
+            return None
+    if not np.isfinite(num):
+        return None
+    rounded = int(round(num))
+    if abs(num - rounded) > 1e-6:
+        return None
+    return rounded
+
+
+def _map_subjective_label(field: str, raw: object) -> str:
+    value = _coerce_int_or_none(raw)
+    if value is None:
+        return ""
+
+    if field in {"fatigue", "stress"}:
+        return {
+            1: "bajo",
+            2: "medio",
+            3: "alto",
+            4: "extremo",
+        }.get(value, "")
+    if field == "soreness":
+        return {
+            1: "bajo",
+            2: "promedio",
+            3: "alto",
+            4: "extremo",
+        }.get(value, "")
+    if field == "mood":
+        return {
+            1: "grunon",
+            2: "aceptable",
+            3: "bueno",
+            4: "genial",
+        }.get(value, "")
+    if field == "motivation":
+        return {
+            1: "bajo",
+            2: "promedio",
+            3: "alto",
+            4: "extremo",
+        }.get(value, "")
+    if field == "injury":
+        return {
+            0: "ninguna",
+            1: "ninguna",
+            2: "niggle",
+            3: "pobre",
+            4: "lesionado",
+        }.get(value, "")
+    return ""
+
+
+def _merge_daily_rows_incremental(new_df: pd.DataFrame, csv_path: Path) -> pd.DataFrame:
+    if csv_path.exists():
+        try:
+            existing_df = pd.read_csv(csv_path, keep_default_na=False)
+        except Exception as exc:
+            log.warning(f"Could not read existing daily file ({csv_path}): {exc}")
+            existing_df = pd.DataFrame()
+    else:
+        existing_df = pd.DataFrame()
+
+    if existing_df.empty:
+        merged = new_df.copy()
+    else:
+        merged = pd.concat([existing_df, new_df], ignore_index=True, sort=False)
+
+    if "Fecha" not in merged.columns:
+        return merged
+
+    merged["Fecha"] = pd.to_datetime(merged["Fecha"], errors="coerce").dt.strftime("%Y-%m-%d")
+    today_iso = date.today().isoformat()
+    merged = merged.dropna(subset=["Fecha"]).copy()
+    merged = merged[merged["Fecha"] <= today_iso].copy()
+    merged = merged.drop_duplicates(subset=["Fecha"], keep="last")
+    merged = merged.sort_values("Fecha", kind="stable").reset_index(drop=True)
+    return merged
+
+
+def fetch_wellness_for_range(client: IntervalsClient, oldest: str, newest: str) -> pd.DataFrame:
+    raw_rows = _normalize_wellness_payload(client.get_wellness(oldest, newest))
+    if not raw_rows:
+        return pd.DataFrame(
+            columns=[
+                "Fecha",
+                "well_fatigue_raw",
+                "well_stress_raw",
+                "well_mood_raw",
+                "well_motivation_raw",
+                "well_soreness_raw",
+                "well_injury_raw",
+                "well_comment_raw",
+                "well_fatigue_label",
+                "well_stress_label",
+                "well_mood_label",
+                "well_motivation_label",
+                "well_soreness_label",
+                "well_injury_label",
+                "wellness_subjective_available",
+                "wellness_subjective_n_fields",
+                "wellness_subjective_coverage_7d",
+            ]
+        )
+
+    rows = []
+    for row in raw_rows:
+        fecha = _normalize_text(row.get("date")) or _normalize_text(row.get("id"))
+        if not fecha:
+            continue
+        out = {"Fecha": fecha}
+        for field in SUBJECTIVE_WELLNESS_FIELDS:
+            raw_value = row.get(field)
+            out[f"well_{field}_raw"] = _coerce_int_or_none(raw_value)
+            out[f"well_{field}_label"] = _map_subjective_label(field, raw_value)
+        out["well_comment_raw"] = _normalize_text(row.get("comments"))
+        rows.append(out)
+
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows)
+    df["Fecha"] = pd.to_datetime(df["Fecha"], errors="coerce").dt.strftime("%Y-%m-%d")
+    newest_exclusive = pd.to_datetime(newest, errors="coerce")
+    df = df.dropna(subset=["Fecha"])
+    if pd.notna(newest_exclusive):
+        newest_iso = newest_exclusive.strftime("%Y-%m-%d")
+        df = df[df["Fecha"] < newest_iso]
+    df = df.drop_duplicates(subset=["Fecha"], keep="last").sort_values("Fecha").reset_index(drop=True)
+
+    raw_cols = [f"well_{field}_raw" for field in SUBJECTIVE_WELLNESS_FIELDS]
+    df["wellness_subjective_n_fields"] = (
+        df[raw_cols]
+        .apply(pd.to_numeric, errors="coerce")
+        .notna()
+        .sum(axis=1)
+        .astype(int)
+    )
+    df["wellness_subjective_available"] = (
+        (df["wellness_subjective_n_fields"] > 0) | df["well_comment_raw"].astype(str).str.strip().ne("")
+    )
+
+    dt_index = pd.to_datetime(df["Fecha"], errors="coerce")
+    full_range = pd.date_range(dt_index.min(), dt_index.max(), freq="D")
+    coverage = (
+        df.assign(Fecha_dt=dt_index)
+        .set_index("Fecha_dt")["wellness_subjective_available"]
+        .reindex(full_range, fill_value=False)
+        .astype(bool)
+        .rolling(7, min_periods=1)
+        .mean()
+        .mul(100.0)
+        .round(1)
+    )
+    coverage.index = coverage.index.strftime("%Y-%m-%d")
+    df["wellness_subjective_coverage_7d"] = df["Fecha"].map(coverage.to_dict())
+
+    return df
 
 
 # ─── Smart block merge ────────────────────────────────────────────────────────
@@ -1222,6 +1429,7 @@ def build_training_audit(
 def write_metadata(output_dir: Path, oldest: str, newest: str,
                    n_sessions: int, n_days: int,
                    n_streams: int, n_notes: int,
+                   n_wellness_days: int = 0,
                    dt_stats: Optional[dict] = None,
                    zones_dist: Optional[dict] = None,
                    training_audit: Optional[dict] = None):
@@ -1236,6 +1444,7 @@ def write_metadata(output_dir: Path, oldest: str, newest: str,
             "days": n_days,
             "with_streams": n_streams,
             "with_notes": n_notes,
+            "with_subjective_wellness": n_wellness_days,
         },
     }
     if dt_stats:
@@ -1401,6 +1610,24 @@ def run_pipeline(oldest: str, newest: str, output_dir: Path,
     else:
         log.info("Mechanical enrichment enabled: Intervals FIT primary, no Polar fallback available")
 
+    output_dir.mkdir(parents=True, exist_ok=True)
+    log.info("Fetching subjective wellness...")
+    wellness_df = fetch_wellness_for_range(client, oldest, newest)
+    wellness_path = output_dir / SUBJECTIVE_WELLNESS_PATH
+    wellness_days_count = 0
+    if not wellness_df.empty:
+        wellness_merged = _merge_daily_rows_incremental(wellness_df, wellness_path)
+        wellness_merged.to_csv(wellness_path, index=False)
+        wellness_days_count = int(
+            pd.to_numeric(wellness_merged["wellness_subjective_available"], errors="coerce")
+            .fillna(False)
+            .astype(bool)
+            .sum()
+        )
+        log.info(f"Saved {len(wellness_merged)} subjective wellness days → {wellness_path}")
+    else:
+        log.info("No subjective wellness found in requested range")
+
     log.info("Fetching activities...")
     activities = client.get_activities(oldest, newest)
     log.info(f"Found {len(activities)} activities")
@@ -1424,7 +1651,6 @@ def run_pipeline(oldest: str, newest: str, output_dir: Path,
     new_df = pd.DataFrame(sessions)
 
     # Save sessions (incremental upsert by session_id)
-    output_dir.mkdir(parents=True, exist_ok=True)
     sessions_path = output_dir / "ENDURANCE_HRV_sessions.csv"
     df = merge_sessions_incremental(new_df, sessions_path)
     df = coerce_numeric_session_cols(df)
@@ -1492,7 +1718,8 @@ def run_pipeline(oldest: str, newest: str, output_dir: Path,
     training_audit = build_training_audit(df, day_df, dt_stats=dt_stats, zones_dist=zones_dist)
 
     write_metadata(output_dir, oldest, newest, len(df), len(day_df),
-                   n_streams_total, n_notes_total, dt_stats, zones_dist, training_audit)
+                   n_streams_total, n_notes_total, wellness_days_count,
+                   dt_stats, zones_dist, training_audit)
 
     # Summary
     log.info("─── Summary ───")

@@ -22,6 +22,7 @@ import secrets
 import time
 import requests
 import base64
+from polar_utils import env_flag, response_excerpt
 
 app = Flask(__name__)
 CORS(app)
@@ -78,13 +79,6 @@ def _basic_auth_header(client_id: str, client_secret: str) -> str:
     return f"Basic {token}"
 
 
-def _response_excerpt(response: requests.Response, limit: int = 300) -> str:
-    text = (response.text or "").strip()
-    if len(text) > limit:
-        text = text[:limit].rstrip() + "..."
-    return text
-
-
 def _register_polar_user(access_token: str, x_user_id: str | None, allow_transient_failure: bool = False) -> dict:
     member_id = f"local_{x_user_id or 'user'}"
     xml = f"<register><member-id>{member_id}</member-id></register>"
@@ -117,7 +111,7 @@ def _register_polar_user(access_token: str, x_user_id: str | None, allow_transie
             return {"status": "registered" if reg.status_code != 409 else "already_registered"}
 
         if reg.status_code in transient_codes:
-            last_error = f"Registro usuario falló temporalmente: {reg.status_code} {reg.reason} | {_response_excerpt(reg)}"
+            last_error = f"Registro usuario falló temporalmente: {reg.status_code} {reg.reason} | {response_excerpt(reg)}"
             if attempt < 4:
                 time.sleep(2 ** (attempt - 1))
                 continue
@@ -220,16 +214,6 @@ def _parse_iso_date(value: str):
         return datetime.fromisoformat((value or "").strip()).date()
     except Exception:
         return None
-
-
-def _env_flag(name: str, default: bool = False) -> bool:
-    raw = os.environ.get(name)
-    if raw is None:
-        return default
-    value = raw.strip().lower()
-    if value == "":
-        return default
-    return value in {"1", "true", "yes", "on"}
 
 
 def _sync_timeout_seconds(default: int = 1200) -> int:
@@ -458,13 +442,13 @@ def _dropbox_runtime_diagnostics() -> dict:
     ).strip()
 
     return {
-        "dropbox_rr_enabled": _env_flag("HRV_DROPBOX_RR_ENABLED", True),
+        "dropbox_rr_enabled": env_flag("HRV_DROPBOX_RR_ENABLED", True),
         "dropbox_rr_script": str(dropbox_script),
         "dropbox_rr_script_exists": dropbox_script.exists(),
-        "dropbox_rr_no_aux": _env_flag("HRV_DROPBOX_NO_AUX", True),
+        "dropbox_rr_no_aux": env_flag("HRV_DROPBOX_NO_AUX", True),
         "dropbox_rr_pair_limit": (os.environ.get("HRV_DROPBOX_PAIR_LIMIT") or "").strip() or None,
         "dropbox_folder_path_set": bool(dropbox_folder_path),
-        "dropbox_recursive": _env_flag("HRV_DROPBOX_RECURSIVE", True),
+        "dropbox_recursive": env_flag("HRV_DROPBOX_RECURSIVE", True),
         "dropbox_access_token_set": bool((os.environ.get("DROPBOX_ACCESS_TOKEN") or "").strip()),
         "dropbox_refresh_token_set": bool((os.environ.get("DROPBOX_REFRESH_TOKEN") or "").strip()),
         "dropbox_app_key_set": bool((os.environ.get("DROPBOX_APP_KEY") or "").strip()),
@@ -788,7 +772,7 @@ def index():
     return render_template_string(
         HTML_TEMPLATE,
         sync_timeout_sec=_sync_timeout_seconds(),
-        show_seed_import=_env_flag('HRV_SHOW_SEED_IMPORT', SEED_UPLOAD_DIR.exists()),
+        show_seed_import=env_flag('HRV_SHOW_SEED_IMPORT', SEED_UPLOAD_DIR.exists()),
     )
 
 

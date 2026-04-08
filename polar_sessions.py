@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import requests
+from polar_utils import get_field_variant, parse_duration_to_minutes, parse_float
 try:
     from fitparse import FitFile
 except Exception:  # pragma: no cover - optional import at runtime
@@ -30,67 +31,6 @@ POLAR_STANDING_SPORT_MAP = {
 }
 
 log = logging.getLogger("polar_sessions")
-
-
-def _get_field_variant(payload: dict[str, Any], *keys: str, default=None):
-    for key in keys:
-        if key in payload:
-            return payload[key]
-    return default
-
-
-def _parse_float(value) -> float | None:
-    if value is None or isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
-    text = str(value).strip()
-    if not text or text.lower() in {"nan", "none", "null", "n/a"}:
-        return None
-    text = text.replace(",", ".")
-    try:
-        return float(text)
-    except ValueError:
-        return None
-
-
-def parse_duration_to_minutes(value) -> float | None:
-    if value is None:
-        return None
-    if isinstance(value, (int, float)):
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
-
-    text = str(value).strip()
-    if not text:
-        return None
-    if not text.startswith("PT"):
-        return _parse_float(text)
-
-    text = text[2:]
-    total_seconds = 0.0
-    number = ""
-    for ch in text:
-        if ch.isdigit() or ch == ".":
-            number += ch
-            continue
-        if not number:
-            continue
-        value_num = float(number)
-        if ch == "H":
-            total_seconds += value_num * 3600.0
-        elif ch == "M":
-            total_seconds += value_num * 60.0
-        elif ch == "S":
-            total_seconds += value_num
-        number = ""
-    return total_seconds / 60.0 if total_seconds > 0 else None
-
 
 def _target_session_datetime(row: dict[str, str]) -> datetime:
     date_str = (row.get("Fecha") or "").strip()
@@ -124,7 +64,7 @@ def match_polar_exercise(
     allowed_polar_sports: set[str] | None = None,
 ) -> dict[str, Any]:
     target_dt = _target_session_datetime(row)
-    target_duration = _parse_float(row.get("duration_min"))
+    target_duration = parse_float(row.get("duration_min"))
     candidates: list[tuple[float, float, dict[str, Any]]] = []
     adjusted_target_dt = target_dt + timedelta(minutes=tz_offset_min)
 
@@ -133,7 +73,7 @@ def match_polar_exercise(
         if allowed_polar_sports and sport and sport not in allowed_polar_sports:
             continue
 
-        start_raw = _get_field_variant(ex, *FIELD_START_TIME, default="")
+        start_raw = get_field_variant(ex, *FIELD_START_TIME, default="")
         start_dt = parse_polar_local_datetime(start_raw)
         if not start_dt or start_dt.date() != adjusted_target_dt.date():
             continue
@@ -189,7 +129,7 @@ def _parse_sample_values(sample: dict[str, Any]) -> list[float]:
         token = token.strip()
         if not token or token.upper() == "NULL":
             continue
-        value = _parse_float(token)
+        value = parse_float(token)
         if value is not None:
             values.append(value)
     return values
@@ -289,7 +229,7 @@ def _build_mechanical_metrics(
 def extract_mechanical_metrics(exercise_json: dict[str, Any]) -> dict[str, Any]:
     sample_map: dict[str, list[float]] = {}
     for sample in exercise_json.get("samples") or []:
-        sample_type = str(_get_field_variant(sample, "sample-type", "sample_type", default="")).strip()
+        sample_type = str(get_field_variant(sample, "sample-type", "sample_type", default="")).strip()
         if not sample_type:
             continue
         sample_map[sample_type] = _parse_sample_values(sample)
