@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Sessions Schema
 
-**Revisión:** r2026-04-07 v3.7 (params_hash: c1c78a78)  
+**Revisión:** r2026-04-08 v3.8 (params_hash: c1c78a78)
 **Estado:** Producción
 
 **Documentos relacionados:**
@@ -41,8 +41,9 @@ Este pipeline está diseñado para **un único atleta** y consume la cuenta pers
 
 | Archivo | Granularidad | Para qué sirve |
 |---------|-------------|-----------------|
-| `sessions.csv` | 1 fila por sesión | Detalle completo de cada entrenamiento: zonas, work blocks, drift, clasificación. Lo que miras cuando quieres entender una sesión concreta. |
+| `sessions.csv` | 1 fila por sesión | Detalle completo de cada entrenamiento: zonas, work blocks, drift, clasificación y minutos primarios por zona (`z1/z2/z3_total_min`). Lo que miras cuando quieres entender una sesión concreta. |
 | `sessions_day.csv` | 1 fila por día | Agregados diarios + rolling 3d/7d/14d/28d con cobertura, más la capa canónica de contexto de carga (`ACWR`, `monotony`, `strain`) y una señal corta de clustering reciente de intensidad. Lo que lee `build_hrv_final_dashboard.py` para generar avisos de carga en reason_text. |
+| `ENDURANCE_HRV_intensity_distribution_weekly.csv` | 1 fila por semana y deporte | Resumen canónico `sport x week` de distribución observada de intensidad: minutos ponderados por zona, `work_*`, patrón descriptivo (`polarized`, `pyramidal`, `threshold`, `mixed`) y confianza explícita. Pensado para análisis semanal y comparativa intra-deporte; no alimenta el gate. |
 | `ENDURANCE_HRV_sessions_metadata.json` | 1 por corrida | Trazabilidad: versión del pipeline, parámetros usados, hash de configuración, sampling rate del stream y una auditoría ligera por capas (`dataset/signal/metric`) para coaching y carga. |
 | `ENDURANCE_HRV_wellness_subjective.csv` | 1 fila por día | Wellness subjetivo diario desde Intervals (`fatigue`, `stress`, `mood`, `motivation`, `soreness`, `injury`, comentario), con labels y cobertura 7d para análisis retrospectivo o capas separadas. |
 
@@ -69,7 +70,7 @@ El stream HR de Intervals es idéntico al TCX del sensor (verificado empíricame
 
 ## 2. SESSIONS.CSV — columnas y significado
 
-57 columnas organizadas en bloques funcionales. Cada bloque agrupa campos relacionados.
+58 columnas organizadas en bloques funcionales. Cada bloque agrupa campos relacionados.
 
 ### Bloque A — Identidad (9 campos)
 
@@ -104,7 +105,7 @@ Lo básico de la sesión: cuánto duró, cuánto te moviste, cuánto subiste.
 
 **¿Por qué `moving_min` y no `duration_min`?** Porque una sesión de trail de 90 minutos con 15 minutos de pausas en fuentes y fotos tiene 75 minutos de trabajo real. Si calculas zonas sobre los 90, diluyes la intensidad con tiempo donde tu corazón estaba bajando en una parada. La moving mask (`vel > 0.3 m/s`) asegura que solo contamos los momentos donde realmente estabas esforzándote.
 
-### Bloque C — Coste cardíaco global (8 campos)
+### Bloque C — Coste cardíaco global (9 campos)
 
 Cómo respondió tu corazón durante el movimiento: frecuencia media, pico, y distribución por zonas.
 
@@ -116,6 +117,7 @@ Cómo respondió tu corazón durante el movimiento: frecuencia media, pico, y di
 | `z1_pct` | float % | Porcentaje del tiempo **en movimiento** que tu corazón estuvo en Z1 (≤VT1). Es tu zona aeróbica cómoda: puedes hablar, el esfuerzo es sostenible indefinidamente. En una sesión "easy" bien ejecutada, debería ser >80%. | 40-95 |
 | `z2_pct` | float % | Porcentaje del tiempo en movimiento en Z2 (VT1 < HR ≤ VT2). Es tu zona "tempo": puedes hablar con frases cortas, el esfuerzo es mantenible 30-60 minutos. En subidas largas de trail, es donde pasas la mayor parte. | 5-50 |
 | `z3_pct` | float % | Porcentaje del tiempo en movimiento en Z3 (> VT2). Zona de alta intensidad: no puedes hablar, acumulas fatiga rápidamente, la recuperación tarda. Incluso en sesiones duras, suele ser <15% del total — los intervalos de Z3 son cortos dentro de una sesión larga. | 0-15 |
+| `z1_total_min` | float | Minutos totales en Z1. Completa la triada primaria de tiempo por zona y permite agregar semanas por deporte con ponderación correcta sin depender de medias de porcentajes por sesión. | 20-300 |
 | `z2_total_min` | float | Minutos totales en Z2 (sin redondeo de porcentaje). Útil para contabilizar volumen de trabajo moderado. | 5-40 |
 | `z3_total_min` | float | Minutos totales en Z3. **Este es el campo que alimenta `z3_7d_sum` en sessions_day** y que genera el aviso "Z3 acumulado alto" en reason_text. Incluso unos pocos minutos de Z3 tienen impacto real en la fatiga. | 0-15 |
 
@@ -340,7 +342,53 @@ Si el pipeline rellenara NaN→0 **antes** de contar nobs, contaría miércoles 
 
 ---
 
-## 5. METADATA.JSON — trazabilidad del pipeline
+## 5. INTENSITY_DISTRIBUTION_WEEKLY.CSV — distribución observada por deporte
+
+Este sidecar resume la estructura real de intensidad por combinación `deporte x semana` usando `sessions.csv` como fuente primaria. La semana se define de lunes a domingo.
+
+Principios:
+
+- usa minutos por zona (`z1_total_min`, `z2_total_min`, `z3_total_min`) como dato primario,
+- pondera por tiempo total, no por media aritmética simple de `%` por sesión,
+- es descriptivo e intra-deporte,
+- no alimenta `FINAL`, `DASHBOARD` ni recolorea el gate.
+
+Columnas:
+
+| Campo | Tipo | Qué es |
+|-------|------|--------|
+| `window_start` / `window_end` | date | Lunes y domingo de la ventana semanal. |
+| `sport` | enum | Deporte normalizado (`bike`, `road_run`, `trail_run`, `elliptical`, `hike` en v1). |
+| `n_sessions_total` | int | Sesiones del deporte observadas en esa semana. |
+| `n_sessions_usable` | int | Sesiones con cobertura suficiente de zonas para agregar minutos de forma válida. |
+| `total_duration_min` | float | Tiempo aeróbico total agregado de la ventana. |
+| `z1_total_min` / `z2_total_min` / `z3_total_min` | float | Minutos agregados por zona. |
+| `z1_pct_weighted` / `z2_pct_weighted` / `z3_pct_weighted` | float % | Porcentaje ponderado por tiempo: `sum(zN_total_min) / sum(z1+z2+z3) * 100`. |
+| `work_total_min` / `work_n_blocks` / `work_longest_min` | float/int | Resumen estructural de trabajo sostenido en la ventana. |
+| `work_avg_z3_pct_weighted` | float % | Intensidad media de Z3 dentro de los bloques, ponderada por `work_total_min`. |
+| `zones_source_mix` | string | Recuento resumido de procedencia de zonas, por ejemplo `icu=2;fallback=1`. |
+| `intensity_category_mix` | string | Mezcla resumida de categorías de sesión, por ejemplo `easy=2;work_steady=1`. |
+| `distribution_pattern` | enum | Etiqueta descriptiva: `polarized`, `pyramidal`, `threshold` o `mixed`. |
+| `distribution_confidence` | enum | `low`, `moderate` o `high` según soporte semanal real. |
+| `distribution_notes` | string | Motivos estructurados de confianza o limitación (`too_few_sessions`, `partial_zone_coverage`, `zones_fallback_present`, `low_total_duration`). |
+
+Reglas mínimas de confianza en v1:
+
+- `low` si hay `<2` sesiones totales o `<2` sesiones utilizables,
+- `moderate` con `2` sesiones utilizables,
+- `high` con `>=3` sesiones utilizables y `>=90` minutos agregados,
+- degradar un nivel si hay cobertura parcial de zonas o `zones_source = fallback`.
+
+Reglas mínimas de patrón en v1:
+
+- `threshold` si `Z2 >= Z1` y `Z2 > Z3`,
+- `pyramidal` si `Z1 > Z2 > Z3` y `Z1 - Z2 >= 10`,
+- `polarized` si `Z1 >= 70` y `Z3 >= Z2`,
+- `mixed` en el resto.
+
+---
+
+## 6. METADATA.JSON — trazabilidad del pipeline
 
 Cada corrida del pipeline genera un `ENDURANCE_HRV_sessions_metadata.json` que documenta exactamente qué se procesó, con qué parámetros, y si hay algo sospechoso.
 
@@ -418,7 +466,7 @@ Cada corrida del pipeline genera un `ENDURANCE_HRV_sessions_metadata.json` que d
 
 ---
 
-## 6. Conexión con el gate HRV (reason_text)
+## 7. Conexión con el gate HRV (reason_text)
 
 `build_hrv_final_dashboard.py` lee `sessions_day.csv` y genera avisos contextuales en `reason_text`. La carga canónica sigue siendo informativa: no recolorea el gate.
 
@@ -440,7 +488,7 @@ Cada corrida del pipeline genera un `ENDURANCE_HRV_sessions_metadata.json` que d
 
 ---
 
-## 7. Validación e integridad
+## 8. Validación e integridad
 
 Tests que deben pasar después de cada procesamiento:
 
@@ -481,6 +529,23 @@ assert set(day["intensity_clustering_level"].dropna().unique()) <= {"low", "high
 assert (~day["load_ctx_ready"] | (day["load_28d_nobs"] >= 14)).all()
 ```
 
+### intensity_distribution_weekly.csv
+
+```python
+weekly = pd.read_csv("ENDURANCE_HRV_intensity_distribution_weekly.csv")
+
+# Porcentajes ponderados coherentes
+valid = weekly.dropna(subset=["z1_pct_weighted", "z2_pct_weighted", "z3_pct_weighted"])
+z_sum = valid["z1_pct_weighted"] + valid["z2_pct_weighted"] + valid["z3_pct_weighted"]
+assert ((z_sum - 100.0).abs() < 0.2).all()
+
+# Confianza en vocabulario cerrado
+assert set(weekly["distribution_confidence"].dropna().unique()) <= {"low", "moderate", "high"}
+
+# Patrón en vocabulario cerrado
+assert set(weekly["distribution_pattern"].dropna().unique()) <= {"polarized", "pyramidal", "threshold", "mixed"}
+```
+
 ### ENDURANCE_HRV_sessions_metadata.json
 
 ```python
@@ -496,7 +561,7 @@ assert meta["zones_source_dist"].get("fallback", 0) == 0
 
 ---
 
-## 8. Conceptos clave (glosario)
+## 9. Conceptos clave (glosario)
 
 ### VT1 y VT2 (umbrales ventilatorios)
 
@@ -524,11 +589,17 @@ Cuántos días de la ventana rolling tenían un valor real (no NaN) para esa mé
 
 ---
 
-## 9. Historial de versiones y fixes
+## 10. Historial de versiones y fixes
 
-**Versión operativa actual:** `v3.7`
+**Versión operativa actual:** `v3.8`
 
 Lo siguiente es historial de cambios acumulados. No sustituye al estado vigente declarado al inicio del documento.
+
+### v3.8 (DO-01 distribución observada por deporte)
+1) `sessions.csv` bumped `57 -> 58` columnas con `z1_total_min`
+2) nuevo sidecar `ENDURANCE_HRV_intensity_distribution_weekly.csv`
+3) la agregación semanal por deporte usa minutos ponderados por zona, no medias simples de porcentajes
+4) la salida añade patrón descriptivo y confianza explícita sin tocar el gate HRV
 
 ### v3.0 (fixes del revisor externo)
 A) Moving mask en zonas/blocks/late_intensity  

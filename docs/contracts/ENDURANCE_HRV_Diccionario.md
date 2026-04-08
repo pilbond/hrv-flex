@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Diccionario de Columnas (FINAL/DASHBOARD)
 
-**Revisión:** r2026-04-08 v4.6 (RE-01 recovery context multiseñal)
+**Revisión:** r2026-04-08 v4.7 (DO-01 distribución de intensidad por deporte)
 **Estado:** Producción
 
 **Documentos relacionados:**
@@ -464,6 +464,85 @@ Cuando el día sale `VERDE`, la capa de carga puede cerrar de tres formas:
   Uso: dispara la capa canónica (`ACWR`, `monotony` o `strain`) sin apoyo de `load_3d`.
 - `VERDE con convergencia de carga (load_3d + ACWR/monotonía/strain): precaución intensidad reforzada`
   Uso: convergen el sidecar agudo y al menos una señal canónica. La conclusión no se repite dos veces; se sintetiza y se refuerza.
+
+---
+
+## 5quinque. INTENSITY_DISTRIBUTION_WEEKLY (sidecar CSV) — 21 columnas
+
+Generado por `build_sessions.py` como `ENDURANCE_HRV_intensity_distribution_weekly.csv`. Una fila por combinación `(semana ISO lunes-domingo, deporte)`. **No afecta al gate HRV ni a `reason_text`** — es una capa de análisis retrospectivo o coaching externo.
+
+### ¿Para qué sirve?
+
+Responde preguntas que ni el gate HRV ni `sessions_day.csv` pueden responder por sí solos:
+
+- ¿Fue esta semana realmente polarizada (mucho Z1 + algo de Z3) o en realidad todo fue Z2?
+- ¿El ciclismo y el trail run tienen perfiles de distribución distintos en mi histórico?
+- ¿Hay semanas dominadas por el "agujero negro" de intensidad (threshold), que sabotean adaptaciones sin generar fatiga HRV aparente?
+
+### Columnas de identificación
+
+| Columna | Qué es |
+|---------|--------|
+| `window_start` | Lunes de la semana ISO (YYYY-MM-DD). Punto de inicio de la ventana. |
+| `window_end` | Domingo de la semana ISO (YYYY-MM-DD). Siempre `window_start + 6 días`. |
+| `sport` | Deporte canónico: `bike`, `road_run`, `trail_run`, `elliptical`, `hike`. Otros deportes (fuerza, movilidad) no aparecen en este sidecar. |
+
+### Volumen y cobertura
+
+| Columna | Qué es |
+|---------|--------|
+| `n_sessions_total` | Número total de sesiones del deporte en esa semana. |
+| `n_sessions_usable` | Sesiones con datos de zona (z1/z2/z3) completos y positivos. Las restantes existen pero no aportaron distribución. |
+| `total_duration_min` | Minutos totales de las sesiones usables (`moving_min`). Si no hay `moving_min`, se usa la suma de zonas como proxy. |
+
+### Zonas ponderadas por duración
+
+| Columna | Qué es |
+|---------|--------|
+| `z1_total_min` | Minutos en Z1 (≤VT1) sumados en todas las sesiones usables de la semana. |
+| `z2_total_min` | Minutos en Z2 (VT1–VT2). |
+| `z3_total_min` | Minutos en Z3 (≥VT2). |
+| `z1_pct_weighted` | Z1 como % del total de zonas (z1+z2+z3). Ponderación por minutos, no por conteo de sesiones. Suma exactamente 100% junto con z2 y z3. |
+| `z2_pct_weighted` | Z2 como % del total de zonas. Un valor alto (≥50%) con z1 bajo indica "agujero negro" de intensidad. |
+| `z3_pct_weighted` | Z3 como % del total de zonas. |
+
+### Bloques de trabajo intenso
+
+| Columna | Qué es |
+|---------|--------|
+| `work_total_min` | Minutos en bloques de trabajo estructurado (≥VT1 continuo) sumados en la semana. |
+| `work_n_blocks` | Número total de bloques de trabajo en la semana. |
+| `work_longest_min` | Bloque de trabajo más largo de la semana (minutos). |
+| `work_avg_z3_pct_weighted` | Intensidad media de los bloques de trabajo: % Z3 promediado ponderando por duración de cada bloque. Indica si el trabajo fue sostenido cerca de VT2 o claramente por encima. |
+
+### Mezcla de fuentes y categorías
+
+| Columna | Qué es |
+|---------|--------|
+| `zones_source_mix` | Distribución de fuentes de zona en la semana. Formato `icu=N;fallback=N`. `fallback` indica sesiones sin zonas configuradas en Intervals.icu. |
+| `intensity_category_mix` | Distribución de categorías de intensidad asignadas a cada sesión. Formato `easy=N;work_intense=N;work_steady=N`. |
+
+### Clasificación de patrón
+
+| Columna | Qué es |
+|---------|--------|
+| `distribution_pattern` | Etiqueta descriptiva de la semana: `polarized` (Z1 alto + Z3 real, Z2 mínimo), `pyramidal` (Z1 > Z2 > Z3 con diferencia ≥10%), `threshold` (Z2 domina — el agujero negro), `mixed` (sin patrón claro). Vacío si no hay sesiones usables. |
+| `distribution_confidence` | Fiabilidad de la clasificación: `high` (≥3 sesiones usables, duración suficiente, zonas reales), `moderate` (2 sesiones o ligera degradación), `low` (1 sesión, duración < 90min, o zonas en fallback). Se degrada acumulativamente. |
+| `distribution_notes` | Causas de degradación o limitación, separadas por `;`. Posibles valores: `too_few_sessions`, `minimum_weekly_support`, `partial_zone_coverage`, `too_few_usable_sessions`, `low_total_duration`, `zones_fallback_present`, `no_usable_zone_sessions`. |
+
+### Lo que NO debes hacer
+
+- ❌ Usar `distribution_pattern` para recolorear el gate HRV de ningún día de esa semana
+- ❌ Interpretar `confidence=low` como "dato erróneo"; significa "insuficiente para una conclusión firme"
+- ❌ Comparar patrones entre semanas de `confidence=low` como si fueran equivalentes a semanas de `confidence=high`
+- ❌ Esperar que `z1_pct_weighted + z2_pct_weighted + z3_pct_weighted` sumen 100% con `total_duration_min` (las zonas se normalizan sobre su propia suma, no sobre el tiempo total de sesión)
+
+### Lo que sí debes hacer
+
+- ✅ Usar `distribution_confidence` para decidir cuánta fuerza dar a la etiqueta de patrón
+- ✅ Priorizar semanas de `confidence=high` para comparar distribuciones entre deportes
+- ✅ Detectar rachas de semanas `threshold` como señal de que estás entrenando demasiado en la zona "cómoda pero ineficiente"
+- ✅ Revisar `zones_source_mix` si el patrón parece anómalo: puede que el deporte no tenga zonas bien configuradas en Intervals.icu
 
 ---
 

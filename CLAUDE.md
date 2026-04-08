@@ -322,19 +322,21 @@ python egc_to_rr.py --dropbox-folder /ruta/carpeta --dropbox-recursive --outdir 
 
 ---
 
-## Snapshot Actual (2026-03-23)
+## Snapshot Actual (2026-04-08)
 
 ### HRV global
 - ✅ UI expone `/api/sync`, `/api/sync-sessions`, `/api/status`, endpoints OAuth
-- ✅ `build_sessions.py` genera sesiones + metadata (`pipeline_version v3.4`)
+- ✅ `build_sessions.py` genera sesiones + metadata (`pipeline_version v3.8`)
 - ✅ Flujo recomendado: Dropbox primero, Polar fallback
 - ✅ `ENDURANCE_HRV_sleep.csv` es archivo canónico de sueño (17 cols; carga en sessions_day.csv)
 - ✅ UI no permite ejecutar sync HRV y sync-sessions simultáneamente
-- ✅ UI prioriza bloque técnico visible
-- ✅ Veto agudo + reason_text en v4lite operativo
+- ✅ Veto agudo + reason_text operativo
 - ✅ Fetch sleep/nightly/intervals en polar_hrv_automation.py operativo
+- ✅ RE-01: capa de recuperación multiseñal en FINAL (62 cols); `recovery_support_class`, `recovery_discordance_flag` y `recovery_discordance_reason` sin tocar el gate
+- ✅ RE-02: sidecar `ENDURANCE_HRV_wellness_subjective.csv` (17 cols) para análisis retrospectivo; no alimenta `reason_text`
+- ✅ DO-01: sidecar `ENDURANCE_HRV_intensity_distribution_weekly.csv` (21 cols); distribución observada por `sport × semana ISO` con patrón (`polarized`, `pyramidal`, `threshold`, `mixed`) y confianza explícita; no alimenta el gate
 
-### Análisis de sesiones (v4 nuevo)
+### Análisis de sesiones
 - ✅ `analysis/analyze_session.py` tolera sesiones sin RR exportable
 - ✅ RR es opcional: `prepare_bundle()` registra fallo sin crashear
 - ✅ `run_analysis()` bifurca: con RR→análisis completo; sin RR→análisis degradado con cost model

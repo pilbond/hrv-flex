@@ -5,6 +5,7 @@ ENDURANCE HRV — Session Extraction Pipeline v3
 Extrae datos de sesiones desde Intervals.icu API y genera:
   - sessions.csv       (1 fila por sesión)
   - sessions_day.csv   (1 fila por día, agregado + rolling)
+  - intensity_distribution_weekly.csv (1 fila por semana y deporte)
   - ENDURANCE_HRV_sessions_metadata.json (trazabilidad de la corrida)
 
 Modos:
@@ -47,7 +48,7 @@ from polar_sessions import PolarSessionClient, extract_mechanical_metrics_from_f
 
 # ─── Version & params ─────────────────────────────────────────────────────────
 
-PIPELINE_VERSION = "v3.6"
+PIPELINE_VERSION = "v3.8"
 
 PARAMS = {
     "gap_max_s": 60,
@@ -94,6 +95,7 @@ ATHLETE_ID = os.environ.get("INTERVALS_ATHLETE_ID", "")
 BASE_URL = "https://intervals.icu/api/v1"
 REQUEST_DELAY = 0.4
 SUBJECTIVE_WELLNESS_PATH = "ENDURANCE_HRV_wellness_subjective.csv"
+INTENSITY_DISTRIBUTION_WEEKLY_PATH = "ENDURANCE_HRV_intensity_distribution_weekly.csv"
 SUBJECTIVE_WELLNESS_FIELDS = [
     "fatigue",
     "stress",
@@ -138,6 +140,7 @@ SPORT_MAP = {
 }
 
 AEROBIC_SPORTS = {"trail_run", "hike", "road_run", "bike", "swim", "elliptical"}
+INTENSITY_DISTRIBUTION_SPORTS = {"bike", "road_run", "trail_run", "elliptical", "hike"}
 
 # Fix C: fallback VT1/VT2 by sport
 VT_FALLBACK = {
@@ -520,6 +523,7 @@ def compute_hr_derived(hr: np.ndarray, vt1: int, vt2: int,
     result["z1_pct"] = round(100.0 * z1_s / total, 1)
     result["z2_pct"] = round(100.0 * z2_s / total, 1)
     result["z3_pct"] = round(100.0 * z3_s / total, 1)
+    result["z1_total_min"] = round(z1_s / 60.0, 1)
     result["z2_total_min"] = round(z2_s / 60.0, 1)
     result["z3_total_min"] = round(z3_s / 60.0, 1)
 
@@ -914,6 +918,7 @@ def build_session_row(activity: dict, client: IntervalsClient,
                 row.setdefault("z1_pct", round(100.0 * zone_times[0] / total_zt, 1))
                 row.setdefault("z2_pct", round(100.0 * zone_times[1] / total_zt, 1))
                 row.setdefault("z3_pct", round(100.0 * zone_times[2] / total_zt, 1))
+                row.setdefault("z1_total_min", round(zone_times[0] / 60.0, 1))
                 row.setdefault("z2_total_min", round(zone_times[1] / 60.0, 1))
                 row.setdefault("z3_total_min", round(zone_times[2] / 60.0, 1))
 
@@ -1196,6 +1201,231 @@ def build_sessions_day(sessions_df: pd.DataFrame) -> pd.DataFrame:
     day_df = day_df[day_col_order + extra_cols]
 
     return day_df
+
+
+def _degrade_distribution_confidence(level: str) -> str:
+    order = ["low", "moderate", "high"]
+    try:
+        idx = order.index(level)
+    except ValueError:
+        return "low"
+    return order[max(0, idx - 1)]
+
+
+def _format_value_mix(values: pd.Series) -> str:
+    clean = values.astype(str).str.strip()
+    clean = clean[~clean.isin({"", "nan", "None", "<NA>"})]
+    if clean.empty:
+        return ""
+    counts = clean.value_counts()
+    return ";".join(f"{label}={int(count)}" for label, count in counts.items())
+
+
+def classify_distribution_pattern(z1_pct: float, z2_pct: float, z3_pct: float) -> str:
+    if not all(np.isfinite([z1_pct, z2_pct, z3_pct])):
+        return ""
+    if z2_pct >= z1_pct and z2_pct > z3_pct:
+        return "threshold"
+    if z1_pct > z2_pct > z3_pct and (z1_pct - z2_pct) >= 10.0:
+        return "pyramidal"
+    if z1_pct >= 70.0 and z3_pct > 0 and z3_pct >= z2_pct:
+        return "polarized"
+    return "mixed"
+
+
+def build_intensity_distribution_weekly(sessions_df: pd.DataFrame) -> pd.DataFrame:
+    if sessions_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "window_start",
+                "window_end",
+                "sport",
+                "n_sessions_total",
+                "n_sessions_usable",
+                "total_duration_min",
+                "z1_total_min",
+                "z2_total_min",
+                "z3_total_min",
+                "z1_pct_weighted",
+                "z2_pct_weighted",
+                "z3_pct_weighted",
+                "work_total_min",
+                "work_n_blocks",
+                "work_longest_min",
+                "work_avg_z3_pct_weighted",
+                "zones_source_mix",
+                "intensity_category_mix",
+                "distribution_pattern",
+                "distribution_confidence",
+                "distribution_notes",
+            ]
+        )
+
+    df = sessions_df.copy()
+    df["Fecha"] = pd.to_datetime(df["Fecha"], errors="coerce")
+    df = df.dropna(subset=["Fecha"]).copy()
+    df = df[df["sport"].astype(str).isin(INTENSITY_DISTRIBUTION_SPORTS)].copy()
+    if df.empty:
+        return pd.DataFrame()
+
+    numeric_cols = [
+        "moving_min",
+        "z1_pct",
+        "z2_pct",
+        "z3_pct",
+        "z1_total_min",
+        "z2_total_min",
+        "z3_total_min",
+        "work_total_min",
+        "work_n_blocks",
+        "work_longest_min",
+        "work_avg_z3_pct",
+    ]
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    if "z1_total_min" not in df.columns:
+        df["z1_total_min"] = np.nan
+    z1_missing = df["z1_total_min"].isna()
+    can_derive_z1 = (
+        z1_missing
+        & df["moving_min"].notna()
+        & df["z2_total_min"].notna()
+        & df["z3_total_min"].notna()
+    )
+    df.loc[can_derive_z1, "z1_total_min"] = (
+        df.loc[can_derive_z1, "moving_min"]
+        - df.loc[can_derive_z1, "z2_total_min"]
+        - df.loc[can_derive_z1, "z3_total_min"]
+    ).clip(lower=0).round(1)
+
+    df["window_start"] = df["Fecha"] - pd.to_timedelta(df["Fecha"].dt.weekday, unit="D")
+    df["window_end"] = df["window_start"] + pd.to_timedelta(6, unit="D")
+
+    usable_mask = (
+        df["z1_total_min"].notna()
+        & df["z2_total_min"].notna()
+        & df["z3_total_min"].notna()
+        & (df["z1_total_min"] + df["z2_total_min"] + df["z3_total_min"] > 0)
+    )
+    df["usable_distribution"] = usable_mask
+
+    rows: list[dict] = []
+    group_cols = ["window_start", "window_end", "sport"]
+    for (window_start, window_end, sport), group in df.groupby(group_cols, dropna=False):
+        usable = group[group["usable_distribution"]].copy()
+        total_sessions = int(len(group))
+        usable_sessions = int(len(usable))
+        notes: list[str] = []
+
+        if total_sessions < 2:
+            confidence = "low"
+            notes.append("too_few_sessions")
+        elif total_sessions == 2:
+            confidence = "moderate"
+            notes.append("minimum_weekly_support")
+        else:
+            confidence = "high"
+
+        if usable_sessions == 0:
+            rows.append(
+                {
+                    "window_start": window_start.strftime("%Y-%m-%d"),
+                    "window_end": window_end.strftime("%Y-%m-%d"),
+                    "sport": sport,
+                    "n_sessions_total": total_sessions,
+                    "n_sessions_usable": 0,
+                    "total_duration_min": np.nan,
+                    "z1_total_min": np.nan,
+                    "z2_total_min": np.nan,
+                    "z3_total_min": np.nan,
+                    "z1_pct_weighted": np.nan,
+                    "z2_pct_weighted": np.nan,
+                    "z3_pct_weighted": np.nan,
+                    "work_total_min": np.nan,
+                    "work_n_blocks": np.nan,
+                    "work_longest_min": np.nan,
+                    "work_avg_z3_pct_weighted": np.nan,
+                    "zones_source_mix": _format_value_mix(group["zones_source"]),
+                    "intensity_category_mix": _format_value_mix(group["intensity_category"]),
+                    "distribution_pattern": "",
+                    "distribution_confidence": "low",
+                    "distribution_notes": "no_usable_zone_sessions",
+                }
+            )
+            continue
+
+        if usable_sessions < total_sessions:
+            confidence = _degrade_distribution_confidence(confidence)
+            notes.append("partial_zone_coverage")
+        if usable_sessions < 2:
+            confidence = "low"
+            notes.append("too_few_usable_sessions")
+
+        z1_total = round(float(usable["z1_total_min"].sum()), 1)
+        z2_total = round(float(usable["z2_total_min"].sum()), 1)
+        z3_total = round(float(usable["z3_total_min"].sum()), 1)
+        zone_total = z1_total + z2_total + z3_total
+        total_duration = round(float(usable["moving_min"].fillna(0).sum()), 1)
+        if total_duration <= 0:
+            total_duration = round(zone_total, 1)
+        if total_duration < 90.0:
+            confidence = _degrade_distribution_confidence(confidence)
+            notes.append("low_total_duration")
+
+        fallback_mask = group["zones_source"].astype(str).str.strip().str.lower().eq("fallback")
+        if bool(fallback_mask.any()):
+            confidence = _degrade_distribution_confidence(confidence)
+            notes.append("zones_fallback_present")
+
+        work_total = round(float(usable["work_total_min"].fillna(0).sum()), 1)
+        work_n_blocks = int(round(float(usable["work_n_blocks"].fillna(0).sum())))
+        work_longest = round(float(usable["work_longest_min"].fillna(0).max()), 1)
+        if work_total > 0:
+            weighted_work_z3 = (
+                usable["work_total_min"].fillna(0) * usable["work_avg_z3_pct"].fillna(0)
+            ).sum() / usable["work_total_min"].fillna(0).sum()
+            work_avg_z3_pct_weighted = round(float(weighted_work_z3), 1)
+        else:
+            work_avg_z3_pct_weighted = 0.0
+
+        z1_pct = round((z1_total / zone_total) * 100.0, 1)
+        z2_pct = round((z2_total / zone_total) * 100.0, 1)
+        z3_pct = round((z3_total / zone_total) * 100.0, 1)
+        pattern = classify_distribution_pattern(z1_pct, z2_pct, z3_pct)
+
+        rows.append(
+            {
+                "window_start": window_start.strftime("%Y-%m-%d"),
+                "window_end": window_end.strftime("%Y-%m-%d"),
+                "sport": sport,
+                "n_sessions_total": total_sessions,
+                "n_sessions_usable": usable_sessions,
+                "total_duration_min": round(total_duration, 1),
+                "z1_total_min": z1_total,
+                "z2_total_min": z2_total,
+                "z3_total_min": z3_total,
+                "z1_pct_weighted": z1_pct,
+                "z2_pct_weighted": z2_pct,
+                "z3_pct_weighted": z3_pct,
+                "work_total_min": work_total,
+                "work_n_blocks": work_n_blocks,
+                "work_longest_min": work_longest,
+                "work_avg_z3_pct_weighted": work_avg_z3_pct_weighted,
+                "zones_source_mix": _format_value_mix(group["zones_source"]),
+                "intensity_category_mix": _format_value_mix(group["intensity_category"]),
+                "distribution_pattern": pattern,
+                "distribution_confidence": confidence,
+                "distribution_notes": ";".join(dict.fromkeys(notes)),
+            }
+        )
+
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    out = out.sort_values(["window_start", "sport"], kind="stable").reset_index(drop=True)
+    return out
 
 
 # ─── Metadata ─────────────────────────────────────────────────────────────────
@@ -1484,6 +1714,7 @@ NUMERIC_SESSION_COLS = [
     "z1_pct",
     "z2_pct",
     "z3_pct",
+    "z1_total_min",
     "z2_total_min",
     "z3_total_min",
     "work_n_blocks",
@@ -1667,7 +1898,7 @@ def run_pipeline(oldest: str, newest: str, output_dir: Path,
         "duration_min", "moving_min", "distance_km",
         "elev_gain_m", "elev_loss_m", "elev_density",
         "hr_mean", "hr_max", "hr_p95",
-        "z1_pct", "z2_pct", "z3_pct", "z2_total_min", "z3_total_min",
+        "z1_pct", "z2_pct", "z3_pct", "z1_total_min", "z2_total_min", "z3_total_min",
         "work_n_blocks", "work_total_min", "work_longest_min",
         "work_avg_z3_pct", "work_blocks_min", "work_blocks_z3pct",
         "late_intensity", "cardiac_drift_pct",
@@ -1694,6 +1925,11 @@ def run_pipeline(oldest: str, newest: str, output_dir: Path,
     day_path = output_dir / "ENDURANCE_HRV_sessions_day.csv"
     day_df.to_csv(day_path, index=False)
     log.info(f"Saved {len(day_df)} days → {day_path}")
+
+    distribution_df = build_intensity_distribution_weekly(df)
+    distribution_path = output_dir / INTENSITY_DISTRIBUTION_WEEKLY_PATH
+    distribution_df.to_csv(distribution_path, index=False)
+    log.info(f"Saved {len(distribution_df)} weekly sport windows → {distribution_path}")
 
     # Metadata — with sampling rate canary (Fix 4)
     n_streams_total = int(df["hr_p95"].notna().sum()) if "hr_p95" in df.columns else 0
@@ -1731,6 +1967,7 @@ def run_pipeline(oldest: str, newest: str, output_dir: Path,
         log.info(f"  effort_recent: {df['effort_vs_recent'].value_counts().to_dict()}")
     if "effort_vs_anchor" in df.columns:
         log.info(f"  effort_anchor: {df['effort_vs_anchor'].value_counts().to_dict()}")
+    log.info(f"  weekly_distribution_rows: {len(distribution_df)}")
 
     return df, day_df
 

@@ -66,15 +66,16 @@ Elementos estructurales estables del repo:
 - documentacion historica en `docs/legacy/`,
 - modulo analitico local en `analysis/`.
 
-## 6. Snapshot actual (2026-04-07)
+## 6. Snapshot actual (2026-04-08)
 Estado actual de implementacion observado:
 
 - la UI expone `/api/sync`, `/api/sync-sessions`, `/api/status` y endpoints OAuth,
-- `build_sessions.py` genera `ENDURANCE_HRV_sessions.csv`, `ENDURANCE_HRV_sessions_day.csv` y `ENDURANCE_HRV_sessions_metadata.json`,
-- `build_sessions.py` genera `ENDURANCE_HRV_sessions.csv`, `ENDURANCE_HRV_sessions_day.csv`, `ENDURANCE_HRV_sessions_metadata.json` y `ENDURANCE_HRV_wellness_subjective.csv`,
+- `build_sessions.py` genera `ENDURANCE_HRV_sessions.csv`, `ENDURANCE_HRV_sessions_day.csv`, `ENDURANCE_HRV_intensity_distribution_weekly.csv`, `ENDURANCE_HRV_sessions_metadata.json` y `ENDURANCE_HRV_wellness_subjective.csv`,
 - `ENDURANCE_HRV_sessions_day.csv` ya incluye contexto canonico de carga (`acwr_simple_prev`, `monotony_7d_prev`, `strain_7d_prev`, `load_ctx_ready`) y clustering reciente de intensidad (`intense_day`, `intense_days_prev_3d`, `intense_days_prev_5d`, `intensity_clustering_flag`, `intensity_clustering_level`),
+- `ENDURANCE_HRV_intensity_distribution_weekly.csv` ya resume la distribucion observada por `sport x week` con ponderacion por minutos, patron (`polarized`, `pyramidal`, `threshold`, `mixed`) y confianza explicita,
 - `ENDURANCE_HRV_sessions_metadata.json` ya incluye `training_audit` por capas (`dataset_level`, `signal_level`, `metric_level`) para gobernar confianza de coaching/carga sin tocar el gate HRV,
 - `sessions.csv` ya incluye una capa mecanica minima opcional para deportes de pie con `run_power_*`, `speed_first_half`, `speed_second_half`, `cadence_first_half` y `cadence_second_half`,
+- `sessions.csv` ya persiste `z1_total_min` junto a `z2_total_min` y `z3_total_min` para soportar agregacion canonica por deporte sin medias simples de porcentajes,
 - el flujo recomendado de cobertura RR es Dropbox primero y Polar como fallback,
 - `ENDURANCE_HRV_sleep.csv` es el unico archivo canonico de sueno,
 - la UI no debe permitir ejecutar `sync` HRV y `sync-sessions` al mismo tiempo,
@@ -112,8 +113,8 @@ Si este bloque queda desactualizado, debe actualizarse o reducirse.
 
 - `build_sessions.py`
   Pipeline de sesiones desde Intervals.icu.
-  Genera `ENDURANCE_HRV_sessions.csv`, `ENDURANCE_HRV_sessions_day.csv`, `ENDURANCE_HRV_sessions_metadata.json` y `ENDURANCE_HRV_wellness_subjective.csv`.
-  Canoniza la capa mecanica minima para deportes de pie, el contexto de carga `ACWR/monotony/strain` y `training_audit`.
+  Genera `ENDURANCE_HRV_sessions.csv`, `ENDURANCE_HRV_sessions_day.csv`, `ENDURANCE_HRV_intensity_distribution_weekly.csv`, `ENDURANCE_HRV_sessions_metadata.json` y `ENDURANCE_HRV_wellness_subjective.csv`.
+  Canoniza la capa mecanica minima para deportes de pie, el contexto de carga `ACWR/monotony/strain`, `training_audit` y la distribucion observada semanal por deporte.
   Soporta `--backfill`, `--daily`, `--update` y `--date`.
 
 - `Dockerfile`
@@ -140,6 +141,7 @@ Complementarios:
 
 - `ENDURANCE_HRV_sessions.csv`
 - `ENDURANCE_HRV_sessions_day.csv`
+- `ENDURANCE_HRV_intensity_distribution_weekly.csv`
 - `ENDURANCE_HRV_sessions_metadata.json`
 - `ENDURANCE_HRV_wellness_subjective.csv`
 

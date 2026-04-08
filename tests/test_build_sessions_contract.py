@@ -5,9 +5,11 @@ from uuid import uuid4
 from unittest.mock import patch
 
 import pandas as pd
+import numpy as np
 from polar_sessions import extract_mechanical_metrics, match_polar_exercise
 
 from build_sessions import (
+    build_intensity_distribution_weekly,
     build_training_audit,
     build_sessions_day,
     build_session_row,
@@ -95,6 +97,7 @@ EXPECTED_SESSIONS_COLUMNS = [
     "z1_pct",
     "z2_pct",
     "z3_pct",
+    "z1_total_min",
     "z2_total_min",
     "z3_total_min",
     "work_n_blocks",
@@ -133,6 +136,30 @@ EXPECTED_SESSIONS_COLUMNS = [
     "stream_dt_est",
 ]
 
+EXPECTED_WEEKLY_DISTRIBUTION_COLUMNS = [
+    "window_start",
+    "window_end",
+    "sport",
+    "n_sessions_total",
+    "n_sessions_usable",
+    "total_duration_min",
+    "z1_total_min",
+    "z2_total_min",
+    "z3_total_min",
+    "z1_pct_weighted",
+    "z2_pct_weighted",
+    "z3_pct_weighted",
+    "work_total_min",
+    "work_n_blocks",
+    "work_longest_min",
+    "work_avg_z3_pct_weighted",
+    "zones_source_mix",
+    "intensity_category_mix",
+    "distribution_pattern",
+    "distribution_confidence",
+    "distribution_notes",
+]
+
 
 def _session(**overrides):
     base = {
@@ -157,6 +184,7 @@ def _session(**overrides):
         "z1_pct": 40.0,
         "z2_pct": 50.0,
         "z3_pct": 10.0,
+        "z1_total_min": 24.0,
         "z2_total_min": 29.0,
         "z3_total_min": 5.0,
         "work_n_blocks": 2,
@@ -200,8 +228,13 @@ def _session(**overrides):
 
 class BuildSessionsContractTests(unittest.TestCase):
     def test_sessions_csv_contract_header_matches_expected(self):
-        self.assertEqual(len(EXPECTED_SESSIONS_COLUMNS), 57)
+        self.assertEqual(len(EXPECTED_SESSIONS_COLUMNS), 58)
         self.assertEqual(EXPECTED_SESSIONS_COLUMNS[-1], "stream_dt_est")
+
+    def test_weekly_distribution_schema_matches_expected_columns(self):
+        weekly = build_intensity_distribution_weekly(pd.DataFrame([_session()]))
+        self.assertEqual(weekly.columns.tolist(), EXPECTED_WEEKLY_DISTRIBUTION_COLUMNS)
+        self.assertEqual(len(weekly.columns), 21)
 
     def test_sessions_day_schema_matches_expected_columns(self):
         sessions = pd.DataFrame(
@@ -650,6 +683,116 @@ class BuildSessionsContractTests(unittest.TestCase):
             if output_dir.exists():
                 output_dir.rmdir()
         self.assertEqual(merged.iloc[0]["intensity_category"], "NA")
+
+    def test_weekly_distribution_uses_time_weighting_and_classifies_pattern(self):
+        sessions = pd.DataFrame(
+            [
+                _session(
+                    session_id="b1",
+                    Fecha="2026-03-03",
+                    sport="bike",
+                    moving_min=100.0,
+                    z1_pct=90.0,
+                    z2_pct=10.0,
+                    z3_pct=0.0,
+                    z1_total_min=90.0,
+                    z2_total_min=10.0,
+                    z3_total_min=0.0,
+                    work_total_min=10.0,
+                    work_n_blocks=1,
+                    work_longest_min=10.0,
+                    work_avg_z3_pct=0.0,
+                    intensity_category="easy",
+                    session_group="endurance_easy",
+                ),
+                _session(
+                    session_id="b2",
+                    Fecha="2026-03-05",
+                    sport="bike",
+                    moving_min=10.0,
+                    z1_pct=10.0,
+                    z2_pct=90.0,
+                    z3_pct=0.0,
+                    z1_total_min=1.0,
+                    z2_total_min=9.0,
+                    z3_total_min=0.0,
+                    work_total_min=9.0,
+                    work_n_blocks=1,
+                    work_longest_min=9.0,
+                    work_avg_z3_pct=0.0,
+                    intensity_category="work_steady",
+                    session_group="endurance_moderate",
+                ),
+                _session(
+                    session_id="b3",
+                    Fecha="2026-03-06",
+                    sport="bike",
+                    moving_min=20.0,
+                    z1_pct=70.0,
+                    z2_pct=15.0,
+                    z3_pct=15.0,
+                    z1_total_min=14.0,
+                    z2_total_min=3.0,
+                    z3_total_min=3.0,
+                    work_total_min=12.0,
+                    work_n_blocks=2,
+                    work_longest_min=7.0,
+                    work_avg_z3_pct=25.0,
+                    intensity_category="work_intense",
+                    session_group="endurance_hard",
+                ),
+            ],
+            columns=EXPECTED_SESSIONS_COLUMNS,
+        )
+
+        weekly = build_intensity_distribution_weekly(sessions)
+        row = weekly.iloc[0]
+        self.assertEqual(row["sport"], "bike")
+        self.assertEqual(row["n_sessions_total"], 3)
+        self.assertEqual(row["n_sessions_usable"], 3)
+        self.assertAlmostEqual(row["z1_pct_weighted"], 80.8, places=1)
+        self.assertAlmostEqual(row["z2_pct_weighted"], 16.9, places=1)
+        self.assertAlmostEqual(row["z3_pct_weighted"], 2.3, places=1)
+        self.assertEqual(row["distribution_pattern"], "pyramidal")
+        self.assertEqual(row["distribution_confidence"], "high")
+
+    def test_weekly_distribution_degrades_confidence_with_partial_coverage_and_fallback(self):
+        sessions = pd.DataFrame(
+            [
+                _session(
+                    session_id="r1",
+                    Fecha="2026-03-10",
+                    sport="road_run",
+                    moving_min=40.0,
+                    z1_total_min=20.0,
+                    z2_total_min=15.0,
+                    z3_total_min=5.0,
+                    intensity_category="work_intense",
+                    session_group="endurance_hard",
+                    zones_source="fallback",
+                ),
+                _session(
+                    session_id="r2",
+                    Fecha="2026-03-12",
+                    sport="road_run",
+                    moving_min=35.0,
+                    z1_total_min=np.nan,
+                    z2_total_min=np.nan,
+                    z3_total_min=np.nan,
+                    intensity_category="easy",
+                    session_group="endurance_easy",
+                ),
+            ],
+            columns=EXPECTED_SESSIONS_COLUMNS,
+        )
+
+        weekly = build_intensity_distribution_weekly(sessions)
+        row = weekly.iloc[0]
+        self.assertEqual(row["n_sessions_total"], 2)
+        self.assertEqual(row["n_sessions_usable"], 1)
+        self.assertEqual(row["distribution_confidence"], "low")
+        self.assertIn("partial_zone_coverage", row["distribution_notes"])
+        self.assertIn("zones_fallback_present", row["distribution_notes"])
 
     def test_resolve_update_oldest_reads_fecha_without_default_na_coercion(self):
         output_dir = Path("tests") / f"_tmp_update_anchor_{uuid4().hex}"

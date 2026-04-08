@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Especificación Técnica
 
-**Revisión:** r2026-04-08 v4.6 (RE-01 recovery context multiseñal)
+**Revisión:** r2026-04-08 v4.7 (DO-01 distribución de intensidad por deporte)
 **Estado:** Producción
 
 ---
@@ -36,11 +36,11 @@ Reglas:
 - Si una incidencia menciona solo "v4", debe aclararse si habla de sistema, documento o módulo.
 
 Mapa operativo actual:
-- Sistema vigente: `ENDURANCE HRV V4.6`
+- Sistema vigente: `ENDURANCE HRV V4.7`
 - Módulo RR -> CORE/BETA: `build_hrv_core.py`, revisión `r2026-03-19`
-- Módulo CORE -> FINAL/DASHBOARD: `build_hrv_final_dashboard.py`, revisión `r2026-04-07`
+- Módulo CORE -> FINAL/DASHBOARD: `build_hrv_final_dashboard.py`, revisión `r2026-04-08`
 - Contrato estructural HRV: `ENDURANCE_HRV_Estructura.md`, revisión `r2026-04-08 v3.8`
-- Contrato de sesiones: `ENDURANCE_HRV_Sessions_Schema.md`, revisión `r2026-04-07 v3.7`
+- Contrato de sesiones: `ENDURANCE_HRV_Sessions_Schema.md`, revisión `r2026-04-08 v3.8`
 
 ---
 
@@ -459,7 +459,7 @@ Donde `RR_ref = mediana(RRbar_s)` en la ventana de 90 días. La idea: si tu RR d
 
 # PARTE II: Decisor CORE → FINAL/DASHBOARD
 
-**Revisión de módulo:** FINAL/DASHBOARD r2026-03-19
+**Revisión de módulo:** FINAL/DASHBOARD r2026-04-08
 **Objetivo:** a partir de las métricas fisiológicas del día (CORE), decidir si puedes meter intensidad, si debes moderar, o si toca descansar. El decisor es robusto y **no depende operativamente del modelo beta/cRMSSD** (que queda relegado a BETA_AUDIT).
 
 El decisor funciona en 7 pasos: clasificación de calidad → suavizado → baselines → gate 2D → override por sombras → residual → acción.
@@ -928,11 +928,68 @@ Si tu baseline actual está por debajo del P20 de todos tus baselines histórico
 | `ENDURANCE_HRV_sleep.csv` | Sueño nocturno y recuperación (Polar) | 17 |
 | `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento | 57 |
 | `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios + rolling con cobertura (_nobs) + contexto canónico de carga + clustering reciente de intensidad | 49 |
+| `ENDURANCE_HRV_intensity_distribution_weekly.csv` | Distribución observada de intensidad por deporte y semana ISO (DO-01). Sidecar analítico; no alimenta el gate ni `reason_text`. | 21 |
 | `ENDURANCE_HRV_sessions_metadata.json` | Trazabilidad pipeline sesiones (versión, params, sampling rate) + auditoría ligera de interpretabilidad para coaching/carga | — |
 | `ENDURANCE_HRV_master_BETA_AUDIT.csv` | Modelo beta del V3, para comparación histórica | 13 |
 
 El contrato exacto (columnas, orden, tipos) de CORE/FINAL/DASHBOARD/SLEEP está en `ENDURANCE_HRV_Estructura.md`.
-El contrato de sessions/sessions_day/metadata está en `ENDURANCE_HRV_Sessions_Schema.md`.
+El contrato de sessions/sessions_day/metadata/intensity_distribution_weekly está en `ENDURANCE_HRV_Sessions_Schema.md`.
+
+---
+
+## 17bis. Distribución de intensidad por deporte (DO-01)
+
+`build_sessions.py` genera, junto con `sessions_day.csv`, el sidecar `ENDURANCE_HRV_intensity_distribution_weekly.csv`. Una fila por combinación `(semana ISO, deporte)`.
+
+### Propósito
+
+Convertir la materia prima de sesiones en una lectura estable de la distribución de intensidad real por deporte. El objetivo es identificar si la semana fue polarizada, piramidal, threshold o mixta, y hacerlo de forma comparable entre semanas y deportes.
+
+**No alimenta el gate HRV ni `reason_text`**. Es una capa de análisis retrospectivo o coaching externo.
+
+### Deportes incluidos
+
+`bike`, `road_run`, `trail_run`, `elliptical`, `hike`. Fuerza, movilidad y otros deportes quedan excluidos por no tener estructura Z1/Z2/Z3 comparable.
+
+### Cálculo de zonas ponderadas
+
+Las zonas se agregan con **ponderación por duración total** (`z1_total_min`, `z2_total_min`, `z3_total_min`), no por conteo de sesiones. Una sesión de 120 min pesa el doble que una de 60 min. Los porcentajes (`z1_pct_weighted`, `z2_pct_weighted`, `z3_pct_weighted`) se calculan sobre la suma de las tres zonas usables, no sobre `moving_min`, para que sumen exactamente 100%.
+
+Cuando `z1_total_min` falta pero están disponibles `moving_min`, `z2_total_min` y `z3_total_min`, se deriva por diferencia (con `clip(lower=0)`).
+
+### Clasificación de patrón
+
+```
+classify_distribution_pattern(z1_pct, z2_pct, z3_pct):
+  1. threshold  → z2_pct >= z1_pct AND z2_pct > z3_pct
+                  (Z2 domina; el "agujero negro" de intensidad)
+  2. pyramidal  → z1_pct > z2_pct > z3_pct AND (z1_pct - z2_pct) >= 10%
+                  (descenso claro de Z1 a Z3)
+  3. polarized  → z1_pct >= 70% AND z3_pct > 0 AND z3_pct >= z2_pct
+                  (predominio Z1 con trabajo real en Z3, Z2 mínimo)
+  4. mixed      → resto de casos
+```
+
+El orden de evaluación es el declarado: `threshold` se comprueba primero; `mixed` es el bucket residual. `polarized` exige `z3_pct > 0` para evitar clasificar semanas de recuperación pura (100% Z1, sin ningún trabajo en Z3) como polarizadas.
+
+### Confianza (`distribution_confidence`)
+
+| Condición | Efecto |
+|-----------|--------|
+| `n_sessions_total < 2` | Inicial: `low` |
+| `n_sessions_total == 2` | Inicial: `moderate` |
+| `n_sessions_total >= 3` | Inicial: `high` |
+| `n_sessions_usable < n_sessions_total` | Degrada un nivel (`high→moderate`, `moderate→low`) |
+| `n_sessions_usable < 2` | Fuerza a `low` |
+| `total_duration_min < 90` | Degrada un nivel |
+| Alguna sesión con `zones_source = fallback` | Degrada un nivel |
+
+Cada condición degrada de forma acumulativa; `low` es el suelo.
+
+### Notas de auditoría (`distribution_notes`)
+
+Cadena separada por `;` con los motivos de degradación o ausencia de datos:
+`too_few_sessions`, `minimum_weekly_support`, `partial_zone_coverage`, `too_few_usable_sessions`, `low_total_duration`, `zones_fallback_present`, `no_usable_zone_sessions`.
 
 ---
 
@@ -1007,6 +1064,7 @@ Secciones obligatorias:
 | 2026-03-01 v4.1 | sleep.csv simplificado: 34→17 cols (solo Polar sleep/nightly, sin Intervals) |
 | 2026-03-01 v4.1 | reason_text dual source: sueño de sleep.csv, carga de sessions_day.csv |
 | 2026-03-01 v4.1 | Nuevos archivos sessions.csv (43 cols), sessions_day.csv (40 cols iniciales), ENDURANCE_HRV_sessions_metadata.json |
+| 2026-04-08 v4.7 | DO-01: `build_sessions.py` genera `ENDURANCE_HRV_intensity_distribution_weekly.csv` (21 cols, 1 fila por semana ISO × deporte); `classify_distribution_pattern` clasifica la semana como `polarized`, `pyramidal`, `threshold` o `mixed` con ponderación por minutos y confianza explícita; sidecar analítico, no alimenta el gate ni `reason_text` |
 | 2026-04-08 v4.6 | RE-01: `build_hrv_final_dashboard.py` añade `recovery_context_quality`, `recovery_support_class`, `recovery_discordance_flag` y `recovery_discordance_reason`; `reason_text` gana cierres semánticos de recuperación sin tocar `gate_final` |
 | 2026-04-08 v4.6 | FINAL bumped 58→62 cols para exponer la capa RE-01 sin tocar DASHBOARD |
 | 2026-04-07 v4.5 | RE-02 (decisión final): wellness subjetivo queda como sidecar retrospectivo; `build_hrv_final_dashboard.py` NO consume `wellness_subjective.csv`; `_merge_daily_rows_incremental` filtra fechas futuras al persistir |

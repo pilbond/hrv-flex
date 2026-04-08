@@ -73,6 +73,7 @@ El usuario MAY anadir:
 ### Primarias
 - `data/ENDURANCE_HRV_sessions_day.csv`
 - `data/ENDURANCE_HRV_sessions.csv`
+- `data/ENDURANCE_HRV_intensity_distribution_weekly.csv`
 - `data/ENDURANCE_HRV_sessions_metadata.json`
 - `data/ENDURANCE_HRV_master_FINAL.csv`
 - `data/ENDURANCE_HRV_master_DASHBOARD.csv`
@@ -83,6 +84,8 @@ El usuario MAY anadir:
 - `sessions_day.csv`: agregados diarios, rolling y estructura resumida
   de carga,
 - `sessions.csv`: detalle por sesion, deporte y distribucion por zonas,
+- `intensity_distribution_weekly.csv`: capa canonica `sport x week`
+  para distribucion observada, patron y confianza,
 - `ENDURANCE_HRV_sessions_metadata.json`: limites globales de
   interpretabilidad de la capa de sesiones (`training_audit`,
   `stream_sampling`, `zones_source_dist`),
@@ -245,6 +248,8 @@ observada, no la intencion del plan.
 
 MUST:
 
+- priorizar `ENDURANCE_HRV_intensity_distribution_weekly.csv` como
+  fuente canonica si existe fila para la semana y deporte analizados,
 - separar por deporte cuando haya multimodalidad material,
 - usar tiempo en Z1/Z2/Z3 y `work_*` como contexto estructural,
 - distinguir entre exposicion bruta por zonas y trabajo sostenido.
@@ -269,6 +274,14 @@ Presentacion recomendada cuando haya multimodalidad material:
 
 Reglas de presentacion:
 
+- si existe fila canonica en
+  `ENDURANCE_HRV_intensity_distribution_weekly.csv`, usar sus columnas
+  `z1_pct_weighted`, `z2_pct_weighted`, `z3_pct_weighted`,
+  `work_total_min`, `work_n_blocks`, `distribution_pattern` y
+  `distribution_confidence` como fuente primaria,
+- si no existe sidecar semanal o falta la fila de esa semana, reconstruir
+  la tabla manualmente desde `sessions.csv` y declararlo como fallback
+  metodologico,
 - debajo de la tabla, incluir 2-4 lineas interpretativas que conecten
   los numeros con la lectura de distribucion observada,
 - si un solo deporte domina claramente `>80%` del volumen aerobico
