@@ -20,6 +20,7 @@ Importante:
 - `build_sessions.py` no se ejecuta automaticamente en ese flujo.
 - `build_hrv_final_dashboard.py` usa `ENDURANCE_HRV_sessions_day.csv` solo si ya existe.
 - Si `sessions_day.csv` y `sessions_metadata.json` estan al dia, `FINAL` puede incorporar contexto de carga canonico (`ACWR`, `monotony`, `strain`, clustering de intensidad) y capas de recuperacion multisenal sin tocar el gate.
+- La capa de terreno `FP-02` no nace aqui: se genera despues dentro de `analysis/` al correr `analysis\\run_session_analysis.py` o `analysis\\analyze_session.py`.
 
 ## 2) Script por script
 
@@ -166,6 +167,10 @@ Importante:
     - `training_audit.dataset_level`
     - `training_audit.signal_level`
     - `training_audit.metric_level`
+  - No genera la capa local de terreno de `analysis`:
+    - no persiste `terrain_context`
+    - no persiste `terrain_fit_context`
+    - no escribe `terrain_intervals.csv` ni `terrain_climbs.csv`
 - Cuando usarlo:
   - Cuando quieras actualizar la capa de carga de entrenamiento.
   - Recomendado en cron separado (diario/backfill), no dentro del sync Polar.
@@ -253,4 +258,5 @@ Si tu pregunta es "que scripts importan para operar dia a dia":
 Y aparte, opcional recomendado:
 
 1. `build_sessions.py` para mantener al dia `sessions.csv`, `sessions_day.csv`, `sessions_metadata.json` y `wellness_subjective.csv`, y asi habilitar AP-01, AP-02, CDC-01, ADC-01 y RE-02 en el contexto del sistema.
+2. `analysis\\analyze_session.py` o `analysis\\run_session_analysis.py` cuando quieras explotar la capa analitica local de terreno (`GAP`, `VAM`, potencia por split y climbs FIT) sin tocar contratos canonicos.
 

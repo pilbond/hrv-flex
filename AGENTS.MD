@@ -66,7 +66,7 @@ Elementos estructurales estables del repo:
 - documentacion historica en `docs/legacy/`,
 - modulo analitico local en `analysis/`.
 
-## 6. Snapshot actual (2026-04-08)
+## 6. Snapshot actual (2026-04-09)
 Estado actual de implementacion observado:
 
 - la UI expone `/api/sync`, `/api/sync-sessions`, `/api/status` y endpoints OAuth,
@@ -79,7 +79,11 @@ Estado actual de implementacion observado:
 - el flujo recomendado de cobertura RR es Dropbox primero y Polar como fallback,
 - `ENDURANCE_HRV_sleep.csv` es el unico archivo canonico de sueno,
 - la UI no debe permitir ejecutar `sync` HRV y `sync-sessions` al mismo tiempo,
-- `analysis/` ya consume `training_audit` y la capa mecanica minima como contexto reproducible del informe.
+- `analysis/` ya consume `training_audit` y la capa mecanica minima como contexto reproducible del informe,
+- `analysis/` ya expone una capa analitica de terreno para sesiones a pie:
+  - `terrain_context` desde Intervals activity + intervals (`GAP`, `VAM`, potencia por split y `terrain_intervals.csv`)
+  - `terrain_fit_context` desde `FIT` record-level (`terrain_climbs.csv`, HR/cadencia/potencia por climb)
+  - estas salidas viven solo en `analysis` y no modifican `sessions.csv` ni el gate HRV.
 
 Si este bloque queda desactualizado, debe actualizarse o reducirse.
 
@@ -127,6 +131,7 @@ Si este bloque queda desactualizado, debe actualizarse o reducirse.
 - `analysis/`
   Modulo local para analisis de sesiones.
   Su operativa interna esta gobernada por `analysis/AGENTS.md`.
+  Puede generar artefactos locales de terreno (`terrain_intervals.csv`, `terrain_climbs.csv`) dentro de `analysis/reports/` sin convertirlos en outputs canonicos globales.
 
 ## 8. Outputs operativos canonicos
 Canonicos:

@@ -8,6 +8,11 @@
 - `ENDURANCE_HRV_Estructura.md` — contrato de datos (columnas y orden exacto)
 - `ENDURANCE_HRV_Sessions_Schema.md` — contrato del pipeline de sesiones (`sessions.csv`, `sessions_day.csv`, `ENDURANCE_HRV_sessions_metadata.json`)
 
+**Límite de alcance de este diccionario:**
+- documenta `CORE`, `FINAL` y `DASHBOARD`,
+- no documenta artefactos locales de `analysis/` como `terrain_context`, `terrain_fit_context`, `terrain_intervals.csv` o `terrain_climbs.csv`,
+- cuando haga falta esa capa, la fuente correcta es `analysis/SESSION_ANALYSIS_METHOD.md` y la nota funcional `docs/HRV/FP-02 ...`.
+
 ---
 
 ## 0. Cómo leer el CSV (operativo)

@@ -93,7 +93,19 @@ En analisis semanal, el modulo debe responder ademas:
 ### SHOULD priorizar cuando existan en el pipeline canonico
 - `training_audit` de `ENDURANCE_HRV_sessions_metadata.json` como contrato de confianza de la capa de sesiones,
 - `load_ctx_ready`, `acwr_simple_prev`, `monotony_7d_prev`, `strain_7d_prev` e `intensity_clustering_*` como contexto canonico de carga reciente,
-- `run_power_*`, `speed_first_half`, `speed_second_half`, `cadence_first_half` y `cadence_second_half` como evidencia mecanica minima reproducible para deportes de pie.
+- `run_power_*`, `speed_first_half`, `speed_second_half`, `cadence_first_half` y `cadence_second_half` como evidencia mecanica minima reproducible para deportes de pie,
+- `terrain_context` cuando exista en `summary.json` o `session_payload.json` como capa Intervals de terreno:
+  - `gap_mean`
+  - `gap_model`
+  - agregados por clase (`gap_*`, `power_*`)
+  - `terrain_intervals.csv` como detalle reproducible por split/km,
+- `terrain_fit_context` cuando exista como capa FIT paralela:
+  - `climbs_source`
+  - `climb_*`
+  - `signals_available`
+  - `cadence_unit`
+  - `validation_vs_v2`
+  - `terrain_climbs.csv` como detalle reproducible por climb.
 
 ### MUST NOT
 - tratar contexto verbal como sustituto de un dato medido, salvo para describir carga externa indoor cuando el archivo no la represente bien.
@@ -122,6 +134,8 @@ En analisis semanal, el modulo debe responder ademas:
   - `cadence_first_half`
   - `cadence_second_half`
 - si existe `training_audit`, usarlo como gobierno de confianza antes de reforzar lecturas de carga, drift, zonas o coaching.
+- si existe `terrain_context`, tratarlo como la capa Intervals validada para `GAP` y `VAM`; no recalcular `GAP` localmente si ya viene trazado con `gap_model`.
+- si existe `terrain_fit_context`, tratarlo como enriquecimiento biomecanico/fisiologico de terreno; no usarlo para reescribir la semantica de `terrain_context`, sino para complementarla.
 
 ## 7. Reglas de validez RR
 La definicion operativa de RR valido y los parametros de limpieza viven en `SESSION_ANALYSIS_METHOD.md`.

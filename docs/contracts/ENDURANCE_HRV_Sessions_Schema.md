@@ -34,6 +34,7 @@ Este pipeline está diseñado para **un único atleta** y consume la cuenta pers
 - ❌ No sustituye a Intervals.icu (que sigue siendo la fuente de carga/TSS/ATL/CTL)
 - ❌ No sustituye a Intervals.icu como fuente principal; Polar solo aporta una capa mecánica opcional en deportes de pie cuando hay match fiable
 - ❌ No calcula zonas por potencia (solo HR)
+- ❌ No genera la capa analítica de terreno `FP-02` (`terrain_context`, `terrain_fit_context`, `terrain_intervals.csv`, `terrain_climbs.csv`); esa capa vive solo en `analysis/` y no modifica este schema
 
 ---
 
@@ -65,6 +66,23 @@ Como fallback secundario, el pipeline puede enriquecer con muestras mecánicas d
 El stream HR de Intervals es idéntico al TCX del sensor (verificado empíricamente: 4844 vs 4843 puntos, Δ=0). No se necesita descargar TCX.
 
 **Sampling rate:** Intervals re-muestrea todos los streams a 1 Hz. El pipeline verifica esto con `stream_dt_est` (canary). Si alguna sesión se desvía significativamente de 1.0, las conversiones de muestras a minutos serían incorrectas.
+
+### Relación con `analysis/`
+
+El pipeline de sesiones y el módulo `analysis/` se conectan, pero no comparten contrato de salida:
+
+- `build_sessions.py` sigue siendo la fuente canónica de `sessions.csv`, `sessions_day.csv`, `ENDURANCE_HRV_sessions_metadata.json` y sidecars operativos.
+- `analysis/` puede reutilizar:
+  - `run_power_*`
+  - `speed_first_half/second_half`
+  - `cadence_first_half/second_half`
+  - `training_audit`
+- `analysis/` puede además construir artefactos locales de terreno (`FP-02`) a partir de Intervals/FIT:
+  - `terrain_context`
+  - `terrain_fit_context`
+  - `terrain_intervals.csv`
+  - `terrain_climbs.csv`
+- Esos artefactos no forman parte del contrato de `build_sessions.py` y no deben documentarse como columnas de `sessions.csv`.
 
 ---
 
@@ -184,6 +202,8 @@ Cuando existe señal utilizable, `sessions.csv` añade una capa mecánica mínim
 | `polar_cadence_available` | 0/1 | 1 si la fuente mecánica tiene cobertura útil de cadencia. |
 
 **Límites de la v1:** esta capa no introduce GAP, zonas por potencia ni métricas derivadas nuevas. Su objetivo es canonizar una base mecánica mínima para futuras tareas (`AP-01`, `FP-01`, etc.) sin romper compatibilidad.
+
+**Relación con `FP-02`:** la capa mecánica mínima sí puede ser reutilizada por `analysis/` para enriquecer terreno, pero `build_sessions.py` no persiste `GAP`, `VAM`, `terrain_context` ni artefactos por split/climb dentro de `sessions.csv`.
 
 **Limitación semántica importante:** `speed_first_half`, `speed_second_half`, `cadence_first_half` y `cadence_second_half` se calculan hoy cortando la serie en su mitad cronológica y filtrando dentro de cada mitad las muestras no útiles. Esto corrige el sesgo de partir por conteo de muestras válidas, pero sigue siendo una aproximación por índice de muestra: si la señal tiene huecos largos o muestreo muy irregular, la frontera no equivale exactamente a la mitad del tiempo absoluto.
 

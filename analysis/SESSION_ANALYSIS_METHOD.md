@@ -194,6 +194,12 @@ Si se usan otros, deben declararse.
   - `downhill` si grade `< -1%`
   - `rolling` en el resto
 
+#### Capa FIT de terreno
+- la capa `terrain_fit_context` es paralela a la capa de splits de Intervals y NO la sustituye,
+- `terrain_climbs.csv` resume climbs detectados desde `FIT` record-level con `HR`, `cadence` y `power` cuando existan,
+- `grade_mean_pct` en esa capa significa pendiente neta del climb detectado, no media aritmetica de pendientes por muestra,
+- `cadence` debe declararse en `strides_per_min` cuando se exponga como media de carrera.
+
 ### 7.3 Reglas de fuente
 - en cinta, priorizar `FIT` sobre `TCX` para continuidad real si ambos discrepan,
 - si el archivo indoor representa mal velocidad o distancia, reducir el peso interpretativo de `moving/pause` y priorizar bloques o protocolo declarado,

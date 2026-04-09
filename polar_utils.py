@@ -67,6 +67,21 @@ def parse_duration_to_minutes(value) -> float | None:
     return total_seconds / 60.0 if total_seconds > 0 else None
 
 
+def weighted_mean(rows, value_key: str, weight_key: str, parse_value=parse_float, parse_weight=parse_float) -> float | None:
+    weighted_sum = 0.0
+    total_weight = 0.0
+    for row in rows or []:
+        value = parse_value(row.get(value_key))
+        weight = parse_weight(row.get(weight_key))
+        if value is None or weight is None or weight <= 0:
+            continue
+        weighted_sum += value * weight
+        total_weight += weight
+    if total_weight <= 0:
+        return None
+    return weighted_sum / total_weight
+
+
 def env_flag(name: str, default: bool = False) -> bool:
     raw = os.environ.get(name)
     if raw is None:
