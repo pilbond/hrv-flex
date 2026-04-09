@@ -91,6 +91,7 @@ En analisis semanal, el modulo debe responder ademas:
 - `sessions.csv`, `sessions_day.csv` y `ENDURANCE_HRV_sessions_metadata.json` del pipeline de sesiones cuando existan.
 
 ### SHOULD priorizar cuando existan en el pipeline canonico
+- `training_audit_utils.py` como resolucion compartida de la capa `training_audit` para evitar reglas locales duplicadas en sesión y semanal,
 - `training_audit` de `ENDURANCE_HRV_sessions_metadata.json` como contrato de confianza de la capa de sesiones,
 - `load_ctx_ready`, `acwr_simple_prev`, `monotony_7d_prev`, `strain_7d_prev` e `intensity_clustering_*` como contexto canonico de carga reciente,
 - `run_power_*`, `speed_first_half`, `speed_second_half`, `cadence_first_half` y `cadence_second_half` como evidencia mecanica minima reproducible para deportes de pie,

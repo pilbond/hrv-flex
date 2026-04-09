@@ -149,6 +149,7 @@ python run_session_analysis.py \
   - `build_analyst_prompt_markdown()` — genera `analyst_prompt.md` desde `analyst_prompt_rules.md` + rutas de sesion.
   - `build_ai_handoff_markdown()` — genera `ai_handoff.md` con instrucciones de uso para la IA.
   - `render_report_markdown()` — genera `technical_report.md` con metricas clave en markdown.
+    - consume `training_audit` a traves de la resolucion compartida `training_audit_utils.py`; no reimplementa reglas locales por consumidor
     - ya expone `Training Audit`, `Dataset Audit Limits` y `Session Audit Flags` cuando hay `training_audit`
     - ya expone evidencia mecanica minima de AP-02 en deportes de pie (`run_power_mean`, `speed_first_half/second_half`, `cadence_first_half/second_half`) cuando existe en `sessions.csv`
     - ya expone `Terrain Context` y `Terrain FIT Context` cuando la sesion soporta la capa `FP-02`
@@ -284,6 +285,7 @@ session_payload.json incluye indicador rr_unavailable para el analista IA
 
 Si `sessions_metadata` incluye `training_audit` y/o la fila de `sessions.csv` trae señal mecánica mínima:
 
+- la resolucion de `training_audit` vive en `training_audit_utils.py` y la consumen tanto el report tecnico como los prompts de analisis,
 - `session_analysis_pipeline.py` lo incorpora al `session_payload.json`,
 - `technical_report.md` añade bloques estructurados de auditoría (`Training Audit`, `Dataset Audit Limits`, `Session Audit Flags`),
 - en sesiones de pie puede añadir evidencia mecánica reproducible como:

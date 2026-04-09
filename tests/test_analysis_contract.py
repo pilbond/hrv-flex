@@ -18,6 +18,13 @@ from analysis.session_analysis_pipeline import (
     rr_sections_visible,
 )
 from analysis.session_cost_model import normalize_sport
+from analysis.training_audit_utils import (
+    session_report_evidence,
+    summary_training_audit,
+    training_audit_dataset_limits,
+    training_audit_metric_state,
+    training_audit_session_affected,
+)
 
 
 def _session_row(**overrides):
@@ -119,6 +126,50 @@ class AnalysisContractTests(unittest.TestCase):
         self.assertIn("## Session Audit Flags", report)
         self.assertIn("session_zones_fallback", report)
         self.assertIn("session_without_stream", report)
+
+    def test_training_audit_helpers_support_nested_summary_layout(self):
+        summary = {
+            "sessions_metadata": {
+                "training_audit": {
+                    "signal_level": {
+                        "sampling_ok": False,
+                        "interpretability_limits": ["partial_aerobic_stream_coverage"],
+                    },
+                    "metric_level": {
+                        "zone_intensity": {"state": "contextual", "reasons": ["partial_aerobic_stream_coverage"]},
+                    },
+                }
+            },
+            "session_row": {
+                "sport": "road_run",
+                "zones_source": "fallback",
+                "stream_dt_est": "",
+                "cardiac_drift_pct": "",
+            },
+        }
+        self.assertEqual(summary_training_audit(summary)["metric_level"]["zone_intensity"]["state"], "contextual")
+        self.assertEqual(training_audit_metric_state(summary, "zone_intensity"), "contextual")
+        self.assertEqual(training_audit_dataset_limits(summary), ["partial_aerobic_stream_coverage"])
+        self.assertTrue(training_audit_session_affected(summary))
+
+    def test_session_report_evidence_uses_shared_helper_signals(self):
+        summary = {
+            "session_cost_model": {
+                "session_id": "i2",
+                "usable": True,
+                "confidence_cardio": "medium",
+                "confidence_mecanico": "medium",
+            },
+            "session_row": {
+                "sport": "bike",
+                "cardiac_drift_pct": "-30.3",
+                "mechanics_source": "",
+            },
+        }
+        evidence = session_report_evidence(summary)
+        self.assertIn(("session", "cardiac_drift_pct = -30.3% (perfil descendente de FC; revisar pacing/perfil)"), evidence)
+        self.assertIn(("confidence", "confidence_cardio = medium (base cardiometabolica parcial)"), evidence)
+        self.assertIn(("confidence", "confidence_mecanico = medium (sin señal mecánica directa; proxy por relieve/bloques)"), evidence)
 
     def test_render_report_sanitizes_rr_error_and_keeps_dataset_limits_structural(self):
         summary = {

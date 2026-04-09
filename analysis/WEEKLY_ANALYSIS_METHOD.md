@@ -127,6 +127,8 @@ El usuario MAY anadir:
 Si existe `data/ENDURANCE_HRV_sessions_metadata.json` y contiene
 `training_audit`:
 
+- la resolucion compartida vive en `analysis/training_audit_utils.py`; el informe semanal debe consumir esa capa, no re-interpretar el JSON con reglas locales distintas,
+- usar `summary_training_audit()` y `training_audit_metric_state()` como fuente canonica de lectura cuando el informe reutilice contexto de sesiones,
 - usar `training_audit.signal_level.interpretability_limits` como
   limites globales del dataset de sesiones,
 - distinguir siempre entre:

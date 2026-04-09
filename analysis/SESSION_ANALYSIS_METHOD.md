@@ -463,12 +463,14 @@ Si existe `data/ENDURANCE_HRV_sessions_metadata.json` del pipeline de sesiones:
 
 Si además existe `training_audit`:
 
+- la resolucion compartida vive en `analysis/training_audit_utils.py`;
+- usar `summary_training_audit()` para leer el bloque anidado o el legado plano sin duplicar logica;
 - usar `training_audit.signal_level.interpretability_limits` como fuente preferente de limitaciones globales de la capa de sesiones,
 - si `training_audit.metric_level.load_context.state != high`, rebajar la fuerza de cualquier lectura fuerte de carga reciente, `ACWR`, `monotony`, `strain` o clustering de intensidad,
 - si `training_audit.metric_level.coaching_load.state != high`, rebajar el tono de cualquier lectura fuerte de carga reciente o coaching,
 - si `training_audit.metric_level.zone_intensity.state` es `contextual` o `informational`, tratar distribución de zonas y work blocks como contexto orientativo, no como apoyo fuerte,
 - si `training_audit.metric_level.cardiac_drift.state != high`, explicitar que el drift reciente es parcial o no plenamente interpretable,
-- no reconstruir estas mismas degradaciones manualmente si la metadata ya las declara.
+- `training_audit_metric_state()`, `training_audit_dataset_limits()`, `training_audit_session_affected()` y `session_report_evidence()` son la traduccion compartida que usan los renderizadores; no reimplementar estas degradaciones manualmente si la metadata ya las declara,
 
 ### Regla critica HRV / recuperacion
 - `gate_badge`, `residual_z`, `RMSSD_stable`, `sleep`, `feel` y `reason_text` son contexto potente, pero no equivalen a diagnostico por si solos,
