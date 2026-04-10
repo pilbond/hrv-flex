@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Especificación Técnica
 
-**Revisión:** r2026-04-10 v4.9 (DO-02 polarización rolling por familia en sessions_day)
+**Revisión:** r2026-04-10 v4.10 (SS-01 reason_items interno sin cambio de salida)
 **Estado:** Producción
 
 ---
@@ -18,7 +18,7 @@
 Este repositorio usa **tres niveles distintos de versionado**. No deben compararse entre sí como si fueran la misma escala.
 
 1. **Versión de sistema**
-   `ENDURANCE HRV V4.9`
+   `ENDURANCE HRV V4.10`
    Identifica el comportamiento operativo global del sistema HRV vigente: reglas, outputs y contratos activos.
 
 2. **Revisión de documento**
@@ -36,10 +36,10 @@ Reglas:
 - Si una incidencia menciona solo "v4", debe aclararse si habla de sistema, documento o módulo.
 
 Mapa operativo actual:
-- Sistema vigente: `ENDURANCE HRV V4.9`
+- Sistema vigente: `ENDURANCE HRV V4.10`
 - Módulo RR -> CORE/BETA: `build_hrv_core.py`, revisión `r2026-03-19`
 - Módulo CORE -> FINAL/DASHBOARD: `build_hrv_final_dashboard.py`, revisión `r2026-04-08`
-- Contrato estructural HRV: `ENDURANCE_HRV_Estructura.md`, revisión `r2026-04-10 v3.10`
+- Contrato estructural HRV: `ENDURANCE_HRV_Estructura.md`, revisión `r2026-04-10 v3.11`
 - Contrato de sesiones: `ENDURANCE_HRV_Sessions_Schema.md`, revisión `r2026-04-10 v3.10`
 
 ---
@@ -833,7 +833,9 @@ bad_7d = nº de ROJO en los últimos 7 días
 - `ENDURANCE_HRV_sleep.csv` — sueño Polar (noche corta, fragmentada, nightly_rmssd)
 - `ENDURANCE_HRV_sessions_day.csv` — carga de entrenamiento (`ACWR`, `monotony`, `strain`, `work_7d`, `z3_7d`), clustering reciente de intensidad, señal DO-02 de polarización por familia y resumen de episodios
 
-**Generación:** Se evalúan las siguientes condiciones en orden. Las que se cumplen se concatenan con separador ` | `:
+**Generación:** Internamente, `build_hrv_final_dashboard.py` ya no apila texto libre sin estructura: emite `reason_items` en memoria y después renderiza `reason_text` como salida humana compacta. Cada item puede declarar `type`, `layer`, `source` y, cuando aplica, evidencia estructurada (`metric`, `value`, `threshold`, `codes`, `evidence`). Esta capa todavía es **interna**: no existe columna pública `reason_items_json` en `FINAL` ni `DASHBOARD`.
+
+Las condiciones visibles se siguen evaluando en orden y las que se cumplen se concatenan con separador ` | `:
 
 | Prioridad | Condición | Fuente | Texto generado |
 |-----------|-----------|--------|----------------|
@@ -1065,6 +1067,7 @@ Secciones obligatorias:
 | 2026-03-01 v4.1 | reason_text dual source: sueño de sleep.csv, carga de sessions_day.csv |
 | 2026-03-01 v4.1 | Nuevos archivos sessions.csv (43 cols), sessions_day.csv (40 cols iniciales), ENDURANCE_HRV_sessions_metadata.json |
 | 2026-04-10 v4.9 | DO-02: `build_sessions.py` genera la señal rolling de polarización por familia en `sessions_day.csv` (`dominant_family_prev_7d`, `dominant_family_share_prev_7d`, `n_sessions_usable_prev_7d`, `z1/z2/z3_pct_weighted_prev_7d`, `distribution_signal_confidence_prev_7d`, `polarisation_index_prev_7d`, `intensity_blackhole_flag`, `intensity_blackhole_episode_id`, `intensity_blackhole_episode_len`); cálculo causal `D-7..D-1` desde `sessions.csv`, sin tocar el gate; la frecuencia operativa se interpreta por episodios consecutivos de `True` y no por días sueltos; `episode_len` cuenta filas consecutivas emitidas en `sessions_day.csv`, no días calendario; el umbral de volumen de 90 min aplica a la familia dominante |
+| 2026-04-10 v4.10 | SS-01: `reason_text` pasa a renderizarse desde `reason_items` estructurados en memoria (`type/layer/source/...`), con separación interna entre dato medido, proxy, inferencia y acción; sin cambio de columnas públicas en `FINAL` ni `DASHBOARD` |
 | 2026-04-08 v4.7 | DO-01: `build_sessions.py` genera `ENDURANCE_HRV_intensity_distribution_weekly.csv` (21 cols, 1 fila por semana ISO × deporte); `classify_distribution_pattern` clasifica la semana como `polarized`, `pyramidal`, `threshold` o `mixed` con ponderación por minutos y confianza explícita; sidecar analítico, no alimenta el gate ni `reason_text` |
 | 2026-04-08 v4.6 | RE-01: `build_hrv_final_dashboard.py` añade `recovery_context_quality`, `recovery_support_class`, `recovery_discordance_flag` y `recovery_discordance_reason`; `reason_text` gana cierres semánticos de recuperación sin tocar `gate_final` |
 | 2026-04-08 v4.6 | FINAL bumped 58→62 cols para exponer la capa RE-01 sin tocar DASHBOARD |

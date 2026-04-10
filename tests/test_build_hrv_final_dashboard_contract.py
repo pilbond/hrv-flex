@@ -1,3 +1,4 @@
+import inspect
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -48,6 +49,189 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
             final_builder.parse_args(["--data-dir", "data", "--decision-mode", "O2_SHADOW"]),
             {"data_dir": "data", "decision_mode": "O2_SHADOW"},
         )
+
+    def test_emit_reason_builds_structured_item_and_render_text(self):
+        reason_items = [[]]
+        reason_parts = [[]]
+
+        final_builder._emit_reason(
+            reason_items,
+            reason_parts,
+            0,
+            type="acwr",
+            layer="inference",
+            source="sessions_day",
+            variant="high",
+            severity="high",
+            metric="acwr_simple_prev",
+            value=1.4,
+            threshold=1.3,
+            gate_scope="green",
+            codes=["load_context_high"],
+            evidence=["acwr_simple_prev=1.4"],
+            message="ACWR alto: carga aguda por encima de la base crónica (1.40)",
+        )
+
+        self.assertEqual(reason_parts[0], ["ACWR alto: carga aguda por encima de la base crónica (1.40)"])
+        self.assertEqual(reason_items[0][0]["type"], "acwr")
+        self.assertEqual(reason_items[0][0]["layer"], "inference")
+        self.assertEqual(reason_items[0][0]["source"], "sessions_day")
+        self.assertEqual(reason_items[0][0]["metric"], "acwr_simple_prev")
+        self.assertEqual(reason_items[0][0]["codes"], ["load_context_high"])
+        self.assertEqual(reason_items[0][0]["evidence"], ["acwr_simple_prev=1.4"])
+
+        final_builder._emit_reason(
+            reason_items,
+            reason_parts,
+            0,
+            type="data_quality",
+            layer="measured",
+            source="hrv_pipeline",
+            gate_scope="green_or_amber",
+            metric="Artifact_pct",
+            value=12.5,
+            threshold=15.0,
+            evidence=["Tiempo_Estabilizacion=75s"],
+            message="Dato dudoso: limitar a Z1-Z2 máx 90min",
+        )
+
+        final_builder._emit_reason(
+            reason_items,
+            reason_parts,
+            0,
+            type="action_constraint",
+            layer="action",
+            source="gate_final",
+            variant="fragile",
+            message="contener la intensidad",
+        )
+
+        self.assertEqual(
+            reason_parts[0],
+            [
+                "ACWR alto: carga aguda por encima de la base crónica (1.40)",
+                "Dato dudoso: limitar a Z1-Z2 máx 90min",
+                "contener la intensidad",
+            ],
+        )
+        self.assertEqual(reason_items[0][1]["type"], "data_quality")
+        self.assertEqual(reason_items[0][1]["layer"], "measured")
+        self.assertEqual(reason_items[0][1]["metric"], "Artifact_pct")
+        self.assertEqual(reason_items[0][1]["value"], 12.5)
+        self.assertEqual(reason_items[0][1]["threshold"], 15.0)
+        self.assertEqual(reason_items[0][1]["evidence"], ["Tiempo_Estabilizacion=75s"])
+        self.assertEqual(reason_items[0][2]["type"], "action_constraint")
+        self.assertEqual(reason_items[0][2]["layer"], "action")
+
+    def test_emit_reason_rejects_invalid_layer(self):
+        with self.assertRaises(AssertionError):
+            final_builder._emit_reason(
+                [[]],
+                [[]],
+                0,
+                type="bad",
+                layer="context",
+                source="test",
+                message="nope",
+            )
+
+    def test_emit_reason_rejects_invalid_severity(self):
+        with self.assertRaises(AssertionError):
+            final_builder._emit_reason(
+                [[]],
+                [[]],
+                0,
+                type="bad",
+                layer="inference",
+                source="test",
+                severity="critical",
+                message="nope",
+            )
+
+    def test_emit_reason_omits_none_optional_fields(self):
+        reason_items = [[]]
+        reason_parts = [[]]
+
+        final_builder._emit_reason(
+            reason_items,
+            reason_parts,
+            0,
+            type="acwr",
+            layer="inference",
+            source="sessions_day",
+            message="ACWR bajo: descarga o infraexposición reciente (0.80)",
+        )
+
+        item = reason_items[0][0]
+        self.assertEqual(item["type"], "acwr")
+        self.assertEqual(item["layer"], "inference")
+        self.assertEqual(item["source"], "sessions_day")
+        self.assertEqual(item["message"], "ACWR bajo: descarga o infraexposición reciente (0.80)")
+        self.assertNotIn("variant", item)
+        self.assertNotIn("severity", item)
+        self.assertNotIn("metric", item)
+
+    def test_reason_parts_append_is_only_used_inside_helper(self):
+        source = inspect.getsource(final_builder)
+        append_lines = [
+            line.strip()
+            for line in source.splitlines()
+            if "reason_parts[" in line and ".append(" in line
+        ]
+        self.assertEqual(append_lines, ["reason_parts[idx].append(message)"])
+
+    def test_build_emits_only_allowed_reason_layers(self):
+        core = _core_frame()
+
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            _write_sessions_day(
+                data_dir,
+                [
+                    {
+                        "Fecha": "2026-02-07",
+                        "intense_days_prev_3d": 2,
+                        "intense_days_prev_5d": 3,
+                        "intensity_clustering_flag": 1,
+                        "intensity_clustering_level": "high",
+                    },
+                    {
+                        "Fecha": "2026-02-08",
+                        "load_day": 15,
+                        "load_3d": 75,
+                        "load_3d_nobs": 3,
+                    },
+                ],
+            )
+            _write_sleep(
+                data_dir,
+                [
+                    {
+                        "Fecha": "2026-02-08",
+                        "polar_sleep_duration_min": 330,
+                        "polar_interruptions_long": 4,
+                        "sleep_dur_p10": 360,
+                        "sleep_int_p90": 8,
+                    }
+                ],
+            )
+
+            captured_layers: list[str] = []
+            original_emit_reason = final_builder._emit_reason
+
+            def capture_emit_reason(*args, **kwargs):
+                captured_layers.append(kwargs["layer"])
+                return original_emit_reason(*args, **kwargs)
+
+            with patch.object(final_builder, "DATA_DIR", data_dir), patch.object(
+                final_builder, "_emit_reason", side_effect=capture_emit_reason
+            ):
+                final, _ = final_builder.build_final_and_dashboard(core, final_builder.Config())
+
+        self.assertFalse(final.empty)
+        self.assertTrue(set(captured_layers).issubset(final_builder._VALID_LAYERS))
+        self.assertIn("inference", captured_layers)
+        self.assertIn("action", captured_layers)
 
     def test_red_without_recent_load_uses_sleep_specific_wording_only_when_sleep_exists(self):
         core = _core_frame()

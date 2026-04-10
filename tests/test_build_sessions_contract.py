@@ -55,6 +55,17 @@ EXPECTED_SESSIONS_DAY_COLUMNS = [
     "intense_days_prev_5d",
     "intensity_clustering_flag",
     "intensity_clustering_level",
+    "dominant_family_prev_7d",
+    "dominant_family_share_prev_7d",
+    "n_sessions_usable_prev_7d",
+    "z1_pct_weighted_prev_7d",
+    "z2_pct_weighted_prev_7d",
+    "z3_pct_weighted_prev_7d",
+    "distribution_signal_confidence_prev_7d",
+    "polarisation_index_prev_7d",
+    "intensity_blackhole_flag",
+    "intensity_blackhole_episode_id",
+    "intensity_blackhole_episode_len",
     "z3_7d_sum",
     "z3_7d_nobs",
     "work_7d_sum",
@@ -281,7 +292,7 @@ class BuildSessionsContractTests(unittest.TestCase):
         )
         day = build_sessions_day(sessions)
         self.assertEqual(day.columns.tolist(), EXPECTED_SESSIONS_DAY_COLUMNS)
-        self.assertEqual(len(day.columns), 49)
+        self.assertEqual(len(day.columns), 60)
 
     def test_finish_strong_maps_to_endurance_easy(self):
         self.assertEqual(classify_session_group("trail_run", "finish_strong"), "endurance_easy")

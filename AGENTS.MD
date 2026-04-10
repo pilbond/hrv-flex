@@ -138,7 +138,7 @@ Canonicos:
 
 - `ENDURANCE_HRV_master_CORE.csv` (18 columnas)
 - `ENDURANCE_HRV_master_BETA_AUDIT.csv` (13 columnas)
-- `ENDURANCE_HRV_master_FINAL.csv` (58 columnas)
+- `ENDURANCE_HRV_master_FINAL.csv` (62 columnas)
 - `ENDURANCE_HRV_master_DASHBOARD.csv` (10 columnas)
 - `ENDURANCE_HRV_sleep.csv` (17 columnas)
 

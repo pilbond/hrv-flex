@@ -95,6 +95,8 @@ LOAD_3D_HIGH = 250
 LOAD_3D_CAUTION = 200
 WORK_7D_HIGH = 200
 Z3_7D_HIGH = 60
+_VALID_LAYERS = {"measured", "proxy", "inference", "action"}
+_VALID_SEVERITIES = {"low", "medium", "high", "very_high"}
 
 log = logging.getLogger("build_hrv_final_dashboard")
 
@@ -347,6 +349,55 @@ def _append_unique(items: List[str], value: str) -> None:
         items.append(value)
 
 
+def _emit_reason(
+    reason_items: List[List[dict]],
+    reason_parts: List[List[str]],
+    idx: int,
+    *,
+    type: str,
+    layer: str,
+    source: str,
+    message: str,
+    variant: Optional[str] = None,
+    severity: Optional[str] = None,
+    metric: Optional[str] = None,
+    value: Optional[object] = None,
+    threshold: Optional[object] = None,
+    gate_scope: Optional[str] = None,
+    codes: Optional[List[str]] = None,
+    evidence: Optional[List[str]] = None,
+) -> None:
+    assert layer in _VALID_LAYERS, f"layer inválido: {layer!r}"
+    if severity is not None:
+        assert severity in _VALID_SEVERITIES, f"severity inválida: {severity!r}"
+
+    item: Dict[str, object] = {
+        "type": type,
+        "layer": layer,
+        "source": source,
+        "message": message,
+    }
+    if variant is not None:
+        item["variant"] = variant
+    if severity is not None:
+        item["severity"] = severity
+    if metric is not None:
+        item["metric"] = metric
+    if value is not None:
+        item["value"] = value
+    if threshold is not None:
+        item["threshold"] = threshold
+    if gate_scope is not None:
+        item["gate_scope"] = gate_scope
+    if codes:
+        item["codes"] = [code for code in codes if str(code).strip()]
+    if evidence:
+        item["evidence"] = [bit for bit in evidence if str(bit).strip()]
+
+    reason_items[idx].append(item)
+    reason_parts[idx].append(message)
+
+
 def _split_recovery_codes(codes: List[str]) -> Tuple[List[str], List[str]]:
     sleep_codes = [
         code
@@ -408,31 +459,38 @@ def _classify_recovery_support(
     return "neutral", False
 
 
-def _recovery_message(gate: str, recovery_class: str, support_codes: List[str], caution_codes: List[str]) -> str:
+def _recovery_summary_message(gate: str, recovery_class: str, support_codes: List[str], caution_codes: List[str]) -> str:
     caution_set = set(caution_codes)
     support_set = set(support_codes)
 
     if gate == VERDE and recovery_class == "fragile":
-        if (
-            {"sleep_basic_poor", "sleep_score_low", "nightly_rmssd_low"} & caution_set
-            and {"load_3d_high", "load_context_high", "intensity_clustering"} & caution_set
-        ):
-            return "VERDE con recuperación frágil: mala noche + carga reciente piden contener la intensidad"
-        if {"sleep_basic_poor", "sleep_score_low", "nightly_rmssd_low"} & caution_set:
-            return "VERDE con recuperación nocturna frágil: contener la intensidad"
-        return "VERDE con recuperación frágil por carga reciente: contener la intensidad"
+        return "VERDE con recuperación frágil"
     if gate == AMBAR and recovery_class == "supported":
         if {"sleep_score_good", "nightly_rmssd_good"} & support_set:
-            return "ÁMBAR con soporte nocturno aceptable: Z2 controlado es razonable si sensaciones normales"
+            return "ÁMBAR con soporte nocturno aceptable"
         if "recent_load_low" in support_set:
-            return "ÁMBAR con poca carga reciente: Z2 controlado es razonable si sensaciones normales"
-        return "ÁMBAR con soporte objetivo aceptable: Z2 controlado es razonable si sensaciones normales"
+            return "ÁMBAR con poca carga reciente"
+        return "ÁMBAR con soporte objetivo aceptable"
     if gate == AMBAR and recovery_class == "fragile":
-        return "ÁMBAR con recuperación frágil: mejor sesgo conservador hoy"
+        return "ÁMBAR con recuperación frágil"
     if gate == ROJO and recovery_class == "conflicted":
-        return "ROJO con discordancia objetiva: sueño y carga no explican del todo la señal"
+        return "ROJO con discordancia objetiva"
     if gate == ROJO and recovery_class == "supported":
         return "ROJO respaldado por mala recuperación o carga reciente"
+    return ""
+
+
+def _recovery_action_message(gate: str, recovery_class: str, support_codes: List[str], caution_codes: List[str]) -> str:
+    if gate == VERDE and recovery_class == "fragile":
+        return "contener la intensidad"
+    if gate == AMBAR and recovery_class == "supported":
+        return "Z2 controlado es razonable si sensaciones normales"
+    if gate == AMBAR and recovery_class == "fragile":
+        return "mejor sesgo conservador hoy"
+    if gate == ROJO and recovery_class == "conflicted":
+        return "revisar factores externos"
+    if gate == ROJO and recovery_class == "supported":
+        return "suave o descanso"
     return ""
 
 
@@ -525,6 +583,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
     veto_agudo = np.array([False]*len(df), dtype=bool)
     ln_pre_veto = np.full(len(df), np.nan, dtype=float)
     swc_ln_floor_arr = np.full(len(df), np.nan, dtype=float)
+    reason_items: List[List[dict]] = [[] for _ in range(len(df))]
     reason_parts: List[List[str]] = [[] for _ in range(len(df))]
 
     # Precompute lnRRbar
@@ -581,9 +640,20 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                 ln_pre_veto[i] = ln_used[i]
                 ln_used[i] = ln_today[i]
                 hr_used[i] = hr_today[i]
-                reason_parts[i].append(
-                    f"Caída aguda HRV: raw={ln_today[i]:.3f} vs base={b_ln:.3f} "
-                    f"(drop={ln_today[i]-b_ln:.3f}, umbral=-{VETO_MULT*swc_v4:.3f})"
+                _emit_reason(
+                    reason_items,
+                    reason_parts,
+                    i,
+                    type="acute_drop",
+                    layer="inference",
+                    source="hrv_pipeline",
+                    metric="lnRMSSD",
+                    value=float(ln_today[i]),
+                    threshold=float(b_ln - VETO_MULT * swc_v4),
+                    message=(
+                        f"Caída aguda HRV: raw={ln_today[i]:.3f} vs base={b_ln:.3f} "
+                        f"(drop={ln_today[i]-b_ln:.3f}, umbral=-{VETO_MULT*swc_v4:.3f})"
+                    ),
                 )
 
             dln = float(ln_used[i] - b_ln)
@@ -867,11 +937,40 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
         # Saturación parasimpática
         if np.isfinite(d_ln[i]) and np.isfinite(swc_ln_floor_arr[i]):
             if d_ln[i] > 2 * swc_ln_floor_arr[i]:
-                reason_parts[i].append("HRV excesivamente alto: posible saturación parasimpática")
+                _emit_reason(
+                    reason_items,
+                    reason_parts,
+                    i,
+                    type="parasympathetic_saturation",
+                    layer="inference",
+                    source="hrv_pipeline",
+                    metric="d_ln",
+                    value=float(d_ln[i]),
+                    threshold=float(2 * swc_ln_floor_arr[i]),
+                    message="HRV excesivamente alto: posible saturación parasimpática",
+                )
 
         # Quality override
         if quality_flag[i] and gate_final[i] in (VERDE, AMBAR):
-            reason_parts[i].append("Dato dudoso: limitar a Z1-Z2 máx 90min")
+            artifact_pct = _safe_float(df.iloc[i], "Artifact_pct")
+            tiemp_est = _safe_float(df.iloc[i], "Tiempo_Estabilizacion")
+            data_quality_evidence = []
+            if tiemp_est is not None:
+                data_quality_evidence.append(f"Tiempo_Estabilizacion={tiemp_est:.0f}s")
+            _emit_reason(
+                reason_items,
+                reason_parts,
+                i,
+                type="data_quality",
+                layer="measured",
+                source="hrv_pipeline",
+                gate_scope="green_or_amber",
+                metric="Artifact_pct",
+                value=float(artifact_pct) if artifact_pct is not None else None,
+                threshold=15.0,
+                evidence=data_quality_evidence,
+                message="Dato dudoso: limitar a Z1-Z2 máx 90min",
+            )
 
         # ── Sleep checks (from sleep.csv) ──
         if sleep_lookup is not None and fecha in sleep_lookup.index:
@@ -889,11 +988,33 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             )
 
             if sleep_dur is not None and sleep_dur_p10 is not None and sleep_dur < sleep_dur_p10:
-                reason_parts[i].append(f"Noche corta ({sleep_dur:.0f}min < P10={sleep_dur_p10:.0f})")
+                _emit_reason(
+                    reason_items,
+                    reason_parts,
+                    i,
+                    type="sleep_duration",
+                    layer="inference",
+                    source="sleep",
+                    metric="polar_sleep_duration_min",
+                    value=float(sleep_dur),
+                    threshold=float(sleep_dur_p10),
+                    message=f"Noche corta ({sleep_dur:.0f}min < P10={sleep_dur_p10:.0f})",
+                )
                 sleep_bad = True
                 _append_unique(caution_codes, "sleep_basic_poor")
             if sleep_int is not None and sleep_int_p90 is not None and sleep_int > sleep_int_p90:
-                reason_parts[i].append(f"Noche fragmentada ({sleep_int:.0f} interr > P90={sleep_int_p90:.0f})")
+                _emit_reason(
+                    reason_items,
+                    reason_parts,
+                    i,
+                    type="sleep_fragmentation",
+                    layer="inference",
+                    source="sleep",
+                    metric="polar_interruptions_long",
+                    value=float(sleep_int),
+                    threshold=float(sleep_int_p90),
+                    message=f"Noche fragmentada ({sleep_int:.0f} interr > P90={sleep_int_p90:.0f})",
+                )
                 sleep_bad = True
                 _append_unique(caution_codes, "sleep_basic_poor")
             if sleep_basic_signal and not sleep_bad:
@@ -950,21 +1071,75 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             # may matter even when canonical 7d/28d context stays below threshold.
             if load_3d is not None and load_3d_nobs is not None and load_3d_nobs >= 2:
                 if load_3d > LOAD_3D_HIGH:
-                    reason_parts[i].append(f"Carga acumulada alta (load_3d={load_3d:.0f})")
+                    _emit_reason(
+                        reason_items,
+                        reason_parts,
+                        i,
+                        type="load_3d",
+                        layer="inference",
+                        source="sessions_day",
+                        variant="high",
+                        metric="load_3d",
+                        value=float(load_3d),
+                        threshold=float(LOAD_3D_HIGH),
+                        message=f"Carga acumulada alta (load_3d={load_3d:.0f})",
+                    )
                 if load_3d > LOAD_3D_CAUTION:
                     _append_unique(caution_codes, "load_3d_high")
 
             if work_7d is not None and work_7d > WORK_7D_HIGH:
-                reason_parts[i].append(f"Volumen semanal alto (work_7d={work_7d:.0f}min)")
+                _emit_reason(
+                    reason_items,
+                    reason_parts,
+                    i,
+                    type="work_7d",
+                    layer="inference",
+                    source="sessions_day",
+                    variant="high",
+                    metric="work_7d_sum",
+                    value=float(work_7d),
+                    threshold=float(WORK_7D_HIGH),
+                    message=f"Volumen semanal alto (work_7d={work_7d:.0f}min)",
+                )
             if z3_7d is not None and z3_7d > Z3_7D_HIGH:
-                reason_parts[i].append(f"Z3 acumulado alto (z3_7d={z3_7d:.0f}min)")
+                _emit_reason(
+                    reason_items,
+                    reason_parts,
+                    i,
+                    type="z3_7d",
+                    layer="inference",
+                    source="sessions_day",
+                    variant="high",
+                    metric="z3_7d_sum",
+                    value=float(z3_7d),
+                    threshold=float(Z3_7D_HIGH),
+                    message=f"Z3 acumulado alto (z3_7d={z3_7d:.0f}min)",
+                )
 
             # ROJO sin carga previa
             if gate_final[i] == ROJO and load_day is not None and load_day < 30:
                 if sleep_basic_signal and not sleep_bad:
-                    reason_parts[i].append("ROJO sin carga previa ni sueño malo: revisar otros factores")
+                    _emit_reason(
+                        reason_items,
+                        reason_parts,
+                        i,
+                        type="contradiction",
+                        layer="inference",
+                        source="sessions_day",
+                        gate_scope="red",
+                        message="ROJO sin carga previa ni sueño malo: revisar otros factores",
+                    )
                 elif not sleep_basic_signal:
-                    reason_parts[i].append("ROJO sin carga previa reciente: revisar otros factores")
+                    _emit_reason(
+                        reason_items,
+                        reason_parts,
+                        i,
+                        type="recent_load_absence",
+                        layer="inference",
+                        source="sessions_day",
+                        gate_scope="red",
+                        message="ROJO sin carga previa reciente: revisar otros factores",
+                    )
 
             if (
                 gate_final[i] == VERDE
@@ -1007,7 +1182,18 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
 
                 if clustering_window_text:
                     clustering_msg = f"{clustering_msg} ({clustering_window_text})"
-                reason_parts[i].append(clustering_msg)
+                _emit_reason(
+                    reason_items,
+                    reason_parts,
+                    i,
+                    type="intensity_clustering",
+                    layer="inference",
+                    source="sessions_day",
+                    variant="high" if clustering_level == "high" else "recent",
+                    metric="intensity_clustering_flag",
+                    value=int(bool(clustering_flag)),
+                    message=clustering_msg,
+                )
 
         if load_ctx_row is not None:
             acwr_simple_prev = _safe_float(load_ctx_row, "acwr_simple_prev")
@@ -1020,35 +1206,89 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
 
             if load_ctx_ready and acwr_simple_prev is not None:
                 if acwr_simple_prev >= 1.5:
-                    reason_parts[i].append(
-                        f"ACWR muy alto: carga aguda muy por encima de la base crónica ({acwr_simple_prev:.2f})"
+                    _emit_reason(
+                        reason_items,
+                        reason_parts,
+                        i,
+                        type="acwr",
+                        layer="inference",
+                        source="sessions_day",
+                        variant="high",
+                        severity="very_high",
+                        metric="acwr_simple_prev",
+                        value=float(acwr_simple_prev),
+                        threshold=1.5,
+                        message=f"ACWR muy alto: carga aguda muy por encima de la base crónica ({acwr_simple_prev:.2f})",
                     )
                     load_ctx_caution = True
                     load_ctx_caution_sources.append("ACWR")
                     _append_unique(caution_codes, "load_context_high")
                 elif acwr_simple_prev >= 1.3:
-                    reason_parts[i].append(
-                        f"ACWR alto: carga aguda por encima de la base crónica ({acwr_simple_prev:.2f})"
+                    _emit_reason(
+                        reason_items,
+                        reason_parts,
+                        i,
+                        type="acwr",
+                        layer="inference",
+                        source="sessions_day",
+                        variant="high",
+                        severity="high",
+                        metric="acwr_simple_prev",
+                        value=float(acwr_simple_prev),
+                        threshold=1.3,
+                        message=f"ACWR alto: carga aguda por encima de la base crónica ({acwr_simple_prev:.2f})",
                     )
                     load_ctx_caution = True
                     load_ctx_caution_sources.append("ACWR")
                     _append_unique(caution_codes, "load_context_high")
                 elif acwr_simple_prev <= 0.8:
-                    reason_parts[i].append(
-                        f"ACWR bajo: descarga o infraexposición reciente ({acwr_simple_prev:.2f})"
+                    _emit_reason(
+                        reason_items,
+                        reason_parts,
+                        i,
+                        type="acwr",
+                        layer="inference",
+                        source="sessions_day",
+                        variant="low",
+                        metric="acwr_simple_prev",
+                        value=float(acwr_simple_prev),
+                        threshold=0.8,
+                        message=f"ACWR bajo: descarga o infraexposición reciente ({acwr_simple_prev:.2f})",
                     )
 
             if load_ctx_ready and monotony_7d_prev is not None:
                 if monotony_7d_prev >= 2.0:
-                    reason_parts[i].append(
-                        f"Monotonía alta: patrón de carga poco variable ({monotony_7d_prev:.2f})"
+                    _emit_reason(
+                        reason_items,
+                        reason_parts,
+                        i,
+                        type="monotony",
+                        layer="inference",
+                        source="sessions_day",
+                        variant="high",
+                        severity="high",
+                        metric="monotony_7d_prev",
+                        value=float(monotony_7d_prev),
+                        threshold=2.0,
+                        message=f"Monotonía alta: patrón de carga poco variable ({monotony_7d_prev:.2f})",
                     )
                     load_ctx_caution = True
                     load_ctx_caution_sources.append("monotonía")
                     _append_unique(caution_codes, "load_context_high")
                 elif monotony_7d_prev >= 1.8:
-                    reason_parts[i].append(
-                        f"Monotonía elevada: conviene variar la estructura de carga ({monotony_7d_prev:.2f})"
+                    _emit_reason(
+                        reason_items,
+                        reason_parts,
+                        i,
+                        type="monotony",
+                        layer="inference",
+                        source="sessions_day",
+                        variant="elevated",
+                        severity="medium",
+                        metric="monotony_7d_prev",
+                        value=float(monotony_7d_prev),
+                        threshold=1.8,
+                        message=f"Monotonía elevada: conviene variar la estructura de carga ({monotony_7d_prev:.2f})",
                     )
                     load_ctx_caution = True
                     load_ctx_caution_sources.append("monotonía")
@@ -1058,15 +1298,37 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                 strain_p90 = load_ctx_thresholds.get("strain_p90")
                 strain_p75 = load_ctx_thresholds.get("strain_p75")
                 if strain_p90 is not None and strain_7d_prev >= strain_p90:
-                    reason_parts[i].append(
-                        f"Strain muy alto: semana exigente y poco descargada ({strain_7d_prev:.0f})"
+                    _emit_reason(
+                        reason_items,
+                        reason_parts,
+                        i,
+                        type="strain",
+                        layer="inference",
+                        source="sessions_day",
+                        variant="high",
+                        severity="very_high",
+                        metric="strain_7d_prev",
+                        value=float(strain_7d_prev),
+                        threshold=float(strain_p90),
+                        message=f"Strain muy alto: semana exigente y poco descargada ({strain_7d_prev:.0f})",
                     )
                     load_ctx_caution = True
                     load_ctx_caution_sources.append("strain")
                     _append_unique(caution_codes, "load_context_high")
                 elif strain_p75 is not None and strain_7d_prev >= strain_p75:
-                    reason_parts[i].append(
-                        f"Strain alto: semana exigente y poco descargada ({strain_7d_prev:.0f})"
+                    _emit_reason(
+                        reason_items,
+                        reason_parts,
+                        i,
+                        type="strain",
+                        layer="inference",
+                        source="sessions_day",
+                        variant="high",
+                        severity="high",
+                        metric="strain_7d_prev",
+                        value=float(strain_7d_prev),
+                        threshold=float(strain_p75),
+                        message=f"Strain alto: semana exigente y poco descargada ({strain_7d_prev:.0f})",
                     )
                     load_ctx_caution = True
                     load_ctx_caution_sources.append("strain")
@@ -1075,19 +1337,59 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             if gate_final[i] == VERDE:
                 unique_sources = list(dict.fromkeys(load_ctx_caution_sources))
                 if verde_load_3d_caution and load_ctx_caution:
-                    reason_parts[i].append(
-                        "VERDE con convergencia de carga "
-                        f"(load_3d + {' + '.join(unique_sources)}): precaución intensidad reforzada"
+                    _emit_reason(
+                        reason_items,
+                        reason_parts,
+                        i,
+                        type="green_load_convergence",
+                        layer="inference",
+                        source="sessions_day",
+                        gate_scope="green",
+                        codes=unique_sources,
+                        message=(
+                            "VERDE con convergencia de carga "
+                            f"(load_3d + {' + '.join(unique_sources)}): precaución intensidad reforzada"
+                        ),
                     )
                 elif verde_load_3d_caution:
-                    reason_parts[i].append(
-                        f"VERDE con carga acumulada (load_3d={load_3d:.0f}): precaución intensidad"
+                    _emit_reason(
+                        reason_items,
+                        reason_parts,
+                        i,
+                        type="green_load_caution",
+                        layer="inference",
+                        source="sessions_day",
+                        gate_scope="green",
+                        metric="load_3d",
+                        value=float(load_3d),
+                        threshold=float(LOAD_3D_CAUTION),
+                        message=f"VERDE con carga acumulada (load_3d={load_3d:.0f}): precaución intensidad",
                     )
                 elif load_ctx_caution:
-                    reason_parts[i].append("VERDE con contexto de carga exigente: precaución intensidad")
+                    _emit_reason(
+                        reason_items,
+                        reason_parts,
+                        i,
+                        type="green_load_caution",
+                        layer="inference",
+                        source="sessions_day",
+                        gate_scope="green",
+                        codes=load_ctx_caution_sources,
+                        message="VERDE con contexto de carga exigente: precaución intensidad",
+                    )
         elif gate_final[i] == VERDE and verde_load_3d_caution:
-            reason_parts[i].append(
-                f"VERDE con carga acumulada (load_3d={load_3d:.0f}): precaución intensidad"
+            _emit_reason(
+                reason_items,
+                reason_parts,
+                i,
+                type="green_load_caution",
+                layer="inference",
+                source="sessions_day",
+                gate_scope="green",
+                metric="load_3d",
+                value=float(load_3d),
+                threshold=float(LOAD_3D_CAUTION),
+                message=f"VERDE con carga acumulada (load_3d={load_3d:.0f}): precaución intensidad",
             )
 
         if (
@@ -1111,7 +1413,13 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             support_codes=support_codes,
             caution_codes=caution_codes,
         )
-        recovery_msg = _recovery_message(
+        recovery_summary = _recovery_summary_message(
+            gate=gate_final[i],
+            recovery_class=recovery_class,
+            support_codes=support_codes,
+            caution_codes=caution_codes,
+        )
+        recovery_action = _recovery_action_message(
             gate=gate_final[i],
             recovery_class=recovery_class,
             support_codes=support_codes,
@@ -1120,11 +1428,53 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
         # Un nightly_rmssd bajo aislado en un VERDE no abre mensaje por sí solo:
         # RE-01 exige convergencia real para no sobrerreaccionar a un sidecar nocturno único.
         if night_rmssd_low_text and recovery_class == "fragile":
-            reason_parts[i].append(night_rmssd_low_text)
+            _emit_reason(
+                reason_items,
+                reason_parts,
+                i,
+                type="nightly_discordance",
+                layer="inference",
+                source="sleep",
+                gate_scope="green",
+                message=night_rmssd_low_text,
+            )
         if night_rmssd_high_text and recovery_class == "conflicted":
-            reason_parts[i].append(night_rmssd_high_text)
-        if recovery_msg:
-            reason_parts[i].append(recovery_msg)
+            _emit_reason(
+                reason_items,
+                reason_parts,
+                i,
+                type="nightly_discordance",
+                layer="inference",
+                source="sleep",
+                gate_scope="red",
+                message=night_rmssd_high_text,
+            )
+        if recovery_summary:
+            _emit_reason(
+                reason_items,
+                reason_parts,
+                i,
+                type="recovery_support",
+                layer="inference",
+                source="sleep+sessions_day",
+                variant=recovery_class,
+                gate_scope=str(gate_final[i]).lower(),
+                codes=caution_codes if recovery_is_discordant else support_codes,
+                message=recovery_summary,
+            )
+        if recovery_action:
+            _emit_reason(
+                reason_items,
+                reason_parts,
+                i,
+                type="action_constraint",
+                layer="action",
+                source="gate_final",
+                variant=recovery_class,
+                gate_scope=str(gate_final[i]).lower(),
+                codes=caution_codes if recovery_is_discordant else support_codes,
+                message=recovery_action,
+            )
 
         discordance_codes = caution_codes if recovery_class == "fragile" else support_codes
         recovery_context_quality[i] = coverage

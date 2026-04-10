@@ -1,13 +1,13 @@
 # ENDURANCE HRV — Estructura de Datos
 
-**Revisión:** r2026-04-10 v3.10 (DO-02 polarización rolling en sessions_day)
+**Revisión:** r2026-04-10 v3.11 (SS-01 reason_items interno sin cambio de esquema publico)
 **Estado:** Producción
 
 **Documentos relacionados:**
 - `ENDURANCE_HRV_Spec_Tecnica.md` — Fórmulas, algoritmos y reglas de cálculo
 - `ENDURANCE_HRV_Diccionario.md` — Qué significa cada columna y cómo usarla
 
-**Convención de versión:** esta cabecera identifica la revisión de este documento (`r2026-04-10 v3.10`), no la versión global del sistema. La versión de sistema vigente se declara en `ENDURANCE_HRV_Spec_Tecnica.md`.
+**Convención de versión:** esta cabecera identifica la revisión de este documento (`r2026-04-10 v3.11`), no la versión global del sistema. La versión de sistema vigente se declara en `ENDURANCE_HRV_Spec_Tecnica.md`.
 
 ---
 
@@ -107,6 +107,8 @@ Fecha,Calidad,HRV_Stability,Stability_Subtype,Artifact_pct,Tiempo_Estabilizacion
 ## 4. FINAL (derivado) — columnas y orden exacto
 
 FINAL es el archivo de auditoría completo: contiene la medición del día, el suavizado, los baselines, todos los gates, el veto agudo, el residual, la acción, la acumulación, los warnings y el `reason_text` contextual. Además, desde r2026-03-12 expone una capa mínima de auditoría `raw vs ref` para entender mejor los días `Unstable` sin cambiar el `gate_final`.
+
+**Nota SS-01:** `build_hrv_final_dashboard.py` construye internamente `reason_text` desde una capa estructurada de `reason_items` en memoria (`type`, `layer`, `source`, `message`, etc.), pero **esa capa no forma parte aún del contrato público**. No existe `reason_items_json` en `FINAL` ni en `DASHBOARD`; el esquema público sigue siendo de 62 y 10 columnas respectivamente.
 
 **Cabecera exacta (copiar literal):**
 

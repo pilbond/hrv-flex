@@ -104,6 +104,8 @@ Importante:
   - Lee CORE + sleep.
 - Aplica la logica del decisor FINAL/DASHBOARD (decision operativa diaria).
   - Enriquce `reason_text` con contexto de sueno y carga.
+  - Desde SS-01, construye internamente `reason_items` estructurados y despues renderiza `reason_text` desde esa capa.
+  - Valida semanticamente cada motivo con enums cerrados de `layer` (`measured/proxy/inference/action`) y `severity` (`low/medium/high/very_high`).
   - Consume la capa CDC-01 de contexto canonico de carga desde `ENDURANCE_HRV_sessions_day.csv`:
     - `acwr_simple_prev`
     - `monotony_7d_prev`
@@ -132,6 +134,7 @@ Importante:
   - Opcional: `ENDURANCE_HRV_sessions_day.csv`
 - Salidas:
   - FINAL y DASHBOARD.
+  - `reason_items` queda en memoria como detalle interno del builder; no se expone en `FINAL` ni en `DASHBOARD`.
   - `FINAL` mantiene `gate_final`, `Action` y `Action_detail` como arbitros operativos.
   - RE-01 solo aporta soporte o discordancia objetiva via columnas y `reason_text`.
   - CDC-01 y AP-01 solo aportan contexto de carga/clustering en `reason_text`; no recolorean el gate.

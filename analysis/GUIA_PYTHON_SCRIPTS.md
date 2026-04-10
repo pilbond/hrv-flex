@@ -145,6 +145,7 @@ python run_session_analysis.py \
   - `build_conversational_payload()` — ensambla el JSON compacto para el analista IA.
     - incrusta contexto canonico de `sessions.csv`, `sessions_day.csv` y `ENDURANCE_HRV_sessions_metadata.json`
     - anida `training_audit` dentro de `sessions_metadata` cuando existe
+    - hoy sigue consumiendo `reason_text` desde `FINAL`; `reason_items` aun no es un contrato consumido por `analysis/`
     - incrusta `terrain_context` y `terrain_fit_context` cuando aplican
   - `build_analyst_prompt_markdown()` — genera `analyst_prompt.md` desde `analyst_prompt_rules.md` + rutas de sesion.
   - `build_ai_handoff_markdown()` — genera `ai_handoff.md` con instrucciones de uso para la IA.
@@ -164,6 +165,7 @@ python run_session_analysis.py \
 - Para cambiar la estructura del report o del payload.
 - Para ajustar la logica de construccion del `analyst_prompt.md`.
 - Para añadir nuevos campos al payload conversacional.
+- Si `reason_items` llega a exponerse como contrato estable desde el builder HRV, este modulo debe decidir su consumo explicito en vez de seguir dependiendo solo de `reason_text`.
 - Si cambia el contrato de `training_audit`, de `sessions_metadata` o de la capa mecanica minima de `sessions.csv`, este modulo tambien debe actualizarse.
 
 ---
