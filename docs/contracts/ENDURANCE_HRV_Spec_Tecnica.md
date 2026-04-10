@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Especificación Técnica
 
-**Revisión:** r2026-04-08 v4.7 (DO-01 distribución de intensidad por deporte)
+**Revisión:** r2026-04-10 v4.9 (DO-02 polarización rolling por familia en sessions_day)
 **Estado:** Producción
 
 ---
@@ -18,7 +18,7 @@
 Este repositorio usa **tres niveles distintos de versionado**. No deben compararse entre sí como si fueran la misma escala.
 
 1. **Versión de sistema**
-   `ENDURANCE HRV V4.2`
+   `ENDURANCE HRV V4.9`
    Identifica el comportamiento operativo global del sistema HRV vigente: reglas, outputs y contratos activos.
 
 2. **Revisión de documento**
@@ -36,11 +36,11 @@ Reglas:
 - Si una incidencia menciona solo "v4", debe aclararse si habla de sistema, documento o módulo.
 
 Mapa operativo actual:
-- Sistema vigente: `ENDURANCE HRV V4.7`
+- Sistema vigente: `ENDURANCE HRV V4.9`
 - Módulo RR -> CORE/BETA: `build_hrv_core.py`, revisión `r2026-03-19`
 - Módulo CORE -> FINAL/DASHBOARD: `build_hrv_final_dashboard.py`, revisión `r2026-04-08`
-- Contrato estructural HRV: `ENDURANCE_HRV_Estructura.md`, revisión `r2026-04-08 v3.8`
-- Contrato de sesiones: `ENDURANCE_HRV_Sessions_Schema.md`, revisión `r2026-04-08 v3.8`
+- Contrato estructural HRV: `ENDURANCE_HRV_Estructura.md`, revisión `r2026-04-10 v3.10`
+- Contrato de sesiones: `ENDURANCE_HRV_Sessions_Schema.md`, revisión `r2026-04-10 v3.10`
 
 ---
 
@@ -831,7 +831,7 @@ bad_7d = nº de ROJO en los últimos 7 días
 
 **Fuentes:** combina datos del pipeline HRV (veto agudo, saturación, quality) con:
 - `ENDURANCE_HRV_sleep.csv` — sueño Polar (noche corta, fragmentada, nightly_rmssd)
-- `ENDURANCE_HRV_sessions_day.csv` — carga de entrenamiento (`ACWR`, `monotony`, `strain`, `work_7d`, `z3_7d`) y clustering reciente de intensidad
+- `ENDURANCE_HRV_sessions_day.csv` — carga de entrenamiento (`ACWR`, `monotony`, `strain`, `work_7d`, `z3_7d`), clustering reciente de intensidad, señal DO-02 de polarización por familia y resumen de episodios
 
 **Generación:** Se evalúan las siguientes condiciones en orden. Las que se cumplen se concatenan con separador ` | `:
 
@@ -927,7 +927,7 @@ Si tu baseline actual está por debajo del P20 de todos tus baselines histórico
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | Lo esencial para decidir en 10 segundos + reason_text | 10 |
 | `ENDURANCE_HRV_sleep.csv` | Sueño nocturno y recuperación (Polar) | 17 |
 | `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento | 57 |
-| `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios + rolling con cobertura (_nobs) + contexto canónico de carga + clustering reciente de intensidad | 49 |
+| `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios + rolling con cobertura (_nobs) + contexto canónico de carga + clustering reciente de intensidad + señal DO-02 de polarización por familia + resumen de episodios | 60 |
 | `ENDURANCE_HRV_intensity_distribution_weekly.csv` | Distribución observada de intensidad por deporte y semana ISO (DO-01). Sidecar analítico; no alimenta el gate ni `reason_text`. | 21 |
 | `ENDURANCE_HRV_sessions_metadata.json` | Trazabilidad pipeline sesiones (versión, params, sampling rate) + auditoría ligera de interpretabilidad para coaching/carga | — |
 | `ENDURANCE_HRV_master_BETA_AUDIT.csv` | Modelo beta del V3, para comparación histórica | 13 |
@@ -1064,6 +1064,7 @@ Secciones obligatorias:
 | 2026-03-01 v4.1 | sleep.csv simplificado: 34→17 cols (solo Polar sleep/nightly, sin Intervals) |
 | 2026-03-01 v4.1 | reason_text dual source: sueño de sleep.csv, carga de sessions_day.csv |
 | 2026-03-01 v4.1 | Nuevos archivos sessions.csv (43 cols), sessions_day.csv (40 cols iniciales), ENDURANCE_HRV_sessions_metadata.json |
+| 2026-04-10 v4.9 | DO-02: `build_sessions.py` genera la señal rolling de polarización por familia en `sessions_day.csv` (`dominant_family_prev_7d`, `dominant_family_share_prev_7d`, `n_sessions_usable_prev_7d`, `z1/z2/z3_pct_weighted_prev_7d`, `distribution_signal_confidence_prev_7d`, `polarisation_index_prev_7d`, `intensity_blackhole_flag`, `intensity_blackhole_episode_id`, `intensity_blackhole_episode_len`); cálculo causal `D-7..D-1` desde `sessions.csv`, sin tocar el gate; la frecuencia operativa se interpreta por episodios consecutivos de `True` y no por días sueltos; `episode_len` cuenta filas consecutivas emitidas en `sessions_day.csv`, no días calendario; el umbral de volumen de 90 min aplica a la familia dominante |
 | 2026-04-08 v4.7 | DO-01: `build_sessions.py` genera `ENDURANCE_HRV_intensity_distribution_weekly.csv` (21 cols, 1 fila por semana ISO × deporte); `classify_distribution_pattern` clasifica la semana como `polarized`, `pyramidal`, `threshold` o `mixed` con ponderación por minutos y confianza explícita; sidecar analítico, no alimenta el gate ni `reason_text` |
 | 2026-04-08 v4.6 | RE-01: `build_hrv_final_dashboard.py` añade `recovery_context_quality`, `recovery_support_class`, `recovery_discordance_flag` y `recovery_discordance_reason`; `reason_text` gana cierres semánticos de recuperación sin tocar `gate_final` |
 | 2026-04-08 v4.6 | FINAL bumped 58→62 cols para exponer la capa RE-01 sin tocar DASHBOARD |

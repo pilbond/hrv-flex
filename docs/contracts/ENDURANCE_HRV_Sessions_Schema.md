@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Sessions Schema
 
-**Revisión:** r2026-04-08 v3.8 (params_hash: c1c78a78)
+**Revisión:** r2026-04-10 v3.10 (params_hash: c1c78a78)
 **Estado:** Producción
 
 **Documentos relacionados:**
@@ -43,7 +43,7 @@ Este pipeline está diseñado para **un único atleta** y consume la cuenta pers
 | Archivo | Granularidad | Para qué sirve |
 |---------|-------------|-----------------|
 | `sessions.csv` | 1 fila por sesión | Detalle completo de cada entrenamiento: zonas, work blocks, drift, clasificación y minutos primarios por zona (`z1/z2/z3_total_min`). Lo que miras cuando quieres entender una sesión concreta. |
-| `sessions_day.csv` | 1 fila por día | Agregados diarios + rolling 3d/7d/14d/28d con cobertura, más la capa canónica de contexto de carga (`ACWR`, `monotony`, `strain`) y una señal corta de clustering reciente de intensidad. Lo que lee `build_hrv_final_dashboard.py` para generar avisos de carga en reason_text. |
+| `sessions_day.csv` | 1 fila por día | Agregados diarios + rolling 3d/7d/14d/28d con cobertura, más la capa canónica de contexto de carga (`ACWR`, `monotony`, `strain`), una señal corta de clustering reciente de intensidad y la señal rolling `DO-02` de polarización por familia con resumen de episodio. Lo que lee `build_hrv_final_dashboard.py` para generar avisos de carga en reason_text. |
 | `ENDURANCE_HRV_intensity_distribution_weekly.csv` | 1 fila por semana y deporte | Resumen canónico `sport x week` de distribución observada de intensidad: minutos ponderados por zona, `work_*`, patrón descriptivo (`polarized`, `pyramidal`, `threshold`, `mixed`) y confianza explícita. Pensado para análisis semanal y comparativa intra-deporte; no alimenta el gate. |
 | `ENDURANCE_HRV_sessions_metadata.json` | 1 por corrida | Trazabilidad: versión del pipeline, parámetros usados, hash de configuración, sampling rate del stream y una auditoría ligera por capas (`dataset/signal/metric`) para coaching y carga. |
 | `ENDURANCE_HRV_wellness_subjective.csv` | 1 fila por día | Wellness subjetivo diario desde Intervals (`fatigue`, `stress`, `mood`, `motivation`, `soreness`, `injury`, comentario), con labels y cobertura 7d para análisis retrospectivo o capas separadas. |
@@ -343,6 +343,28 @@ Los campos rolling son sumas o medias de los últimos N días, con un campo `_no
 | `finish_strong_7d_count` | 7 días | Conteo rolling de días con `late_intensity_day = 1` en la semana previa. |
 | `elev_loss_7d_sum` | 7 días | Suma rolling de desnivel negativo en la semana previa. Campo descriptivo; no lo usa el gate. |
 
+### Señal DO-02 — polarización rolling por familia
+
+Esta capa se calcula directamente desde `sessions.csv` sobre la ventana causal `D-7..D-1`. Primero identifica la familia dominante de la ventana y después recalcula la distribución sobre las sesiones de esa familia.
+
+| Campo | Ventana | Qué es |
+|-------|---------|--------|
+| `dominant_family_prev_7d` | 7 días | Familia deportiva dominante en la ventana previa (`run_family`, `bike_family`, `elliptical_family`, `hike_family`). Vacío si no hay dominancia clara. |
+| `dominant_family_share_prev_7d` | 7 días | Fracción de `moving_min` que aporta la familia dominante sobre el total de la ventana previa. Umbral v1: `>= 0.60`. |
+| `n_sessions_usable_prev_7d` | 7 días | Número de sesiones de la familia dominante con cobertura válida de zonas en la ventana previa. `0` si no hay señal usable. |
+| `z1_pct_weighted_prev_7d` / `z2_pct_weighted_prev_7d` / `z3_pct_weighted_prev_7d` | 7 días | Porcentaje ponderado por tiempo de la familia dominante en la ventana previa, recalculado desde `sessions.csv`. |
+| `distribution_signal_confidence_prev_7d` | 7 días | `low`, `moderate` o `high` según soporte de la ventana rolling y cobertura válida. Vacío si no hay familia dominante. |
+| `polarisation_index_prev_7d` | 7 días | Ratio v1 de polarización calculado como `(z1_pct_weighted_prev_7d + z3_pct_weighted_prev_7d) / max(z2_pct_weighted_prev_7d, 1.0)`. `NaN` si no hay señal. |
+| `intensity_blackhole_flag` | 7 días | `True` solo cuando la señal es suficientemente confiable y la ventana cumple los umbrales v1 cerrados. `False` en el resto de casos. El umbral de volumen `>= 90` se aplica a la familia dominante de la ventana, no al total mezclado. La salida es diaria, pero la lectura operativa debe colapsar días consecutivos en episodios/runs si se quiere medir frecuencia real de activacion. |
+| `intensity_blackhole_episode_id` | 7 días | Identificador consecutivo del episodio actual de `intensity_blackhole_flag = True`. `NaN` si el día no pertenece a un episodio. |
+| `intensity_blackhole_episode_len` | 7 días | Longitud total del episodio consecutivo de `intensity_blackhole_flag = True`, medida sobre las filas emitidas en `sessions_day.csv`. Repetida en todos los días del episodio. `NaN` si el día no pertenece a un episodio. |
+
+> Nota de uso futuro: si esta señal entra en `reason_text`, la alerta textual debe emitirse solo en el primer día de cada `intensity_blackhole_episode_id`. Días consecutivos con la misma ventana rolling y el mismo índice no deben repetir el mensaje.
+>
+> Nota de semántica: los huecos de calendario sin fila en `sessions_day.csv` no rompen el episodio. Es decir, `episode_len` cuenta filas consecutivas con flag `True`, no días calendario consecutivos. Si se quiere una métrica de span calendario, debe añadirse una columna aparte.
+
+> Nota operativa: esta señal puede aparecer varios dias seguidos porque la ventana rolling se solapa. Para analizar frecuencia, contar episodios consecutivos de `True`; para analizar cobertura diaria, contar dias individuales.
+
 ### Semántica de _nobs — por qué importa
 
 `_nobs` responde a la pregunta: "de los N días de la ventana, ¿cuántos tenían un valor **real** para esta métrica concreta?"
@@ -414,7 +436,7 @@ Cada corrida del pipeline genera un `ENDURANCE_HRV_sessions_metadata.json` que d
 
 ```json
 {
-  "pipeline_version": "v3.4",
+  "pipeline_version": "v3.10",
   "params": {
     "VT1_DEFAULT": 143,
     "VT2_DEFAULT": 161,
@@ -611,9 +633,15 @@ Cuántos días de la ventana rolling tenían un valor real (no NaN) para esa mé
 
 ## 10. Historial de versiones y fixes
 
-**Versión operativa actual:** `v3.8`
+**Versión operativa actual:** `v3.10`
 
 Lo siguiente es historial de cambios acumulados. No sustituye al estado vigente declarado al inicio del documento.
+
+### v3.10 (DO-02 polarización rolling por familia)
+1) `sessions_day.csv` bumped `49 -> 60` columnas con la señal `DO-02`
+2) nuevo cálculo rolling `D-7..D-1` desde `sessions.csv`, no proyección del sidecar semanal
+3) la dominancia se decide por `sport_family` y se recalcula la distribución sobre la familia dominante
+4) la salida añade `dominant_family_prev_7d`, `polarisation_index_prev_7d`, `intensity_blackhole_flag` y resumen de episodio sin tocar el gate HRV
 
 ### v3.8 (DO-01 distribución observada por deporte)
 1) `sessions.csv` bumped `57 -> 58` columnas con `z1_total_min`

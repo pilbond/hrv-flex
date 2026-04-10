@@ -48,7 +48,7 @@ from polar_sessions import PolarSessionClient, extract_mechanical_metrics_from_f
 
 # ─── Version & params ─────────────────────────────────────────────────────────
 
-PIPELINE_VERSION = "v3.8"
+PIPELINE_VERSION = "v3.10"
 
 PARAMS = {
     "gap_max_s": 60,
@@ -126,6 +126,200 @@ def _env_uses_blackhole_proxy() -> bool:
             return True
     return False
 
+
+DO02_SIGNAL_COLUMNS = [
+    "dominant_family_prev_7d",
+    "dominant_family_share_prev_7d",
+    "n_sessions_usable_prev_7d",
+    "z1_pct_weighted_prev_7d",
+    "z2_pct_weighted_prev_7d",
+    "z3_pct_weighted_prev_7d",
+    "distribution_signal_confidence_prev_7d",
+    "polarisation_index_prev_7d",
+    "intensity_blackhole_flag",
+]
+
+
+def _build_polarisation_signal_prev_7d(
+    sessions_df: pd.DataFrame,
+    calendar_index: pd.Index,
+) -> pd.DataFrame:
+    """Build the rolling D-7..D-1 polarisation signal directly from sessions."""
+    if len(calendar_index) == 0:
+        return pd.DataFrame(columns=DO02_SIGNAL_COLUMNS)
+
+    def _empty_signal_frame() -> pd.DataFrame:
+        return pd.DataFrame(index=pd.Index(calendar_index, name="Fecha"), columns=DO02_SIGNAL_COLUMNS)
+
+    if sessions_df.empty:
+        return _empty_signal_frame()
+
+    df = sessions_df.copy()
+    df["Fecha"] = pd.to_datetime(df.get("Fecha"), errors="coerce").dt.normalize()
+    df = df.dropna(subset=["Fecha"]).copy()
+    if df.empty:
+        return _empty_signal_frame()
+
+    df["sport"] = df.get("sport", "").astype(str).str.strip()
+    df["sport_family"] = df["sport"].map(SPORT_FAMILY_MAP).fillna("")
+    df = df[df["sport"].isin(INTENSITY_DISTRIBUTION_SPORTS) & df["sport_family"].ne("")].copy()
+    if df.empty:
+        return _empty_signal_frame()
+
+    for col in [
+        "moving_min",
+        "z1_total_min",
+        "z2_total_min",
+        "z3_total_min",
+    ]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    for col in ["moving_min", "z1_total_min", "z2_total_min", "z3_total_min", "zones_source"]:
+        if col not in df.columns:
+            df[col] = np.nan if col != "zones_source" else ""
+
+    z1_missing = df["z1_total_min"].isna()
+    can_derive_z1 = (
+        z1_missing
+        & df["moving_min"].notna()
+        & df["z2_total_min"].notna()
+        & df["z3_total_min"].notna()
+    )
+    df.loc[can_derive_z1, "z1_total_min"] = (
+        df.loc[can_derive_z1, "moving_min"]
+        - df.loc[can_derive_z1, "z2_total_min"]
+        - df.loc[can_derive_z1, "z3_total_min"]
+    ).clip(lower=0).round(1)
+
+    blank = {
+        "dominant_family_prev_7d": "",
+        "dominant_family_share_prev_7d": np.nan,
+        "n_sessions_usable_prev_7d": 0,
+        "z1_pct_weighted_prev_7d": np.nan,
+        "z2_pct_weighted_prev_7d": np.nan,
+        "z3_pct_weighted_prev_7d": np.nan,
+        "distribution_signal_confidence_prev_7d": "",
+        "polarisation_index_prev_7d": np.nan,
+        "intensity_blackhole_flag": False,
+    }
+
+    records: list[dict] = []
+    for fecha in calendar_index:
+        row = dict(blank)
+        ts = pd.Timestamp(fecha)
+        window = df[(df["Fecha"] >= ts - pd.Timedelta(days=7)) & (df["Fecha"] <= ts - pd.Timedelta(days=1))].copy()
+        if window.empty:
+            records.append(row)
+            continue
+
+        family_duration = (
+            window.groupby("sport_family")["moving_min"]
+            .sum(min_count=1)
+            .dropna()
+            .sort_values(ascending=False, kind="stable")
+        )
+        family_duration = family_duration[family_duration > 0]
+        if family_duration.empty:
+            records.append(row)
+            continue
+
+        dominant_family = str(family_duration.index[0])
+        dominant_family_duration = float(family_duration.iloc[0])
+        window_duration = float(pd.to_numeric(window["moving_min"], errors="coerce").fillna(0).sum())
+        if not np.isfinite(window_duration) or window_duration <= 0:
+            records.append(row)
+            continue
+
+        dominant_family_share = dominant_family_duration / window_duration if window_duration > 0 else np.nan
+        if not np.isfinite(dominant_family_share) or dominant_family_share < 0.60:
+            records.append(row)
+            continue
+
+        family_window = window[window["sport_family"] == dominant_family].copy()
+        total_sessions = int(len(family_window))
+        if total_sessions == 0:
+            records.append(row)
+            continue
+
+        usable_mask = (
+            family_window["z1_total_min"].notna()
+            & family_window["z2_total_min"].notna()
+            & family_window["z3_total_min"].notna()
+            & (
+                family_window["z1_total_min"]
+                + family_window["z2_total_min"]
+                + family_window["z3_total_min"]
+                > 0
+            )
+        )
+        usable = family_window[usable_mask].copy()
+        usable_sessions = int(len(usable))
+
+        row["dominant_family_prev_7d"] = dominant_family
+        row["dominant_family_share_prev_7d"] = round(dominant_family_share, 3)
+        row["n_sessions_usable_prev_7d"] = usable_sessions
+
+        if usable_sessions == 0:
+            row["distribution_signal_confidence_prev_7d"] = "low"
+            records.append(row)
+            continue
+
+        z1_total = round(float(usable["z1_total_min"].sum()), 1)
+        z2_total = round(float(usable["z2_total_min"].sum()), 1)
+        z3_total = round(float(usable["z3_total_min"].sum()), 1)
+        zone_total = z1_total + z2_total + z3_total
+        if not np.isfinite(zone_total) or zone_total <= 0:
+            row["distribution_signal_confidence_prev_7d"] = "low"
+            records.append(row)
+            continue
+
+        z1_pct = round((z1_total / zone_total) * 100.0, 1)
+        z2_pct = round((z2_total / zone_total) * 100.0, 1)
+        z3_pct = round((z3_total / zone_total) * 100.0, 1)
+        row["z1_pct_weighted_prev_7d"] = z1_pct
+        row["z2_pct_weighted_prev_7d"] = z2_pct
+        row["z3_pct_weighted_prev_7d"] = z3_pct
+        row["polarisation_index_prev_7d"] = round((z1_pct + z3_pct) / max(z2_pct, 1.0), 3)
+
+        if usable_sessions >= 3:
+            confidence = "high"
+        elif usable_sessions == 2:
+            confidence = "moderate"
+        else:
+            confidence = "low"
+
+        if usable_sessions < total_sessions:
+            confidence = _degrade_distribution_confidence(confidence)
+        if dominant_family_duration < 90.0:
+            confidence = _degrade_distribution_confidence(confidence)
+        if (
+            window["zones_source"]
+            .astype(str)
+            .str.strip()
+            .str.lower()
+            .eq("fallback")
+            .any()
+        ):
+            confidence = _degrade_distribution_confidence(confidence)
+
+        row["distribution_signal_confidence_prev_7d"] = confidence
+        row["intensity_blackhole_flag"] = bool(
+            confidence in {"moderate", "high"}
+            and usable_sessions >= 2
+            and dominant_family_duration >= 90.0
+            and dominant_family_share >= 0.60
+            and z2_pct >= 30.0
+            and z3_pct <= 10.0
+            and row["polarisation_index_prev_7d"] < 2.2
+        )
+
+        records.append(row)
+
+    out = pd.DataFrame(records, index=pd.Index(calendar_index, name="Fecha"))
+    return out.reindex(calendar_index)
+
+
 # ─── Sport config ─────────────────────────────────────────────────────────────
 
 SPORT_MAP = {
@@ -141,6 +335,13 @@ SPORT_MAP = {
 
 AEROBIC_SPORTS = {"trail_run", "hike", "road_run", "bike", "swim", "elliptical"}
 INTENSITY_DISTRIBUTION_SPORTS = {"bike", "road_run", "trail_run", "elliptical", "hike"}
+SPORT_FAMILY_MAP = {
+    "road_run": "run_family",
+    "trail_run": "run_family",
+    "bike": "bike_family",
+    "elliptical": "elliptical_family",
+    "hike": "hike_family",
+}
 
 # Fix C: fallback VT1/VT2 by sport
 VT_FALLBACK = {
@@ -1140,10 +1341,33 @@ def build_sessions_day(sessions_df: pd.DataFrame) -> pd.DataFrame:
     if "elev_loss_day" in day_df:
         day_df["elev_loss_7d_sum"], _ = safe_rolling(day_df["elev_loss_day"], 7)
 
+    polarisation_signal = _build_polarisation_signal_prev_7d(df, day_df.index)
+    day_df = day_df.join(polarisation_signal)
+
     # Drop filler days
     day_df = day_df.dropna(subset=["n_sessions"])
     day_df = day_df.reset_index()
     day_df["Fecha"] = day_df["Fecha"].dt.strftime("%Y-%m-%d")
+
+    blackhole_flag = day_df["intensity_blackhole_flag"].fillna(False).astype(bool)
+    episode_id = pd.Series(pd.NA, index=day_df.index, dtype="Int64")
+    episode_len = pd.Series(pd.NA, index=day_df.index, dtype="Int64")
+    current_episode = 0
+    idx = 0
+    while idx < len(day_df):
+        if not bool(blackhole_flag.iloc[idx]):
+            idx += 1
+            continue
+        start = idx
+        while idx < len(day_df) and bool(blackhole_flag.iloc[idx]):
+            idx += 1
+        current_episode += 1
+        run_len = idx - start
+        episode_id.iloc[start:idx] = current_episode
+        episode_len.iloc[start:idx] = run_len
+
+    day_df["intensity_blackhole_episode_id"] = episode_id
+    day_df["intensity_blackhole_episode_len"] = episode_len
 
     day_col_order = [
         "Fecha",
@@ -1177,6 +1401,17 @@ def build_sessions_day(sessions_df: pd.DataFrame) -> pd.DataFrame:
         "intense_days_prev_5d",
         "intensity_clustering_flag",
         "intensity_clustering_level",
+        "dominant_family_prev_7d",
+        "dominant_family_share_prev_7d",
+        "n_sessions_usable_prev_7d",
+        "z1_pct_weighted_prev_7d",
+        "z2_pct_weighted_prev_7d",
+        "z3_pct_weighted_prev_7d",
+        "distribution_signal_confidence_prev_7d",
+        "polarisation_index_prev_7d",
+        "intensity_blackhole_flag",
+        "intensity_blackhole_episode_id",
+        "intensity_blackhole_episode_len",
         "z3_7d_sum",
         "z3_7d_nobs",
         "work_7d_sum",

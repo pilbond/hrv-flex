@@ -1,13 +1,13 @@
 # ENDURANCE HRV — Estructura de Datos
 
-**Revisión:** r2026-04-08 v3.8 (RE-01 recovery context multiseñal en FINAL)
+**Revisión:** r2026-04-10 v3.10 (DO-02 polarización rolling en sessions_day)
 **Estado:** Producción
 
 **Documentos relacionados:**
 - `ENDURANCE_HRV_Spec_Tecnica.md` — Fórmulas, algoritmos y reglas de cálculo
 - `ENDURANCE_HRV_Diccionario.md` — Qué significa cada columna y cómo usarla
 
-**Convención de versión:** esta cabecera identifica la revisión de este documento (`r2026-04-08 v3.8`), no la versión global del sistema. La versión de sistema vigente se declara en `ENDURANCE_HRV_Spec_Tecnica.md`.
+**Convención de versión:** esta cabecera identifica la revisión de este documento (`r2026-04-10 v3.10`), no la versión global del sistema. La versión de sistema vigente se declara en `ENDURANCE_HRV_Spec_Tecnica.md`.
 
 ---
 
@@ -43,7 +43,7 @@ El sistema genera 7 archivos CSV + 1 JSON de trazabilidad. Cada uno tiene un rol
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | Lo esencial para decidir en 10 segundos: semáforo, acción, warning, y reason_text contextual. Subconjunto de FINAL. | `build_hrv_final_dashboard.py` | 10 |
 | `ENDURANCE_HRV_sleep.csv` | Sueño nocturno y señales de recuperación (Polar). Alimenta el reason_text pero NO afecta al gate. | `polar_hrv_automation.py` | 17 |
 | `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento: zonas, work blocks, drift, effort, clasificación y capa mecánica opcional. | `build_sessions.py` | 58 |
-| `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios de entrenamiento + rolling con cobertura (_nobs), más contexto canónico de carga (`ACWR`, `monotony`, `strain`) y clustering reciente de intensidad. Alimenta el reason_text para checks de carga. | `build_sessions.py` | 49 |
+| `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios de entrenamiento + rolling con cobertura (_nobs), más contexto canónico de carga (`ACWR`, `monotony`, `strain`), clustering reciente de intensidad y la señal rolling `DO-02` de polarización por familia con resumen de episodio. Alimenta el reason_text para checks de carga. | `build_sessions.py` | 60 |
 | `ENDURANCE_HRV_intensity_distribution_weekly.csv` | Resumen semanal por deporte de distribución observada de intensidad (`sport x week`), con minutos ponderados por zona, `work_*`, patrón descriptivo y confianza. Es sidecar analítico; no alimenta el gate. | `build_sessions.py` | 21 |
 | `ENDURANCE_HRV_sessions_metadata.json` | Trazabilidad del pipeline de sesiones: versión, parámetros, hash, sampling rate, cobertura y auditoría ligera `dataset/signal/metric` para coaching/carga. | `build_sessions.py` | — |
 | `ENDURANCE_HRV_wellness_subjective.csv` | Wellness subjetivo diario desde Intervals (`fatigue`, `stress`, `mood`, `motivation`, `soreness`, `injury`, comentario) con labels y cobertura 7d. Se reserva para análisis retrospectivo o capas separadas; no alimenta `reason_text`. | `build_sessions.py` | 17 |
@@ -360,7 +360,7 @@ Muestra qué entra y qué sale de cada script, y cómo se encadenan:
                     │
   Intervals.icu ────┤
 ├──► build_sessions.py ──► SESSIONS.csv (58 cols)
-│                     ├──► SESSIONS_DAY.csv (49 cols)
+│                     ├──► SESSIONS_DAY.csv (60 cols)
 │                     ├──► INTENSITY_DISTRIBUTION_WEEKLY.csv (21 cols)
                     │                     └──► ENDURANCE_HRV_sessions_metadata.json
 ```

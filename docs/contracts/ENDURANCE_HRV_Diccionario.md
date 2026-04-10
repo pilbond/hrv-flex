@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Diccionario de Columnas (FINAL/DASHBOARD)
 
-**Revisión:** r2026-04-08 v4.7 (DO-01 distribución de intensidad por deporte)
+**Revisión:** r2026-04-10 v4.9 (DO-02 polarización rolling por familia)
 **Estado:** Producción
 
 **Documentos relacionados:**
@@ -458,6 +458,29 @@ Además del clustering, `sessions_day.csv` sigue siendo la fuente de:
 - `load_ctx_ready`
 
 Estas métricas explican *cuánta* carga hay. La capa de clustering explica si la intensidad reciente está **mal espaciada**.
+
+### Capa DO-02 de distribución rolling por familia
+
+Estas columnas viven también en `sessions_day.csv` y describen **cómo** se repartió la intensidad en los `7` días previos, no cuánta carga hubo:
+
+| Columna | Qué es | Cómo leerla |
+|---------|--------|-------------|
+| `dominant_family_prev_7d` | Familia deportiva dominante de la ventana `D-7..D-1` (`run_family`, `bike_family`, `hike_family`, `elliptical_family`). | Vacío si la ventana no tiene una dominancia clara. |
+| `dominant_family_share_prev_7d` | Fracción de `moving_min` que aporta la familia dominante sobre el total elegible de la ventana. | Umbral v1 `>= 0.60`. Si queda por debajo, la señal no se considera interpretable. |
+| `n_sessions_usable_prev_7d` | Número de sesiones de esa familia con cobertura válida de zonas. | `0` significa que no hay señal utilizable aunque haya habido entrenamiento. |
+| `distribution_signal_confidence_prev_7d` | Confianza de la señal rolling: `low`, `moderate`, `high`. | `low` = no usar para flag; `moderate/high` = la estructura ya es interpretable. |
+| `polarisation_index_prev_7d` | Índice v1 de polarización: `(Z1 + Z3) / max(Z2, 1.0)` usando porcentajes ponderados de la familia dominante. | Cuanto más bajo, más peso relativo de Z2. Es una señal contextual, no un gate. |
+| `intensity_blackhole_flag` | Flag operativo que marca una ventana con Z2 excesiva y poco soporte de Z1/Z3. | Solo puede ser `True` con confianza suficiente, al menos `2` sesiones usables, `dominant_family_share >= 0.60`, `dominant_family_duration >= 90` y `polarisation_index_prev_7d < 2.2`. |
+| `intensity_blackhole_episode_id` | Identificador del episodio actual del flag. | Sirve para no contar cada día repetido como un evento nuevo. |
+| `intensity_blackhole_episode_len` | Longitud total del episodio actual. | Cuenta filas consecutivas emitidas en `sessions_day.csv`, no días calendario consecutivos. |
+
+### Semántica operativa de DO-02
+
+- Usa ventana rolling causal `D-7..D-1`; nunca incluye el día actual.
+- Se calcula desde `sessions.csv`, no proyectando directamente el sidecar semanal.
+- La guarda de volumen `>= 90 min` se aplica a la familia dominante, no al total mezclado.
+- La frecuencia útil se lee por episodios (`episode_id`), no por días activos.
+- Si esta señal entra en `reason_text`, el mensaje no debe repetirse en todos los días del mismo episodio.
 
 ### Cómo leer la convergencia de carga en `reason_text`
 
