@@ -32,6 +32,7 @@ import sys
 import time
 import shutil
 import argparse
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 
@@ -231,17 +232,25 @@ def parse_date_from_name(name: str) -> str:
     return m.group(1)
 
 
-# ============================================================================
-# PROCESAMIENTO DE UN DÍA
-# ============================================================================
+@dataclass(frozen=True)
+class RRProcessingContext:
+    """Contexto compartido tras leer y filtrar un archivo RR."""
 
-def compute_day_from_rr(rr_path: Path, history_df: pd.DataFrame, C: dict) -> Tuple[dict, dict]:
-    """
-    Procesa un archivo RR y devuelve:
-      - core_row: dict para CORE (medición)
-      - beta_row: dict para BETA_AUDIT (legacy)
-    """
-    # Lectura del RR
+    N_total: int
+    dur_raw: float
+    N_off: int
+    N_oor: int
+    N_base: int
+    N_drr: int
+    N_clean: int
+    artifact_pct: float
+    rr_eff: np.ndarray
+    t_eff: np.ndarray
+    t_end_eff: float
+
+
+def _parse_and_filter_rr(rr_path: Path, C: dict) -> RRProcessingContext:
+    """Lee un RR y aplica validación, filtros de rango, delta-RR y tail-trim."""
     rr = pd.read_csv(rr_path)
     if not {"duration", "offline"}.issubset(rr.columns):
         raise ValueError("Header inválida. Debe ser: duration,offline")
@@ -250,17 +259,15 @@ def compute_day_from_rr(rr_path: Path, history_df: pd.DataFrame, C: dict) -> Tup
     offline = pd.to_numeric(rr["offline"], errors="coerce").fillna(0).astype(int).to_numpy()
     offline = (offline != 0).astype(int)
 
-    # Alinear: eliminar posiciones donde duration es NaN en ambos arrays
+    # Alinear: eliminar posiciones donde duration es NaN en ambos arrays.
     valid_mask = ~np.isnan(rr_ms)
     rr_ms = rr_ms[valid_mask]
     offline = offline[valid_mask]
 
-    # Eje temporal (basado en array alineado, preserva tiempos reales)
     N_total = int(rr_ms.size)
     t_end_raw = np.cumsum(rr_ms) / 1000.0
     dur_raw = float(t_end_raw[-1]) if N_total else np.nan
 
-    # Filtros: offline, OOR, delta
     N_off = int(np.sum(offline == 1))
     oor = (offline == 0) & ((rr_ms < C["RR_MIN_MS"]) | (rr_ms > C["RR_MAX_MS"]))
     N_oor = int(np.sum(oor))
@@ -284,11 +291,46 @@ def compute_day_from_rr(rr_path: Path, history_df: pd.DataFrame, C: dict) -> Tup
 
     artifact_pct = 100.0 * (N_off + N_oor + N_drr) / N_total if N_total else np.nan
 
-    # Tail-trim
     t_end_eff = dur_raw - C["TAIL_TRIM_S"] if not np.isnan(dur_raw) else np.nan
     eff = t_clean <= t_end_eff
-    rr_eff = rr_clean[eff]
-    t_eff = t_clean[eff]
+
+    return RRProcessingContext(
+        N_total=N_total,
+        dur_raw=dur_raw,
+        N_off=N_off,
+        N_oor=N_oor,
+        N_base=N_base,
+        N_drr=N_drr,
+        N_clean=N_clean,
+        artifact_pct=artifact_pct,
+        rr_eff=rr_clean[eff],
+        t_eff=t_clean[eff],
+        t_end_eff=t_end_eff,
+    )
+
+
+# ============================================================================
+# PROCESAMIENTO DE UN DÍA
+# ============================================================================
+
+def compute_day_from_rr(rr_path: Path, history_df: pd.DataFrame, C: dict) -> Tuple[dict, dict]:
+    """
+    Procesa un archivo RR y devuelve:
+      - core_row: dict para CORE (medición)
+      - beta_row: dict para BETA_AUDIT (legacy)
+    """
+    ctx = _parse_and_filter_rr(rr_path, C)
+    N_total = ctx.N_total
+    dur_raw = ctx.dur_raw
+    N_off = ctx.N_off
+    N_oor = ctx.N_oor
+    N_base = ctx.N_base
+    N_drr = ctx.N_drr
+    N_clean = ctx.N_clean
+    artifact_pct = ctx.artifact_pct
+    rr_eff = ctx.rr_eff
+    t_eff = ctx.t_eff
+    t_end_eff = ctx.t_end_eff
 
     # Latencia (ventanas 60s, paso 30s)
     max_t = float(t_end_eff) if not np.isnan(t_end_eff) else (float(t_eff[-1]) if t_eff.size else 0.0)
@@ -594,53 +636,11 @@ def compute_day_from_rr_core_only(rr_path: Path, C: dict) -> Tuple[dict, None]:
     Versión simplificada que solo calcula CORE (sin beta/cRMSSD).
     Usada como fallback cuando el procesamiento completo falla.
     """
-    # Lectura del RR
-    rr = pd.read_csv(rr_path)
-    if not {"duration", "offline"}.issubset(rr.columns):
-        raise ValueError("Header inválida. Debe ser: duration,offline")
-
-    rr_ms = pd.to_numeric(rr["duration"], errors="coerce").astype(float).to_numpy()
-    offline = pd.to_numeric(rr["offline"], errors="coerce").fillna(0).astype(int).to_numpy()
-    offline = (offline != 0).astype(int)
-
-    # Alinear: eliminar posiciones donde duration es NaN en ambos arrays
-    valid_mask = ~np.isnan(rr_ms)
-    rr_ms = rr_ms[valid_mask]
-    offline = offline[valid_mask]
-
-    N_total = int(rr_ms.size)
-    t_end_raw = np.cumsum(rr_ms) / 1000.0
-    dur_raw = float(t_end_raw[-1]) if N_total else np.nan
-
-    # Filtros básicos
-    N_off = int(np.sum(offline == 1))
-    oor = (offline == 0) & ((rr_ms < C["RR_MIN_MS"]) | (rr_ms > C["RR_MAX_MS"]))
-    N_oor = int(np.sum(oor))
-
-    base = (offline == 0) & (~oor)
-    rr_base = rr_ms[base]
-    t_base = t_end_raw[base]
-    N_base = int(rr_base.size)
-
-    keep = np.ones(N_base, dtype=bool)
-    N_drr = 0
-    if N_base > 1:
-        d = np.abs(rr_base[1:] - rr_base[:-1]) / rr_base[:-1]
-        mark = d > C["DELTA_RR_MAX"]
-        keep[1:] = ~mark
-        N_drr = int(np.sum(mark))
-
-    rr_clean = rr_base[keep]
-    t_clean = t_base[keep]
-    N_clean = int(rr_clean.size)
-
-    artifact_pct = 100.0 * (N_off + N_oor + N_drr) / N_total if N_total else np.nan
-
-    # Tail-trim y tramo
-    t_end_eff = dur_raw - C["TAIL_TRIM_S"] if not np.isnan(dur_raw) else np.nan
-    eff = t_clean <= t_end_eff
-    rr_eff = rr_clean[eff]
-    t_eff = t_clean[eff]
+    ctx = _parse_and_filter_rr(rr_path, C)
+    artifact_pct = ctx.artifact_pct
+    rr_eff = ctx.rr_eff
+    t_eff = ctx.t_eff
+    t_end_eff = ctx.t_end_eff
 
     # Latencia simplificada (usar 45s como fallback)
     t_start_eff = 45.0
@@ -787,7 +787,7 @@ def main():
         print(f"Usa --rr-dir o --rr-file, o coloca archivos en {RR_BASE_DIR}")
         sys.exit(1)
 
-    _qprint(f"\n📂 Procesando {len(rr_files)} archivo(s) RR...")
+    _qprint(f"\n[INFO] Procesando {len(rr_files)} archivo(s) RR...")
 
     # Cargar DataFrames existentes
     core_df = get_or_create_df(OUT_CORE, COLS_CORE)
@@ -808,7 +808,7 @@ def main():
     processed = []
     for rr_path in rr_files:
         if not rr_path.exists():
-            print(f"⚠️  Archivo no encontrado: {rr_path}")
+            print(f"[WARN] Archivo no encontrado: {rr_path}")
             continue
 
         # CORE: siempre se intenta escribir si el RR es parseable
@@ -820,12 +820,12 @@ def main():
             core_row, beta_row = compute_day_from_rr(rr_path, history_df, CONSTANTS)
         except Exception as e:
             # Si falla el procesamiento completo, intentar al menos CORE básico
-            print(f"⚠️  Error en procesamiento completo de {rr_path.name}: {e}")
+            print(f"[WARN] Error en procesamiento completo de {rr_path.name}: {e}")
             try:
                 core_row, _ = compute_day_from_rr_core_only(rr_path, CONSTANTS)
-                print(f"   → CORE rescatado (sin BETA_AUDIT)")
+                print("   -> CORE rescatado (sin BETA_AUDIT)")
             except Exception as e2:
-                print(f"❌ Error irrecuperable en {rr_path.name}: {e2}")
+                print(f"[ERROR] Error irrecuperable en {rr_path.name}: {e2}")
                 continue
         
         # Escribir CORE (siempre si tenemos core_row)
@@ -837,7 +837,7 @@ def main():
                 "HR": core_row["HR_stable"],
                 "RMSSD": core_row["RMSSD_stable"],
             })
-            _qprint(f"  ✓ {core_row['Fecha']}: Calidad={core_row['Calidad']}, HR={core_row['HR_stable']:.1f}, RMSSD={core_row['RMSSD_stable']:.1f}")
+            _qprint(f"  [OK] {core_row['Fecha']}: Calidad={core_row['Calidad']}, HR={core_row['HR_stable']:.1f}, RMSSD={core_row['RMSSD_stable']:.1f}")
         
         # Escribir BETA_AUDIT (best-effort)
         if beta_row is not None:
@@ -860,7 +860,7 @@ def main():
                 "Color_Tiebreak": "Indef",
             }
             beta_df = upsert_row(beta_df, beta_row, COLS_BETA_AUDIT)
-            _qprint(f"   → BETA_AUDIT: NaN (sin historial)")
+            _qprint("   -> BETA_AUDIT: NaN (sin historial)")
         
         # Actualizar historial para siguientes archivos
         if not core_df.empty and not beta_df.empty:
@@ -886,7 +886,7 @@ def main():
             shutil.copy2(OUT_CORE, backup_dir / f"CORE_backup_{ts}.csv")
         if OUT_BETA_AUDIT.exists():
             shutil.copy2(OUT_BETA_AUDIT, backup_dir / f"BETA_AUDIT_backup_{ts}.csv")
-        _qprint(f"\n📦 Backups en {backup_dir}/")
+        _qprint(f"\n[INFO] Backups en {backup_dir}/")
 
     # Guardar
     core_df.to_csv(OUT_CORE, index=False)
@@ -894,14 +894,14 @@ def main():
 
     if not QUIET:
         print("\n" + "="*50)
-        print("✅ ENDURANCE HRV - Procesamiento completado")
+        print("ENDURANCE HRV - Procesamiento completado")
         print("="*50)
-        print(f"📄 CORE:       {OUT_CORE} ({len(core_df)} filas)")
-        print(f"📄 BETA_AUDIT: {OUT_BETA_AUDIT} ({len(beta_df)} filas)")
-        print(f"\nÚltimas fechas procesadas:")
+        print(f"CORE:       {OUT_CORE} ({len(core_df)} filas)")
+        print(f"BETA_AUDIT: {OUT_BETA_AUDIT} ({len(beta_df)} filas)")
+        print("\nUltimas fechas procesadas:")
         for p in processed[-5:]:
             print(f"   {p['Fecha']}: HR={p['HR']:.1f} lpm, RMSSD={p['RMSSD']:.1f} ms")
-        print("\n➡️  Ejecuta 'python build_hrv_final_dashboard.py' para generar FINAL y DASHBOARD")
+        print("\nEjecuta 'python build_hrv_final_dashboard.py' para generar FINAL y DASHBOARD")
 
 
 if __name__ == "__main__":
