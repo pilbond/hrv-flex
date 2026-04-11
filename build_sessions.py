@@ -166,6 +166,8 @@ def _build_polarisation_signal_prev_7d(
     if df.empty:
         return _empty_signal_frame()
 
+    df = df.sort_values("Fecha", kind="stable").reset_index(drop=True)
+
     for col in [
         "moving_min",
         "z1_total_min",
@@ -192,6 +194,20 @@ def _build_polarisation_signal_prev_7d(
         - df.loc[can_derive_z1, "z3_total_min"]
     ).clip(lower=0).round(1)
 
+    if "zones_source" in df.columns:
+        df["zones_source"] = df["zones_source"].astype(str).str.strip().str.lower()
+    else:
+        df["zones_source"] = ""
+
+    fechas = df["Fecha"].to_numpy(dtype="datetime64[ns]")
+    moving_min = pd.to_numeric(df["moving_min"], errors="coerce").to_numpy(dtype=float)
+    z1_total_min = pd.to_numeric(df["z1_total_min"], errors="coerce").to_numpy(dtype=float)
+    z2_total_min = pd.to_numeric(df["z2_total_min"], errors="coerce").to_numpy(dtype=float)
+    z3_total_min = pd.to_numeric(df["z3_total_min"], errors="coerce").to_numpy(dtype=float)
+    sport_family = df["sport_family"].astype(str).to_numpy(dtype=object)
+    zones_source = df["zones_source"].astype(str).to_numpy(dtype=object)
+    calendar_dates = pd.to_datetime(pd.Index(calendar_index), errors="coerce").to_numpy(dtype="datetime64[ns]")
+
     blank = {
         "dominant_family_prev_7d": "",
         "dominant_family_share_prev_7d": np.nan,
@@ -205,28 +221,38 @@ def _build_polarisation_signal_prev_7d(
     }
 
     records: list[dict] = []
-    for fecha in calendar_index:
+    for ts in calendar_dates:
         row = dict(blank)
-        ts = pd.Timestamp(fecha)
-        window = df[(df["Fecha"] >= ts - pd.Timedelta(days=7)) & (df["Fecha"] <= ts - pd.Timedelta(days=1))].copy()
-        if window.empty:
+        if pd.isna(ts):
             records.append(row)
             continue
 
-        family_duration = (
-            window.groupby("sport_family")["moving_min"]
-            .sum(min_count=1)
-            .dropna()
-            .sort_values(ascending=False, kind="stable")
-        )
-        family_duration = family_duration[family_duration > 0]
-        if family_duration.empty:
+        start = int(np.searchsorted(fechas, ts - np.timedelta64(7, "D"), side="left"))
+        end = int(np.searchsorted(fechas, ts, side="left"))
+        if end <= start:
             records.append(row)
             continue
 
-        dominant_family = str(family_duration.index[0])
-        dominant_family_duration = float(family_duration.iloc[0])
-        window_duration = float(pd.to_numeric(window["moving_min"], errors="coerce").fillna(0).sum())
+        window_moving = moving_min[start:end]
+        window_families = sport_family[start:end]
+        window_zones_source = zones_source[start:end]
+
+        family_duration: dict[str, float] = {}
+        for fam, dur in zip(window_families, window_moving):
+            if not fam or not np.isfinite(dur) or dur <= 0:
+                continue
+            family_duration[fam] = family_duration.get(fam, 0.0) + float(dur)
+
+        family_duration = {fam: dur for fam, dur in family_duration.items() if dur > 0}
+        if not family_duration:
+            records.append(row)
+            continue
+
+        dominant_family, dominant_family_duration = sorted(
+            family_duration.items(),
+            key=lambda item: (-item[1], item[0]),
+        )[0]
+        window_duration = float(np.nansum(window_moving))
         if not np.isfinite(window_duration) or window_duration <= 0:
             records.append(row)
             continue
@@ -236,25 +262,20 @@ def _build_polarisation_signal_prev_7d(
             records.append(row)
             continue
 
-        family_window = window[window["sport_family"] == dominant_family].copy()
-        total_sessions = int(len(family_window))
+        family_mask = window_families == dominant_family
+        total_sessions = int(np.sum(family_mask))
         if total_sessions == 0:
             records.append(row)
             continue
 
         usable_mask = (
-            family_window["z1_total_min"].notna()
-            & family_window["z2_total_min"].notna()
-            & family_window["z3_total_min"].notna()
-            & (
-                family_window["z1_total_min"]
-                + family_window["z2_total_min"]
-                + family_window["z3_total_min"]
-                > 0
-            )
+            family_mask
+            & np.isfinite(z1_total_min[start:end])
+            & np.isfinite(z2_total_min[start:end])
+            & np.isfinite(z3_total_min[start:end])
+            & ((z1_total_min[start:end] + z2_total_min[start:end] + z3_total_min[start:end]) > 0)
         )
-        usable = family_window[usable_mask].copy()
-        usable_sessions = int(len(usable))
+        usable_sessions = int(np.sum(usable_mask))
 
         row["dominant_family_prev_7d"] = dominant_family
         row["dominant_family_share_prev_7d"] = round(dominant_family_share, 3)
@@ -265,9 +286,9 @@ def _build_polarisation_signal_prev_7d(
             records.append(row)
             continue
 
-        z1_total = round(float(usable["z1_total_min"].sum()), 1)
-        z2_total = round(float(usable["z2_total_min"].sum()), 1)
-        z3_total = round(float(usable["z3_total_min"].sum()), 1)
+        z1_total = round(float(np.nansum(z1_total_min[start:end][usable_mask])), 1)
+        z2_total = round(float(np.nansum(z2_total_min[start:end][usable_mask])), 1)
+        z3_total = round(float(np.nansum(z3_total_min[start:end][usable_mask])), 1)
         zone_total = z1_total + z2_total + z3_total
         if not np.isfinite(zone_total) or zone_total <= 0:
             row["distribution_signal_confidence_prev_7d"] = "low"
@@ -293,14 +314,7 @@ def _build_polarisation_signal_prev_7d(
             confidence = _degrade_distribution_confidence(confidence)
         if dominant_family_duration < 90.0:
             confidence = _degrade_distribution_confidence(confidence)
-        if (
-            window["zones_source"]
-            .astype(str)
-            .str.strip()
-            .str.lower()
-            .eq("fallback")
-            .any()
-        ):
+        if np.any(window_zones_source == "fallback"):
             confidence = _degrade_distribution_confidence(confidence)
 
         row["distribution_signal_confidence_prev_7d"] = confidence

@@ -206,6 +206,34 @@ def window_stats(values: np.ndarray, valid: np.ndarray, wmask: np.ndarray, swc_m
     return (base, swc, n)
 
 
+def _window_start_indices(dates: np.ndarray, days: int) -> np.ndarray:
+    """Start index for the left-closed, right-open rolling window [t-days, t)."""
+    lower = dates - np.timedelta64(days, "D")
+    return np.searchsorted(dates, lower, side="left")
+
+
+def _window_stats_range(
+    values: np.ndarray,
+    valid: np.ndarray,
+    start: int,
+    end: int,
+    swc_mult: float,
+) -> Tuple[float, float, int]:
+    """Mediana + SWC robusta sobre un slice ya delimitado."""
+    if end <= start:
+        return (float("nan"), float("nan"), 0)
+    window = values[start:end]
+    m = valid[start:end] & np.isfinite(window)
+    x = window[m].astype(float)
+    n = int(x.size)
+    if n == 0:
+        return (float("nan"), float("nan"), 0)
+    base = float(np.median(x))
+    sd = robust_sd(x)
+    swc = float(swc_mult * sd) if np.isfinite(sd) else float("nan")
+    return (base, swc, n)
+
+
 def compute_healthy_anchors(core: pd.DataFrame, cfg: Config) -> Tuple[float, float, str]:
     """
     Anclas "healthy" para warning baseline60_degraded.
@@ -521,12 +549,18 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
     df["Fecha_dt"] = pd.to_datetime(df["Fecha"], errors="coerce")
     df = df.sort_values("Fecha_dt").reset_index(drop=True)
     dates = df["Fecha_dt"].to_numpy(dtype="datetime64[ns]")
+    window_start_60 = _window_start_indices(dates, cfg.base60_days)
+    window_start_42 = _window_start_indices(dates, cfg.base42_days)
+    window_start_28 = _window_start_indices(dates, cfg.base28_days)
+    window_end_excl = np.searchsorted(dates, dates, side="left")
 
     # Señales del día
     ln_today = pd.to_numeric(df["lnRMSSD"], errors="coerce").to_numpy(dtype=float)
     hr_today = pd.to_numeric(df["HR_stable"], errors="coerce").to_numpy(dtype=float)
     rmssd_today = pd.to_numeric(df["RMSSD_stable"], errors="coerce").to_numpy(dtype=float)
     rrbar_s = pd.to_numeric(df["RRbar_s"], errors="coerce").to_numpy(dtype=float)
+    ln_today_finite = np.isfinite(ln_today)
+    hr_today_finite = np.isfinite(hr_today)
     stability_subtype = (
         df["Stability_Subtype"].astype(str).to_numpy(dtype=object)
         if "Stability_Subtype" in df.columns
@@ -590,6 +624,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
     ln_rr = np.full(len(df), np.nan, dtype=float)
     with np.errstate(divide="ignore", invalid="ignore"):
         ln_rr = np.log(rrbar_s)
+    ln_rr_finite = np.isfinite(ln_rr)
 
     for i in range(len(df)):
         if is_invalid[i]:
@@ -607,9 +642,10 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             continue
 
         # ===== BASE60 =====
-        w60 = window_mask(dates, i, cfg.base60_days)
-        b_ln, sw_ln, n_ln = window_stats(ln_today, is_clean, w60, cfg.swc_mult)
-        b_hr, sw_hr, n_hr = window_stats(hr_today, is_clean, w60, cfg.swc_mult)
+        end60 = int(window_end_excl[i])
+        start60 = int(window_start_60[i])
+        b_ln, sw_ln, n_ln = _window_stats_range(ln_today, is_clean & ln_today_finite, start60, end60, cfg.swc_mult)
+        b_hr, sw_hr, n_hr = _window_stats_range(hr_today, is_clean & hr_today_finite, start60, end60, cfg.swc_mult)
         n60 = int(min(n_ln, n_hr))
 
         ln_base60[i] = b_ln
@@ -681,9 +717,10 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                 unstable_note[i] = f"Raw={gate_raw_today[i]}({gate_raw_reason[i]}) vs ref={gate_base60[i]}({razon_base60[i]})"
 
         # ===== SHADOW42 =====
-        w42 = window_mask(dates, i, cfg.base42_days)
-        b_ln42, sw_ln42, n_ln42 = window_stats(ln_today, is_clean, w42, cfg.swc_mult)
-        b_hr42, sw_hr42, n_hr42 = window_stats(hr_today, is_clean, w42, cfg.swc_mult)
+        end42 = int(window_end_excl[i])
+        start42 = int(window_start_42[i])
+        b_ln42, sw_ln42, n_ln42 = _window_stats_range(ln_today, is_clean & ln_today_finite, start42, end42, cfg.swc_mult)
+        b_hr42, sw_hr42, n_hr42 = _window_stats_range(hr_today, is_clean & hr_today_finite, start42, end42, cfg.swc_mult)
         nb42 = int(min(n_ln42, n_hr42))
         n_base42[i] = nb42
 
@@ -708,9 +745,10 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                 gate_shadow42[i] = VERDE; razon_shadow42[i] = "2D_OK"
 
         # ===== SHADOW28 =====
-        w28 = window_mask(dates, i, cfg.base28_days)
-        b_ln28, sw_ln28, n_ln28 = window_stats(ln_today, is_clean, w28, cfg.swc_mult)
-        b_hr28, sw_hr28, n_hr28 = window_stats(hr_today, is_clean, w28, cfg.swc_mult)
+        end28 = int(window_end_excl[i])
+        start28 = int(window_start_28[i])
+        b_ln28, sw_ln28, n_ln28 = _window_stats_range(ln_today, is_clean & ln_today_finite, start28, end28, cfg.swc_mult)
+        b_hr28, sw_hr28, n_hr28 = _window_stats_range(hr_today, is_clean & hr_today_finite, start28, end28, cfg.swc_mult)
         nb28 = int(min(n_ln28, n_hr28))
         n_base28[i] = nb28
 
@@ -737,10 +775,10 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
         # ===== RESIDUAL (BASE60) =====
         # Fit OLS y = a + b*x en ventana BASE60 (shift-1) sobre días clean
         # x = ln(RRbar_s), y = lnRMSSD_today
-        mfit = w60 & is_clean & np.isfinite(ln_rr) & np.isfinite(ln_today)
+        mfit = is_clean[start60:end60] & ln_rr_finite[start60:end60] & ln_today_finite[start60:end60]
         if np.sum(mfit) >= cfg.min_base60_clean and np.isfinite(ln_rr[i]) and np.isfinite(ln_today[i]):
-            x = ln_rr[mfit].astype(float)
-            y = ln_today[mfit].astype(float)
+            x = ln_rr[start60:end60][mfit].astype(float)
+            y = ln_today[start60:end60][mfit].astype(float)
             X = np.column_stack([np.ones_like(x), x])
             try:
                 coef, *_ = np.linalg.lstsq(X, y, rcond=None)
