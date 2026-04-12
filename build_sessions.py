@@ -2017,9 +2017,12 @@ def merge_sessions_incremental(new_df: pd.DataFrame, sessions_path: Path) -> pd.
         merged = pd.concat([existing_df, new_df], ignore_index=True, sort=False)
 
     if "session_id" in merged.columns:
-        sid = merged["session_id"].astype(str).str.strip()
+        sid = merged["session_id"].astype("string").fillna("").str.strip()
         sid = sid.replace({"nan": "", "None": ""})
         merged["session_id"] = sid
+        dropped = int((merged["session_id"] == "").sum())
+        if dropped > 0:
+            log.warning(f"Dropped {dropped} sessions with null session_id")
         merged = merged[merged["session_id"] != ""].copy()
 
         before = len(merged)
