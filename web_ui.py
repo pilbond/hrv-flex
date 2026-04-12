@@ -803,7 +803,7 @@ def sync():
         'message': 'Sincronización iniciada',
         'output': 'Procesando...',
         'job_type': 'hrv',
-    })
+    }), 202
 
 
 def run_sync():
@@ -885,7 +885,7 @@ def sync_sessions():
         'message': 'Sincronización de sesiones iniciada',
         'output': 'Procesando...',
         'job_type': 'sessions',
-    })
+    }), 202
 
 
 def run_sessions_sync():
