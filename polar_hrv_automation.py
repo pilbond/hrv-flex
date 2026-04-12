@@ -31,198 +31,69 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List, Tuple
 import requests
 from requests.auth import _basic_auth_str
-from polar_utils import env_flag, get_field_variant, parse_duration_to_minutes, parse_float, response_excerpt
-from oauth_utils import exchange_code_for_token, register_polar_user, save_json_atomic
-
-# pandas es opcional, solo para --auto
-try:
-    import pandas as pd
-    PANDAS_AVAILABLE = True
-except ImportError:
-    PANDAS_AVAILABLE = False
-
-# =========================
-# DETECCIÓN DE ENTORNO
-# =========================
-IS_RAILWAY = os.environ.get('RAILWAY_ENVIRONMENT') is not None
-IS_RENDER = os.environ.get('RENDER') is not None
-IS_HEROKU = os.environ.get('DYNO') is not None
-IS_PRODUCTION = IS_RAILWAY or IS_RENDER or IS_HEROKU
-
-# Cargar .env solo en local
-if not IS_PRODUCTION:
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-        # print("📝 Modo LOCAL: cargando credenciales desde .env")
-    except ImportError:
-        print("⚠️  python-dotenv no instalado, usando variables de entorno del sistema")
-else:
-    env_name = 'Railway' if IS_RAILWAY else 'Render' if IS_RENDER else 'Heroku'
-    # print(f"🌐 Modo PRODUCCIÓN: {env_name}")
-    # print("📝 Cargando credenciales desde variables de entorno")
-
-# =========================
-# CONFIG
-# =========================
-QUIET = env_flag("HRV_QUIET", False)
-
-
-def _qprint(*args, **kwargs):
-    if not QUIET:
-        print(*args, **kwargs)
-
-CLIENT_ID = (
-    os.environ.get("POLAR_CLIENT_ID2")
-    or os.environ.get("POLAR_CLIENT_ID")
-    or os.getenv("POLAR_CLIENT_ID")
+import pandas as pd
+from config import (
+    API_BASE,
+    AUTH_URL,
+    BETA_AUDIT_PATH,
+    CLIENT_ID,
+    CLIENT_SECRET,
+    COLOR_EMOJI,
+    CORE_PATH,
+    DASHBOARD_PATH,
+    DATA_DIR,
+    DEBUG_JSON,
+    DEBUG_PREVIEW_LIMIT,
+    DATE_STRING_LENGTH,
+    DROPBOX_FOLDER_PATH,
+    DROPBOX_RR_ENABLED,
+    DROPBOX_RR_NO_AUX,
+    DROPBOX_RR_PAIR_LIMIT,
+    DROPBOX_RR_SCRIPT,
+    DROPBOX_RECURSIVE,
+    FIELD_SAMPLE_TYPE,
+    FIELD_SPORT,
+    FIELD_START_TIME,
+    FINAL_PATH,
+    GATE_EMOJI,
+    INTERVALS_BASE_URL,
+    INTERVALS_FIELD_MAP,
+    INTERVALS_SOURCE_PATH,
+    IS_HEROKU,
+    IS_PRODUCTION,
+    IS_RAILWAY,
+    IS_RENDER,
+    MAX_AUTO_DAYS,
+    MAX_DURATION_MINUTES,
+    MAX_EXERCISES,
+    MASTER_CSV_COLS,
+    OUTDIR,
+    PANDAS_AVAILABLE,
+    POLAR_USER_NAME,
+    QUIET,
+    RR_MAX_MS,
+    RR_MIN_MS,
+    REDIRECT_URI,
+    SCOPE,
+    SLEEP_COLUMNS,
+    SLEEP_PATH,
+    SPORTS_FILTER,
+    TOKEN_FILE,
+    TOKEN_URL,
+    UNKNOWN_SESSION_ID,
+    _qprint,
+    get_production_url,
 )
-CLIENT_SECRET = os.environ.get("POLAR_CLIENT_SECRET") or os.getenv("POLAR_CLIENT_SECRET")
-
-# REDIRECT_URI adaptativo (local vs producción)
-if IS_PRODUCTION:
-    # En producción, construir URL pública
-    PUBLIC_URL = os.environ.get('PUBLIC_URL') or os.environ.get('RAILWAY_PUBLIC_DOMAIN')
-    if PUBLIC_URL:
-        if not PUBLIC_URL.startswith('http'):
-            PUBLIC_URL = f"https://{PUBLIC_URL}"
-        REDIRECT_URI = f"{PUBLIC_URL}/auth/callback"
-    else:
-        # Fallback: intentar construir desde variables Railway
-        if IS_RAILWAY:
-            service_name = os.environ.get('RAILWAY_SERVICE_NAME', 'app')
-            project_name = os.environ.get('RAILWAY_PROJECT_NAME', 'polar-hrv')
-            REDIRECT_URI = f"https://{service_name}.up.railway.app/auth/callback"
-        else:
-            REDIRECT_URI = "http://localhost:5050/oauth2/callback"
-            print("⚠️  PUBLIC_URL no configurado, usando localhost")
-else:
-    # En local, usar localhost
-    REDIRECT_URI = "http://localhost:5050/oauth2/callback"
-
-#print(f"🔗 OAuth Redirect URI: {REDIRECT_URI}")
-#if CLIENT_ID:
-#   print(f"🔑 client_id_len: {len(CLIENT_ID)} | client_id_tail: {CLIENT_ID[-4:]}")
-
-SCOPE = "accesslink.read_all"
-
-API_BASE = "https://www.polaraccesslink.com/v3"
-AUTH_URL = "https://flow.polar.com/oauth2/authorization"
-TOKEN_URL = "https://polarremote.com/v2/oauth2/token"
-
-# Configuración nombres archivo
-POLAR_USER_NAME = os.environ.get("POLAR_USER_NAME") or os.getenv("POLAR_USER_NAME", "Polar_User")
-
-# Permite persistir tokens en un volumen (Railway) con POLAR_TOKEN_PATH=/data/polar_tokens.json
-TOKEN_FILE = Path(os.environ.get("POLAR_TOKEN_PATH", ".polar_tokens.json"))
-
-_data_dir = (os.environ.get("HRV_DATA_DIR") or "data").strip() or "data"
-_rr_dir = (os.environ.get("RR_DOWNLOAD_DIR") or "").strip()
-if _rr_dir:
-    OUTDIR = Path(_rr_dir)
-else:
-    OUTDIR = Path(_data_dir) / "rr_downloads"
-
-DATA_DIR = Path(_data_dir)
-CORE_PATH = DATA_DIR / "ENDURANCE_HRV_master_CORE.csv"
-BETA_AUDIT_PATH = DATA_DIR / "ENDURANCE_HRV_master_BETA_AUDIT.csv"
-FINAL_PATH = DATA_DIR / "ENDURANCE_HRV_master_FINAL.csv"
-DASHBOARD_PATH = DATA_DIR / "ENDURANCE_HRV_master_DASHBOARD.csv"
-SLEEP_PATH = DATA_DIR / "ENDURANCE_HRV_sleep.csv"
-
-INTERVALS_SOURCE_PATH = BETA_AUDIT_PATH
-
-SLEEP_COLUMNS = [
-    "Fecha",
-    # Polar sleep
-    "polar_sleep_duration_min", "polar_sleep_span_min",
-    "polar_deep_pct", "polar_rem_pct",
-    "polar_efficiency_pct", "polar_continuity", "polar_continuity_index",
-    "polar_interruptions_long", "polar_interruptions_total", "polar_sleep_score",
-    # Polar nightly recharge
-    "polar_night_rmssd", "polar_night_rri", "polar_night_resp",
-    # Derived percentiles (recalculated on each upsert)
-    "sleep_dur_p10", "sleep_dur_p90", "sleep_int_p90",
-]
-
-# Filtros
-SPORTS_FILTER = ["BODY_AND_MIND"]  # Comparación EXACTA
-MAX_DURATION_MINUTES = 10
-MAX_EXERCISES = 50
-
-# Rangos fisiológicos válidos para RR intervals (ms)
-# Basado en rango de FC humano: 30-200 bpm
-RR_MIN_MS = 300.0   # ~200 bpm (máximo fisiológico)
-RR_MAX_MS = 2000.0  # ~30 bpm (mínimo fisiológico)
-
-# Nombres de campos API Polar (variantes inconsistentes)
-FIELD_START_TIME = ("start-time", "start_time", "startTime")
-FIELD_SPORT = ("detailed-sport-info", "detailed_sport_info", "sport")
-FIELD_SAMPLE_TYPE = ("sample-type", "sample_type")
-
-# Nombres de columnas del BETA_AUDIT (para Intervals)
-MASTER_CSV_COLS = {
-    'fecha': 'Fecha',
-    'hr': 'HR_stable',
-    'rmssd': 'RMSSD_stable',
-    'crmssd': 'cRMSSD',
-    'color_agudo': 'Color_Agudo_Diario',
-    'color_tendencia': 'Color_Tendencia',
-    'color_tiebreak': 'Color_Tiebreak',
-    'calidad': 'Calidad',
-    'estabilidad': 'HRV_Stability',
-    'flags': 'Flags',
-}
-
-# Mapeo de colores de estado a emojis
-COLOR_EMOJI = {
-    'Verde': '🟢',
-    'Amarillo': '🟡',
-    'Ámbar': '🟡',  # Alias para Amarillo
-    'Rojo': '🔴',
-    'N/A': '⚪',
-}
-
-GATE_EMOJI = {
-    'VERDE': '🟢',
-    'ÁMBAR': '🟡',
-    'AMBAR': '🟡',
-    'ROJO': '🔴',
-    'NO': '⚪',
-}
-
-# Límites de visualización y procesamiento
-DEBUG_PREVIEW_LIMIT = 10      # Sesiones a mostrar en modo debug
-MAX_AUTO_DAYS = 30            # Días máximo en modo --auto
-DATE_STRING_LENGTH = 10       # Longitud de "YYYY-MM-DD"
-UNKNOWN_SESSION_ID = "unknown"  # ID para sesiones sin fecha
-
-DEBUG_JSON = False  # True = guarda JSON debug de sesiones sin RR
-
-# Integración Dropbox RR (ECG/ACC JSONL -> RR) con fallback a Polar.
-DROPBOX_RR_ENABLED = env_flag("HRV_DROPBOX_RR_ENABLED", True)
-DROPBOX_RR_SCRIPT = (os.environ.get("HRV_DROPBOX_RR_SCRIPT") or "egc_to_rr.py").strip() or "egc_to_rr.py"
-DROPBOX_RR_NO_AUX = env_flag("HRV_DROPBOX_NO_AUX", True)
-DROPBOX_RR_PAIR_LIMIT = (os.environ.get("HRV_DROPBOX_PAIR_LIMIT") or "").strip()
-DROPBOX_FOLDER_PATH = (
-    os.environ.get("HRV_DROPBOX_FOLDER_PATH")
-    or os.environ.get("DROPBOX_FOLDER_PATH")
-    or ""
-).strip()
-DROPBOX_RECURSIVE = env_flag("HRV_DROPBOX_RECURSIVE", True)
-
-# =========================
-# Intervals.icu wellness sync
-# =========================
-INTERVALS_BASE_URL = (os.environ.get("INTERVALS_BASE_URL") or "https://intervals.icu").strip()
-INTERVALS_FIELD_MAP = {
-    "CRMSSD": "cRMSSD",
-    "HRPolar": "HR_stable",
-    "HRVScore": "RMSSD_stable",
-    "ColorDiario": "Color_Agudo_Diario",
-    "ColorTiebreak": "Color_Tiebreak",
-    "ColorTendencia": "Color_Tendencia",
-}
+from polar_utils import (
+    _iso_to_dt,
+    _parse_yyyy_mm_dd,
+    env_flag,
+    get_field_variant,
+    parse_duration_to_minutes,
+    parse_float,
+    response_excerpt,
+)
+from oauth_utils import exchange_code_for_token, register_polar_user, save_json_atomic
 
 
 def _intervals_api_root() -> str:
@@ -231,55 +102,6 @@ def _intervals_api_root() -> str:
         base = "https://intervals.icu"
     base = re.sub(r"/api/v1/?$", "", base, flags=re.IGNORECASE)
     return f"{base}/api/v1"
-
-# Verificar credenciales al inicio
-if not CLIENT_ID or not CLIENT_SECRET:
-    _print_header("❌ ERROR: Credenciales Polar no configuradas", trailing_blank=True)
-    
-    if IS_PRODUCTION:
-        print("En Railway/Render, configura variables de entorno:")
-        print("  1. Ir a dashboard del servicio")
-        print("  2. Variables → Add Variable")
-        print("  3. Agregar:")
-        print("     • POLAR_CLIENT_ID = tu_client_id")
-        print("     • POLAR_CLIENT_SECRET = tu_client_secret")
-        print("     • POLAR_USER_NAME = Tu_Nombre")
-        print("     • PUBLIC_URL = https://tu-app.up.railway.app (opcional)")
-    else:
-        print("En local, crea archivo .env:")
-        print("  1. cp .env.example .env")
-        print("  2. Editar .env con tus credenciales")
-        print("  3. Obtener credenciales en: https://admin.polaraccesslink.com/")
-    
-    print("\n")
-    sys.exit(1)
-
-
-def _iso_to_dt(s: str):
-    """Convierte ISO string a datetime en hora LOCAL"""
-    if not s:
-        return None
-    try:
-        if s.endswith("Z"):
-            s = s[:-1] + "+00:00"
-        dt_utc = datetime.fromisoformat(s)
-
-        # Convertir a hora local del sistema
-        utc_timestamp = dt_utc.timestamp()
-        local_dt = datetime.fromtimestamp(utc_timestamp)
-
-        return local_dt
-    except (ValueError, TypeError, OverflowError, OSError):
-        return None
-
-
-def _parse_yyyy_mm_dd(s: str):
-    if not s:
-        return None
-    try:
-        return datetime.strptime(s, "%Y-%m-%d").date()
-    except ValueError:
-        return None
 
 
 def _extract_date_from_rr_filename(file_name: str):
@@ -698,19 +520,6 @@ def build_auth_url(client_id: str, redirect_uri: str, scope: str):
     if scope:
         params["scope"] = scope
     return f"{AUTH_URL}?{urlencode(params)}"
-
-
-def get_production_url():
-    """
-    Obtiene y normaliza la URL pública en producción.
-
-    Returns:
-        URL normalizada con https:// o string vacío si no existe
-    """
-    public_url = os.environ.get('PUBLIC_URL') or os.environ.get('RAILWAY_PUBLIC_DOMAIN') or ''
-    if public_url and not str(public_url).startswith('http'):
-        return f"https://{public_url}"
-    return public_url
 
 
 def api_request(method: str, path: str, token: str, params=None, headers=None, data=None, json_body=None, timeout=60):
