@@ -4,5 +4,8 @@ nixPkgs = ["python311"]
 [phases.install]
 cmds = ["pip install -r requirements_web.txt"]
 
+[variables]
+PYTHONUNBUFFERED = "1"
+
 [start]
 cmd = "python web_ui.py"
