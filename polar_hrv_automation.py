@@ -20,7 +20,6 @@ import threading
 import time
 import json
 import argparse
-import subprocess
 import webbrowser
 import csv
 from pathlib import Path
@@ -104,6 +103,11 @@ from polar_utils import (
     response_excerpt,
 )
 from oauth_utils import exchange_code_for_token, register_polar_user, save_json_atomic
+from pipeline_runner import (
+    build_hrv_core_cmd,
+    run_build_hrv_core,
+    run_build_hrv_final_dashboard_only,
+)
 
 
 def _intervals_api_root() -> str:
@@ -112,6 +116,13 @@ def _intervals_api_root() -> str:
         base = "https://intervals.icu"
     base = re.sub(r"/api/v1/?$", "", base, flags=re.IGNORECASE)
     return f"{base}/api/v1"
+
+
+class _CallbackState:
+    def __init__(self):
+        self.code = None
+        self.error = None
+        self.raw_query = None
 
 
 class OAuthCallbackHandler(BaseHTTPRequestHandler):
@@ -1066,43 +1077,6 @@ def calculate_missing_days():
     return days_missing, last_date
 
 
-def build_hrv_core_cmd(rr_files):
-    """Construye comando para build_hrv_core.py usando --rr-file."""
-    cmd = [sys.executable, "build_hrv_core.py"]
-    for f in rr_files:
-        cmd.extend(["--rr-file", str(f)])
-    return cmd
-
-
-def run_build_hrv_final_dashboard_only() -> bool:
-    """Ejecuta build_hrv_final_dashboard.py sin reprocesar RR/CORE."""
-    if not Path("build_hrv_final_dashboard.py").exists():
-        print("❌ build_hrv_final_dashboard.py no encontrado")
-        return False
-    try:
-        env = os.environ.copy()
-        env["PYTHONIOENCODING"] = "utf-8"
-        result = subprocess.run(
-            [sys.executable, "build_hrv_final_dashboard.py"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=True,
-            env=env,
-        )
-        if result.stdout:
-            print(result.stdout)
-        return True
-    except subprocess.CalledProcessError as exc:
-        print(f"⚠️  Error ejecutando build_hrv_final_dashboard.py (código {exc.returncode})")
-        if exc.stdout:
-            print(exc.stdout)
-        if exc.stderr:
-            print(exc.stderr)
-        return False
-
-
 def _refresh_sleep_and_outputs(access_token: str, x_user_id: Optional[str], run_final_dashboard: bool = False, dates: Optional[List] = None) -> None:
     target_dates = dates if dates is not None else _default_sleep_refresh_dates()
     _update_sleep_for_dates(access_token, x_user_id, target_dates)
@@ -1507,17 +1481,6 @@ def main():
     if args.process:
         _print_header("🔧 PROCESANDO PIPELINE HRV")
 
-        if not Path("build_hrv_core.py").exists():
-            print("")
-            print("❌ build_hrv_core.py no encontrado")
-            print("   Copia build_hrv_core.py al directorio actual para usar --process")
-            return
-        if not Path("build_hrv_final_dashboard.py").exists():
-            print("")
-            print("❌ build_hrv_final_dashboard.py no encontrado")
-            print("   Copia build_hrv_final_dashboard.py al directorio actual para usar --process")
-            return
-
         cmd = build_hrv_core_cmd(rr_files)
         if len(cmd) <= 2:
             print("")
@@ -1530,77 +1493,41 @@ def main():
         _qprint("")
         _qprint("▶️  Ejecutando build_hrv_core.py...")
         _qprint("")
-        try:
-            # Configurar environment para UTF-8
-            env = os.environ.copy()
-            env['PYTHONIOENCODING'] = 'utf-8'
+        result = run_build_hrv_core(rr_files)
+        if result is None:
+            return
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                errors='replace',
-                check=True,
-                env=env
-            )
+        if result.stdout:
+            print(result.stdout)
 
-            if result.stdout:
-                print(result.stdout)
+        post_process_dates = get_existing_dates_from_master() if PANDAS_AVAILABLE else set()
+        new_dates = sorted(post_process_dates - pre_process_dates) if PANDAS_AVAILABLE else []
+        if new_dates:
+            merged_dates = set(new_dates)
+            merged_dates.update(_default_sleep_refresh_dates())
+            target_dates = sorted(merged_dates)
+        else:
+            target_dates = _default_sleep_refresh_dates()
+        _qprint("")
+        _qprint(f"▶️  Actualizando sleep.csv ({len(target_dates)} fecha(s))...")
+        _update_sleep_for_dates(access_token, x_user_id, target_dates)
 
-            post_process_dates = get_existing_dates_from_master() if PANDAS_AVAILABLE else set()
-            new_dates = sorted(post_process_dates - pre_process_dates) if PANDAS_AVAILABLE else []
-            if new_dates:
-                merged_dates = set(new_dates)
-                merged_dates.update(_default_sleep_refresh_dates())
-                target_dates = sorted(merged_dates)
-            else:
-                target_dates = _default_sleep_refresh_dates()
-            _qprint("")
-            _qprint(f"▶️  Actualizando sleep.csv ({len(target_dates)} fecha(s))...")
-            _update_sleep_for_dates(access_token, x_user_id, target_dates)
+        _qprint("")
+        _qprint("▶️  Ejecutando build_hrv_final_dashboard.py...")
+        _qprint("")
+        run_build_hrv_final_dashboard_only()
 
-            _qprint("")
-            _qprint("▶️  Ejecutando build_hrv_final_dashboard.py...")
-            _qprint("")
-            result2 = subprocess.run(
-                [sys.executable, "build_hrv_final_dashboard.py"],
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                errors='replace',
-                check=True,
-                env=env
-            )
-            if result2.stdout:
-                print(result2.stdout)
-
-            if not QUIET:
-                print("")
-                print("✅ Procesamiento HRV completado")
-                print("")
-                print("📄 Archivos actualizados:")
-                print("   - ENDURANCE_HRV_master_CORE.csv")
-                print("   - ENDURANCE_HRV_master_BETA_AUDIT.csv")
-                print("   - ENDURANCE_HRV_master_FINAL.csv")
-                print("   - ENDURANCE_HRV_master_DASHBOARD.csv")
-            _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
-            show_latest_hrv_summaries()
-
-        except subprocess.CalledProcessError as e:
+        if not QUIET:
             print("")
-            print(f"❌ Error ejecutando procesamiento HRV (código: {e.returncode})")
-            if e.stdout:
-                print("")
-                print("Output:")
-                print(e.stdout)
-            if e.stderr:
-                print("")
-                print("Error:")
-                print(e.stderr)
-        except (FileNotFoundError, PermissionError, OSError) as e:
+            print("✅ Procesamiento HRV completado")
             print("")
-            print(f"❌ Error inesperado ejecutando script: {e}")
+            print("📄 Archivos actualizados:")
+            print("   - ENDURANCE_HRV_master_CORE.csv")
+            print("   - ENDURANCE_HRV_master_BETA_AUDIT.csv")
+            print("   - ENDURANCE_HRV_master_FINAL.csv")
+            print("   - ENDURANCE_HRV_master_DASHBOARD.csv")
+        _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
+        show_latest_hrv_summaries()
     else:
         _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
 
