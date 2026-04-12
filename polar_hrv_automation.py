@@ -42,12 +42,7 @@ from config import (
     DATA_DIR,
     DEBUG_JSON,
     DEBUG_PREVIEW_LIMIT,
-    DROPBOX_FOLDER_PATH,
     DROPBOX_RR_ENABLED,
-    DROPBOX_RR_NO_AUX,
-    DROPBOX_RR_PAIR_LIMIT,
-    DROPBOX_RR_SCRIPT,
-    DROPBOX_RECURSIVE,
     FIELD_SAMPLE_TYPE,
     FIELD_SPORT,
     FIELD_START_TIME,
@@ -103,6 +98,7 @@ from polar_utils import (
     response_excerpt,
 )
 from oauth_utils import exchange_code_for_token, register_polar_user, save_json_atomic
+from dropbox_rr import _compute_target_missing_dates, _run_dropbox_rr_import_for_dates
 from pipeline_runner import (
     build_hrv_core_cmd,
     run_build_hrv_core,
