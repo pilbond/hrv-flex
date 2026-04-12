@@ -573,6 +573,8 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
     is_invalid = (df["Calidad"].astype(str) == "INVALID") | (~is_numeric) | df["Fecha_dt"].isna().to_numpy()
     is_clean = (df["Calidad"].astype(str) == "OK") & is_numeric & (~is_invalid)
     quality_flag = (~is_clean) & (~is_invalid)
+    clean_ln_mask = is_clean & ln_today_finite
+    clean_hr_mask = is_clean & hr_today_finite
 
     # ROLL3 (solo clean)
     ln_used = np.full(len(df), np.nan, dtype=float)
@@ -625,6 +627,49 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
     with np.errstate(divide="ignore", invalid="ignore"):
         ln_rr = np.log(rrbar_s)
     ln_rr_finite = np.isfinite(ln_rr)
+
+    def _apply_shadow_gate(
+        i: int,
+        start_idx_arr: np.ndarray,
+        min_clean: int,
+        gate_arr: np.ndarray,
+        reason_arr: np.ndarray,
+        n_arr: np.ndarray,
+        insufficient_reason: str,
+    ) -> None:
+        """Aplica la lógica 2D para una ventana sombra sin cambiar semántica."""
+        end_idx = int(window_end_excl[i])
+        start_idx = int(start_idx_arr[i])
+        b_ln, sw_ln, n_ln = _window_stats_range(ln_today, clean_ln_mask, start_idx, end_idx, cfg.swc_mult)
+        b_hr, sw_hr, n_hr = _window_stats_range(hr_today, clean_hr_mask, start_idx, end_idx, cfg.swc_mult)
+        nb = int(min(n_ln, n_hr))
+        n_arr[i] = nb
+
+        if nb < min_clean:
+            gate_arr[i] = NO
+            reason_arr[i] = insufficient_reason
+            return
+        if (not np.isfinite(sw_ln)) or (not np.isfinite(sw_hr)) or sw_ln == 0.0 or sw_hr == 0.0:
+            gate_arr[i] = NO
+            reason_arr[i] = "SWC_NAN/0"
+            return
+
+        dln = float(ln_used[i] - b_ln)
+        dhr = float(hr_used[i] - b_hr)
+        ln_bajo = dln < -sw_ln
+        hr_alto = dhr > sw_hr
+        if ln_bajo and hr_alto:
+            gate_arr[i] = ROJO
+            reason_arr[i] = "2D_AMBOS"
+        elif ln_bajo:
+            gate_arr[i] = AMBAR
+            reason_arr[i] = "2D_LN"
+        elif hr_alto:
+            gate_arr[i] = AMBAR
+            reason_arr[i] = "2D_HR"
+        else:
+            gate_arr[i] = VERDE
+            reason_arr[i] = "2D_OK"
 
     for i in range(len(df)):
         if is_invalid[i]:
@@ -716,61 +761,9 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             if bool(quality_flag[i]) and gate_raw_today[i] in (VERDE, AMBAR, ROJO):
                 unstable_note[i] = f"Raw={gate_raw_today[i]}({gate_raw_reason[i]}) vs ref={gate_base60[i]}({razon_base60[i]})"
 
-        # ===== SHADOW42 =====
-        end42 = int(window_end_excl[i])
-        start42 = int(window_start_42[i])
-        b_ln42, sw_ln42, n_ln42 = _window_stats_range(ln_today, is_clean & ln_today_finite, start42, end42, cfg.swc_mult)
-        b_hr42, sw_hr42, n_hr42 = _window_stats_range(hr_today, is_clean & hr_today_finite, start42, end42, cfg.swc_mult)
-        nb42 = int(min(n_ln42, n_hr42))
-        n_base42[i] = nb42
-
-        if nb42 < cfg.min_base42_clean:
-            gate_shadow42[i] = NO
-            razon_shadow42[i] = "BASE42_INSUF"
-        elif (not np.isfinite(sw_ln42)) or (not np.isfinite(sw_hr42)) or sw_ln42 == 0.0 or sw_hr42 == 0.0:
-            gate_shadow42[i] = NO
-            razon_shadow42[i] = "SWC_NAN/0"
-        else:
-            dln42 = float(ln_used[i] - b_ln42)
-            dhr42 = float(hr_used[i] - b_hr42)
-            ln_bajo42 = dln42 < -sw_ln42
-            hr_alto42 = dhr42 >  sw_hr42
-            if ln_bajo42 and hr_alto42:
-                gate_shadow42[i] = ROJO; razon_shadow42[i] = "2D_AMBOS"
-            elif ln_bajo42:
-                gate_shadow42[i] = AMBAR; razon_shadow42[i] = "2D_LN"
-            elif hr_alto42:
-                gate_shadow42[i] = AMBAR; razon_shadow42[i] = "2D_HR"
-            else:
-                gate_shadow42[i] = VERDE; razon_shadow42[i] = "2D_OK"
-
-        # ===== SHADOW28 =====
-        end28 = int(window_end_excl[i])
-        start28 = int(window_start_28[i])
-        b_ln28, sw_ln28, n_ln28 = _window_stats_range(ln_today, is_clean & ln_today_finite, start28, end28, cfg.swc_mult)
-        b_hr28, sw_hr28, n_hr28 = _window_stats_range(hr_today, is_clean & hr_today_finite, start28, end28, cfg.swc_mult)
-        nb28 = int(min(n_ln28, n_hr28))
-        n_base28[i] = nb28
-
-        if nb28 < cfg.min_base28_clean:
-            gate_shadow28[i] = NO
-            razon_shadow28[i] = "BASE28_INSUF"
-        elif (not np.isfinite(sw_ln28)) or (not np.isfinite(sw_hr28)) or sw_ln28 == 0.0 or sw_hr28 == 0.0:
-            gate_shadow28[i] = NO
-            razon_shadow28[i] = "SWC_NAN/0"
-        else:
-            dln28 = float(ln_used[i] - b_ln28)
-            dhr28 = float(hr_used[i] - b_hr28)
-            ln_bajo28 = dln28 < -sw_ln28
-            hr_alto28 = dhr28 >  sw_hr28
-            if ln_bajo28 and hr_alto28:
-                gate_shadow28[i] = ROJO; razon_shadow28[i] = "2D_AMBOS"
-            elif ln_bajo28:
-                gate_shadow28[i] = AMBAR; razon_shadow28[i] = "2D_LN"
-            elif hr_alto28:
-                gate_shadow28[i] = AMBAR; razon_shadow28[i] = "2D_HR"
-            else:
-                gate_shadow28[i] = VERDE; razon_shadow28[i] = "2D_OK"
+        # ===== SHADOW42 / SHADOW28 =====
+        _apply_shadow_gate(i, window_start_42, cfg.min_base42_clean, gate_shadow42, razon_shadow42, n_base42, "BASE42_INSUF")
+        _apply_shadow_gate(i, window_start_28, cfg.min_base28_clean, gate_shadow28, razon_shadow28, n_base28, "BASE28_INSUF")
 
         # ===== RESIDUAL (BASE60) =====
         # Fit OLS y = a + b*x en ventana BASE60 (shift-1) sobre días clean
