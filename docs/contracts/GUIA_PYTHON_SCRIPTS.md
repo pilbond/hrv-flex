@@ -27,7 +27,7 @@ Importante:
 ## `web_ui.py`
 - Que hace:
   - Levanta Flask (UI + API).
-  - Expone endpoints: `/`, `/auth`, `/auth/callback`, `/oauth/callback`, `/api/sync`, `/api/sync-sessions`, `/api/status`, `/health`.
+  - Expone endpoints: `/`, `/auth`, `/auth/callback`, `/oauth/callback`, `/api/sync`, `/api/sync-sessions`, `/api/status`, `/api/import-seed`, `/api/delete-latest-rr`, `/health`.
   - En `/api/sync` dispara `polar_hrv_automation.py --process`.
   - En `/api/sync-sessions` dispara `build_sessions.py --update`.
   - La UI actual prioriza `Detalle tecnico` / `raw output` como bloque principal visible.
@@ -39,10 +39,11 @@ Importante:
 - Salidas:
   - Respuestas HTTP y logs.
   - `GET /api/status` devuelve estado actual del job, `job_type` y ultimo `output/error` relevante.
+  - `POST /api/sync` y `POST /api/sync-sessions` devuelven `202 Accepted` cuando el job queda corriendo en background; si terminan practicamente al instante, pueden devolver el resultado final en la propia respuesta.
   - No genera CSV por si solo; delega al pipeline.
 - Automatico o manual:
   - Automatico en Railway (start command).
-  - `POST /api/sync` y `POST /api/sync-sessions` comparten estado y no deben ejecutarse en paralelo.
+  - `POST /api/sync`, `POST /api/sync-sessions`, `POST /api/import-seed` y `POST /api/delete-latest-rr` comparten estado y no deben ejecutarse en paralelo.
 
 ## `polar_hrv_automation.py`
 - Que hace:
@@ -148,6 +149,7 @@ Importante:
   - Construye:
     - `ENDURANCE_HRV_sessions.csv` (detalle por sesion)
     - `ENDURANCE_HRV_sessions_day.csv` (agregado diario + rolling)
+    - `ENDURANCE_HRV_intensity_distribution_weekly.csv` (resumen semanal por deporte del patron de distribucion observada)
     - `ENDURANCE_HRV_sessions_metadata.json`
     - `ENDURANCE_HRV_wellness_subjective.csv` (wellness subjetivo diario desde Intervals, si hay cobertura)
   - Canoniza la capa AP-02 de señal mecanica minima en `sessions.csv` para deportes de pie:
@@ -178,16 +180,19 @@ Importante:
   - Cuando quieras actualizar la capa de carga de entrenamiento.
   - Recomendado en cron separado (diario/backfill), no dentro del sync Polar.
 - Entradas:
-  - `INTERVALS_API_KEY`, `INTERVALS_ATHLETE_ID` y parametros (`--daily`, `--backfill`, `--update`, `--date`).
+  - `INTERVALS_API_KEY`, `INTERVALS_ATHLETE_ID` y parametros (`--daily`, `--backfill`, `--update`, `--date`, `--oldest`, `--no-streams`, `--no-notes`).
 - Modos utiles:
   - `--backfill`: historico completo desde `--oldest`.
   - `--daily`: ultimas 48h.
   - `--update`: desde el ultimo dia con datos hasta hoy, releyendo tambien ese ultimo dia.
   - `--date YYYY-MM-DD`: un dia concreto.
+  - `--no-streams`: omite descarga y procesado de streams cuando quieres una corrida mas ligera.
+  - `--no-notes`: omite notas/wellness textual cuando quieres minimizar dependencias de contenido libre.
 - Salidas:
-  - CSVs de sesiones, wellness subjetivo y metadata.
+  - CSVs de sesiones, distribucion semanal, wellness subjetivo y metadata.
   - `sessions.csv` pasa a ser la fuente canonica de detalle por sesion, incluidos coste, zonas, drift y mecanica minima.
   - `sessions_day.csv` pasa a ser la fuente canonica de rolling de carga y clustering para `reason_text`.
+  - `intensity_distribution_weekly.csv` pasa a ser la salida canonica de distribucion observada por `sport x week`.
   - `sessions_metadata.json` pasa a ser la fuente canonica de `training_audit` para rebajar confianza de coaching/carga sin bloquear pipeline.
 - Automatico o manual:
   - Manual (no lo llama el flujo principal por defecto).
