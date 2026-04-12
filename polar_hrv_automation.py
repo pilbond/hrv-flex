@@ -16,27 +16,16 @@ Uso:
 import os
 import sys
 import re
-import threading
-import time
-import json
 import argparse
-import webbrowser
 import csv
 from pathlib import Path
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import urlparse, parse_qs, urlencode
 from datetime import datetime, timedelta
 
 from typing import Optional, Dict, Any, List, Tuple
 import requests
-from requests.auth import _basic_auth_str
 import pandas as pd
 from config import (
-    API_BASE,
-    AUTH_URL,
     BETA_AUDIT_PATH,
-    CLIENT_ID,
-    CLIENT_SECRET,
     CORE_PATH,
     DASHBOARD_PATH,
     DATA_DIR,
@@ -64,13 +53,9 @@ from config import (
     QUIET,
     RR_MAX_MS,
     RR_MIN_MS,
-    REDIRECT_URI,
-    SCOPE,
     SLEEP_COLUMNS,
     SLEEP_PATH,
     SPORTS_FILTER,
-    TOKEN_FILE,
-    TOKEN_URL,
     UNKNOWN_SESSION_ID,
     _qprint,
     get_production_url,
@@ -97,13 +82,21 @@ from polar_utils import (
     parse_float,
     response_excerpt,
 )
-from oauth_utils import exchange_code_for_token, register_polar_user, save_json_atomic
+from polar_client import (
+    fetch_polar_nightly_recharge,
+    fetch_polar_sleep,
+    get_exercise_with_samples,
+    list_exercises,
+    register_user_if_needed,
+)
+from polar_oauth_local import do_oauth_flow, load_tokens
 from dropbox_rr import _compute_target_missing_dates, _run_dropbox_rr_import_for_dates
 from pipeline_runner import (
     build_hrv_core_cmd,
     run_build_hrv_core,
     run_build_hrv_final_dashboard_only,
 )
+from oauth_utils import build_basic_auth_header
 
 
 def _intervals_api_root() -> str:
@@ -112,121 +105,6 @@ def _intervals_api_root() -> str:
         base = "https://intervals.icu"
     base = re.sub(r"/api/v1/?$", "", base, flags=re.IGNORECASE)
     return f"{base}/api/v1"
-
-
-class _CallbackState:
-    def __init__(self):
-        self.code = None
-        self.error = None
-        self.raw_query = None
-
-
-class OAuthCallbackHandler(BaseHTTPRequestHandler):
-    state: _CallbackState = None
-
-    def do_GET(self):
-        parsed = urlparse(self.path)
-        qs = parse_qs(parsed.query)
-        OAuthCallbackHandler.state.raw_query = parsed.query
-
-        if "error" in qs:
-            OAuthCallbackHandler.state.error = qs.get("error", ["unknown"])[0]
-        if "code" in qs:
-            OAuthCallbackHandler.state.code = qs["code"][0]
-
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(b"<h3>OK. Ya puedes cerrar esta ventana.</h3>")
-
-    def log_message(self, fmt, *args):
-        return
-
-
-def start_callback_server(redirect_uri: str, state_obj: _CallbackState, timeout_s: int = 180):
-    u = urlparse(redirect_uri)
-    host = u.hostname or "localhost"
-    port = u.port or 80
-
-    OAuthCallbackHandler.state = state_obj
-
-    httpd = HTTPServer((host, port), OAuthCallbackHandler)
-    httpd.timeout = 1.0
-
-    t0 = time.time()
-    while time.time() - t0 < timeout_s:
-        httpd.handle_request()
-        if state_obj.code or state_obj.error:
-            break
-
-
-def build_auth_url(client_id: str, redirect_uri: str, scope: str):
-    params = {
-        "response_type": "code",
-        "client_id": client_id,
-        "redirect_uri": redirect_uri,
-    }
-    if scope:
-        params["scope"] = scope
-    return f"{AUTH_URL}?{urlencode(params)}"
-
-
-def api_request(method: str, path: str, token: str, params=None, headers=None, data=None, json_body=None, timeout=60):
-    h = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-    if headers:
-        h.update(headers)
-
-    url = f"{API_BASE}{path}"
-    r = requests.request(
-        method=method,
-        url=url,
-        params=params or {},
-        headers=h,
-        data=data,
-        json=json_body,
-        timeout=timeout,
-    )
-    if r.status_code >= 400:
-        raise RuntimeError(f"{method} {url} -> {r.status_code} {r.reason}\n{r.text}")
-
-    ct = (r.headers.get("Content-Type") or "").lower()
-    if "application/json" in ct:
-        return r.json()
-    return r.text
-
-
-def register_user_if_needed(token: str, member_id: str, allow_transient_failure: bool = False):
-    """Paso obligatorio: registrar usuario. Reintenta fallos 5xx temporales."""
-    result = register_polar_user(
-        access_token=token,
-        member_id=member_id,
-        user_url=f"{API_BASE}/users",
-        allow_transient_failure=allow_transient_failure,
-        log_fn=_qprint,
-        response_excerpt_fn=response_excerpt,
-        network_error_label="register_user network error",
-        transient_error_label="register_user fallo temporal",
-    )
-    if result.get("status") == "temporary_failure" and allow_transient_failure:
-        _qprint(
-            "⚠️  register_user sigue devolviendo un error temporal. "
-            "Se continúa y se reintentará en futuras syncs."
-        )
-    return result
-
-
-def list_exercises(token: str):
-    return api_request("GET", "/exercises", token, timeout=60)
-
-
-def get_exercise_with_samples(token: str, exercise_id: str):
-    return api_request(
-        "GET",
-        f"/exercises/{exercise_id}",
-        token,
-        params={"samples": "true"},
-        timeout=90,
-    )
 
 
 def _normalize_key(key: str) -> str:
@@ -258,41 +136,12 @@ def _minutes_between(start_iso: Optional[str], end_iso: Optional[str]) -> Option
     return float(delta)
 
 
-def _iso_duration_to_minutes(value) -> Optional[float]:
-    if value is None:
-        return None
-    if isinstance(value, (int, float)):
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
-
-    text = str(value).strip()
-    if not text:
-        return None
-
-    if text.startswith("PT"):
-        hours = re.search(r"([\d.]+)H", text)
-        minutes = re.search(r"([\d.]+)M", text)
-        seconds = re.search(r"([\d.]+)S", text)
-        total = 0.0
-        if hours:
-            total += float(hours.group(1)) * 60.0
-        if minutes:
-            total += float(minutes.group(1))
-        if seconds:
-            total += float(seconds.group(1)) / 60.0
-        return total
-
-    return parse_float(text)
-
-
 def _normalize_sleep_minutes(value) -> Optional[float]:
     """
     Normalize duration-like values to minutes.
     Accepts ISO duration, minutes, seconds, or milliseconds (heuristic).
     """
-    minutes = _iso_duration_to_minutes(value)
+    minutes = parse_duration_to_minutes(value)
     if minutes is None:
         return None
     if minutes <= 0:
@@ -529,32 +378,6 @@ def _extract_nightly_fields(nightly_json: Optional[dict]) -> Dict[str, Any]:
     return out
 
 
-def fetch_polar_sleep(token: str, user_id: str, date_str: str) -> Optional[dict]:
-    """Fetch sleep data for a date. Returns None if not available."""
-    if not token or not user_id or not date_str:
-        return None
-    try:
-        # AccessLink sleep endpoint is scoped to authorized user (no user_id in path).
-        resp = api_request("GET", f"/users/sleep/{date_str}", token, timeout=30)
-        return resp if isinstance(resp, dict) else None
-    except Exception as exc:
-        print(f"⚠️ Sleep fetch failed for {date_str}: {exc}")
-        return None
-
-
-def fetch_polar_nightly_recharge(token: str, user_id: str, date_str: str) -> Optional[dict]:
-    """Fetch nightly recharge data for a date. Returns None if not available."""
-    if not token or not user_id or not date_str:
-        return None
-    try:
-        # AccessLink nightly endpoint is scoped to authorized user (no user_id in path).
-        resp = api_request("GET", f"/users/nightly-recharge/{date_str}", token, timeout=30)
-        return resp if isinstance(resp, dict) else None
-    except Exception as exc:
-        print(f"⚠️ Nightly-recharge fetch failed for {date_str}: {exc}")
-        return None
-
-
 def _normalize_intervals_activities_payload(data: Any) -> list:
     if isinstance(data, list):
         return [item for item in data if isinstance(item, dict)]
@@ -571,7 +394,7 @@ def fetch_intervals_activities(api_key: str, athlete_id: str, date_str: str) -> 
     if not api_key or not athlete_id or not date_str:
         return []
     url = f"{_intervals_api_root()}/athlete/{athlete_id}/activities"
-    headers = {"Authorization": _basic_auth_str("API_KEY", api_key)}
+    headers = {"Authorization": build_basic_auth_header("API_KEY", api_key)}
     params = {"oldest": date_str, "newest": date_str}
     try:
         resp = requests.get(url, headers=headers, params=params, timeout=30)
@@ -936,72 +759,6 @@ def passes_filters(ex_item: dict, from_d, to_d, sports_set, max_duration_min, de
         print(f"     ✅✅ PASA TODOS LOS FILTROS")
     
     return True
-
-def do_oauth_flow():
-    """Ejecuta flujo OAuth completo"""
-    if not CLIENT_ID or not CLIENT_SECRET:
-        print("❌ Faltan credenciales en .env", file=sys.stderr)
-        sys.exit(2)
-
-    # 1) Callback server en thread
-    cb_state = _CallbackState()
-    server_thread = threading.Thread(
-        target=start_callback_server,
-        args=(REDIRECT_URI, cb_state, 180),
-        daemon=True,
-    )
-    server_thread.start()
-
-    # 2) OAuth
-    auth_url = build_auth_url(CLIENT_ID, REDIRECT_URI, SCOPE)
-    print("🔐 Abriendo navegador para autorizar...")
-    webbrowser.open(auth_url)
-
-    server_thread.join(timeout=190)
-    
-    if cb_state.error:
-        raise RuntimeError(f"OAuth error: {cb_state.error}")
-    if not cb_state.code:
-        raise RuntimeError("No se recibió código de autorización")
-
-    print("✅ Código recibido. Intercambiando por token...")
-
-    # 3) Token exchange
-    token_json = exchange_code_for_token(cb_state.code, CLIENT_ID, CLIENT_SECRET, REDIRECT_URI)
-    access_token = token_json.get("access_token")
-    x_user_id = token_json.get("x_user_id")
-
-    if not access_token:
-        raise RuntimeError(f"No vino access_token:\n{json.dumps(token_json, indent=2)}")
-
-    print(f"✅ Token OK. user_id: {x_user_id}")
-
-    # Guardar tokens
-    token_json['obtained_at'] = time.time()
-    save_json_atomic(TOKEN_FILE, token_json)
-
-    return access_token, x_user_id
-
-
-def load_tokens():
-    """Carga tokens guardados"""
-    if not TOKEN_FILE.exists():
-        return None, None
-
-    try:
-        tokens = json.loads(TOKEN_FILE.read_text(encoding='utf-8'))
-    except (json.JSONDecodeError, OSError, ValueError, UnicodeDecodeError):
-        return None, None
-
-    obtained_at = float(tokens.get('obtained_at', 0) or 0)
-    expires_in = float(tokens.get('expires_in', 0) or 0)
-
-    # Si no tenemos expires_in, devolvemos el token igualmente (Polar puede no informarlo en algunos casos)
-    if expires_in > 0 and (time.time() - obtained_at) > expires_in:
-        return None, None
-
-    return tokens.get('access_token'), tokens.get('x_user_id')
-
 
 def get_last_date_from_master():
     """Lee última fecha registrada en ENDURANCE_HRV_master_CORE.csv"""
