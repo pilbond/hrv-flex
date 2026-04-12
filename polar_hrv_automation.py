@@ -30,9 +30,9 @@ from datetime import datetime, timedelta
 
 from typing import Optional, Dict, Any, List, Tuple
 import requests
-import base64
 from requests.auth import _basic_auth_str
 from polar_utils import env_flag, get_field_variant, parse_duration_to_minutes, parse_float, response_excerpt
+from oauth_utils import exchange_code_for_token, register_polar_user, save_json_atomic
 
 # pandas es opcional, solo para --auto
 try:
@@ -713,28 +713,6 @@ def get_production_url():
     return public_url
 
 
-def exchange_code_for_token(code: str, client_id: str, client_secret: str, redirect_uri: Optional[str] = None) -> dict:
-    basic = base64.b64encode(f"{client_id}:{client_secret}".encode("utf-8")).decode("ascii")
-    headers = {
-        "Authorization": f"Basic {basic}",
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Accept": "application/json;charset=UTF-8",
-    }
-    data = {
-        "grant_type": "authorization_code",
-        "code": code,
-    }
-    if redirect_uri:
-        data["redirect_uri"] = redirect_uri
-
-    r = requests.post(TOKEN_URL, headers=headers, data=data, timeout=30)
-
-    if r.status_code >= 400:
-        raise RuntimeError(f"Token exchange fallo: {r.status_code} {r.reason}\n{r.text}")
-
-    return r.json()
-
-
 def api_request(method: str, path: str, token: str, params=None, headers=None, data=None, json_body=None, timeout=60):
     h = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     if headers:
@@ -761,63 +739,22 @@ def api_request(method: str, path: str, token: str, params=None, headers=None, d
 
 def register_user_if_needed(token: str, member_id: str, allow_transient_failure: bool = False):
     """Paso obligatorio: registrar usuario. Reintenta fallos 5xx temporales."""
-    xml = f"<register><member-id>{member_id}</member-id></register>"
-    url = f"{API_BASE}/users"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/json",
-        "Content-Type": "application/xml",
-    }
-    transient_codes = {502, 503, 504}
-    last_error = None
-
-    for attempt in range(1, 5):
-        try:
-            r = requests.post(
-                url,
-                headers=headers,
-                data=xml.encode("utf-8"),
-                timeout=30,
-            )
-        except requests.RequestException as exc:
-            last_error = f"register_user network error: {exc}"
-            if attempt < 4:
-                wait_s = 2 ** (attempt - 1)
-                _qprint(f"⚠️  register_user intento {attempt}/4 con error de red. Reintentando en {wait_s}s...")
-                time.sleep(wait_s)
-                continue
-            if allow_transient_failure:
-                _qprint(f"⚠️  register_user omitido temporalmente tras error de red persistente: {exc}")
-                return {"status": "temporary_failure", "detail": str(exc)}
-            raise RuntimeError(last_error) from exc
-
-        if r.status_code == 409:
-            return {"status": "already_registered"}
-
-        if r.status_code == 403:
-            raise RuntimeError(f"register_user 403 (no autorizado / consents):\n{r.text}")
-
-        if r.status_code in transient_codes:
-            excerpt = response_excerpt(r)
-            last_error = f"register_user fallo temporal: {r.status_code} {r.reason}\n{excerpt}"
-            if attempt < 4:
-                wait_s = 2 ** (attempt - 1)
-                _qprint(f"⚠️  register_user devolvió {r.status_code} en intento {attempt}/4. Reintentando en {wait_s}s...")
-                time.sleep(wait_s)
-                continue
-            if allow_transient_failure:
-                _qprint(f"⚠️  register_user sigue devolviendo {r.status_code}. Se continúa y se reintentará en futuras syncs.")
-                return {"status": "temporary_failure", "detail": last_error}
-            raise RuntimeError(last_error)
-
-        if r.status_code >= 400:
-            raise RuntimeError(f"register_user fallo: {r.status_code} {r.reason}\n{r.text}")
-
-        return {"status": "registered"}
-
-    if allow_transient_failure:
-        return {"status": "temporary_failure", "detail": last_error or "unknown transient error"}
-    raise RuntimeError(last_error or "register_user fallo sin detalle")
+    result = register_polar_user(
+        access_token=token,
+        member_id=member_id,
+        user_url=f"{API_BASE}/users",
+        allow_transient_failure=allow_transient_failure,
+        log_fn=_qprint,
+        response_excerpt_fn=response_excerpt,
+        network_error_label="register_user network error",
+        transient_error_label="register_user fallo temporal",
+    )
+    if result.get("status") == "temporary_failure" and allow_transient_failure:
+        _qprint(
+            "⚠️  register_user sigue devolviendo un error temporal. "
+            "Se continúa y se reintentará en futuras syncs."
+        )
+    return result
 
 
 def list_exercises(token: str):
@@ -1583,15 +1520,7 @@ def do_oauth_flow():
 
     # Guardar tokens
     token_json['obtained_at'] = time.time()
-    # Guardar tokens (soporta Railway Volume via POLAR_TOKEN_PATH=/data/polar_tokens.json)
-    TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = TOKEN_FILE.with_suffix(TOKEN_FILE.suffix + '.tmp')
-    tmp_path.write_text(json.dumps(token_json, indent=2), encoding='utf-8')
-    tmp_path.replace(TOKEN_FILE)
-    try:
-        os.chmod(TOKEN_FILE, 0o600)
-    except OSError:
-        pass  # chmod may not be supported on Windows
+    save_json_atomic(TOKEN_FILE, token_json)
 
     return access_token, x_user_id
 

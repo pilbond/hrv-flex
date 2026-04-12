@@ -19,10 +19,8 @@ import threading
 import json
 from urllib.parse import urlencode
 import secrets
-import time
-import requests
-import base64
 from polar_utils import env_flag, response_excerpt
+from oauth_utils import exchange_code_for_token, register_polar_user, save_json_atomic
 
 app = Flask(__name__)
 CORS(app)
@@ -74,56 +72,17 @@ def _redirect_uri() -> str:
     return f"{_public_url()}/auth/callback"
 
 
-def _basic_auth_header(client_id: str, client_secret: str) -> str:
-    token = base64.b64encode(f"{client_id}:{client_secret}".encode("utf-8")).decode("ascii")
-    return f"Basic {token}"
-
-
 def _register_polar_user(access_token: str, x_user_id: str | None, allow_transient_failure: bool = False) -> dict:
     member_id = f"local_{x_user_id or 'user'}"
-    xml = f"<register><member-id>{member_id}</member-id></register>"
-    reg_url = "https://www.polaraccesslink.com/v3/users"
-    transient_codes = {502, 503, 504}
-    last_error = None
-
-    for attempt in range(1, 5):
-        try:
-            reg = requests.post(
-                reg_url,
-                headers={
-                    'Authorization': f'Bearer {access_token}',
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/xml',
-                },
-                data=xml.encode('utf-8'),
-                timeout=30,
-            )
-        except requests.RequestException as exc:
-            last_error = f"Registro usuario falló por red: {exc}"
-            if attempt < 4:
-                time.sleep(2 ** (attempt - 1))
-                continue
-            if allow_transient_failure:
-                return {"status": "temporary_failure", "detail": str(exc)}
-            raise RuntimeError(last_error) from exc
-
-        if reg.status_code in (200, 201, 409):
-            return {"status": "registered" if reg.status_code != 409 else "already_registered"}
-
-        if reg.status_code in transient_codes:
-            last_error = f"Registro usuario falló temporalmente: {reg.status_code} {reg.reason} | {response_excerpt(reg)}"
-            if attempt < 4:
-                time.sleep(2 ** (attempt - 1))
-                continue
-            if allow_transient_failure:
-                return {"status": "temporary_failure", "detail": last_error}
-            raise RuntimeError(last_error)
-
-        raise RuntimeError(f"Registro usuario falló: {reg.status_code} {reg.reason} | {reg.text}")
-
-    if allow_transient_failure:
-        return {"status": "temporary_failure", "detail": last_error or "temporary registration error"}
-    raise RuntimeError(last_error or "Registro usuario falló sin detalle")
+    return register_polar_user(
+        access_token=access_token,
+        member_id=member_id,
+        user_url="https://www.polaraccesslink.com/v3/users",
+        allow_transient_failure=allow_transient_failure,
+        response_excerpt_fn=response_excerpt,
+        transient_error_label="Registro usuario falló temporalmente",
+        network_error_label="Registro usuario falló por red",
+    )
 
 # Estado global de ejecución
 execution_state = {
@@ -1075,34 +1034,12 @@ def oauth_callback():
 
         redirect_uri = _redirect_uri()
 
-        headers = {
-            'Authorization': _basic_auth_header(client_id, client_secret),
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Accept': 'application/json;charset=UTF-8',
-        }
-        data = {
-            'grant_type': 'authorization_code',
-            'code': code,
-            'redirect_uri': redirect_uri,
-        }
         token_url = "https://polarremote.com/v2/oauth2/token"
-        r = requests.post(token_url, headers=headers, data=data, timeout=30)
-        if r.status_code >= 400:
-            raise RuntimeError(f"Token exchange falló: {r.status_code} {r.reason} | {r.text}")
-
-        token_json = r.json()
+        token_json = exchange_code_for_token(code, client_id, client_secret, token_url, redirect_uri)
         token_json['obtained_at'] = time.time()
-
         access_token = token_json.get('access_token')
         x_user_id = token_json.get('x_user_id')
-        TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = TOKEN_PATH.with_suffix(TOKEN_PATH.suffix + '.tmp')
-        tmp_path.write_text(json.dumps(token_json, indent=2), encoding='utf-8')
-        tmp_path.replace(TOKEN_PATH)
-        try:
-            os.chmod(TOKEN_PATH, 0o600)
-        except Exception:
-            pass
+        save_json_atomic(TOKEN_PATH, token_json)
         register_result = None
         if access_token:
             register_result = _register_polar_user(access_token, x_user_id, allow_transient_failure=True)
