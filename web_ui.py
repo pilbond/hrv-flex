@@ -94,6 +94,7 @@ execution_state = {
     'job_type': None,
     'message': None,
 }
+execution_state_lock = threading.Lock()
 
 JOB_LABELS = {
     'hrv': 'sincronización HRV',
@@ -107,23 +108,48 @@ def _job_label(job_type: str | None) -> str:
     return JOB_LABELS.get(job_type or '', 'proceso')
 
 
+def _execution_snapshot() -> dict:
+    with execution_state_lock:
+        return dict(execution_state)
+
+
+def _execution_running() -> bool:
+    with execution_state_lock:
+        return bool(execution_state['running'])
+
+
+def _try_begin_execution(job_type: str) -> bool:
+    with execution_state_lock:
+        if execution_state['running']:
+            return False
+        execution_state['running'] = True
+        execution_state['success'] = None
+        execution_state['last_output'] = ''
+        execution_state['last_error'] = ''
+        execution_state['job_type'] = job_type
+        execution_state['message'] = None
+        return True
+
+
 def _set_execution_start(job_type: str) -> None:
-    execution_state['running'] = True
-    execution_state['success'] = None
-    execution_state['last_output'] = ''
-    execution_state['last_error'] = ''
-    execution_state['job_type'] = job_type
-    execution_state['message'] = None
+    with execution_state_lock:
+        execution_state['running'] = True
+        execution_state['success'] = None
+        execution_state['last_output'] = ''
+        execution_state['last_error'] = ''
+        execution_state['job_type'] = job_type
+        execution_state['message'] = None
 
 
 def _set_execution_result(job_type: str, success: bool, output: str = '', error: str = '', message: str | None = None) -> None:
-    execution_state['running'] = False
-    execution_state['success'] = success
-    execution_state['last_output'] = output or ''
-    execution_state['last_error'] = error or ''
-    execution_state['job_type'] = job_type
-    execution_state['message'] = message
-    execution_state['last_run'] = datetime.now().isoformat()
+    with execution_state_lock:
+        execution_state['running'] = False
+        execution_state['success'] = success
+        execution_state['last_output'] = output or ''
+        execution_state['last_error'] = error or ''
+        execution_state['job_type'] = job_type
+        execution_state['message'] = message
+        execution_state['last_run'] = datetime.now().isoformat()
 
 
 def _run_subprocess_job(command: list[str], job_type: str, success_message: str, env_extra: dict | None = None) -> None:
@@ -422,7 +448,7 @@ def _build_status_payload() -> dict:
     seed_info = _seed_upload_diagnostics()
     rr_info = _latest_rr_diagnostics()
 
-    payload = dict(execution_state)
+    payload = _execution_snapshot()
     payload["diagnostics"] = {
         "authorized": token_info.get("token_reason") == "ok",
         **token_info,
@@ -738,30 +764,37 @@ def index():
 @app.route('/api/sync', methods=['POST'])
 def sync():
     """Ejecutar sincronización Polar"""
-    global execution_state
-
     if not TOKEN_PATH.exists():
         return jsonify({
             'success': False,
             'error': 'Falta autorización. Abre /auth para iniciar sesión en Polar y autorizar la app.'
         }), 400
 
-    if execution_state['running']:
+    if not _try_begin_execution('hrv'):
         return jsonify({
             'success': False,
-            'error': f'Ya hay un proceso en curso: {_job_label(execution_state.get("job_type"))}'
+            'error': f'Ya hay un proceso en curso: {_job_label(_execution_snapshot().get("job_type"))}'
         }), 409
 
-    thread = threading.Thread(target=run_sync)
-    thread.start()
+    thread = threading.Thread(target=run_sync, daemon=True)
+    try:
+        thread.start()
+    except Exception as exc:
+        _set_execution_result('hrv', False, '', str(exc), 'Error iniciando sincronización')
+        return jsonify({
+            'success': False,
+            'error': str(exc),
+            'job_type': 'hrv',
+        }), 500
     thread.join(timeout=1)
 
-    if execution_state['success'] is not None and execution_state.get('job_type') == 'hrv':
+    state = _execution_snapshot()
+    if state['success'] is not None and state.get('job_type') == 'hrv':
         return jsonify({
-            'success': execution_state['success'],
-            'message': 'Sincronización completada' if execution_state['success'] else 'Error en sincronización',
-            'output': execution_state['last_output'],
-            'error': execution_state['last_error'],
+            'success': state['success'],
+            'message': 'Sincronización completada' if state['success'] else 'Error en sincronización',
+            'output': state['last_output'],
+            'error': state['last_error'],
             'job_type': 'hrv',
         })
 
@@ -775,14 +808,7 @@ def sync():
 
 def run_sync():
     """Ejecutar polar_hrv_automation.py"""
-    global execution_state
-
-    execution_state['running'] = True
-    execution_state['success'] = None
-    execution_state['last_output'] = ''
-    execution_state['last_error'] = ''
-    execution_state['job_type'] = 'hrv'
-    execution_state['message'] = None
+    _set_execution_start('hrv')
 
     try:
         script_path = Path('polar_hrv_automation.py')
@@ -807,50 +833,50 @@ def run_sync():
             }
         )
 
-        execution_state['last_output'] = result.stdout or ''
-        execution_state['last_error'] = result.stderr or ''
-        execution_state['success'] = (result.returncode == 0)
-        execution_state['message'] = 'Sincronización completada' if execution_state['success'] else 'Error en sincronización'
+        _set_execution_result('hrv', result.returncode == 0, result.stdout or '', result.stderr or '',
+                              'Sincronización completada' if result.returncode == 0 else 'Error en sincronización')
     except subprocess.TimeoutExpired as e:
         timeout_sec = _sync_timeout_seconds()
         stdout = e.stdout if isinstance(e.stdout, str) else (e.stdout.decode('utf-8', errors='replace') if e.stdout else '')
         stderr = e.stderr if isinstance(e.stderr, str) else (e.stderr.decode('utf-8', errors='replace') if e.stderr else '')
-        execution_state['last_output'] = stdout or ''
-        execution_state['last_error'] = (
+        _set_execution_result('hrv', False, stdout or '', (
             f"Timeout ejecutando sync (>{timeout_sec}s). Ajusta HRV_SYNC_TIMEOUT_SEC si hace falta.\n{stderr or ''}"
-        ).strip()
-        execution_state['success'] = False
-        execution_state['message'] = 'Error en sincronización'
+        ).strip(), 'Error en sincronización')
     except Exception as e:
-        execution_state['last_error'] = str(e)
-        execution_state['success'] = False
-        execution_state['message'] = 'Error en sincronización'
+        _set_execution_result('hrv', False, '', str(e), 'Error en sincronización')
     finally:
-        execution_state['last_run'] = datetime.now().isoformat()
-        execution_state['running'] = False
+        with execution_state_lock:
+            execution_state['last_run'] = datetime.now().isoformat()
 
 
 @app.route('/api/sync-sessions', methods=['POST'])
 def sync_sessions():
     """Ejecutar sincronización de sesiones desde Intervals."""
-    global execution_state
-
-    if execution_state['running']:
+    if not _try_begin_execution('sessions'):
         return jsonify({
             'success': False,
-            'error': f'Ya hay un proceso en curso: {_job_label(execution_state.get("job_type"))}'
+            'error': f'Ya hay un proceso en curso: {_job_label(_execution_snapshot().get("job_type"))}'
         }), 409
 
     thread = threading.Thread(target=run_sessions_sync, daemon=True)
-    thread.start()
+    try:
+        thread.start()
+    except Exception as exc:
+        _set_execution_result('sessions', False, '', str(exc), 'Error iniciando sincronización de sesiones')
+        return jsonify({
+            'success': False,
+            'error': str(exc),
+            'job_type': 'sessions',
+        }), 500
     thread.join(timeout=1)
 
-    if execution_state['success'] is not None and execution_state.get('job_type') == 'sessions':
+    state = _execution_snapshot()
+    if state['success'] is not None and state.get('job_type') == 'sessions':
         return jsonify({
-            'success': execution_state['success'],
-            'message': execution_state.get('message') or ('Sincronización de sesiones completada' if execution_state['success'] else 'Error en sincronización de sesiones'),
-            'output': execution_state['last_output'],
-            'error': execution_state['last_error'],
+            'success': state['success'],
+            'message': state.get('message') or ('Sincronización de sesiones completada' if state['success'] else 'Error en sincronización de sesiones'),
+            'output': state['last_output'],
+            'error': state['last_error'],
             'job_type': 'sessions',
         })
 
@@ -880,12 +906,10 @@ def get_status():
 @app.route('/api/import-seed', methods=['POST'])
 def import_seed():
     """Importar CSV canónicos desde seed_upload hacia HRV_DATA_DIR."""
-    global execution_state
-
-    if execution_state['running']:
+    if not _try_begin_execution('seed_import'):
         return jsonify({
             'success': False,
-            'error': f'Hay un proceso en curso: {_job_label(execution_state.get("job_type"))}. Espera a que termine antes de importar.'
+            'error': f'Hay un proceso en curso: {_job_label(_execution_snapshot().get("job_type"))}. Espera a que termine antes de importar.'
         }), 409
 
     try:
@@ -915,12 +939,10 @@ def import_seed():
 @app.route('/api/delete-latest-rr', methods=['POST'])
 def delete_latest_rr():
     """Mover a backup el último RR CSV del directorio operativo."""
-    global execution_state
-
-    if execution_state['running']:
+    if not _try_begin_execution('delete_rr'):
         return jsonify({
             'success': False,
-            'error': f'Hay un proceso en curso: {_job_label(execution_state.get("job_type"))}. Espera a que termine antes de borrar el último RR.'
+            'error': f'Hay un proceso en curso: {_job_label(_execution_snapshot().get("job_type"))}. Espera a que termine antes de borrar el último RR.'
         }), 409
 
     try:
