@@ -742,6 +742,20 @@ def upsert_row(df: pd.DataFrame, row: dict, columns: List[str]) -> pd.DataFrame:
     return df
 
 
+def write_csv_atomic(df: pd.DataFrame, path: Path) -> None:
+    """Escribe un CSV mediante reemplazo atómico en el mismo directorio."""
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    try:
+        df.to_csv(tmp_path, index=False)
+        os.replace(tmp_path, path)
+    finally:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+
+
 # ============================================================================
 # MAIN
 # ============================================================================
@@ -889,8 +903,8 @@ def main():
         _qprint(f"\n[INFO] Backups en {backup_dir}/")
 
     # Guardar
-    core_df.to_csv(OUT_CORE, index=False)
-    beta_df.to_csv(OUT_BETA_AUDIT, index=False)
+    write_csv_atomic(core_df, OUT_CORE)
+    write_csv_atomic(beta_df, OUT_BETA_AUDIT)
 
     if not QUIET:
         print("\n" + "="*50)

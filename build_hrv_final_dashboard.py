@@ -31,6 +31,7 @@ from __future__ import annotations
 import os
 import sys
 import logging
+import tempfile
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Dict, Optional, Tuple, List
@@ -1638,6 +1639,27 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
     return final, dashboard
 
 
+def write_csv_atomic(df: pd.DataFrame, path: Path) -> None:
+    """Write a CSV atomically via same-directory temp file + replace."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        dir=path.parent,
+        prefix=f"{path.name}.",
+        suffix=".tmp",
+    )
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        df.to_csv(tmp_path, index=False)
+        os.replace(tmp_path, path)
+    finally:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+
+
 def main(argv: List[str]) -> int:
     args = parse_args(argv)
 
@@ -1663,8 +1685,8 @@ def main(argv: List[str]) -> int:
 
     final, dashboard = build_final_and_dashboard(core, cfg)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    final.to_csv(OUT_FINAL, index=False)
-    dashboard.to_csv(OUT_DASHBOARD, index=False)
+    write_csv_atomic(final, OUT_FINAL)
+    write_csv_atomic(dashboard, OUT_DASHBOARD)
 
     last_fecha = "N/A"
     if not final.empty and "Fecha" in final.columns:

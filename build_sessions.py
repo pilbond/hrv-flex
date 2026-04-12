@@ -36,6 +36,7 @@ import json
 import hashlib
 import argparse
 import logging
+import tempfile
 from datetime import datetime, timedelta, date
 from pathlib import Path
 from urllib.parse import urlparse
@@ -81,6 +82,48 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger("build_sessions")
+
+
+def write_csv_atomic(df: pd.DataFrame, path: Path, **to_csv_kwargs) -> None:
+    """Write a CSV atomically via same-directory temp file + replace."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        dir=path.parent,
+        prefix=f"{path.name}.",
+        suffix=".tmp",
+    )
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        df.to_csv(tmp_path, index=False, **to_csv_kwargs)
+        os.replace(tmp_path, path)
+    finally:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+
+
+def write_text_atomic(text: str, path: Path, encoding: str = "utf-8") -> None:
+    """Write text atomically via same-directory temp file + replace."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        dir=path.parent,
+        prefix=f"{path.name}.",
+        suffix=".tmp",
+    )
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        tmp_path.write_text(text, encoding=encoding)
+        os.replace(tmp_path, path)
+    finally:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
 
 ENV_FILE = Path(__file__).parent / ".env"
 if ENV_FILE.exists():
@@ -1933,7 +1976,7 @@ def write_metadata(output_dir: Path, oldest: str, newest: str,
     if training_audit:
         meta["training_audit"] = training_audit
     path = output_dir / "ENDURANCE_HRV_sessions_metadata.json"
-    path.write_text(json.dumps(meta, indent=2, ensure_ascii=False))
+    write_text_atomic(json.dumps(meta, indent=2, ensure_ascii=False), path)
     log.info(f"Metadata → {path}")
 
 
@@ -2100,7 +2143,7 @@ def run_pipeline(oldest: str, newest: str, output_dir: Path,
     wellness_days_count = 0
     if not wellness_df.empty:
         wellness_merged = _merge_daily_rows_incremental(wellness_df, wellness_path)
-        wellness_merged.to_csv(wellness_path, index=False)
+        write_csv_atomic(wellness_merged, wellness_path)
         wellness_days_count = int(
             pd.to_numeric(wellness_merged["wellness_subjective_available"], errors="coerce")
             .fillna(False)
@@ -2169,18 +2212,18 @@ def run_pipeline(oldest: str, newest: str, output_dir: Path,
     col_order = [c for c in col_order if c in df.columns]
     extra = [c for c in df.columns if c not in col_order]
     df = df[col_order + extra]
-    df.to_csv(sessions_path, index=False, quoting=1)
+    write_csv_atomic(df, sessions_path, quoting=1)
     log.info(f"Saved {len(df)} sessions (fetched {len(new_df)} this run) → {sessions_path}")
 
     # Sessions day
     day_df = build_sessions_day(df)
     day_path = output_dir / "ENDURANCE_HRV_sessions_day.csv"
-    day_df.to_csv(day_path, index=False)
+    write_csv_atomic(day_df, day_path)
     log.info(f"Saved {len(day_df)} days → {day_path}")
 
     distribution_df = build_intensity_distribution_weekly(df)
     distribution_path = output_dir / INTENSITY_DISTRIBUTION_WEEKLY_PATH
-    distribution_df.to_csv(distribution_path, index=False)
+    write_csv_atomic(distribution_df, distribution_path)
     log.info(f"Saved {len(distribution_df)} weekly sport windows → {distribution_path}")
 
     # Metadata — with sampling rate canary (Fix 4)
