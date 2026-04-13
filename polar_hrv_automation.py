@@ -15,9 +15,7 @@ Uso:
 
 import os
 import sys
-import re
 import argparse
-import csv
 from pathlib import Path
 from datetime import datetime, timedelta
 
@@ -36,8 +34,6 @@ from config import (
     FIELD_SPORT,
     FIELD_START_TIME,
     FINAL_PATH,
-    INTERVALS_BASE_URL,
-    INTERVALS_FIELD_MAP,
     INTERVALS_SOURCE_PATH,
     IS_HEROKU,
     IS_PRODUCTION,
@@ -46,7 +42,6 @@ from config import (
     MAX_AUTO_DAYS,
     MAX_DURATION_MINUTES,
     MAX_EXERCISES,
-    MASTER_CSV_COLS,
     OUTDIR,
     PANDAS_AVAILABLE,
     POLAR_USER_NAME,
@@ -73,12 +68,8 @@ from cli_reporting import (
 )
 from polar_utils import (
     _iso_to_dt,
-    _parse_yyyy_mm_dd,
-    env_flag,
     get_field_variant,
     parse_duration_to_minutes,
-    parse_float,
-    response_excerpt,
 )
 from polar_client import (
     get_exercise_with_samples,
@@ -87,149 +78,13 @@ from polar_client import (
 )
 from polar_oauth_local import do_oauth_flow, load_tokens
 from dropbox_rr import _compute_target_missing_dates, _run_dropbox_rr_import_for_dates
-from sleep_store import _default_sleep_refresh_dates, _find_first_value, _update_sleep_for_dates
+from sleep_store import _default_sleep_refresh_dates, _update_sleep_for_dates
+from intervals_sync import _send_intervals_wellness_from_master
 from pipeline_runner import (
     build_hrv_core_cmd,
     run_build_hrv_core,
     run_build_hrv_final_dashboard_only,
 )
-from oauth_utils import build_basic_auth_header
-
-
-def _intervals_api_root() -> str:
-    base = (INTERVALS_BASE_URL or "https://intervals.icu").strip().rstrip("/")
-    if not base:
-        base = "https://intervals.icu"
-    base = re.sub(r"/api/v1/?$", "", base, flags=re.IGNORECASE)
-    return f"{base}/api/v1"
-
-
-def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
-    if not value:
-        return None
-    s = str(value).strip()
-    if not s:
-        return None
-    if s.endswith("Z"):
-        s = s[:-1] + "+00:00"
-    try:
-        return datetime.fromisoformat(s)
-    except ValueError:
-        return None
-
-
-def _normalize_intervals_activities_payload(data: Any) -> list:
-    if isinstance(data, list):
-        return [item for item in data if isinstance(item, dict)]
-    if isinstance(data, dict):
-        for key in ("activities", "data", "results", "items"):
-            value = data.get(key)
-            if isinstance(value, list):
-                return [item for item in value if isinstance(item, dict)]
-    return []
-
-
-def fetch_intervals_activities(api_key: str, athlete_id: str, date_str: str) -> list:
-    """Fetch activities for a date from Intervals.icu."""
-    if not api_key or not athlete_id or not date_str:
-        return []
-    url = f"{_intervals_api_root()}/athlete/{athlete_id}/activities"
-    headers = {"Authorization": build_basic_auth_header("API_KEY", api_key)}
-    params = {"oldest": date_str, "newest": date_str}
-    try:
-        resp = requests.get(url, headers=headers, params=params, timeout=30)
-        resp.raise_for_status()
-        data = resp.json()
-        return _normalize_intervals_activities_payload(data)
-    except Exception as exc:
-        print(f"⚠️ Intervals fetch failed for {date_str}: {exc}")
-        return []
-
-
-def _extract_activity_datetime(activity: dict) -> Optional[datetime]:
-    for key in ("start_date_local", "start_date", "startDateLocal", "startDate", "start_time", "startTime"):
-        raw = _find_first_value(activity, [key])
-        parsed = _parse_iso_datetime(raw) if raw is not None else None
-        if parsed is not None:
-            return parsed
-    return None
-
-
-def _aggregate_intervals_activity_fields(activities: list) -> Dict[str, Any]:
-    if not activities:
-        return {"intervals_n_acts": 0}
-
-    rows = []
-    for act in activities:
-        if not isinstance(act, dict):
-            continue
-        row = {
-            "activity": act,
-            "load": _find_first_value(act, ["icu_training_load", "training_load", "load"], as_float=True),
-            "intensity": _find_first_value(act, ["icu_intensity", "intensity"], as_float=True),
-            "moving_time_s": _find_first_value(act, ["moving_time", "movingTime", "moving time"], as_float=True),
-            "avg_hr": _find_first_value(act, ["average_heartrate", "avg_hr", "average_heart_rate"], as_float=True),
-            "max_hr": _find_first_value(act, ["max_heartrate", "max_hr", "max_heart_rate"], as_float=True),
-            "atl": _find_first_value(act, ["icu_atl", "atl"], as_float=True),
-            "ctl": _find_first_value(act, ["icu_ctl", "ctl"], as_float=True),
-            "tsb": _find_first_value(act, ["icu_tsb", "tsb"], as_float=True),
-            "rpe": _find_first_value(act, ["icu_rpe", "rpe"], as_float=True),
-            "resting_hr": _find_first_value(act, ["resting_heartrate", "resting_hr"], as_float=True),
-            "type": _find_first_value(act, ["type", "activity_type", "sport"]),
-            "dt": _extract_activity_datetime(act),
-        }
-        rows.append(row)
-
-    if not rows:
-        return {"intervals_n_acts": 0}
-
-    load_vals = [r["load"] for r in rows if r["load"] is not None]
-    intensity_vals = [r["intensity"] for r in rows if r["intensity"] is not None]
-    duration_vals = [r["moving_time_s"] for r in rows if r["moving_time_s"] is not None]
-    avg_hr_vals = [r["avg_hr"] for r in rows if r["avg_hr"] is not None]
-    max_hr_vals = [r["max_hr"] for r in rows if r["max_hr"] is not None]
-
-    main_row = max(rows, key=lambda r: r["load"] if r["load"] is not None else float("-inf"))
-    def _dt_key(row):
-        dt = row.get("dt")
-        if dt is None:
-            return float("-inf")
-        try:
-            return float(dt.timestamp())
-        except (AttributeError, OSError, OverflowError, ValueError):
-            return float("-inf")
-
-    latest_row = max(rows, key=_dt_key)
-
-    out: Dict[str, Any] = {"intervals_n_acts": len(rows)}
-    if load_vals:
-        out["intervals_load"] = float(sum(load_vals))
-        out["intervals_load_max"] = float(max(load_vals))
-    if intensity_vals:
-        out["intervals_intensity_max"] = float(max(intensity_vals))
-    if duration_vals:
-        out["intervals_duration_min"] = float(sum(duration_vals) / 60.0)
-    if avg_hr_vals:
-        out["intervals_avg_hr"] = float(sum(avg_hr_vals) / len(avg_hr_vals))
-    if max_hr_vals:
-        out["intervals_max_hr"] = float(max(max_hr_vals))
-
-    main_type = main_row.get("type")
-    if main_type is not None:
-        out["intervals_type_main"] = str(main_type)
-
-    for dst_key, src_key in (
-        ("intervals_atl", "atl"),
-        ("intervals_ctl", "ctl"),
-        ("intervals_tsb", "tsb"),
-        ("intervals_rpe", "rpe"),
-        ("intervals_resting_hr", "resting_hr"),
-    ):
-        value = latest_row.get(src_key)
-        if value is not None:
-            out[dst_key] = float(value)
-
-    return out
 
 
 def extract_rr_ms(exercise_json: dict):
