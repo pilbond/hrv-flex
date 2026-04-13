@@ -11,6 +11,10 @@ class PolarHrvAutomationImportTests(unittest.TestCase):
         module = importlib.import_module("web_ui")
         self.assertTrue(hasattr(module, "app"))
 
+    def test_build_sessions_imports_cleanly(self):
+        module = importlib.import_module("build_sessions")
+        self.assertTrue(callable(module.main))
+
 
 if __name__ == "__main__":
     unittest.main()

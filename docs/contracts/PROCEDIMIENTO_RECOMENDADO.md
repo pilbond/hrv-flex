@@ -14,9 +14,11 @@ Ejecuta una sola vez al día:
 python polar_hrv_automation.py --process
 
 Esto hace:
+- El entrypoint `polar_hrv_automation.py` coordina el caso de uso pero ya no concentra toda la logica operativa en un solo archivo.
 - Detecta fechas faltantes en CORE.
-- Intenta cubrir faltantes desde Dropbox (JSONL o ZIP -> RR) con `egc_to_rr.py` si está habilitado.
-- Para faltantes restantes, descarga RR desde Polar.
+- Intenta cubrir primero esos faltantes desde Dropbox (JSONL o ZIP -> RR) con `egc_to_rr.py` si está habilitado.
+- Trata Dropbox como fuente principal esperada de RR matinales.
+- Solo para faltantes restantes, usa Polar como fallback.
 - Actualiza `ENDURANCE_HRV_sleep.csv`.
 - Genera ENDURANCE_HRV_master_CORE.csv y ENDURANCE_HRV_master_BETA_AUDIT.csv.
 - Genera ENDURANCE_HRV_master_FINAL.csv y ENDURANCE_HRV_master_DASHBOARD.csv.
@@ -59,6 +61,7 @@ Si no hay sesión en un día, el CSV simplemente no incluye esa fecha. Es normal
 
 ## Notas operativas
 - El comando principal sigue siendo: `python polar_hrv_automation.py --process`.
+- Internamente, el flujo operativo vive hoy en modulos separados (`hrv_sync_flow.py`, `dropbox_rr.py`, `polar_client.py`, `sleep_store.py`, `intervals_sync.py`, `pipeline_runner.py`), pero el contrato CLI no cambia.
 - Para mantener la capa de carga al dia, usa `python build_sessions.py --update`.
 - Para evitar guardar artefactos JSONL auxiliares en entornos web, usa `HRV_DROPBOX_NO_AUX=1`.
 - No subir a Git: `.env`, `.polar_tokens.json` ni datos personales.

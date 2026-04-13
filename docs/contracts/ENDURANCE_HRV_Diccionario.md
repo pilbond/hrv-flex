@@ -362,7 +362,7 @@ Conservado para comparación histórica con el sistema anterior (V3). **No afect
 
 ## 5bis. CONTEXT (sidecar externo) — 17 columnas
 
-Generado por `polar_hrv_automation.py` (fetch diario). Contiene datos de sueño y recuperación nocturna de Polar. Alimenta el `reason_text` pero **NO afecta al gate ni a la acción**.
+Actualizado en el flujo diario coordinado por `polar_hrv_automation.py`, con persistencia en `sleep_store.py`. Contiene datos de sueño y recuperación nocturna de Polar. Alimenta el `reason_text` pero **NO afecta al gate ni a la acción**.
 
 **La carga de entrenamiento ya NO está en sleep.csv.** Está en `sessions_day.csv` (generado por `build_sessions.py`), que tiene datos más ricos: work blocks, zonas con moving mask, rolling con cobertura real (_nobs). El `reason_text` lee carga de sessions_day.csv y sueño de sleep.csv.
 
