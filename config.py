@@ -93,16 +93,6 @@ SLEEP_PATH = DATA_DIR / "ENDURANCE_HRV_sleep.csv"
 INTERVALS_SOURCE_PATH = BETA_AUDIT_PATH
 INTERVALS_BASE_URL = (os.environ.get("INTERVALS_BASE_URL") or "https://intervals.icu").strip()
 
-SLEEP_COLUMNS = [
-    "Fecha",
-    "polar_sleep_duration_min", "polar_sleep_span_min",
-    "polar_deep_pct", "polar_rem_pct",
-    "polar_efficiency_pct", "polar_continuity", "polar_continuity_index",
-    "polar_interruptions_long", "polar_interruptions_total", "polar_sleep_score",
-    "polar_night_rmssd", "polar_night_rri", "polar_night_resp",
-    "sleep_dur_p10", "sleep_dur_p90", "sleep_int_p90",
-]
-
 SPORTS_FILTER = ["BODY_AND_MIND"]
 MAX_DURATION_MINUTES = 10
 MAX_EXERCISES = 50
