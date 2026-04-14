@@ -45,6 +45,7 @@ class ConfigContractTests(unittest.TestCase):
                 {
                     "HRV_DATA_DIR": str(data_dir),
                     "RR_DOWNLOAD_DIR": str(rr_dir),
+                    "HRV_DROPBOX_RR_TIMEOUT_SEC": "321",
                     "POLAR_CLIENT_ID": "client-1",
                     "POLAR_CLIENT_SECRET": "secret",
                     "PUBLIC_URL": "",
@@ -60,3 +61,4 @@ class ConfigContractTests(unittest.TestCase):
                 self.assertEqual(config.SLEEP_PATH, data_dir / "ENDURANCE_HRV_sleep.csv")
                 self.assertEqual(config.FINAL_PATH, data_dir / "ENDURANCE_HRV_master_FINAL.csv")
                 self.assertEqual(config.DASHBOARD_PATH, data_dir / "ENDURANCE_HRV_master_DASHBOARD.csv")
+                self.assertEqual(config.DROPBOX_RR_TIMEOUT_SEC, 321)

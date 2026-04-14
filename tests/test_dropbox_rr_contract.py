@@ -6,6 +6,7 @@ from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+import subprocess
 
 import dropbox_rr
 
@@ -92,6 +93,65 @@ class DropboxRrContractTests(unittest.TestCase):
             run_mock.assert_called_once()
             self.assertIn("--dropbox-folder", run_mock.call_args.args[0])
             self.assertIn("--outdir", run_mock.call_args.args[0])
+
+    def test_run_dropbox_rr_import_for_dates_passes_timeout_and_survives_timeout(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            preexisting = root / "existing_2026-03-01_from_jsonl_RR.CSV"
+            preexisting.write_text("duration,offline\n90,0\n", encoding="utf-8")
+
+            buffer = io.StringIO()
+
+            def fake_run(cmd, **kwargs):
+                raise subprocess.TimeoutExpired(cmd=cmd, timeout=kwargs.get("timeout"))
+
+            with (
+                patch.object(dropbox_rr, "DROPBOX_RR_ENABLED", True),
+                patch.object(dropbox_rr, "DROPBOX_FOLDER_PATH", "/HRV/raw_jsonl"),
+                patch.object(dropbox_rr, "DROPBOX_RR_TIMEOUT_SEC", 17),
+                patch.object(dropbox_rr.subprocess, "run", side_effect=fake_run) as run_mock,
+                contextlib.redirect_stdout(buffer),
+            ):
+                result, new_count = dropbox_rr._run_dropbox_rr_import_for_dates(
+                    [date(2026, 3, 1), date(2026, 3, 2)],
+                    root,
+                    verbose=False,
+                )
+
+            self.assertEqual(new_count, 0)
+            self.assertEqual(result[date(2026, 3, 1)], preexisting)
+            self.assertIn("Timeout ejecutando importación Dropbox RR", buffer.getvalue())
+            run_mock.assert_called_once()
+            self.assertEqual(run_mock.call_args.kwargs["timeout"], 17)
+
+    def test_run_dropbox_rr_import_warns_to_stderr_when_folder_missing_even_if_quiet(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            preexisting = root / "existing_2026-03-01_from_jsonl_RR.CSV"
+            preexisting.write_text("duration,offline\n90,0\n", encoding="utf-8")
+
+            stdout_buffer = io.StringIO()
+            stderr_buffer = io.StringIO()
+
+            with (
+                patch.object(dropbox_rr, "DROPBOX_RR_ENABLED", True),
+                patch.object(dropbox_rr, "DROPBOX_FOLDER_PATH", ""),
+                patch.object(dropbox_rr, "DROPBOX_RR_TIMEOUT_SEC", 17),
+                patch.object(dropbox_rr, "_qprint") as qprint_mock,
+                contextlib.redirect_stdout(stdout_buffer),
+                contextlib.redirect_stderr(stderr_buffer),
+            ):
+                result, new_count = dropbox_rr._run_dropbox_rr_import_for_dates(
+                    [date(2026, 3, 1), date(2026, 3, 2)],
+                    root,
+                    verbose=False,
+                )
+
+            self.assertEqual(new_count, 0)
+            self.assertEqual(result[date(2026, 3, 1)], preexisting)
+            self.assertIn("falta HRV_DROPBOX_FOLDER_PATH/DROPBOX_FOLDER_PATH", stderr_buffer.getvalue())
+            qprint_mock.assert_not_called()
+            self.assertEqual(stdout_buffer.getvalue(), "")
 
 
 if __name__ == "__main__":

@@ -16,6 +16,16 @@ def _load_local_env() -> None:
     load_dotenv()
 
 
+def _env_int(name: str, default: int) -> int:
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 IS_RAILWAY = os.environ.get("RAILWAY_ENVIRONMENT") is not None
 IS_RENDER = os.environ.get("RENDER") is not None
 IS_HEROKU = os.environ.get("DYNO") is not None
@@ -152,6 +162,7 @@ DROPBOX_RR_ENABLED = env_flag("HRV_DROPBOX_RR_ENABLED", True)
 DROPBOX_RR_SCRIPT = (os.environ.get("HRV_DROPBOX_RR_SCRIPT") or "egc_to_rr.py").strip() or "egc_to_rr.py"
 DROPBOX_RR_NO_AUX = env_flag("HRV_DROPBOX_NO_AUX", True)
 DROPBOX_RR_PAIR_LIMIT = (os.environ.get("HRV_DROPBOX_PAIR_LIMIT") or "").strip()
+DROPBOX_RR_TIMEOUT_SEC = _env_int("HRV_DROPBOX_RR_TIMEOUT_SEC", 900)
 DROPBOX_FOLDER_PATH = (
     os.environ.get("HRV_DROPBOX_FOLDER_PATH")
     or os.environ.get("DROPBOX_FOLDER_PATH")

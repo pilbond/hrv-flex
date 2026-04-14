@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, Iterable, Optional
 
-from config import DROPBOX_FOLDER_PATH, DROPBOX_RECURSIVE, DROPBOX_RR_ENABLED, DROPBOX_RR_NO_AUX, DROPBOX_RR_PAIR_LIMIT, DROPBOX_RR_SCRIPT, OUTDIR, _qprint
+from config import DROPBOX_FOLDER_PATH, DROPBOX_RECURSIVE, DROPBOX_RR_ENABLED, DROPBOX_RR_NO_AUX, DROPBOX_RR_PAIR_LIMIT, DROPBOX_RR_SCRIPT, DROPBOX_RR_TIMEOUT_SEC, OUTDIR, _qprint
 
 _RR_DATE_RE = re.compile(r"(?P<date>\d{4}-\d{2}-\d{2})")
 
@@ -106,7 +106,11 @@ def _run_dropbox_rr_import_for_dates(
         return result, 0
 
     if not DROPBOX_FOLDER_PATH:
-        _qprint("⚠️  Dropbox RR habilitado, pero falta HRV_DROPBOX_FOLDER_PATH/DROPBOX_FOLDER_PATH")
+        print(
+            "⚠️  Dropbox RR habilitado, pero falta HRV_DROPBOX_FOLDER_PATH/DROPBOX_FOLDER_PATH. "
+            "Se continuará solo con RR ya existentes.",
+            file=sys.stderr,
+        )
         result = {d: pre_map[d] for d in target_set if d in pre_map}
         return result, 0
 
@@ -128,10 +132,17 @@ def _run_dropbox_rr_import_for_dates(
             encoding="utf-8",
             errors="replace",
             check=True,
+            timeout=DROPBOX_RR_TIMEOUT_SEC,
             env=env,
         )
         if verbose and completed.stdout:
             print(completed.stdout)
+    except subprocess.TimeoutExpired as exc:
+        print(f"⚠️  Timeout ejecutando importación Dropbox RR (>{DROPBOX_RR_TIMEOUT_SEC}s)")
+        if exc.stdout:
+            print(exc.stdout)
+        if exc.stderr:
+            print(exc.stderr)
     except subprocess.CalledProcessError as exc:
         print(f"⚠️  Error ejecutando importación Dropbox RR (código {exc.returncode})")
         if exc.stdout:
