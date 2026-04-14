@@ -59,6 +59,14 @@ def _resolve_writable_file(primary: Path, fallback_dir: Path) -> Path:
     return primary
 
 
+def resolve_writable_dir(primary: Path, fallback: Path) -> Path:
+    return _resolve_writable_dir(primary, fallback)
+
+
+def resolve_writable_file(primary: Path, fallback_dir: Path) -> Path:
+    return _resolve_writable_file(primary, fallback_dir)
+
+
 IS_RAILWAY = os.environ.get("RAILWAY_ENVIRONMENT") is not None
 IS_RENDER = os.environ.get("RENDER") is not None
 IS_HEROKU = os.environ.get("DYNO") is not None

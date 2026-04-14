@@ -38,6 +38,11 @@ from typing import Dict, List, Tuple, Optional
 
 import numpy as np
 import pandas as pd
+from hrv_app.config import (
+    DATA_DIR as CONFIG_DATA_DIR,
+    OUTDIR as CONFIG_RR_DIR,
+    resolve_writable_dir,
+)
 
 
 # ============================================================================
@@ -51,9 +56,8 @@ def _qprint(*args, **kwargs):
         print(*args, **kwargs)
 
 # Directorios
-DATA_DIR = Path((os.environ.get("HRV_DATA_DIR") or "data").strip() or "data")
-_rr_env = (os.environ.get("RR_DOWNLOAD_DIR") or "").strip()
-RR_BASE_DIR = Path(_rr_env) if _rr_env else (DATA_DIR / "rr_downloads")
+DATA_DIR = CONFIG_DATA_DIR
+RR_BASE_DIR = CONFIG_RR_DIR
 
 # Archivos de salida (nombres canónicos, sin fechas)
 OUT_CORE = DATA_DIR / "ENDURANCE_HRV_master_CORE.csv"
@@ -790,9 +794,12 @@ def main():
     global DATA_DIR, OUT_CORE, OUT_BETA_AUDIT
 
     if args.data_dir:
-        DATA_DIR = Path(args.data_dir)
+        DATA_DIR = resolve_writable_dir(Path(args.data_dir), CONFIG_DATA_DIR)
         OUT_CORE = DATA_DIR / "ENDURANCE_HRV_master_CORE.csv"
         OUT_BETA_AUDIT = DATA_DIR / "ENDURANCE_HRV_master_BETA_AUDIT.csv"
+    if args.rr_dir:
+        global RR_BASE_DIR
+        RR_BASE_DIR = resolve_writable_dir(Path(args.rr_dir), CONFIG_RR_DIR)
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
