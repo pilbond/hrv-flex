@@ -747,7 +747,18 @@ def write_csv_atomic(df: pd.DataFrame, path: Path) -> None:
     tmp_path = path.with_suffix(path.suffix + ".tmp")
     try:
         df.to_csv(tmp_path, index=False)
-        os.replace(tmp_path, path)
+        last_exc = None
+        for attempt in range(5):
+            try:
+                os.replace(tmp_path, path)
+                return
+            except PermissionError as exc:
+                last_exc = exc
+                if attempt == 4:
+                    raise
+                time.sleep(0.2 * (attempt + 1))
+        if last_exc is not None:
+            raise last_exc
     finally:
         if tmp_path.exists():
             try:

@@ -45,7 +45,7 @@ from typing import Optional
 import requests
 import numpy as np
 import pandas as pd
-from polar_sessions import PolarSessionClient, extract_mechanical_metrics_from_fit_payload
+from hrv_app.polar_sessions import PolarSessionClient, extract_mechanical_metrics_from_fit_payload
 
 # ─── Version & params ─────────────────────────────────────────────────────────
 
@@ -96,7 +96,18 @@ def write_csv_atomic(df: pd.DataFrame, path: Path, **to_csv_kwargs) -> None:
     tmp_path = Path(tmp_name)
     try:
         df.to_csv(tmp_path, index=False, **to_csv_kwargs)
-        os.replace(tmp_path, path)
+        last_exc = None
+        for attempt in range(5):
+            try:
+                os.replace(tmp_path, path)
+                return
+            except PermissionError as exc:
+                last_exc = exc
+                if attempt == 4:
+                    raise
+                time.sleep(0.2 * (attempt + 1))
+        if last_exc is not None:
+            raise last_exc
     finally:
         if tmp_path.exists():
             try:

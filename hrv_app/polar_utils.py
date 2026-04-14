@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime
 from typing import Any
 
 
@@ -65,6 +66,29 @@ def parse_duration_to_minutes(value) -> float | None:
             total_seconds += value_num
         number = ""
     return total_seconds / 60.0 if total_seconds > 0 else None
+
+
+def _iso_to_dt(s: str):
+    """Convierte ISO string a datetime en hora LOCAL."""
+    if not s:
+        return None
+    try:
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        dt_utc = datetime.fromisoformat(s)
+        utc_timestamp = dt_utc.timestamp()
+        return datetime.fromtimestamp(utc_timestamp)
+    except (ValueError, TypeError, OverflowError, OSError):
+        return None
+
+
+def _parse_yyyy_mm_dd(s: str):
+    if not s:
+        return None
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except ValueError:
+        return None
 
 
 def weighted_mean(rows, value_key: str, weight_key: str, parse_value=parse_float, parse_weight=parse_float) -> float | None:

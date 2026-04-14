@@ -32,6 +32,7 @@ import os
 import sys
 import logging
 import tempfile
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Dict, Optional, Tuple, List
@@ -491,21 +492,40 @@ def _classify_recovery_support(
 def _recovery_summary_message(gate: str, recovery_class: str, support_codes: List[str], caution_codes: List[str]) -> str:
     caution_set = set(caution_codes)
     support_set = set(support_codes)
+    sleep_caution_set, load_caution_set = _split_recovery_codes(caution_codes)
 
     if gate == VERDE and recovery_class == "fragile":
-        return "VERDE con recuperación frágil"
+        if sleep_caution_set and load_caution_set:
+            return "VERDE, pero sueño y carga reciente piden prudencia"
+        if sleep_caution_set:
+            return "VERDE, pero el sueño no acompaña del todo"
+        if load_caution_set:
+            return "VERDE, pero la carga reciente pide prudencia"
+        return "VERDE, pero alguna señal de recuperación pide prudencia"
     if gate == AMBAR and recovery_class == "supported":
         if {"sleep_score_good", "nightly_rmssd_good"} & support_set:
-            return "ÁMBAR con soporte nocturno aceptable"
+            return "ÁMBAR con señales nocturnas favorables"
         if "recent_load_low" in support_set:
             return "ÁMBAR con poca carga reciente"
-        return "ÁMBAR con soporte objetivo aceptable"
+        return "ÁMBAR con señales objetivas razonables"
     if gate == AMBAR and recovery_class == "fragile":
-        return "ÁMBAR con recuperación frágil"
+        return "ÁMBAR con señales de recuperación flojas"
     if gate == ROJO and recovery_class == "conflicted":
-        return "ROJO con discordancia objetiva"
+        if {"sleep_score_good", "nightly_rmssd_good"} & support_set and "recent_load_low" in support_set:
+            return "ROJO, pero sueño y carga reciente no encajan con un rojo claro"
+        if {"sleep_score_good", "nightly_rmssd_good"} & support_set:
+            return "ROJO, pero la señal nocturna sale mejor de lo esperado"
+        if "recent_load_low" in support_set:
+            return "ROJO, pero la carga reciente no parece alta"
+        return "ROJO, pero hay señales que no encajan del todo"
     if gate == ROJO and recovery_class == "supported":
-        return "ROJO respaldado por mala recuperación o carga reciente"
+        if sleep_caution_set and load_caution_set:
+            return "ROJO respaldado por mala recuperación y carga reciente"
+        if sleep_caution_set:
+            return "ROJO respaldado por mala recuperación nocturna"
+        if load_caution_set:
+            return "ROJO respaldado por carga reciente exigente"
+        return "ROJO respaldado por señales desfavorables de recuperación"
     return ""
 
 
@@ -1063,9 +1083,12 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             night_rmssd = _safe_float(sleep_row, "polar_night_rmssd")
             if night_rmssd is not None:
                 if gate_final[i] == VERDE and night_rmssd < 25:
-                    night_rmssd_low_text = f"VERDE pero nightly_rmssd bajo ({night_rmssd:.0f}ms)"
+                    night_rmssd_low_text = f"VERDE, pero RMSSD nocturno bajo ({night_rmssd:.0f}ms)"
                 elif gate_final[i] == ROJO and night_rmssd > 45:
-                    night_rmssd_high_text = f"ROJO con nightly_rmssd alto ({night_rmssd:.0f}ms): posible confusor"
+                    night_rmssd_high_text = (
+                        f"ROJO, pero RMSSD nocturno alto ({night_rmssd:.0f}ms): "
+                        "la señal nocturna sale mejor de lo esperado"
+                    )
                 if night_rmssd < 30:
                     _append_unique(caution_codes, "nightly_rmssd_low")
                 elif night_rmssd >= 40:
@@ -1202,10 +1225,26 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                 clustering_window_text = " · ".join(clustering_window_bits)
 
                 if gate_final[i] == VERDE:
-                    if clustering_level == "high":
-                        clustering_msg = "VERDE pero clustering alto de intensidad reciente: considera Z1 mañana"
+                    if (
+                        intense_days_prev_3d is not None
+                        and intense_days_prev_3d >= 2
+                    ):
+                        clustering_msg = (
+                            f"VERDE pero con {int(intense_days_prev_3d)} días intensos "
+                            "en los últimos 3: prudencia con la intensidad"
+                        )
+                    elif (
+                        intense_days_prev_5d is not None
+                        and intense_days_prev_5d >= 2
+                    ):
+                        clustering_msg = (
+                            f"VERDE pero con {int(intense_days_prev_5d)} días intensos "
+                            "en los últimos 5: prudencia con la intensidad"
+                        )
+                    elif clustering_level == "high":
+                        clustering_msg = "VERDE pero con intensidad reciente agrupada: prudencia con la intensidad"
                     else:
-                        clustering_msg = "VERDE pero clustering reciente de intensidad: considera Z1 mañana"
+                        clustering_msg = "VERDE pero con intensidad reciente acumulada: prudencia con la intensidad"
                 else:
                     if clustering_level == "high":
                         clustering_msg = "Clustering alto de intensidad reciente: vigilar recuperación"
@@ -1250,7 +1289,10 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         metric="acwr_simple_prev",
                         value=float(acwr_simple_prev),
                         threshold=1.5,
-                        message=f"ACWR muy alto: carga aguda muy por encima de la base crónica ({acwr_simple_prev:.2f})",
+                        message=(
+                            "Carga reciente muy por encima de tu base habitual "
+                            f"(ACWR={acwr_simple_prev:.2f})"
+                        ),
                     )
                     load_ctx_caution = True
                     load_ctx_caution_sources.append("ACWR")
@@ -1268,7 +1310,10 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         metric="acwr_simple_prev",
                         value=float(acwr_simple_prev),
                         threshold=1.3,
-                        message=f"ACWR alto: carga aguda por encima de la base crónica ({acwr_simple_prev:.2f})",
+                        message=(
+                            "Carga reciente por encima de tu base habitual "
+                            f"(ACWR={acwr_simple_prev:.2f})"
+                        ),
                     )
                     load_ctx_caution = True
                     load_ctx_caution_sources.append("ACWR")
@@ -1285,7 +1330,10 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         metric="acwr_simple_prev",
                         value=float(acwr_simple_prev),
                         threshold=0.8,
-                        message=f"ACWR bajo: descarga o infraexposición reciente ({acwr_simple_prev:.2f})",
+                        message=(
+                            "Carga reciente baja frente a tu base habitual "
+                            f"(ACWR={acwr_simple_prev:.2f})"
+                        ),
                     )
 
             if load_ctx_ready and monotony_7d_prev is not None:
@@ -1302,7 +1350,10 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         metric="monotony_7d_prev",
                         value=float(monotony_7d_prev),
                         threshold=2.0,
-                        message=f"Monotonía alta: patrón de carga poco variable ({monotony_7d_prev:.2f})",
+                        message=(
+                            "Semana muy repetitiva, con poca variación de carga "
+                            f"(monotonía={monotony_7d_prev:.2f})"
+                        ),
                     )
                     load_ctx_caution = True
                     load_ctx_caution_sources.append("monotonía")
@@ -1320,7 +1371,10 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         metric="monotony_7d_prev",
                         value=float(monotony_7d_prev),
                         threshold=1.8,
-                        message=f"Monotonía elevada: conviene variar la estructura de carga ({monotony_7d_prev:.2f})",
+                        message=(
+                            "Semana algo repetitiva; conviene variar más la carga "
+                            f"(monotonía={monotony_7d_prev:.2f})"
+                        ),
                     )
                     load_ctx_caution = True
                     load_ctx_caution_sources.append("monotonía")
@@ -1342,7 +1396,10 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         metric="strain_7d_prev",
                         value=float(strain_7d_prev),
                         threshold=float(strain_p90),
-                        message=f"Strain muy alto: semana exigente y poco descargada ({strain_7d_prev:.0f})",
+                        message=(
+                            "Semana muy exigente y con poca descarga "
+                            f"(strain={strain_7d_prev:.0f})"
+                        ),
                     )
                     load_ctx_caution = True
                     load_ctx_caution_sources.append("strain")
@@ -1360,7 +1417,10 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         metric="strain_7d_prev",
                         value=float(strain_7d_prev),
                         threshold=float(strain_p75),
-                        message=f"Strain alto: semana exigente y poco descargada ({strain_7d_prev:.0f})",
+                        message=(
+                            "Semana exigente y algo cargada "
+                            f"(strain={strain_7d_prev:.0f})"
+                        ),
                     )
                     load_ctx_caution = True
                     load_ctx_caution_sources.append("strain")
@@ -1407,7 +1467,10 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         source="sessions_day",
                         gate_scope="green",
                         codes=load_ctx_caution_sources,
-                        message="VERDE con contexto de carga exigente: precaución intensidad",
+                        message=(
+                            "VERDE con contexto de carga exigente "
+                            f"({' + '.join(load_ctx_caution_sources)}): precaución intensidad"
+                        ),
                     )
         elif gate_final[i] == VERDE and verde_load_3d_caution:
             _emit_reason(
@@ -1651,7 +1714,18 @@ def write_csv_atomic(df: pd.DataFrame, path: Path) -> None:
     tmp_path = Path(tmp_name)
     try:
         df.to_csv(tmp_path, index=False)
-        os.replace(tmp_path, path)
+        last_exc = None
+        for attempt in range(5):
+            try:
+                os.replace(tmp_path, path)
+                return
+            except PermissionError as exc:
+                last_exc = exc
+                if attempt == 4:
+                    raise
+                time.sleep(0.2 * (attempt + 1))
+        if last_exc is not None:
+            raise last_exc
     finally:
         if tmp_path.exists():
             try:

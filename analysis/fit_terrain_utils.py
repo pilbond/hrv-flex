@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from polar_utils import parse_float, weighted_mean as _weighted_mean
+from hrv_app.polar_utils import parse_float, weighted_mean as _weighted_mean
 
 try:
     from fitparse import FitFile

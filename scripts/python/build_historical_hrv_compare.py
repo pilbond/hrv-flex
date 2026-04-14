@@ -7,6 +7,9 @@ Genera los 3 archivos v4 a partir de datos históricos disponibles:
 2. Salidas históricas temporales de comparativa para DASHBOARD
 3. ENDURANCE_HRV_sleep.csv                (sueño Polar + métricas derivadas)
 
+Uso recomendado:
+  python scripts/python/build_historical_hrv_compare.py
+
 Usa como entrada:
   - CORE completo (274 días)
   - Sleep data del reviewer merge (263 noches básicas, 50 con score/nightly)

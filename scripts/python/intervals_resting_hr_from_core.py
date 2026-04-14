@@ -5,15 +5,15 @@ Sube HR_stable del CORE a restingHR de wellness en intervals.icu.
 
 Uso:
   INTERVALS_API_KEY=... INTERVALS_ATHLETE_ID=... \
-    python intervals_resting_hr_from_core.py --date 2025-05-12
+    python scripts/python/intervals_resting_hr_from_core.py --date 2025-05-12
 
   # Rango de fechas (inclusive)
   INTERVALS_API_KEY=... INTERVALS_ATHLETE_ID=... \
-    python intervals_resting_hr_from_core.py --from 2025-05-01 --to 2025-05-12
+    python scripts/python/intervals_resting_hr_from_core.py --from 2025-05-01 --to 2025-05-12
 
   # Todas las fechas del CSV
   INTERVALS_API_KEY=... INTERVALS_ATHLETE_ID=... \
-    python intervals_resting_hr_from_core.py --all
+    python scripts/python/intervals_resting_hr_from_core.py --all
 
 Notas:
 - Si la fecha no está en el CSV o HR_stable es vacío, se omite.

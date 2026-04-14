@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pandas as pd
 import numpy as np
-from polar_sessions import extract_mechanical_metrics, match_polar_exercise
+from hrv_app.polar_sessions import extract_mechanical_metrics, match_polar_exercise
 
 from build_sessions import (
     build_intensity_distribution_weekly,
