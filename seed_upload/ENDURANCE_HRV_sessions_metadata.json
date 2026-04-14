@@ -1,5 +1,5 @@
 {
-  "pipeline_version": "v3.2",
+  "pipeline_version": "v3.10",
   "params": {
     "gap_max_s": 60,
     "hr_drop_max_bpm": 10,
@@ -17,25 +17,69 @@
     "effort_anchor_end": "2025-08-31"
   },
   "params_hash": "c1c78a78",
-  "build_time": "2026-04-02T09:45:59.145700",
+  "build_time": "2026-04-14T19:24:33.276660",
   "input_range": {
-    "oldest": "2026-03-26",
-    "newest": "2026-04-03"
+    "oldest": "2026-04-14",
+    "newest": "2026-04-15"
   },
   "counts": {
-    "sessions": 348,
-    "days": 271,
-    "with_streams": 228,
-    "with_notes": 39
+    "sessions": 361,
+    "days": 283,
+    "with_streams": 237,
+    "with_notes": 48,
+    "with_subjective_wellness": 53
   },
   "stream_sampling": {
-    "n_streams": 228,
+    "n_streams": 237,
     "dt_mean": 1.0006,
     "dt_min": 0.997,
     "dt_max": 1.04,
     "assumed_1hz": true
   },
   "zones_source_dist": {
-    "icu": 348
+    "icu": 361
+  },
+  "training_audit": {
+    "dataset_level": {
+      "sports_seen": 9,
+      "days_with_sessions": 283,
+      "aerobic_sessions": 238,
+      "load_days_ready": 269
+    },
+    "signal_level": {
+      "sampling_ok": true,
+      "aerobic_stream_coverage_pct": 99.6,
+      "aerobic_drift_coverage_pct": 89.1,
+      "zones_fallback_pct": 0.0,
+      "fallback_sports": [],
+      "interpretability_limits": [
+        "partial_aerobic_stream_coverage",
+        "partial_aerobic_drift_coverage"
+      ]
+    },
+    "metric_level": {
+      "load_context": {
+        "state": "high",
+        "reasons": []
+      },
+      "zone_intensity": {
+        "state": "high",
+        "reasons": [
+          "partial_aerobic_stream_coverage"
+        ]
+      },
+      "cardiac_drift": {
+        "state": "high",
+        "reasons": [
+          "partial_aerobic_drift_coverage"
+        ]
+      },
+      "coaching_load": {
+        "state": "high",
+        "reasons": [
+          "partial_aerobic_stream_coverage"
+        ]
+      }
+    }
   }
 }
