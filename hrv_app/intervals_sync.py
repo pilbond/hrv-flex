@@ -9,10 +9,10 @@ from typing import Any, Dict, Optional
 
 import requests
 
-from cli_reporting import _print_header
-from config import INTERVALS_BASE_URL, INTERVALS_FIELD_MAP, MASTER_CSV_COLS
-from oauth_utils import build_basic_auth_header
-from polar_utils import _parse_yyyy_mm_dd, parse_float
+from .cli_reporting import _print_header
+from .config import INTERVALS_BASE_URL, INTERVALS_FIELD_MAP, MASTER_CSV_COLS
+from .oauth_utils import build_basic_auth_header
+from .polar_utils import _parse_yyyy_mm_dd, parse_float
 
 
 def _intervals_api_root() -> str:

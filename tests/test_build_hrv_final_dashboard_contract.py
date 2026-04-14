@@ -69,10 +69,10 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
             gate_scope="green",
             codes=["load_context_high"],
             evidence=["acwr_simple_prev=1.4"],
-            message="ACWR alto: carga aguda por encima de la base crónica (1.40)",
+            message="Carga reciente por encima de tu base habitual (ACWR=1.40)",
         )
 
-        self.assertEqual(reason_parts[0], ["ACWR alto: carga aguda por encima de la base crónica (1.40)"])
+        self.assertEqual(reason_parts[0], ["Carga reciente por encima de tu base habitual (ACWR=1.40)"])
         self.assertEqual(reason_items[0][0]["type"], "acwr")
         self.assertEqual(reason_items[0][0]["layer"], "inference")
         self.assertEqual(reason_items[0][0]["source"], "sessions_day")
@@ -109,7 +109,7 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
         self.assertEqual(
             reason_parts[0],
             [
-                "ACWR alto: carga aguda por encima de la base crónica (1.40)",
+                "Carga reciente por encima de tu base habitual (ACWR=1.40)",
                 "Dato dudoso: limitar a Z1-Z2 máx 90min",
                 "contener la intensidad",
             ],
@@ -159,14 +159,14 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
             type="acwr",
             layer="inference",
             source="sessions_day",
-            message="ACWR bajo: descarga o infraexposición reciente (0.80)",
+            message="Carga reciente baja frente a tu base habitual (ACWR=0.80)",
         )
 
         item = reason_items[0][0]
         self.assertEqual(item["type"], "acwr")
         self.assertEqual(item["layer"], "inference")
         self.assertEqual(item["source"], "sessions_day")
-        self.assertEqual(item["message"], "ACWR bajo: descarga o infraexposición reciente (0.80)")
+        self.assertEqual(item["message"], "Carga reciente baja frente a tu base habitual (ACWR=0.80)")
         self.assertNotIn("variant", item)
         self.assertNotIn("severity", item)
         self.assertNotIn("metric", item)
@@ -358,10 +358,10 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
         self.assertTrue(row["recovery_discordance_flag"])
         self.assertIn("sleep_basic_poor", row["recovery_discordance_reason"])
         self.assertIn(
-            "VERDE pero clustering alto de intensidad reciente: considera Z1 mañana (2/3d · 3/5d)",
+            "VERDE pero con 2 días intensos en los últimos 3: prudencia con la intensidad (2/3d · 3/5d)",
             row["reason_text"],
         )
-        self.assertIn("VERDE con recuperación frágil", row["reason_text"])
+        self.assertIn("VERDE, pero sueño y carga reciente piden prudencia", row["reason_text"])
 
     def test_recovery_context_marks_amber_as_supported_when_night_and_load_are_favorable(self):
         core = _core_frame()
@@ -406,7 +406,7 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
         self.assertEqual(row["recovery_support_class"], "supported")
         self.assertFalse(row["recovery_discordance_flag"])
         self.assertEqual(row["recovery_discordance_reason"], "")
-        self.assertIn("ÁMBAR con soporte nocturno aceptable", row["reason_text"])
+        self.assertIn("ÁMBAR con señales nocturnas favorables", row["reason_text"])
 
     def test_recovery_context_marks_rojo_as_conflicted_when_support_signals_are_good(self):
         core = _core_frame()
@@ -452,8 +452,11 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
         self.assertEqual(row["recovery_support_class"], "conflicted")
         self.assertTrue(row["recovery_discordance_flag"])
         self.assertIn("sleep_score_good", row["recovery_discordance_reason"])
-        self.assertIn("ROJO con nightly_rmssd alto (50ms): posible confusor", row["reason_text"])
-        self.assertIn("ROJO con discordancia objetiva", row["reason_text"])
+        self.assertIn(
+            "ROJO, pero RMSSD nocturno alto (50ms): la señal nocturna sale mejor de lo esperado",
+            row["reason_text"],
+        )
+        self.assertIn("ROJO, pero sueño y carga reciente no encajan con un rojo claro", row["reason_text"])
 
     def test_rojo_supported_omits_legacy_nightly_confusor_message(self):
         core = _core_frame()
@@ -500,8 +503,8 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
         self.assertEqual(row["gate_final"], "ROJO")
         self.assertEqual(row["recovery_support_class"], "supported")
         self.assertFalse(row["recovery_discordance_flag"])
-        self.assertIn("ROJO respaldado por mala recuperación o carga reciente", row["reason_text"])
-        self.assertNotIn("ROJO con nightly_rmssd alto", row["reason_text"])
+        self.assertIn("ROJO respaldado por mala recuperación y carga reciente", row["reason_text"])
+        self.assertNotIn("ROJO, pero RMSSD nocturno alto", row["reason_text"])
 
 
 if __name__ == "__main__":

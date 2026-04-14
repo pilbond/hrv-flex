@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
-import cli_reporting
+import hrv_app.cli_reporting as cli_reporting
 
 
 class CliReportingContractTests(unittest.TestCase):
@@ -25,9 +25,19 @@ class CliReportingContractTests(unittest.TestCase):
                         "RMSSD_stable": 42.8,
                         "gate_badge": "VERDE",
                         "Action": "seguir",
+                        "Action_detail": "EJECUTAR_PLAN",
                         "gate_razon_base60": "ok",
+                        "decision_path": "BASE60_ONLY",
+                        "recovery_support_class": "supported",
+                        "recovery_context_quality": "rich",
+                        "recovery_discordance_reason": "",
+                        "reason_text": "VERDE con carga acumulada (load_3d=210): precaución intensidad",
+                        "ln_base60": 3.75,
+                        "n_base60": 41,
                         "Calidad": "A",
                         "HRV_Stability": "Alta",
+                        "healthy_rmssd": 54.2,
+                        "warning_threshold": 46.1,
                         "baseline60_degraded": False,
                     }
                 ]
@@ -56,9 +66,16 @@ class CliReportingContractTests(unittest.TestCase):
 
             output = buffer.getvalue()
             self.assertIn("Última Medición HRV (V4)", output)
-            self.assertIn("📅 Fecha:          2024-01-01", output)
-            self.assertIn("💓 HR hoy:         51.2 bpm", output)
-            self.assertIn("🚦 Gate:           🟢 VERDE", output)
+            self.assertIn("📅 Fecha:           2024-01-01", output)
+            self.assertIn("💓 HR hoy:          51.2 bpm", output)
+            self.assertIn("🚦 Gate:            🟢 VERDE", output)
+            self.assertIn("🧠 Reason text:     VERDE con carga acumulada (load_3d=210): precaución intensidad", output)
+            self.assertIn("🧩 Decision path:   BASE60_ONLY", output)
+            self.assertIn("🧪 Contexto recuperación: contexto completo / senales alineadas", output)
+            self.assertIn("📐 Base 60d:        42.5 ms (n=41)", output)
+            self.assertIn("⚠️  Umbral warn.:   46.1 ms", output)
+            self.assertNotIn("\n\n📅 Fecha:", output)
+            self.assertNotIn("Healthy period", output)
             self.assertNotIn("HR promedio", output)
 
     def test_show_last_daily_summary_falls_back_to_core(self):

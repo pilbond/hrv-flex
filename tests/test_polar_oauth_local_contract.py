@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import polar_oauth_local
+import hrv_app.polar_oauth_local as polar_oauth_local
 
 
 class PolarOauthLocalContractTests(unittest.TestCase):

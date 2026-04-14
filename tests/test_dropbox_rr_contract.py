@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 import subprocess
 
-import dropbox_rr
+import hrv_app.dropbox_rr as dropbox_rr
 
 
 class DropboxRrContractTests(unittest.TestCase):

@@ -14,7 +14,7 @@ Ejecuta una sola vez al día:
 python polar_hrv_automation.py --process
 
 Esto hace:
-- El entrypoint `polar_hrv_automation.py` coordina el caso de uso pero ya no concentra toda la logica operativa en un solo archivo.
+- El entrypoint `polar_hrv_automation.py` coordina el caso de uso pero ya no concentra toda la logica operativa en un solo archivo; la implementacion interna vive en `hrv_app/`.
 - Detecta fechas faltantes en CORE.
 - Intenta cubrir primero esos faltantes desde Dropbox (JSONL o ZIP -> RR) con `egc_to_rr.py` si está habilitado.
 - Trata Dropbox como fuente principal esperada de RR matinales.
@@ -38,6 +38,7 @@ Railway (con Volume en `/data`):
 - `HRV_DROPBOX_NO_AUX=1`
 - `HRV_DROPBOX_FOLDER_PATH=/ruta/carpeta`
   - `HRV_DROPBOX_RECURSIVE=1`
+  - `HRV_DROPBOX_RR_TIMEOUT_SEC=900`
 
 ## Uso manual (si necesitas rehacer o depurar)
 1) Procesar RR a CORE/BETA_AUDIT:
@@ -56,12 +57,19 @@ python egc_to_rr.py --dropbox-folder /ruta/carpeta --dropbox-recursive --outdir 
 
 python build_sessions.py --update
 
+5) (Opcional) Usar utilidades manuales movidas a `scripts/python/`:
+
+- `python scripts/python/intervals_wellness_test.py ...`
+- `python scripts/python/intervals_resting_hr_from_core.py ...`
+- `python scripts/python/add_ans_balance_to_core.py ...`
+- `python scripts/python/build_historical_hrv_compare.py`
+
 ## Días sin sesión
 Si no hay sesión en un día, el CSV simplemente no incluye esa fecha. Es normal.
 
 ## Notas operativas
 - El comando principal sigue siendo: `python polar_hrv_automation.py --process`.
-- Internamente, el flujo operativo vive hoy en modulos separados (`hrv_sync_flow.py`, `dropbox_rr.py`, `polar_client.py`, `sleep_store.py`, `intervals_sync.py`, `pipeline_runner.py`), pero el contrato CLI no cambia.
+- Internamente, el flujo operativo vive hoy en modulos separados dentro de `hrv_app/` (`hrv_app.hrv_sync_flow`, `hrv_app.dropbox_rr`, `hrv_app.polar_client`, `hrv_app.sleep_store`, `hrv_app.intervals_sync`, `hrv_app.pipeline_runner`), pero el contrato CLI no cambia.
 - Para mantener la capa de carga al dia, usa `python build_sessions.py --update`.
 - Para evitar guardar artefactos JSONL auxiliares en entornos web, usa `HRV_DROPBOX_NO_AUX=1`.
 - No subir a Git: `.env`, `.polar_tokens.json` ni datos personales.

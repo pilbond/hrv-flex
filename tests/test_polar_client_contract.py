@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-import polar_client
+import hrv_app.polar_client as polar_client
 
 
 class _FakeResponse:

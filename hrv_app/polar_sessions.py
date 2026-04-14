@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import requests
-from polar_utils import get_field_variant, parse_duration_to_minutes, parse_float
+from .polar_utils import get_field_variant, parse_duration_to_minutes, parse_float
 try:
     from fitparse import FitFile
 except Exception:  # pragma: no cover - optional import at runtime

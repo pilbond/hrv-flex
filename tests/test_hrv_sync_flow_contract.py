@@ -5,7 +5,7 @@ from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
-import hrv_sync_flow
+import hrv_app.hrv_sync_flow as hrv_sync_flow
 
 
 class HrvSyncFlowContractTests(unittest.TestCase):

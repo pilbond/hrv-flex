@@ -4,9 +4,9 @@ from typing import Optional
 
 import requests
 
-from config import API_BASE, _qprint
-from oauth_utils import register_polar_user
-from polar_utils import response_excerpt
+from .config import API_BASE, _qprint
+from .oauth_utils import register_polar_user
+from .polar_utils import response_excerpt
 
 
 def api_request(method: str, path: str, token: str, params=None, headers=None, data=None, json_body=None, timeout=60):

@@ -9,9 +9,9 @@ lógica que build_hrv_core.py, calcula las 4 métricas ANS balance y las añade 
 columnas nuevas al CORE.csv existente.
 
 Uso:
-  python add_ans_balance_to_core.py                          # default: ./rr_downloads + CORE.csv
-  python add_ans_balance_to_core.py --rr-dir /path/to/rr     # RR en otra carpeta
-  python add_ans_balance_to_core.py --dry-run                 # solo muestra, no escribe
+  python scripts/python/add_ans_balance_to_core.py                          # default: ./rr_downloads + CORE.csv
+  python scripts/python/add_ans_balance_to_core.py --rr-dir /path/to/rr     # RR en otra carpeta
+  python scripts/python/add_ans_balance_to_core.py --dry-run                 # solo muestra, no escribe
 
 Columnas añadidas a CORE:
   SI_baevsky     — Stress Index de Baevsky (activación simpática)

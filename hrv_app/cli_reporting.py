@@ -1,11 +1,12 @@
 from __future__ import annotations
+import math
 
 try:
     import pandas as pd
 except ImportError:  # pragma: no cover - exercised implicitly when pandas is absent
     pd = None
 
-from config import (
+from .config import (
     COLOR_EMOJI,
     CORE_PATH,
     DATE_STRING_LENGTH,
@@ -52,6 +53,31 @@ def _format_metric(value, decimals=1):
         except (ValueError, TypeError):
             return "N/A"
     return "N/A"
+
+
+def _has_value(value):
+    if PANDAS_AVAILABLE:
+        return value is not None and pd.notna(value) and str(value).strip() != "" and str(value) != "N/A"
+    return value is not None and str(value).strip() != "" and str(value) != "N/A"
+
+
+def _format_recovery_quality(value):
+    mapping = {
+        "rich": "contexto completo",
+        "basic": "contexto parcial",
+        "none": "sin contexto",
+    }
+    return mapping.get(str(value or "").strip().lower(), str(value or "N/A"))
+
+
+def _format_recovery_class(value):
+    mapping = {
+        "supported": "senales alineadas",
+        "fragile": "senales fragiles",
+        "conflicted": "senales mixtas",
+        "neutral": "sin senal clara",
+    }
+    return mapping.get(str(value or "").strip().lower(), str(value or "N/A"))
 
 
 def _print_header(title: str, width: int = 25, leading_blank: bool = True, trailing_blank: bool = False):
@@ -121,29 +147,59 @@ def show_last_daily_summary():
                 return
             last_row = df.sort_values("Fecha").iloc[-1]
 
-            _print_header("💓 Última Medición HRV (V4)")
-            print("")
+            _print_header("💓 Última Medición HRV (V4)", leading_blank=False)
 
             fecha = last_row.get("Fecha", "N/A")
             hr = last_row.get("HR_today", "N/A")
             rmssd = last_row.get("RMSSD_stable", "N/A")
             gate = last_row.get("gate_badge", "N/A")
             action = last_row.get("Action", "N/A")
+            action_detail = last_row.get("Action_detail", "N/A")
             reason = last_row.get("gate_razon_base60", "N/A")
+            reason_text = last_row.get("reason_text", "N/A")
+            decision_path = last_row.get("decision_path", "N/A")
+            recovery_class = last_row.get("recovery_support_class", "N/A")
+            recovery_quality = last_row.get("recovery_context_quality", "N/A")
+            recovery_discordance_reason = last_row.get("recovery_discordance_reason", "N/A")
             calidad = last_row.get("Calidad", "N/A")
             stab = last_row.get("HRV_Stability", "N/A")
             degraded = str(last_row.get("baseline60_degraded", False)).strip().lower() in {"true", "1", "yes"}
+            ln_base60 = last_row.get("ln_base60", "N/A")
+            n_base60 = last_row.get("n_base60", "N/A")
+            healthy_rmssd = last_row.get("healthy_rmssd", "N/A")
+            warning_threshold = last_row.get("warning_threshold", "N/A")
+            base60_rmssd = "N/A"
+            if _has_value(ln_base60):
+                try:
+                    base60_rmssd = f"{math.exp(float(ln_base60)):.1f}"
+                except (ValueError, TypeError, OverflowError):
+                    base60_rmssd = "N/A"
 
             gate_emoji = _get_gate_emoji(gate)
 
-            print(f"📅 Fecha:          {fecha}")
-            print(f"💓 HR hoy:         {_format_metric(hr)} bpm")
-            print(f"📊 RMSSD:          {_format_metric(rmssd)} ms")
-            print(f"🚦 Gate:           {gate_emoji} {gate}")
-            print(f"🧭 Acción:         {action}")
-            print(f"🧾 Razón gate:     {reason}")
-            print(f"✅ Calidad:        {calidad}")
-            print(f"📈 Estabilidad:    {stab}")
+            print(f"📅 Fecha:           {fecha}")
+            print(f"💓 HR hoy:          {_format_metric(hr)} bpm")
+            print(f"📊 RMSSD:           {_format_metric(rmssd)} ms")
+            print(f"🚦 Gate:            {gate_emoji} {gate}")
+            print(f"🧭 Acción:          {action} / {action_detail}")
+            print(f"🧾 Razón gate:      {reason}")
+            print(f"🧠 Reason text:     {reason_text}")
+            print(f"🧩 Decision path:   {decision_path}")
+            print(
+                "🧪 Contexto recuperación: "
+                f"{_format_recovery_quality(recovery_quality)} / {_format_recovery_class(recovery_class)}"
+            )
+            if _has_value(recovery_discordance_reason):
+                print(f"⚠️  Discordancia:   {recovery_discordance_reason}")
+            print(f"✅ Calidad:         {calidad}")
+            print(f"📈 Estabilidad:     {stab}")
+            if base60_rmssd != "N/A":
+                base60_suffix = f" (n={int(float(n_base60))})" if _has_value(n_base60) else ""
+                print(f"📐 Base 60d:        {base60_rmssd} ms{base60_suffix}")
+            if _has_value(healthy_rmssd):
+                print(f"📏 Healthy RMSSD:   {_format_metric(healthy_rmssd)} ms")
+            if _has_value(warning_threshold):
+                print(f"⚠️  Umbral warn.:   {_format_metric(warning_threshold)} ms")
             if bool(degraded):
                 print("⚠️  Warning base:  baseline60_degraded=True")
             return

@@ -62,6 +62,20 @@ Sistema automatizado HRV para un **único atleta**:
 ├── docs/
 │   ├── contracts/                     # Norma HRV activa (esquemas, QA, gating)
 │   └── legacy/                        # Documentación histórica (sensible)
+├── hrv_app/                           # Paquete interno Python (ARQ-02)
+│   ├── __init__.py
+│   ├── config.py
+│   ├── polar_utils.py
+│   ├── oauth_utils.py
+│   ├── pipeline_runner.py
+│   ├── cli_reporting.py
+│   ├── polar_client.py
+│   ├── polar_sessions.py
+│   ├── dropbox_rr.py
+│   ├── polar_oauth_local.py
+│   ├── intervals_sync.py
+│   ├── sleep_store.py
+│   └── hrv_sync_flow.py
 ├── analysis/                          # Módulo analítico local
 │   ├── AGENTS.md
 │   ├── ENDURANCE_AGENT_DOMAIN.md
@@ -322,9 +336,10 @@ python egc_to_rr.py --dropbox-folder /ruta/carpeta --dropbox-recursive --outdir 
 
 ---
 
-## Snapshot Actual (2026-04-08)
+## Snapshot Actual (2026-04-14)
 
 ### HRV global
+- ✅ ARQ-02 (AYO-11): módulos internos reorganizados en `hrv_app/`; entrypoints de raíz (`web_ui.py`, `polar_hrv_automation.py`, `build_sessions.py`) intactos
 - ✅ UI expone `/api/sync`, `/api/sync-sessions`, `/api/status`, endpoints OAuth
 - ✅ `build_sessions.py` genera sesiones + metadata (`pipeline_version v3.8`)
 - ✅ Flujo recomendado: Dropbox primero, Polar fallback

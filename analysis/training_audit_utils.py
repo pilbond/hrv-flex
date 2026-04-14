@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from polar_utils import parse_float
+from hrv_app.polar_utils import parse_float
 
 
 RUN_SPORTS = {"road_run", "trail_run", "run", "running", "virtual_run", "virtualrun"}

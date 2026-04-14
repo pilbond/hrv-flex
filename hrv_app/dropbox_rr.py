@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, Iterable, Optional
 
-from config import DROPBOX_FOLDER_PATH, DROPBOX_RECURSIVE, DROPBOX_RR_ENABLED, DROPBOX_RR_NO_AUX, DROPBOX_RR_PAIR_LIMIT, DROPBOX_RR_SCRIPT, DROPBOX_RR_TIMEOUT_SEC, OUTDIR, _qprint
+from .config import DROPBOX_FOLDER_PATH, DROPBOX_RECURSIVE, DROPBOX_RR_ENABLED, DROPBOX_RR_NO_AUX, DROPBOX_RR_PAIR_LIMIT, DROPBOX_RR_SCRIPT, DROPBOX_RR_TIMEOUT_SEC, OUTDIR, _qprint
 
 _RR_DATE_RE = re.compile(r"(?P<date>\d{4}-\d{2}-\d{2})")
 

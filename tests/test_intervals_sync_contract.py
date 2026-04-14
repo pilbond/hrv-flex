@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
-import intervals_sync
+import hrv_app.intervals_sync as intervals_sync
 
 
 class IntervalsSyncContractTests(unittest.TestCase):

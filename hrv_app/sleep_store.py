@@ -8,9 +8,9 @@ try:
 except ImportError:  # pragma: no cover - pandas is expected in runtime requirements
     pd = None
 
-from config import PANDAS_AVAILABLE, SLEEP_PATH
-from polar_client import fetch_polar_nightly_recharge, fetch_polar_sleep
-from polar_utils import _parse_yyyy_mm_dd, parse_duration_to_minutes, parse_float
+from .config import PANDAS_AVAILABLE, SLEEP_PATH
+from .polar_client import fetch_polar_nightly_recharge, fetch_polar_sleep
+from .polar_utils import _parse_yyyy_mm_dd, parse_duration_to_minutes, parse_float
 
 
 SLEEP_COLUMNS = [

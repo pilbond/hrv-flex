@@ -15,16 +15,16 @@ Uso:
 
 import sys
 import argparse
-from config import (
+from hrv_app.config import (
     IS_PRODUCTION,
     get_production_url,
 )
-from polar_client import (
+from hrv_app.polar_client import (
     list_exercises,
     register_user_if_needed,
 )
-from polar_oauth_local import do_oauth_flow, load_tokens
-from hrv_sync_flow import sync_hrv_range
+from hrv_app.polar_oauth_local import do_oauth_flow, load_tokens
+from hrv_app.hrv_sync_flow import sync_hrv_range
 
 def main():
     parser = argparse.ArgumentParser(description='Polar HRV Automation')

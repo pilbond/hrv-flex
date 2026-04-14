@@ -8,10 +8,10 @@ Flujo operativo normal (Railway o UI local):
 
 1. `web_ui.py` levanta la web.
 2. Al llamar `POST /api/sync`, la web ejecuta `python polar_hrv_automation.py --process`.
-3. `polar_hrv_automation.py` valida entorno, tokens y argumentos, y delega el flujo operativo a `hrv_sync_flow.py`.
-4. `hrv_sync_flow.py` calcula las fechas objetivo y trata Dropbox como fuente principal de cobertura RR, usando `dropbox_rr.py` para intentar cubrirlas desde JSONL/ZIP con `egc_to_rr.py`.
-5. Solo para fechas que sigan sin cobertura RR, usa `polar_client.py` como fallback contra Polar.
-6. `sleep_store.py` actualiza `ENDURANCE_HRV_sleep.csv`, `intervals_sync.py` resuelve la parte de wellness/Intervals y `pipeline_runner.py` llama:
+3. `polar_hrv_automation.py` valida entorno, tokens y argumentos, y delega el flujo operativo a `hrv_app.hrv_sync_flow`.
+4. `hrv_app.hrv_sync_flow` calcula las fechas objetivo y trata Dropbox como fuente principal de cobertura RR, usando `hrv_app.dropbox_rr` para intentar cubrirlas desde JSONL/ZIP con `egc_to_rr.py`.
+5. Solo para fechas que sigan sin cobertura RR, usa `hrv_app.polar_client` como fallback contra Polar.
+6. `hrv_app.sleep_store` actualiza `ENDURANCE_HRV_sleep.csv`, `hrv_app.intervals_sync` resuelve la parte de wellness/Intervals y `hrv_app.pipeline_runner` llama:
    - `build_hrv_core.py`
    - `build_hrv_final_dashboard.py`
 
@@ -61,7 +61,7 @@ Importante:
 - Automatico o manual:
   - Manual por CLI o automatico via `web_ui.py` en `/api/sync`.
 
-## `hrv_sync_flow.py`
+## `hrv_app.hrv_sync_flow`
 - Que hace:
   - Implementa el caso de uso principal del sync HRV.
   - Resuelve rango de fechas y decide si la cobertura RR viene de Dropbox o, en fallback, de Polar.
@@ -76,25 +76,26 @@ Importante:
 - Automatico o manual:
   - Automatico dentro del entrypoint.
 
-## `config.py`
+## `hrv_app.config`
 - Que hace:
   - Centraliza constantes operativas, rutas base, flags de runtime y mappings compartidos.
   - Evita que el entrypoint tenga estado global disperso.
 - Cuando usarlo:
   - Siempre que un modulo operativo necesite paths, columnas canonicas o toggles runtime.
 
-## `dropbox_rr.py`
+## `hrv_app.dropbox_rr`
 - Que hace:
   - Escanea `RR.CSV` existentes por fecha.
   - Calcula fechas objetivo faltantes.
   - Lanza `egc_to_rr.py` para cubrir fechas desde Dropbox cuando esta habilitado.
+  - Respeta `HRV_DROPBOX_RR_TIMEOUT_SEC` para evitar bloqueos indefinidos en el subprocess.
 - Cuando usarlo:
   - Como capa operativa de cobertura RR principal.
 - Importante:
   - Dropbox es hoy la fuente principal esperada de RR matinales.
   - Polar no compite con Dropbox como fuente primaria; se usa como fallback cuando Dropbox no cubre.
 
-## `polar_client.py`
+## `hrv_app.polar_client`
 - Que hace:
   - Encapsula las llamadas HTTP a Polar AccessLink.
   - Lista ejercicios, descarga detalle con samples y fetch de sleep/nightly recharge.
@@ -102,7 +103,7 @@ Importante:
 - Cuando usarlo:
   - Como capa de red/fallback Polar, no como entrypoint.
 
-## `polar_oauth_local.py`
+## `hrv_app.polar_oauth_local`
 - Que hace:
   - Mantiene el flujo OAuth local con callback HTTP local para uso `dev-only`.
   - Carga tokens y soporta el flujo interactivo local cuando no se usa la UI web.
@@ -110,27 +111,27 @@ Importante:
   - No es el flujo productivo de Railway.
   - En produccion el OAuth canonico sigue siendo el web de `web_ui.py`.
 
-## `sleep_store.py`
+## `hrv_app.sleep_store`
 - Que hace:
   - Persiste y recalcula `ENDURANCE_HRV_sleep.csv`.
   - Normaliza campos de sleep y nightly recharge, hace upsert por fecha y recalcula derivados.
 - Cuando usarlo:
   - Siempre que el flujo HRV necesite actualizar sueno/capas de recuperacion.
 
-## `intervals_sync.py`
+## `hrv_app.intervals_sync`
 - Que hace:
   - Construye payloads wellness y resuelve el sync opcional con Intervals.icu.
   - Lee el ultimo master y agrega contexto de activities cuando hace falta.
 - Cuando usarlo:
   - Solo como sidecar operativo del sync HRV.
 
-## `cli_reporting.py`
+## `hrv_app.cli_reporting`
 - Que hace:
   - Genera el reporting textual del CLI y los resumenes diarios/7d.
 - Cuando usarlo:
   - Cuando necesites presentation/output humano del flujo sin mezclarlo con la logica operativa.
 
-## `pipeline_runner.py`
+## `hrv_app.pipeline_runner`
 - Que hace:
   - Encapsula el lanzamiento de `build_hrv_core.py` y `build_hrv_final_dashboard.py`.
   - Centraliza el entorno de subprocess y la construccion de comandos.
@@ -282,6 +283,8 @@ Importante:
   - Respuesta HTTP en consola.
 - Automatico o manual:
   - Manual, no operativo.
+- Ruta actual:
+  - `scripts/python/intervals_wellness_test.py`
 
 ## `intervals_resting_hr_from_core.py`
 - Que hace:
@@ -295,6 +298,8 @@ Importante:
   - Requests PUT a Intervals (sin generar CSV nuevo).
 - Automatico o manual:
   - Manual, no parte del pipeline principal.
+- Ruta actual:
+  - `scripts/python/intervals_resting_hr_from_core.py`
 
 ## `add_ans_balance_to_core.py`
 - Que hace:
@@ -312,6 +317,8 @@ Importante:
   - CORE actualizado con columnas ANS.
 - Automatico o manual:
   - Manual, fuera del flujo principal.
+- Ruta actual:
+  - `scripts/python/add_ans_balance_to_core.py`
 
 ## `build_historical_hrv_compare.py`
 - Que hace:
@@ -325,6 +332,8 @@ Importante:
   - CSVs historicos de comparativa, no canónicos.
 - Automatico o manual:
   - Manual, fuera del flujo operativo.
+- Ruta actual:
+  - `scripts/python/build_historical_hrv_compare.py`
 
 ## 3) Resumen practico
 

@@ -10,6 +10,7 @@ from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
 import subprocess
 import sys
+import time
 import os
 import csv
 import shutil
@@ -19,8 +20,8 @@ import threading
 import json
 from urllib.parse import urlencode
 import secrets
-from polar_utils import env_flag, response_excerpt
-from oauth_utils import exchange_code_for_token, register_polar_user, save_json_atomic
+from hrv_app.polar_utils import env_flag, response_excerpt
+from hrv_app.oauth_utils import exchange_code_for_token, register_polar_user, save_json_atomic
 
 app = Flask(__name__)
 CORS(app)
@@ -325,15 +326,24 @@ def _list_rr_csv_files(rr_dir: Path) -> list[Path]:
 
 def _latest_rr_diagnostics() -> dict:
     rr_dir = _rr_download_dir()
-    files = _list_rr_csv_files(rr_dir) if rr_dir.exists() else []
+    try:
+        files = _list_rr_csv_files(rr_dir) if rr_dir.exists() else []
+    except Exception:
+        files = []
     latest = files[-1] if files else None
+    latest_mtime = None
+    if latest:
+        try:
+            latest_mtime = datetime.fromtimestamp(latest.stat().st_mtime).isoformat()
+        except Exception:
+            latest_mtime = None
     return {
         "rr_download_dir": str(rr_dir),
         "rr_download_exists": rr_dir.exists(),
         "rr_csv_count": len(files),
         "latest_rr_file": latest.name if latest else None,
         "latest_rr_path": str(latest) if latest else None,
-        "latest_rr_mtime": datetime.fromtimestamp(latest.stat().st_mtime).isoformat() if latest else None,
+        "latest_rr_mtime": latest_mtime,
     }
 
 
@@ -415,6 +425,10 @@ def _csv_runtime_diagnostics() -> dict:
         "final_last_fecha": last_final_row.get("Fecha") if last_final_row else None,
         "final_last_n_base60": last_final_row.get("n_base60") if last_final_row else None,
         "final_last_gate_razon_base60": last_final_row.get("gate_razon_base60") if last_final_row else None,
+        "final_last_reason_text": last_final_row.get("reason_text") if last_final_row else None,
+        "final_last_decision_path": last_final_row.get("decision_path") if last_final_row else None,
+        "final_last_action_detail": last_final_row.get("Action_detail") if last_final_row else None,
+        "final_last_recovery_support_class": last_final_row.get("recovery_support_class") if last_final_row else None,
     }
 
 
@@ -900,7 +914,18 @@ def run_sessions_sync():
 @app.route('/api/status', methods=['GET'])
 def get_status():
     """Obtener estado actual"""
-    return jsonify(_build_status_payload())
+    try:
+        return jsonify(_build_status_payload())
+    except Exception as exc:
+        app.logger.exception("/api/status failed")
+        payload = _execution_snapshot()
+        payload["success"] = False
+        payload["error"] = str(exc)
+        payload["diagnostics"] = {
+            "authorized": False,
+            "status_error": str(exc),
+        }
+        return jsonify(payload), 500
 
 
 @app.route('/api/import-seed', methods=['POST'])

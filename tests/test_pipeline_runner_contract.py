@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import pipeline_runner
+import hrv_app.pipeline_runner as pipeline_runner
 
 
 class PipelineRunnerContractTests(unittest.TestCase):

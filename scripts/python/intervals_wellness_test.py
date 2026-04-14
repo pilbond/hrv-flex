@@ -5,7 +5,7 @@ Test local de subida de wellness a intervals.icu.
 
 Uso:
   INTERVALS_API_KEY=... INTERVALS_ATHLETE_ID=... \
-    python intervals_wellness_test.py --date 2024-01-30 --field colorTest --value Verde
+    python scripts/python/intervals_wellness_test.py --date 2024-01-30 --field colorTest --value Verde
 
 Notas:
 - Usa PUT /api/v1/athlete/{id}/wellness/{date}

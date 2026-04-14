@@ -64,7 +64,8 @@ Elementos estructurales estables del repo:
 - scripts operativos locales en `scripts/`,
 - norma HRV activa en `docs/contracts/`,
 - documentacion historica en `docs/legacy/`,
-- modulo analitico local en `analysis/`.
+- modulo analitico local en `analysis/`,
+- implementacion interna del pipeline en `hrv_app/` (paquete Python interno; ARQ-02).
 
 ## 6. Snapshot actual (2026-04-09)
 Estado actual de implementacion observado:
@@ -97,6 +98,7 @@ Si este bloque queda desactualizado, debe actualizarse o reducirse.
 
 - `polar_hrv_automation.py`
   Orquesta el flujo principal.
+  Delega la logica operativa a `hrv_app.hrv_sync_flow` y modulos internos del paquete.
   Intenta cubrir RR faltantes desde Dropbox.
   Si no es posible, usa Polar como fallback.
   Actualiza `ENDURANCE_HRV_sleep.csv`.

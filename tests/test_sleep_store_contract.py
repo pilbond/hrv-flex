@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
-import sleep_store
+import hrv_app.sleep_store as sleep_store
 
 
 class SleepStoreContractTests(unittest.TestCase):

@@ -16,7 +16,7 @@ class ConfigContractTests(unittest.TestCase):
             },
             clear=False,
         ):
-            import config
+            import hrv_app.config as config
 
             config = importlib.reload(config)
             self.assertEqual(config.CLIENT_ID, "client-2")
@@ -31,7 +31,7 @@ class ConfigContractTests(unittest.TestCase):
             },
             clear=False,
         ):
-            import config
+            import hrv_app.config as config
 
             config = importlib.reload(config)
             self.assertEqual(config.CLIENT_ID, "client-1")
@@ -52,7 +52,7 @@ class ConfigContractTests(unittest.TestCase):
                 },
                 clear=False,
             ):
-                import config
+                import hrv_app.config as config
 
                 config = importlib.reload(config)
                 self.assertEqual(config.DATA_DIR, data_dir)

@@ -29,11 +29,11 @@ if str(_ANALYSIS_DIR) not in sys.path:
 from fit_speed_utils import compute_speed_metrics as _compute_speed_metrics
 from fit_terrain_utils import analyze_fit_climbs, parse_fit_terrain_data
 
-from hrv_sync_flow import extract_rr_ms, write_rr_csv
-from polar_client import get_exercise_with_samples, list_exercises
-from polar_oauth_local import load_tokens
-from polar_sessions import match_polar_exercise
-from polar_utils import parse_float, weighted_mean as _weighted_mean
+from hrv_app.hrv_sync_flow import extract_rr_ms, write_rr_csv
+from hrv_app.polar_client import get_exercise_with_samples, list_exercises
+from hrv_app.polar_oauth_local import load_tokens
+from hrv_app.polar_sessions import match_polar_exercise
+from hrv_app.polar_utils import parse_float, weighted_mean as _weighted_mean
 from training_audit_utils import (
     session_report_evidence,
     summary_training_audit,

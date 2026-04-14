@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from polar_utils import env_flag
+from .polar_utils import env_flag
 
 
 def _load_local_env() -> None:

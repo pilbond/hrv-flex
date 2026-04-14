@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 import requests
 
-from cli_reporting import (
+from .cli_reporting import (
     _print_divider,
     _print_header,
     _print_master_already_updated,
@@ -15,7 +15,7 @@ from cli_reporting import (
     _print_sync_completed,
     show_latest_hrv_summaries,
 )
-from config import (
+from .config import (
     DEBUG_PREVIEW_LIMIT,
     DROPBOX_RR_ENABLED,
     FIELD_SAMPLE_TYPE,
@@ -36,12 +36,12 @@ from config import (
     UNKNOWN_SESSION_ID,
     _qprint,
 )
-from dropbox_rr import _compute_target_missing_dates, _run_dropbox_rr_import_for_dates
-from intervals_sync import _send_intervals_wellness_from_master
-from pipeline_runner import build_hrv_core_cmd, run_build_hrv_core, run_build_hrv_final_dashboard_only
-from polar_client import get_exercise_with_samples
-from polar_utils import _iso_to_dt, get_field_variant, parse_duration_to_minutes
-from sleep_store import _default_sleep_refresh_dates, _update_sleep_for_dates
+from .dropbox_rr import _compute_target_missing_dates, _run_dropbox_rr_import_for_dates
+from .intervals_sync import _send_intervals_wellness_from_master
+from .pipeline_runner import build_hrv_core_cmd, run_build_hrv_core, run_build_hrv_final_dashboard_only
+from .polar_client import get_exercise_with_samples
+from .polar_utils import _iso_to_dt, get_field_variant, parse_duration_to_minutes
+from .sleep_store import _default_sleep_refresh_dates, _update_sleep_for_dates
 
 
 def extract_rr_ms(exercise_json: dict):
