@@ -20,6 +20,7 @@ import threading
 import json
 from urllib.parse import urlencode
 import secrets
+from hrv_app.config import DATA_DIR, TOKEN_FILE as TOKEN_PATH
 from hrv_app.polar_utils import env_flag, response_excerpt
 from hrv_app.oauth_utils import exchange_code_for_token, register_polar_user, save_json_atomic
 
@@ -33,8 +34,6 @@ app.config["PREFERRED_URL_SCHEME"] = "https"
 # Polar OAuth (web flow)
 # =========================
 SCOPE = "accesslink.read_all"
-TOKEN_PATH = Path(os.environ.get("POLAR_TOKEN_PATH", ".polar_tokens.json"))
-DATA_DIR = Path((os.environ.get("HRV_DATA_DIR") or "data").strip() or "data")
 SEED_UPLOAD_DIR = Path((os.environ.get("HRV_SEED_UPLOAD_DIR") or "seed_upload").strip() or "seed_upload")
 ALLOWED_IMPORT_FILES = [
     "ENDURANCE_HRV_master_CORE.csv",

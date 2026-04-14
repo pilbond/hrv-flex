@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import requests
+from .config import TOKEN_FILE
 from .polar_utils import get_field_variant, parse_duration_to_minutes, parse_float
 try:
     from fitparse import FitFile
@@ -19,7 +20,6 @@ except Exception:  # pragma: no cover - optional import at runtime
 
 
 API_BASE = "https://www.polaraccesslink.com/v3"
-TOKEN_FILE = Path(os.environ.get("POLAR_TOKEN_PATH", ".polar_tokens.json"))
 REQUEST_DELAY = 0.4
 FIELD_START_TIME = ("start-time", "start_time", "startTime")
 
