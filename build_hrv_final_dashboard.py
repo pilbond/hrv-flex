@@ -39,6 +39,10 @@ from typing import Dict, Optional, Tuple, List
 
 import numpy as np
 import pandas as pd
+from hrv_app.config import (
+    DATA_DIR as CONFIG_DATA_DIR,
+    resolve_writable_dir,
+)
 
 
 # =============================================================================
@@ -52,7 +56,7 @@ NO    = "NO"
 
 GATE_ORDER = {VERDE: 0, AMBAR: 1, ROJO: 2}
 
-DATA_DIR = Path((os.environ.get("HRV_DATA_DIR") or "data").strip() or "data")
+DATA_DIR = CONFIG_DATA_DIR
 
 IN_CORE = DATA_DIR / "ENDURANCE_HRV_master_CORE.csv"
 OUT_FINAL = DATA_DIR / "ENDURANCE_HRV_master_FINAL.csv"
@@ -1739,7 +1743,7 @@ def main(argv: List[str]) -> int:
 
     global DATA_DIR, IN_CORE, OUT_FINAL, OUT_DASHBOARD
     if "data_dir" in args:
-        DATA_DIR = Path(args["data_dir"])
+        DATA_DIR = resolve_writable_dir(Path(args["data_dir"]), CONFIG_DATA_DIR)
         IN_CORE = DATA_DIR / "ENDURANCE_HRV_master_CORE.csv"
         OUT_FINAL = DATA_DIR / "ENDURANCE_HRV_master_FINAL.csv"
         OUT_DASHBOARD = DATA_DIR / "ENDURANCE_HRV_master_DASHBOARD.csv"

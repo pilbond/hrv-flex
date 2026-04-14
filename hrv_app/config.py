@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from pathlib import Path
 
 from .polar_utils import env_flag
@@ -24,6 +25,46 @@ def _env_int(name: str, default: int) -> int:
         return int(raw)
     except ValueError:
         return default
+
+
+def _dir_is_writable(path: Path) -> bool:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return False
+    try:
+        with tempfile.NamedTemporaryFile(dir=str(path), prefix=".hrv-write-probe-", delete=True):
+            pass
+        return True
+    except OSError:
+        return False
+
+
+def _resolve_writable_dir(primary: Path, fallback: Path) -> Path:
+    for candidate in (primary, fallback):
+        if _dir_is_writable(candidate):
+            return candidate
+    return primary
+
+
+def _resolve_writable_file(primary: Path, fallback_dir: Path) -> Path:
+    candidates = [primary]
+    fallback_file = fallback_dir / primary.name
+    if fallback_file != primary:
+        candidates.append(fallback_file)
+
+    for candidate in candidates:
+        if _dir_is_writable(candidate.parent):
+            return candidate
+    return primary
+
+
+def resolve_writable_dir(primary: Path, fallback: Path) -> Path:
+    return _resolve_writable_dir(primary, fallback)
+
+
+def resolve_writable_file(primary: Path, fallback_dir: Path) -> Path:
+    return _resolve_writable_file(primary, fallback_dir)
 
 
 IS_RAILWAY = os.environ.get("RAILWAY_ENVIRONMENT") is not None
@@ -84,16 +125,19 @@ def _build_redirect_uri() -> str:
 
 REDIRECT_URI = _build_redirect_uri()
 
-TOKEN_FILE = Path(os.environ.get("POLAR_TOKEN_PATH", ".polar_tokens.json"))
-
 _data_dir = (os.environ.get("HRV_DATA_DIR") or "data").strip() or "data"
+_data_dir_path = Path(_data_dir)
+DATA_DIR = _resolve_writable_dir(_data_dir_path, Path.cwd() / _data_dir_path.name)
 _rr_dir = (os.environ.get("RR_DOWNLOAD_DIR") or "").strip()
 if _rr_dir:
-    OUTDIR = Path(_rr_dir)
+    OUTDIR = _resolve_writable_dir(Path(_rr_dir), DATA_DIR / "rr_downloads")
 else:
-    OUTDIR = Path(_data_dir) / "rr_downloads"
+    OUTDIR = DATA_DIR / "rr_downloads"
 
-DATA_DIR = Path(_data_dir)
+TOKEN_FILE = _resolve_writable_file(
+    Path(os.environ.get("POLAR_TOKEN_PATH", ".polar_tokens.json")),
+    DATA_DIR,
+)
 CORE_PATH = DATA_DIR / "ENDURANCE_HRV_master_CORE.csv"
 BETA_AUDIT_PATH = DATA_DIR / "ENDURANCE_HRV_master_BETA_AUDIT.csv"
 FINAL_PATH = DATA_DIR / "ENDURANCE_HRV_master_FINAL.csv"

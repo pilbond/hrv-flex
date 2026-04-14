@@ -1,4 +1,5 @@
 import importlib
+import tempfile
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -62,3 +63,43 @@ class ConfigContractTests(unittest.TestCase):
                 self.assertEqual(config.FINAL_PATH, data_dir / "ENDURANCE_HRV_master_FINAL.csv")
                 self.assertEqual(config.DASHBOARD_PATH, data_dir / "ENDURANCE_HRV_master_DASHBOARD.csv")
                 self.assertEqual(config.DROPBOX_RR_TIMEOUT_SEC, 321)
+
+    def test_path_resolution_falls_back_to_a_writable_storage_root(self):
+        class _ProbeContext:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        with TemporaryDirectory() as tmpdir:
+            primary_data_dir = Path(tmpdir) / "blocked" / "hrv-data"
+            fallback_data_dir = Path(tmpdir) / "hrv-data"
+
+            def _named_tempfile(*args, **kwargs):
+                dir_arg = kwargs.get("dir")
+                if dir_arg and str(dir_arg).startswith(str(primary_data_dir.parent)):
+                    raise OSError("permission denied")
+                return _ProbeContext()
+
+            with patch.dict(
+                "os.environ",
+                {
+                    "HRV_DATA_DIR": str(primary_data_dir),
+                    "RR_DOWNLOAD_DIR": str(primary_data_dir / "rr-downloads"),
+                    "POLAR_TOKEN_PATH": str(primary_data_dir / "polar_tokens.json"),
+                    "POLAR_CLIENT_ID": "client-1",
+                    "POLAR_CLIENT_SECRET": "secret",
+                    "PUBLIC_URL": "",
+                },
+                clear=False,
+            ), patch.object(tempfile, "NamedTemporaryFile", side_effect=_named_tempfile), patch.object(
+                Path, "cwd", return_value=Path(tmpdir)
+            ):
+                import hrv_app.config as config
+
+                config = importlib.reload(config)
+
+            self.assertEqual(config.DATA_DIR, fallback_data_dir)
+            self.assertEqual(config.OUTDIR, fallback_data_dir / "rr_downloads")
+            self.assertEqual(config.TOKEN_FILE, fallback_data_dir / "polar_tokens.json")

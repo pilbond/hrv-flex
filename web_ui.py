@@ -20,6 +20,7 @@ import threading
 import json
 from urllib.parse import urlencode
 import secrets
+from hrv_app.config import DATA_DIR, TOKEN_FILE as TOKEN_PATH
 from hrv_app.polar_utils import env_flag, response_excerpt
 from hrv_app.oauth_utils import exchange_code_for_token, register_polar_user, save_json_atomic
 
@@ -33,8 +34,6 @@ app.config["PREFERRED_URL_SCHEME"] = "https"
 # Polar OAuth (web flow)
 # =========================
 SCOPE = "accesslink.read_all"
-TOKEN_PATH = Path(os.environ.get("POLAR_TOKEN_PATH", ".polar_tokens.json"))
-DATA_DIR = Path((os.environ.get("HRV_DATA_DIR") or "data").strip() or "data")
 SEED_UPLOAD_DIR = Path((os.environ.get("HRV_SEED_UPLOAD_DIR") or "seed_upload").strip() or "seed_upload")
 ALLOWED_IMPORT_FILES = [
     "ENDURANCE_HRV_master_CORE.csv",
@@ -1091,7 +1090,14 @@ def oauth_callback():
         if access_token:
             register_result = _register_polar_user(access_token, x_user_id, allow_transient_failure=True)
 
-        return """
+        token_notice = (
+            "<p style='margin-top:8px;color:#a16207;'>Polar devolvió un error temporal al registrar el usuario. "
+            "El token ya está guardado y la app reintentará el registro automáticamente en la siguiente sincronización.</p>"
+            if register_result and register_result.get("status") == "temporary_failure"
+            else ""
+        )
+
+        success_html = """
         <html>
         <head>
             <meta charset="UTF-8">
@@ -1166,7 +1172,7 @@ def oauth_callback():
                 <h1>Polar autorizado</h1>
                 <p>Polar AccessLink ha sido autorizado correctamente.</p>
                 <p>Ya puedes volver a la app y lanzar la sincronización.</p>
-                %s
+                __TOKEN_NOTICE__
                 <a href="/" class="btn">Volver a la App</a>
                 <p class="countdown">Esta ventana se cerrará en <span id="counter">5</span> segundos...</p>
             </div>
@@ -1187,14 +1193,9 @@ def oauth_callback():
             </script>
         </body>
         </html>
-        """ % (
-            (
-                "<p style='margin-top:8px;color:#a16207;'>Polar devolvió un error temporal al registrar el usuario. "
-                "El token ya está guardado y la app reintentará el registro automáticamente en la siguiente sincronización.</p>"
-            )
-            if register_result and register_result.get("status") == "temporary_failure"
-            else ""
-        )
+        """
+
+        return success_html.replace("__TOKEN_NOTICE__", token_notice)
 
     except Exception as e:
         return f"""

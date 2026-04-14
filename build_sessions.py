@@ -45,6 +45,10 @@ from typing import Optional
 import requests
 import numpy as np
 import pandas as pd
+from hrv_app.config import (
+    DATA_DIR as CONFIG_DATA_DIR,
+    resolve_writable_dir,
+)
 from hrv_app.polar_sessions import PolarSessionClient, extract_mechanical_metrics_from_fit_payload
 
 # ─── Version & params ─────────────────────────────────────────────────────────
@@ -2292,7 +2296,7 @@ def main():
     parser.add_argument(
         "--output",
         type=str,
-        default=(os.environ.get("HRV_DATA_DIR") or "./data").strip() or "./data",
+        default=str(CONFIG_DATA_DIR),
     )
     parser.add_argument("--no-streams", action="store_true")
     parser.add_argument("--no-notes", action="store_true")
@@ -2303,7 +2307,7 @@ def main():
         sys.exit(1)
 
     today = date.today()
-    output_dir = Path(args.output)
+    output_dir = resolve_writable_dir(Path(args.output), CONFIG_DATA_DIR)
     selected_modes = int(bool(args.backfill)) + int(bool(args.daily)) + int(bool(args.update)) + int(bool(args.date))
     if selected_modes > 1:
         parser.error("Use only one range mode: --backfill, --daily, --update, or --date")
