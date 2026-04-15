@@ -183,8 +183,8 @@ def show_last_daily_summary():
             print(f"🚦 Gate:            {gate_emoji} {gate}")
             print(f"🧭 Acción:          {action} / {action_detail}")
             print(f"🧾 Razón gate:      {reason}")
-            print(f"🧠 Reason text:     {reason_text}")
-            print(f"🧩 Decision path:   {decision_path}")
+            if _has_value(decision_path) and str(decision_path).strip() != "BASE60_ONLY":
+                print(f"🧩 Decision path:   {decision_path}")
             print(
                 "🧪 Contexto recuperación: "
                 f"{_format_recovery_quality(recovery_quality)} / {_format_recovery_class(recovery_class)}"
@@ -199,9 +199,10 @@ def show_last_daily_summary():
             if _has_value(healthy_rmssd):
                 print(f"📏 Healthy RMSSD:   {_format_metric(healthy_rmssd)} ms")
             if _has_value(warning_threshold):
-                print(f"⚠️  Umbral warn.:   {_format_metric(warning_threshold)} ms")
+                print(f"⚠️  Límite inferior de referencia: {_format_metric(warning_threshold)} ms")
             if bool(degraded):
-                print("⚠️  Warning base:  baseline60_degraded=True")
+                print("⚠️  Base 60d por debajo de tu referencia habitual")
+            print(f"🧠 Reason text:     {reason_text}")
             return
         except (FileNotFoundError, pd.errors.EmptyDataError, KeyError, IndexError) as e:
             print(f"⚠️  Error mostrando summary FINAL: {e}")

@@ -397,17 +397,23 @@ def _build_clustering_window_clause(
     intense_days_prev_3d: Optional[float],
     intense_days_prev_5d: Optional[float],
 ) -> str:
+    def _window_text(value: float, window: int) -> str:
+        count = int(value)
+        if count == 1:
+            return f"1 día intenso en los últimos {window}"
+        return f"{count} días intensos en los últimos {window}"
+
     has_3d = intense_days_prev_3d is not None
     has_5d = intense_days_prev_5d is not None
     if has_3d and has_5d:
         return (
-            f"{int(intense_days_prev_3d)} días intensos en los últimos 3 "
+            f"{_window_text(intense_days_prev_3d, 3)} "
             f"(y {int(intense_days_prev_5d)} en los últimos 5)"
         )
     if has_3d:
-        return f"{int(intense_days_prev_3d)} días intensos en los últimos 3"
+        return _window_text(intense_days_prev_3d, 3)
     if has_5d:
-        return f"{int(intense_days_prev_5d)} días intensos en los últimos 5"
+        return _window_text(intense_days_prev_5d, 5)
     return ""
 
 

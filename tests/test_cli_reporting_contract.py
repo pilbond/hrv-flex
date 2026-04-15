@@ -70,10 +70,15 @@ class CliReportingContractTests(unittest.TestCase):
             self.assertIn("💓 HR hoy:          51.2 bpm", output)
             self.assertIn("🚦 Gate:            🟢 VERDE", output)
             self.assertIn("🧠 Reason text:     VERDE con carga acumulada (load_3d=210): precaución con la intensidad", output)
-            self.assertIn("🧩 Decision path:   BASE60_ONLY", output)
             self.assertIn("🧪 Contexto recuperación: contexto completo / senales alineadas", output)
             self.assertIn("📐 Base 60d:        42.5 ms (n=41)", output)
-            self.assertIn("⚠️  Umbral warn.:   46.1 ms", output)
+            self.assertIn("⚠️  Límite inferior de referencia: 46.1 ms", output)
+            self.assertGreater(
+                output.index("🧠 Reason text:"),
+                output.index("⚠️  Límite inferior de referencia: 46.1 ms"),
+            )
+            self.assertNotIn("🧩 Decision path:", output)
+            self.assertNotIn("Base 60d por debajo de tu referencia habitual", output)
             self.assertNotIn("\n\n📅 Fecha:", output)
             self.assertNotIn("Healthy period", output)
             self.assertNotIn("HR promedio", output)

@@ -526,6 +526,24 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
             "4 en últimos 5d",
         )
 
+    def test_build_clustering_window_clause_handles_singular_and_plural(self):
+        self.assertEqual(
+            final_builder._build_clustering_window_clause(1, None),
+            "1 día intenso en los últimos 3",
+        )
+        self.assertEqual(
+            final_builder._build_clustering_window_clause(None, 1),
+            "1 día intenso en los últimos 5",
+        )
+        self.assertEqual(
+            final_builder._build_clustering_window_clause(1, 2),
+            "1 día intenso en los últimos 3 (y 2 en los últimos 5)",
+        )
+        self.assertEqual(
+            final_builder._build_clustering_window_clause(2, None),
+            "2 días intensos en los últimos 3",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
