@@ -137,7 +137,7 @@ Cómo respondió tu corazón durante el movimiento: frecuencia media, pico, y di
 | `z3_pct` | float % | Porcentaje del tiempo en movimiento en Z3 (> VT2). Zona de alta intensidad: no puedes hablar, acumulas fatiga rápidamente, la recuperación tarda. Incluso en sesiones duras, suele ser <15% del total — los intervalos de Z3 son cortos dentro de una sesión larga. | 0-15 |
 | `z1_total_min` | float | Minutos totales en Z1. Completa la triada primaria de tiempo por zona y permite agregar semanas por deporte con ponderación correcta sin depender de medias de porcentajes por sesión. | 20-300 |
 | `z2_total_min` | float | Minutos totales en Z2 (sin redondeo de porcentaje). Útil para contabilizar volumen de trabajo moderado. | 5-40 |
-| `z3_total_min` | float | Minutos totales en Z3. **Este es el campo que alimenta `z3_7d_sum` en sessions_day** y que genera el aviso "Z3 acumulado alto" en reason_text. Incluso unos pocos minutos de Z3 tienen impacto real en la fatiga. | 0-15 |
+| `z3_total_min` | float | Minutos totales en Z3. **Este es el campo que alimenta `z3_7d_sum` en sessions_day** y que genera el aviso "Tiempo en alta intensidad acumulado esta semana (Xmin en Z3)" en `reason_text`. Incluso unos pocos minutos de Z3 tienen impacto real en la fatiga. | 0-15 |
 
 **z1 + z2 + z3 = 100%** (siempre, verificado por QA). Esto es posible porque se calculan sobre el mismo universo de muestras (moving mask activa). Si sumas y no da 100%, hay un bug.
 
@@ -333,7 +333,7 @@ Los campos rolling son sumas o medias de los últimos N días, con un campo `_no
 | `intensity_clustering_level` | enum | Severidad de clustering. `high` si `intense_days_prev_3d >= 2` o `intense_days_prev_5d >= 3`; `low` si no llega a high pero sí activa flag; vacío en ausencia de flag. |
 | `load_7d` / `load_7d_nobs` | 7 días | Carga total de los 7 días anteriores. Con cobertura. |
 | `work_7d_sum` / `work_7d_nobs` | 7 días | Minutos totales de trabajo sostenido ≥VT1 en los 7 días previos. |
-| `z3_7d_sum` / `z3_7d_nobs` | 7 días | **Minutos totales de Z3 en los 7 días previos.** Este valor genera el aviso "Z3 acumulado alto" en reason_text cuando supera 60 minutos. |
+| `z3_7d_sum` / `z3_7d_nobs` | 7 días | **Minutos totales de Z3 en los 7 días previos.** Este valor genera el aviso "Tiempo en alta intensidad acumulado esta semana (Xmin en Z3)" en `reason_text` cuando supera 60 minutos. |
 | `load_14d` / `load_14d_nobs` | 14 días | Carga total de las 2 semanas anteriores. |
 | `load_28d` / `load_28d_nobs` | 28 días | Carga total del mes anterior. |
 | `acwr_simple_prev` | 7d / 28d | `((sum load d-1..d-7)/7) / ((sum load d-1..d-28)/28)`. Rolling simple, con `shift(1)`. Si la base crónica es 0, queda `NaN`. |
@@ -519,12 +519,12 @@ Cada corrida del pipeline genera un `ENDURANCE_HRV_sessions_metadata.json` que d
 | `load_ctx_ready` + `monotony_7d_prev >= 1.8` | "Monotonía elevada/alta: patrón de carga poco variable" |
 | `load_ctx_ready` + `strain_7d_prev >= P75/P90 local` | "Strain alto/muy alto: semana exigente y poco descargada" |
 | `work_7d_sum > 200` | "Volumen semanal alto (work_7d=Xmin)" |
-| `z3_7d_sum > 60` | "Z3 acumulado alto (z3_7d=Xmin)" |
-| `intensity_clustering_flag = 1` + `level=low/high` | "VERDE pero clustering ...: considera Z1 mañana" o "Clustering ... reciente: vigilar recuperación" |
-| ROJO + `load_day < 30` + sueño OK | "ROJO sin carga previa ni sueño malo: revisar otros factores" |
-| VERDE + `load_3d > 200` | "VERDE con carga acumulada (load_3d=X): precaución intensidad" |
-| VERDE + contexto canónico exigente | "VERDE con contexto de carga exigente: precaución intensidad" |
-| VERDE + `load_3d > 200` + señal canónica exigente | "VERDE con convergencia de carga (load_3d + ACWR/monotonía/strain): precaución intensidad reforzada" |
+| `z3_7d_sum > 60` | "Tiempo en alta intensidad acumulado esta semana (Xmin en Z3)" |
+| `intensity_clustering_flag = 1` + `level=low/high` | "VERDE pero con X días intensos..." o "Clustering ... reciente: vigilar recuperación" |
+| ROJO + `load_day < 30` + sueño OK | "ROJO sin carga previa ni sueño malo: revisar factores externos al entrenamiento" |
+| VERDE + `load_3d > 200` | "VERDE con carga acumulada (load_3d=X): precaución con la intensidad" |
+| VERDE + contexto canónico exigente | "VERDE con contexto de carga exigente: precaución con la intensidad" |
+| VERDE + `load_3d > 200` + señal canónica exigente | "VERDE con convergencia de carga (load_3d + ACWR/monotonía/strain): precaución con la intensidad reforzada" |
 
 **Principio:** Los avisos informan, nunca cambian el semáforo. El gate sigue dependiendo exclusivamente de HRV + pulso. `load_3d` se mantiene como sidecar agudo de corto plazo; la capa canónica sigue siendo `ACWR` + `monotony` + `strain`; y el clustering de intensidad aporta una alerta proactiva de mala distribución reciente. Si varias capas convergen en un día VERDE, el cierre operativo se vuelve más prudente, pero el color no cambia.
 

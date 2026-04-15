@@ -839,24 +839,24 @@ Las condiciones visibles se siguen evaluando en orden y las que se cumplen se co
 
 | Prioridad | Condición | Fuente | Texto generado |
 |-----------|-----------|--------|----------------|
-| 1 | `veto_agudo == True` | HRV pipeline | `Caída aguda HRV: raw=X vs base=Y (drop=Z, umbral=-W)` |
-| 2 | `d_ln > 2 × swc_v4` | HRV pipeline | `HRV excesivamente alto: posible saturación parasimpática` |
+| 1 | `veto_agudo == True` | HRV pipeline | `Caída brusca de HRV: superó el umbral de caída aguda respecto a tu variación habitual` |
+| 2 | `d_ln > 2 × swc_v4` | HRV pipeline | `HRV inusualmente alto: posible predominio parasimpático fuera de tu rango habitual` |
 | 3 | `quality_flag == True` y gate VERDE/ÁMBAR | HRV pipeline | `Dato dudoso: limitar a Z1-Z2 máx 90min` |
-| 4 | `polar_sleep_duration_min < sleep_dur_p10` | sleep.csv | `Noche corta (Xmin < P10=Y)` |
-| 5 | `polar_interruptions_long > sleep_int_p90` | sleep.csv | `Noche fragmentada (X interr > P90=Y)` |
-| 6 | VERDE + `polar_night_rmssd < 25` | sleep.csv | `VERDE pero nightly_rmssd bajo: vigilar` |
-| 7 | ROJO + `polar_night_rmssd > 45` | sleep.csv | `ROJO con nightly_rmssd alto: posible confusor` |
+| 4 | `polar_sleep_duration_min < sleep_dur_p10` | sleep.csv | `Noche corta (XhYm vs tu umbral habitual bajo de ZhW)` |
+| 5 | `polar_interruptions_long > sleep_int_p90` | sleep.csv | `Sueño fragmentado (X interrupciones; habitualmente no pasas de Y)` |
+| 6 | VERDE + `polar_night_rmssd < 25` | sleep.csv | `VERDE, pero el HRV nocturno fue bajo (Xms): la recuperación durante el sueño no acompaña` |
+| 7 | ROJO + `polar_night_rmssd > 45` | sleep.csv | `ROJO, pero el HRV de sueño salió alto (Xms): la recuperación nocturna fue mejor de lo esperado` |
 | 8 | `load_3d > 250` (con `load_3d_nobs >= 2`) | sessions_day.csv | `Carga acumulada alta (load_3d=X)` |
 | 9 | `load_ctx_ready` + `acwr_simple_prev >= 1.3` | sessions_day.csv | `ACWR alto/muy alto: carga aguda por encima de la base crónica` |
 | 10 | `load_ctx_ready` + `monotony_7d_prev >= 1.8` | sessions_day.csv | `Monotonía elevada/alta: patrón de carga poco variable` |
 | 11 | `load_ctx_ready` + `strain_7d_prev >= P75/P90 local` | sessions_day.csv | `Strain alto/muy alto: semana exigente y poco descargada` |
 | 12 | `work_7d_sum > 200` | sessions_day.csv | `Volumen semanal alto (work_7d=Xmin)` |
-| 13 | `z3_7d_sum > 60` | sessions_day.csv | `Z3 acumulado alto (z3_7d=Xmin)` |
-| 14 | `intensity_clustering_flag == 1` + severidad `low/high` | sessions_day.csv | `VERDE pero clustering (...)` o `Clustering (...) reciente: vigilar recuperación` |
-| 15 | ROJO + `load_day < 30` + sueño OK | sessions_day.csv | `ROJO sin carga previa ni sueño malo: revisar otros factores` |
-| 16 | VERDE + `load_3d > 200` | sessions_day.csv | `VERDE con carga acumulada (load_3d=X): precaución intensidad` |
-| 17 | VERDE + contexto canónico exigente | sessions_day.csv | `VERDE con contexto de carga exigente: precaución intensidad` |
-| 18 | VERDE + `load_3d > 200` + señal canónica exigente | sessions_day.csv | `VERDE con convergencia de carga (load_3d + ACWR/monotonía/strain): precaución intensidad reforzada` |
+| 13 | `z3_7d_sum > 60` | sessions_day.csv | `Tiempo en alta intensidad acumulado esta semana (Xmin en Z3)` |
+| 14 | `intensity_clustering_flag == 1` + severidad `low/high` | sessions_day.csv | `VERDE pero con X días intensos...` o `Clustering ... reciente: vigilar recuperación` |
+| 15 | ROJO + `load_day < 30` + sueño OK | sessions_day.csv | `ROJO sin carga previa ni sueño malo: revisar factores externos al entrenamiento` |
+| 16 | VERDE + `load_3d > 200` | sessions_day.csv | `VERDE con carga acumulada (load_3d=X): precaución con la intensidad` |
+| 17 | VERDE + contexto canónico exigente | sessions_day.csv | `VERDE con contexto de carga exigente: precaución con la intensidad` |
+| 18 | VERDE + `load_3d > 200` + señal canónica exigente | sessions_day.csv | `VERDE con convergencia de carga (load_3d + ACWR/monotonía/strain): precaución con la intensidad reforzada` |
 | 19 | RE-01: VERDE + mala noche y/o carga reciente exigente | sleep.csv + sessions_day.csv | `VERDE con recuperación frágil...` |
 | 20 | RE-01: ÁMBAR + sueño nocturno bueno y poca carga reciente | sleep.csv + sessions_day.csv | `ÁMBAR con soporte nocturno aceptable...` |
 | 21 | RE-01: ÁMBAR + contexto objetivo empeorado | sleep.csv + sessions_day.csv | `ÁMBAR con recuperación frágil...` |

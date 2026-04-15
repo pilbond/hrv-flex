@@ -192,7 +192,7 @@ Lo esencial es esto: el residual da matiz, no da orden. Anade contexto al color,
 
 Porque una HRV alta puede significar cosas distintas segun el contexto.
 
-A veces es una senal de buena recuperacion. Otras veces puede representar una respuesta desproporcionada, una saturacion parasimpatica o un estado raro respecto a tu patron habitual.
+A veces es una senal de buena recuperacion. Otras veces puede representar un predominio parasimpatico fuera de tu rango habitual o un estado raro respecto a tu patron habitual.
 
 Por eso el sistema no premia automaticamente una HRV alta. La interpreta respecto a:
 
@@ -200,7 +200,7 @@ Por eso el sistema no premia automaticamente una HRV alta. La interpreta respect
 - tu pulso
 - la coherencia con el resto de senales
 
-En el `reason_text`, una HRV muy por encima de lo normal puede aparecer como `posible saturacion parasimpatica`.
+En el `reason_text`, una HRV muy por encima de lo normal puede aparecer como `posible predominio parasimpatico fuera de tu rango habitual`.
 
 ## ¿Que diferencia fisiologica hay entre HRV baja con pulso normal y HRV baja con pulso alto?
 
@@ -366,7 +366,7 @@ Puede incluir:
 - discordancia de `polar_night_rmssd`
 - carga acumulada alta
 - volumen semanal alto
-- Z3 acumulado alto
+- tiempo en alta intensidad acumulado esta semana
 - rojo sin carga previa ni sueno malo
 - verde con carga acumulada alta
 
@@ -432,7 +432,7 @@ Por ejemplo, puede anadir avisos si detecta:
 
 - `load_3d` alto
 - `work_7d_sum` alto
-- `z3_7d_sum` alto
+- `z3_7d_sum` elevado
 - un dia rojo sin carga previa clara
 - un dia verde con carga acumulada que aconseja prudencia
 

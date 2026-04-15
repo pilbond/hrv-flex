@@ -257,7 +257,10 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
                 final_no_sleep, _ = final_builder.build_final_and_dashboard(core, final_builder.Config())
 
         row_no_sleep = final_no_sleep.loc[final_no_sleep["Fecha"] == "2026-02-08"].iloc[0]
-        self.assertIn("ROJO sin carga previa reciente: revisar otros factores", row_no_sleep["reason_text"])
+        self.assertIn(
+            "ROJO sin carga previa reciente: revisar factores externos al entrenamiento",
+            row_no_sleep["reason_text"],
+        )
         self.assertNotIn("ni sueño malo", row_no_sleep["reason_text"])
 
         with TemporaryDirectory() as tmpdir:
@@ -289,7 +292,10 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
                 final_with_sleep, _ = final_builder.build_final_and_dashboard(core, final_builder.Config())
 
         row_with_sleep = final_with_sleep.loc[final_with_sleep["Fecha"] == "2026-02-08"].iloc[0]
-        self.assertIn("ROJO sin carga previa ni sueño malo: revisar otros factores", row_with_sleep["reason_text"])
+        self.assertIn(
+            "ROJO sin carga previa ni sueño malo: revisar factores externos al entrenamiento",
+            row_with_sleep["reason_text"],
+        )
 
     def test_single_load_caution_on_green_does_not_emit_recovery_fragile_closure(self):
         core = _core_frame()
@@ -315,7 +321,7 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
         self.assertEqual(row["gate_final"], "VERDE")
         self.assertEqual(row["recovery_support_class"], "neutral")
         self.assertFalse(row["recovery_discordance_flag"])
-        self.assertIn("VERDE con carga acumulada (load_3d=210): precaución intensidad", row["reason_text"])
+        self.assertIn("VERDE con carga acumulada (load_3d=210): precaución con la intensidad", row["reason_text"])
         self.assertNotIn("VERDE con recuperación frágil", row["reason_text"])
 
     def test_reason_text_adds_fragile_recovery_warning_on_ffill_clustering_window(self):
@@ -358,7 +364,7 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
         self.assertTrue(row["recovery_discordance_flag"])
         self.assertIn("sleep_basic_poor", row["recovery_discordance_reason"])
         self.assertIn(
-            "VERDE pero con 2 días intensos en los últimos 3: prudencia con la intensidad (2/3d · 3/5d)",
+            "VERDE pero con 2 días intensos en los últimos 3 (y 3 en los últimos 5): prudencia con la intensidad",
             row["reason_text"],
         )
         self.assertIn("VERDE, pero sueño y carga reciente piden prudencia", row["reason_text"])
@@ -453,7 +459,7 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
         self.assertTrue(row["recovery_discordance_flag"])
         self.assertIn("sleep_score_good", row["recovery_discordance_reason"])
         self.assertIn(
-            "ROJO, pero RMSSD nocturno alto (50ms): la señal nocturna sale mejor de lo esperado",
+            "ROJO, pero el HRV de sueño salió alto (50ms): la recuperación nocturna fue mejor de lo esperado",
             row["reason_text"],
         )
         self.assertIn("ROJO, pero sueño y carga reciente no encajan con un rojo claro", row["reason_text"])
@@ -504,7 +510,21 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
         self.assertEqual(row["recovery_support_class"], "supported")
         self.assertFalse(row["recovery_discordance_flag"])
         self.assertIn("ROJO respaldado por mala recuperación y carga reciente", row["reason_text"])
-        self.assertNotIn("ROJO, pero RMSSD nocturno alto", row["reason_text"])
+        self.assertNotIn("ROJO, pero el HRV de sueño salió alto", row["reason_text"])
+
+    def test_build_clustering_window_suffix_is_compact_for_non_green_messages(self):
+        self.assertEqual(
+            final_builder._build_clustering_window_suffix(2, 4),
+            "2 intensos en últimos 3d; 4 en últimos 5d",
+        )
+        self.assertEqual(
+            final_builder._build_clustering_window_suffix(2, None),
+            "2 intensos en últimos 3d",
+        )
+        self.assertEqual(
+            final_builder._build_clustering_window_suffix(None, 4),
+            "4 en últimos 5d",
+        )
 
 
 if __name__ == "__main__":

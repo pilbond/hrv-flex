@@ -31,7 +31,7 @@ class CliReportingContractTests(unittest.TestCase):
                         "recovery_support_class": "supported",
                         "recovery_context_quality": "rich",
                         "recovery_discordance_reason": "",
-                        "reason_text": "VERDE con carga acumulada (load_3d=210): precaución intensidad",
+                        "reason_text": "VERDE con carga acumulada (load_3d=210): precaución con la intensidad",
                         "ln_base60": 3.75,
                         "n_base60": 41,
                         "Calidad": "A",
@@ -69,7 +69,7 @@ class CliReportingContractTests(unittest.TestCase):
             self.assertIn("📅 Fecha:           2024-01-01", output)
             self.assertIn("💓 HR hoy:          51.2 bpm", output)
             self.assertIn("🚦 Gate:            🟢 VERDE", output)
-            self.assertIn("🧠 Reason text:     VERDE con carga acumulada (load_3d=210): precaución intensidad", output)
+            self.assertIn("🧠 Reason text:     VERDE con carga acumulada (load_3d=210): precaución con la intensidad", output)
             self.assertIn("🧩 Decision path:   BASE60_ONLY", output)
             self.assertIn("🧪 Contexto recuperación: contexto completo / senales alineadas", output)
             self.assertIn("📐 Base 60d:        42.5 ms (n=41)", output)

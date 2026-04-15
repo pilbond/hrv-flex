@@ -376,9 +376,10 @@ Si este snapshot queda desactualizado, actualizar o reducir.
 ## Archivos canónicos
 
 Siempre leer desde:
-- `C:\Users\francisco.delgadosi\OneDrive - Plexus Tech\Documentos\RR\polar-hrv-automation_railway_v4\`
+- `C:\Pilbond\polar-hrv-automation\`
 
-NO desde worktrees como:
+NO desde:
+- `C:\Users\francisco.delgadosi\OneDrive - Plexus Tech\Documentos\RR\polar-hrv-automation_railway_v4\` (copia OneDrive desactualizada)
 - `.claude/worktrees/*`
 
 ## Workflow Kanvas

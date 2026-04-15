@@ -300,6 +300,23 @@ def sync_hrv_range(args, access_token: str, x_user_id: Optional[str], exercises:
         if len(filtered) >= MAX_EXERCISES:
             break
 
+    if not filtered and args.process:
+        # When the active date window misses all eligible BODY_AND_MIND sessions,
+        # fall back to the same sport/duration filters without the date bound so
+        # the HRV pipeline can still complete for the latest available session.
+        fallback_filtered = []
+        for e in exercises:
+            if passes_filters(e, None, None, sports_set, MAX_DURATION_MINUTES):
+                fallback_filtered.append(e)
+            if len(fallback_filtered) >= MAX_EXERCISES:
+                break
+        if fallback_filtered:
+            _qprint(
+                f"⚠️  No hay sesiones en el rango pedido; usando {len(fallback_filtered)} "
+                "sesiones elegibles sin filtro de fecha para continuar el procesado."
+            )
+            filtered = fallback_filtered
+
     _qprint(f"✅ {len(filtered)} sesiones tras filtros (max {MAX_EXERCISES})")
 
     existing_for_dropbox = None
@@ -320,8 +337,9 @@ def sync_hrv_range(args, access_token: str, x_user_id: Optional[str], exercises:
         else:
             if QUIET:
                 print("⚠️  No hay RR matinales disponibles para el periodo objetivo")
-                _refresh_sleep_and_outputs(access_token, x_user_id, run_final_dashboard=args.process)
-                show_latest_hrv_summaries()
+                if args.process:
+                    _refresh_sleep_and_outputs(access_token, x_user_id, run_final_dashboard=False)
+                    show_latest_hrv_summaries()
                 _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
                 return
 
@@ -356,9 +374,10 @@ def sync_hrv_range(args, access_token: str, x_user_id: Optional[str], exercises:
 
             print(f"\n💡 No se encontraron sesiones '{SPORTS_FILTER[0] if SPORTS_FILTER else 'N/A'}' en el periodo.")
             print(f"   Usa --days N para más días o --debug-sports para ver todas las sesiones.")
-            _refresh_sleep_and_outputs(access_token, x_user_id, run_final_dashboard=args.process)
-            _print_header("📊 Aunque no hay nuevos datos, aquí está tu última medición:")
-            show_latest_hrv_summaries()
+            if args.process:
+                _refresh_sleep_and_outputs(access_token, x_user_id, run_final_dashboard=False)
+                _print_header("📊 Aunque no hay nuevos datos, aquí está tu última medición:")
+                show_latest_hrv_summaries()
             _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
             return
 

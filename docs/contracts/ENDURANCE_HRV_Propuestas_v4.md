@@ -363,7 +363,7 @@ carga_cat = clasificar_carga(intervals_load_ayer, historico)
 if carga_cat == 'ALTA' and gate_final == 'ROJO':
     reason_text += ' | Fatiga post-carga alta. Recuperación, no alarma.'
 if carga_cat == 'BAJA' and gate_final == 'ROJO':
-    reason_text += ' | ROJO sin carga previa: revisar otros factores.'
+    reason_text += ' | ROJO sin carga previa: revisar factores externos al entrenamiento.'
 
 # ANS charge nocturno (Polar) como señal complementaria:
 if polar_ans_charge is not None:
@@ -560,7 +560,7 @@ Evita que el sistema se vuelva "histérico" por fluctuaciones minúsculas en per
 ```python
 if d_ln_60 > (2 * SWC_ln):
     saturacion_flag = True
-    reason_text += ' | HRV excesivamente alto. Posible saturación parasimpática.'
+    reason_text += ' | HRV inusualmente alto. Posible predominio parasimpático fuera de tu rango habitual.'
     reason_text += ' Considerar activación neuromuscular (sprints cortos).'
 ```
 
@@ -629,7 +629,7 @@ if gate_final == 'ROJO':
     if d_ln_60 < -SWC_ln and d_hr_60 > SWC_hr:
         reasons.append('HRV baja y HR alta vs baseline')
 if veto_agudo: reasons.append('Caída aguda (bypass ROLL3)')
-if saturacion_flag: reasons.append('Posible saturación parasimpática')
+if saturacion_flag: reasons.append('Posible predominio parasimpático fuera de tu rango habitual')
 if quality_flag: reasons.append('Confianza reducida por calidad')
 if sleep_bad_auto: reasons.append('Mala noche (Polar)')
 if sintomas: reasons.append('Síntomas reportados')

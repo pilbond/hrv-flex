@@ -320,7 +320,7 @@ Mapping:
 | `recovery_support_class` | Lectura resumida de cómo encajan gate, sueño Polar y carga reciente. `supported` = el contexto externo acompaña la lectura; `neutral` = no añade gran cosa o está mezclado; `fragile` = el gate sale razonable pero sueño/carga meten cautela; `conflicted` = el gate sale mal pero sueño/carga no lo explican bien. No cambia la acción por sí mismo. |
 | `recovery_discordance_flag` | True cuando RE-01 detecta una tensión operativa material entre el gate y el soporte objetivo externo. Hoy se activa en clases `fragile` y `conflicted`. |
 | `recovery_discordance_reason` | Códigos transparentes que explican la discordancia detectada por RE-01. Ejemplos: `sleep_basic_poor`, `nightly_rmssd_low`, `load_context_high`, `sleep_score_good`, `recent_load_low`. Pensado para auditoría o análisis posterior; no es texto para consumo diario. |
-| `reason_text` | Texto explicativo contextual que combina información del gate con datos de sueño y carga. Múltiples razones separadas por ` \| `. Puede incluir: caída aguda HRV, noche corta/fragmentada (basado en tus percentiles, no en umbrales fijos), carga acumulada alta (`load_3d`), `ACWR`, `monotony`, `strain`, clustering reciente de intensidad, saturación parasimpática y divergencias gate↔contexto. Desde RE-01 también puede cerrar con mensajes semánticos como `VERDE con recuperación frágil...`, `ÁMBAR con soporte nocturno aceptable...` o `ROJO con discordancia objetiva...`. Desde SS-01 este texto se renderiza internamente a partir de `reason_items` estructurados en memoria, pero **no existe aún** una columna pública `reason_items_json` en `FINAL` ni en `DASHBOARD`. El wellness subjetivo de Intervals queda fuera de `reason_text` y se reserva para capas retrospectivas o separadas. **No recolorea** el gate — es contexto para tu decisión. |
+| `reason_text` | Texto explicativo contextual que combina información del gate con datos de sueño y carga. Múltiples razones separadas por ` \| `. Puede incluir: caída brusca de HRV, noche corta/fragmentada (basado en tus percentiles, no en umbrales fijos), carga acumulada alta (`load_3d`), `ACWR`, `monotony`, `strain`, clustering reciente de intensidad, HRV inusualmente alto fuera de tu rango habitual y divergencias gate↔contexto. Desde RE-01 también puede cerrar con mensajes semánticos como `VERDE con recuperación frágil...`, `ÁMBAR con soporte nocturno aceptable...` o `ROJO con discordancia objetiva...`. Desde SS-01 este texto se renderiza internamente a partir de `reason_items` estructurados en memoria, pero **no existe aún** una columna pública `reason_items_json` en `FINAL` ni en `DASHBOARD`. El wellness subjetivo de Intervals queda fuera de `reason_text` y se reserva para capas retrospectivas o separadas. **No recolorea** el gate — es contexto para tu decisión. |
 
 ---
 
@@ -435,8 +435,8 @@ Estas columnas viven en `sessions_day.csv` y alimentan directamente el aviso pro
 
 Cuando el clustering está activo, `reason_text` puede mostrar mensajes como:
 
-- `VERDE pero clustering reciente de intensidad: considera Z1 mañana`
-- `VERDE pero clustering alto de intensidad reciente: considera Z1 mañana`
+- `VERDE pero con 2 días intensos en los últimos 3: prudencia con la intensidad`
+- `VERDE pero con 3 días intensos en los últimos 5: prudencia con la intensidad`
 - `Clustering reciente de intensidad: vigilar recuperación`
 - `Clustering alto de intensidad reciente: vigilar recuperación`
 
@@ -486,11 +486,11 @@ Estas columnas viven también en `sessions_day.csv` y describen **cómo** se rep
 
 Cuando el día sale `VERDE`, la capa de carga puede cerrar de tres formas:
 
-- `VERDE con carga acumulada (load_3d=X): precaución intensidad`
+- `VERDE con carga acumulada (load_3d=X): precaución con la intensidad`
   Uso: solo la señal aguda de 3 días dispara cautela.
-- `VERDE con contexto de carga exigente: precaución intensidad`
+- `VERDE con contexto de carga exigente: precaución con la intensidad`
   Uso: dispara la capa canónica (`ACWR`, `monotony` o `strain`) sin apoyo de `load_3d`.
-- `VERDE con convergencia de carga (load_3d + ACWR/monotonía/strain): precaución intensidad reforzada`
+- `VERDE con convergencia de carga (load_3d + ACWR/monotonía/strain): precaución con la intensidad reforzada`
   Uso: convergen el sidecar agudo y al menos una señal canónica. La conclusión no se repite dos veces; se sintetiza y se refuerza.
 
 ---
@@ -786,7 +786,7 @@ Mecanismo de seguridad que detecta cuando ROLL3 está **enmascarando una caída 
 Mínimo garantizado para SWC_ln: `ln(1.05) ≈ 0.04879`. ¿Por qué? En periodos de variabilidad muy estable (todos los días casi iguales), SWC puede ser minúsculo, lo que haría que cualquier fluctuación trivial active gates o vetos. El floor asegura que el "cambio mínimo significativo" nunca sea menor que un ~5% de variación en RMSSD.
 
 ### Reason_text
-Texto explicativo que combina información del gate con datos contextuales (sueño, carga). No modifica el gate — es un "comentario" que acompaña a la decisión automática. Puede decir cosas como "noche corta", "carga acumulada alta", o "VERDE con fatiga acumulada: precaución". Si el sleep.csv no existe, solo se generan avisos basados en datos HRV (caída aguda, saturación parasimpática).
+Texto explicativo que combina información del gate con datos contextuales (sueño, carga). No modifica el gate — es un "comentario" que acompaña a la decisión automática. Puede decir cosas como "noche corta", "carga acumulada alta", o "VERDE con fatiga acumulada: precaución". Si el sleep.csv no existe, solo se generan avisos basados en datos HRV (caída brusca de HRV, HRV inusualmente alto fuera de tu rango habitual).
 
 Desde SS-01, `reason_text` debe leerse como un render humano compacto, no como el origen semántico primario del builder. Internamente se construye desde `reason_items` que separan:
 
@@ -950,7 +950,7 @@ Action_detail: SUAVE
 gate_razon_base60: 2D_AMBOS
 decision_path: BASE60_ONLY
 veto_agudo: True
-reason_text: Caída aguda HRV: raw=3.408 vs base=3.798 (drop=-0.390, umbral=-0.210) | Noche corta (345min < P10=362) | Carga acumulada alta (load_3d=237)
+reason_text: Caída brusca de HRV: superó el umbral de caída aguda respecto a tu variación habitual | Noche corta (5h45 vs tu umbral habitual bajo de 6h02) | Carga acumulada alta (load_3d=237)
 ```
 
 **Interpretación:** El veto agudo detectó una caída brusca que ROLL3 habría enmascarado. El reason_text explica tres factores convergentes: la caída fue real, dormiste poco, y acumulaste mucha carga. Alta confianza de que el ROJO es legítimo.
@@ -968,7 +968,7 @@ Action_detail: EJECUTAR_PLAN
 gate_razon_base60: 2D_OK
 decision_path: BASE60_ONLY
 veto_agudo: False
-reason_text: ACWR muy alto: carga aguda muy por encima de la base crónica (1.69) | VERDE con convergencia de carga (load_3d + ACWR): precaución intensidad reforzada
+reason_text: ACWR muy alto: carga aguda muy por encima de la base crónica (1.69) | VERDE con convergencia de carga (load_3d + ACWR): precaución con la intensidad reforzada
 ```
 
 **Interpretación:** Tu HRV y pulso están bien (VERDE), pero la lectura operativa no es un verde limpio. La carga aguda de 3 días y el ACWR apuntan en la misma dirección, así que el cierre de `reason_text` escala la cautela: el gate permite intensidad, pero no justifica exprimirla.
