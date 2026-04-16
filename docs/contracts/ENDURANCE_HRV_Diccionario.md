@@ -6,7 +6,7 @@
 **Documentos relacionados:**
 - `ENDURANCE_HRV_Spec_Tecnica.md` — especificación técnica (fórmulas y reglas)
 - `ENDURANCE_HRV_Estructura.md` — contrato de datos (columnas y orden exacto)
-- `ENDURANCE_HRV_Sessions_Schema.md` — contrato del pipeline de sesiones (`sessions.csv`, `sessions_day.csv`, `ENDURANCE_HRV_sessions_metadata.json`)
+- `ENDURANCE_HRV_Sessions_Schema.md` — contrato del pipeline de sesiones (`sessions.csv`, `sessions_day.csv`, `ENDURANCE_HRV_sessions_metadata.json`), revisión `r2026-04-16 v3.11`
 
 **Límite de alcance de este diccionario:**
 - documenta `CORE`, `FINAL` y `DASHBOARD`,

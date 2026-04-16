@@ -231,6 +231,13 @@ Importante:
     - `run_power_*`
     - `speed_first_half`, `speed_second_half`
     - `cadence_first_half`, `cadence_second_half`
+  - Canoniza la extracción mínima de `SYA-04` en `sessions.csv`:
+    - `calories`
+    - `average_cadence`
+    - `average_weather_temp`
+    - `hrr_drop_bpm`
+    - `trimp`
+    - y, si `device_watts=true`, `icu_weighted_avg_watts`, `icu_joules_above_ftp`, `icu_max_wbal_depletion`, `decoupling`
   - Canoniza la capa CDC-01 de contexto de carga en `sessions_day.csv`:
     - `acwr_simple_prev`
     - `monotony_7d_prev`
@@ -264,7 +271,7 @@ Importante:
   - `--no-notes`: omite notas/wellness textual cuando quieres minimizar dependencias de contenido libre.
 - Salidas:
   - CSVs de sesiones, distribucion semanal, wellness subjetivo y metadata.
-  - `sessions.csv` pasa a ser la fuente canonica de detalle por sesion, incluidos coste, zonas, drift y mecanica minima.
+  - `sessions.csv` pasa a ser la fuente canonica de detalle por sesion, incluidos coste, zonas, drift, mecanica minima y la extracción mínima cerrada de coach metrics por sesión.
   - `sessions_day.csv` pasa a ser la fuente canonica de rolling de carga y clustering para `reason_text`.
   - `intensity_distribution_weekly.csv` pasa a ser la salida canonica de distribucion observada por `sport x week`.
   - `sessions_metadata.json` pasa a ser la fuente canonica de `training_audit` para rebajar confianza de coaching/carga sin bloquear pipeline.

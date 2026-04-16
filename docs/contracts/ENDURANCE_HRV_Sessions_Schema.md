@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Sessions Schema
 
-**Revisión:** r2026-04-10 v3.10 (params_hash: c1c78a78)
+**Revisión:** r2026-04-16 v3.11 (params_hash: c1c78a78)
 **Estado:** Producción
 
 **Documentos relacionados:**
@@ -88,9 +88,9 @@ El pipeline de sesiones y el módulo `analysis/` se conectan, pero no comparten 
 
 ## 2. SESSIONS.CSV — columnas y significado
 
-58 columnas organizadas en bloques funcionales. Cada bloque agrupa campos relacionados.
+67 columnas organizadas en bloques funcionales. Cada bloque agrupa campos relacionados.
 
-### Bloque A — Identidad (9 campos)
+### Bloque A — Identidad
 
 Quién eres, cuándo entrenaste, y qué zonas se usaron para clasificar el esfuerzo.
 
@@ -108,7 +108,7 @@ Quién eres, cuándo entrenaste, y qué zonas se usaron para clasificar el esfue
 
 **Sobre VT1/VT2:** Estos no son "zonas de Polar" ni "zonas de Garmin". Son TUS umbrales ventilatorios reales (o la mejor aproximación que tengas), configurados en Intervals.icu por deporte. Si cambias tus zonas en Intervals, el pipeline los recoge automáticamente. Si no están configurados, usa fallbacks conservadores.
 
-### Bloque B — Duración y distancia (6 campos)
+### Bloque B — Duración y distancia
 
 Lo básico de la sesión: cuánto duró, cuánto te moviste, cuánto subiste.
 
@@ -120,10 +120,11 @@ Lo básico de la sesión: cuánto duró, cuánto te moviste, cuánto subiste.
 | `elev_gain_m` | float? | Metros de desnivel positivo acumulado (subida total). NaN en indoor y natación. | 100-1500 |
 | `elev_loss_m` | float? | Metros de desnivel negativo acumulado (bajada total). NaN en indoor y natación. | 100-1500 |
 | `elev_density` | float? | Metros de desnivel ganados por kilómetro recorrido (`elev_gain / distance`). Captura la "verticalidad" de la ruta: 20 m/km = plano, 60 m/km = montañoso, 100+ m/km = vertical puro. NaN si la distancia es menor a 0.5 km (para evitar divisiones ruidosas). | 20-120 |
+| `calories` | int? | Gasto energético estimado por Intervals para la sesión. Es una señal descriptiva de coste metabólico; no alimenta ningún gate ni rolling actual. En el CSV puede verse como `372.0` por coerción numérica de pandas, aunque su semántica siga siendo entera. | 200-1500 |
 
 **¿Por qué `moving_min` y no `duration_min`?** Porque una sesión de trail de 90 minutos con 15 minutos de pausas en fuentes y fotos tiene 75 minutos de trabajo real. Si calculas zonas sobre los 90, diluyes la intensidad con tiempo donde tu corazón estaba bajando en una parada. La moving mask (`vel > 0.3 m/s`) asegura que solo contamos los momentos donde realmente estabas esforzándote.
 
-### Bloque C — Coste cardíaco global (9 campos)
+### Bloque C — Coste cardíaco global
 
 Cómo respondió tu corazón durante el movimiento: frecuencia media, pico, y distribución por zonas.
 
@@ -132,6 +133,9 @@ Cómo respondió tu corazón durante el movimiento: frecuencia media, pico, y di
 | `hr_mean` | int lpm | Frecuencia cardíaca media de toda la sesión (con y sin movimiento). Viene directamente de Intervals.icu, no se recalcula. | 110-160 |
 | `hr_max` | int lpm | Frecuencia cardíaca máxima registrada durante la sesión. Puede incluir picos de artefacto si el sensor tuvo problemas, pero Intervals ya filtra los más groseros. | 150-185 |
 | `hr_p95` | float lpm | Percentil 95 de la FC **solo durante movimiento** (moving mask). Más robusto que hr_max porque ignora picos aislados de 1-2 segundos. Útil para saber "cuál fue tu intensidad máxima sostenible" en esa sesión. | 145-175 |
+| `average_cadence` | float? | Cadencia media reportada por Intervals para la sesión cuando hay sensor o stream válido. Se conserva como primitiva transversal de sesión; no sustituye a `cadence_first_half/second_half`, que siguen siendo una capa mecánica separada. **La semántica depende del deporte**: en run/trail suele reflejar pasos por minuto, en bike pedaladas por minuto y en swim frecuencia de brazada. | 70-100 |
+| `hrr_drop_bpm` | int? | Caída de FC en el primer minuto post-esfuerzo, extraída de `icu_hrr.hrr` cuando Intervals la expone en el listado de actividades. Es una señal parasimpática intra-sesión; queda vacía si no hubo pico recuperable. | 10-60 |
+| `average_weather_temp` | float? | Temperatura ambiente media modelada por Intervals cuando `has_weather=true`. Sirve como contexto explicativo para FC anómalamente alta, deriva o coste percibido. | 0-35 |
 | `z1_pct` | float % | Porcentaje del tiempo **en movimiento** que tu corazón estuvo en Z1 (≤VT1). Es tu zona aeróbica cómoda: puedes hablar, el esfuerzo es sostenible indefinidamente. En una sesión "easy" bien ejecutada, debería ser >80%. | 40-95 |
 | `z2_pct` | float % | Porcentaje del tiempo en movimiento en Z2 (VT1 < HR ≤ VT2). Es tu zona "tempo": puedes hablar con frases cortas, el esfuerzo es mantenible 30-60 minutos. En subidas largas de trail, es donde pasas la mayor parte. | 5-50 |
 | `z3_pct` | float % | Porcentaje del tiempo en movimiento en Z3 (> VT2). Zona de alta intensidad: no puedes hablar, acumulas fatiga rápidamente, la recuperación tarda. Incluso en sesiones duras, suele ser <15% del total — los intervalos de Z3 son cortos dentro de una sesión larga. | 0-15 |
@@ -143,7 +147,7 @@ Cómo respondió tu corazón durante el movimiento: frecuencia media, pico, y di
 
 **¿Por qué zonas por HR y no por potencia?** Porque este pipeline se integra con el gate HRV, que opera sobre señal cardíaca. Las zonas HR son coherentes con todo el sistema. Para análisis por potencia, Intervals.icu ya tiene herramientas excelentes.
 
-### Bloque D — Bloques de trabajo (8 campos)
+### Bloque D — Bloques de trabajo
 
 **La pieza central del pipeline.** Los porcentajes de zona (Bloque C) te dicen "qué proporción del tiempo pasaste en cada zona". Pero no te dicen si ese Z2 fue un bloque continuo de 30 minutos de subida, o si fueron 60 picos de 30 segundos dispersos en una sesión de stop-and-go. Los bloques de trabajo capturan la **estructura** del esfuerzo.
 
@@ -169,7 +173,7 @@ Un "bloque de trabajo" es un periodo continuo donde tu corazón estuvo por encim
 
 **Ejemplo práctico:** Un trail de 80 minutos con 4 subidas largas separadas por bajadas. Cada subida es un bloque (11-12 min), con Z3 variable según la pendiente. `work_total_min = 43.4` = casi la mitad de la sesión fue esfuerzo sostenido por encima de VT1.
 
-### Bloque E — Indicadores de fatiga intra-sesión (2 campos)
+### Bloque E — Indicadores de fatiga intra-sesión
 
 ¿Cómo fue evolucionando tu esfuerzo a lo largo de la sesión? Si terminaste con el corazón más alto que al principio a la misma velocidad, es drift cardíaco — señal de fatiga o deshidratación.
 
@@ -209,21 +213,26 @@ Cuando existe señal utilizable, `sessions.csv` añade una capa mecánica mínim
 
 **Cobertura Polar:** cuando `mechanics_source = polar`, la cobertura depende de la ventana reciente realmente expuesta por Polar AccessLink en `/v3/exercises`. No debe asumirse como fuente de backfill histórico completo.
 
-### Bloque F — Clasificación y percepción (7 campos)
+### Bloque F — Carga, percepción y métricas coach de sesión
 
 Cómo se clasifica la sesión y cómo se compara con tu histórico.
 
 | Campo | Tipo | Qué es |
 |-------|------|--------|
 | `load` | int | Carga de entrenamiento asignada por Intervals.icu (su modelo HRSS/TSS). No lo calcula este pipeline — viene tal cual de la fuente. Es el valor que alimenta `load_day` y `load_3d` en sessions_day.csv. |
+| `trimp` | float? | Carga TRIMP tipo Banister calculada por Intervals a partir de duración e intensidad cardíaca. Es una segunda señal fisiológica de carga, complementaria a `load` y separada de la percepción subjetiva. |
 | `rpe` | int? (1-10) | Rate of Perceived Exertion. Percepción subjetiva del esfuerzo que tú registraste después de entrenar. 1=muy fácil, 10=máximo. NaN si no lo registraste. El pipeline lo conserva pero no lo usa para clasificar — es informativo. |
 | `feel` | int? | Cómo te sentiste durante la sesión (escala Intervals). NaN si no lo registraste. Informativo. |
+| `icu_weighted_avg_watts` | float? | Potencia ponderada / normalizada reportada por Intervals cuando `device_watts=true`. Es una primitiva coach útil de sesión, pero no introduce zonas por potencia ni cambia ninguna clasificación base. |
+| `icu_joules_above_ftp` | float? | Trabajo acumulado por encima de FTP, en julios, cuando hay potencia válida. Sirve como lectura de coste anaeróbico puntual. |
+| `icu_max_wbal_depletion` | float? | Máximo vaciado de W' reportado por Intervals cuando hay potencia válida. Es una señal de coste pico; queda vacía sin potenciómetro. |
+| `decoupling` | float? | Deriva HR/potencia calculada por Intervals cuando `device_watts=true`. **No es equivalente** a `cardiac_drift_pct` (HR/velocidad); ambas se deben interpretar como señales complementarias. Su escala tampoco es directamente comparable entre deportes: trail con desnivel, cambios de terreno y pacing variable puede mostrar valores estructuralmente más altos que road o bike. |
 | `intensity_category` | enum | **Clasificación de la estructura de trabajo de la sesión.** Ver §3 para la taxonomía completa. Es la respuesta a "¿qué tipo de sesión fue?" basada en los work blocks, no en el porcentaje bruto de zonas. |
 | `effort_vs_recent` | enum | ¿Esta sesión fue más dura, normal, o más fácil que tus últimas 60 sesiones del mismo `session_group`? Se calcula con P25/P75 de `load` **solo sobre sesiones anteriores** (sin look-ahead), para mantener la causalidad. Valores: "above" / "typical" / "below". |
 | `effort_vs_anchor` | enum | ¿Esta sesión fue más dura que cuando estabas en tu mejor forma? Compara `load` contra percentiles fijos de un periodo de referencia sano (jun-ago 2025, configurable), siempre dentro del mismo `session_group`. Detecta desentrenamiento sostenido: si tu "typical" actual está por debajo del "typical" de tu mejor periodo, algo ha cambiado. Valores: "above" / "typical" / "below". |
 | `session_group` | enum | Grupo funcional de la sesión para separar estadísticas. Ver §4 para valores. |
 
-### Bloque G — QA y trazabilidad (5 campos)
+### Bloque G — QA y trazabilidad
 
 Campos técnicos para depuración y auditoría. No los necesitas para el uso diario.
 
@@ -232,7 +241,7 @@ Campos técnicos para depuración y auditoría. No los necesitas para el uso dia
 | `notes_raw` | string? | Notas que dejaste en Intervals.icu para esa sesión. Los saltos de línea se convierten a `\|` para que no rompan el CSV. NaN si no dejaste notas. |
 | `rpe_present` | 0/1 | 1 si registraste RPE, 0 si no. Permite calcular "% de sesiones con RPE" como métrica de adherencia. |
 | `notes_present` | 0/1 | 1 si dejaste notas, 0 si no. Mismo propósito. |
-| `stream_dt_est` | float? | Intervalo medio entre muestras del stream de HR, estimado como `moving_time / len(stream)`. Si el stream es 1 Hz, este valor debería ser ~1.000. Si se desvía mucho (ej: 0.5 o 2.0), significa que Intervals re-muestreó a otra frecuencia y todas las conversiones de "muestras → minutos" serán incorrectas. **Canary**: si ves un valor ≠1.0, investiga antes de confiar en las métricas de esa sesión. NaN si la sesión no tiene stream. |
+| `stream_dt_est` | float? | Intervalo medio entre muestras del stream de HR, estimado como `elapsed_time / len(stream)`. Si el stream es 1 Hz, este valor debería ser ~1.000. Si se desvía mucho (ej: 0.5 o 2.0), significa que Intervals re-muestreó a otra frecuencia y todas las conversiones de "muestras → minutos" serán incorrectas. **Canary**: si ves un valor ≠1.0, investiga antes de confiar en las métricas de esa sesión. NaN si la sesión no tiene stream. |
 | `pipeline_version` | string | Versión del pipeline que generó esta fila. Para auditar si una sesión fue procesada con una versión anterior (y si necesita reprocesarse). |
 
 ---
@@ -436,7 +445,7 @@ Cada corrida del pipeline genera un `ENDURANCE_HRV_sessions_metadata.json` que d
 
 ```json
 {
-  "pipeline_version": "v3.10",
+  "pipeline_version": "v3.11",
   "params": {
     "VT1_DEFAULT": 143,
     "VT2_DEFAULT": 161,
@@ -633,9 +642,15 @@ Cuántos días de la ventana rolling tenían un valor real (no NaN) para esa mé
 
 ## 10. Historial de versiones y fixes
 
-**Versión operativa actual:** `v3.10`
+**Versión operativa actual:** `v3.11`
 
 Lo siguiente es historial de cambios acumulados. No sustituye al estado vigente declarado al inicio del documento.
+
+### v3.11 (SYA-04 extracción mínima canónica de coach metrics)
+1) `sessions.csv` bumped `58 -> 67` columnas con la extracción mínima cerrada en `SYA-03A`
+2) columnas nuevas: `calories`, `average_cadence`, `average_weather_temp`, `hrr_drop_bpm`, `trimp`
+3) columnas condicionales nuevas si `device_watts=true`: `icu_weighted_avg_watts`, `icu_joules_above_ftp`, `icu_max_wbal_depletion`, `decoupling`
+4) no se añaden llamadas API nuevas ni zonas por potencia; la extracción sale del payload ya presente en `/athlete/{id}/activities`
 
 ### v3.10 (DO-02 polarización rolling por familia)
 1) `sessions_day.csv` bumped `49 -> 60` columnas con la señal `DO-02`

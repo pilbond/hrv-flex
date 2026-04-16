@@ -67,7 +67,7 @@ Elementos estructurales estables del repo:
 - modulo analitico local en `analysis/`,
 - implementacion interna del pipeline en `hrv_app/` (paquete Python interno; ARQ-02).
 
-## 6. Snapshot actual (2026-04-09)
+## 6. Snapshot actual (2026-04-16)
 Estado actual de implementacion observado:
 
 - la UI expone `/api/sync`, `/api/sync-sessions`, `/api/status` y endpoints OAuth,
@@ -77,6 +77,9 @@ Estado actual de implementacion observado:
 - `ENDURANCE_HRV_sessions_metadata.json` ya incluye `training_audit` por capas (`dataset_level`, `signal_level`, `metric_level`) para gobernar confianza de coaching/carga sin tocar el gate HRV,
 - `sessions.csv` ya incluye una capa mecanica minima opcional para deportes de pie con `run_power_*`, `speed_first_half`, `speed_second_half`, `cadence_first_half` y `cadence_second_half`,
 - `sessions.csv` ya persiste `z1_total_min` junto a `z2_total_min` y `z3_total_min` para soportar agregacion canonica por deporte sin medias simples de porcentajes,
+- `sessions.csv` ya persiste la extraccion minima canonica de `SYA-04` desde Intervals activity payload:
+  - fijos: `calories`, `average_cadence`, `average_weather_temp`, `hrr_drop_bpm`, `trimp`
+  - condicionales si `device_watts=true`: `icu_weighted_avg_watts`, `icu_joules_above_ftp`, `icu_max_wbal_depletion`, `decoupling`
 - el flujo recomendado de cobertura RR es Dropbox primero y Polar como fallback,
 - `ENDURANCE_HRV_sleep.csv` es el unico archivo canonico de sueno,
 - la UI no debe permitir ejecutar `sync` HRV y `sync-sessions` al mismo tiempo,

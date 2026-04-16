@@ -53,7 +53,7 @@ from hrv_app.polar_sessions import PolarSessionClient, extract_mechanical_metric
 
 # ─── Version & params ─────────────────────────────────────────────────────────
 
-PIPELINE_VERSION = "v3.10"
+PIPELINE_VERSION = "v3.11"
 
 PARAMS = {
     "gap_max_s": 60,
@@ -525,6 +525,32 @@ def _coerce_int_or_none(value: object) -> Optional[int]:
     rounded = int(round(num))
     if abs(num - rounded) > 1e-6:
         return None
+    return rounded
+
+
+def _extract_hrr_drop_bpm(activity: dict) -> Optional[int]:
+    raw = activity.get("icu_hrr")
+    value = raw.get("hrr") if isinstance(raw, dict) else raw
+    coerced = _coerce_int_or_none(value)
+    if coerced is not None:
+        return coerced
+
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+
+    if not np.isfinite(numeric):
+        return None
+
+    rounded = int(round(numeric))
+    if abs(numeric - rounded) > 1e-6:
+        log.warning(
+            "Non-integer icu_hrr.hrr=%s for activity %s; rounding to %s bpm",
+            value,
+            activity.get("id"),
+            rounded,
+        )
     return rounded
 
 
@@ -1085,6 +1111,8 @@ def build_session_row(activity: dict, client: IntervalsClient,
 
     elapsed = activity.get("elapsed_time", 0)
     moving = activity.get("moving_time", elapsed)
+    has_weather = bool(activity.get("has_weather"))
+    device_watts = bool(activity.get("device_watts"))
 
     row = {
         "session_id": aid,
@@ -1102,13 +1130,22 @@ def build_session_row(activity: dict, client: IntervalsClient,
         "distance_km": round((activity.get("distance") or 0) / 1000.0, 2),
         "elev_gain_m": activity.get("total_elevation_gain"),
         "elev_loss_m": activity.get("total_elevation_loss"),
+        "calories": activity.get("calories"),
 
         "hr_mean": activity.get("average_heartrate"),
         "hr_max": activity.get("max_heartrate"),
+        "average_cadence": activity.get("average_cadence"),
+        "hrr_drop_bpm": _extract_hrr_drop_bpm(activity),
+        "average_weather_temp": activity.get("average_weather_temp") if has_weather else None,
 
         "load": activity.get("icu_training_load"),
+        "trimp": activity.get("trimp"),
         "rpe": activity.get("icu_rpe") if (activity.get("icu_rpe") or 0) > 0 else None,
         "feel": activity.get("feel"),
+        "icu_weighted_avg_watts": activity.get("icu_weighted_avg_watts") if device_watts else None,
+        "icu_joules_above_ftp": activity.get("icu_joules_above_ftp") if device_watts else None,
+        "icu_max_wbal_depletion": activity.get("icu_max_wbal_depletion") if device_watts else None,
+        "decoupling": activity.get("decoupling") if device_watts else None,
     }
 
     row.update(
@@ -2014,10 +2051,14 @@ NUMERIC_SESSION_COLS = [
     "elev_gain_m",
     "elev_loss_m",
     "elev_density",
+    "calories",
     "hr_mean",
     "hr_max",
     "hr_p95",
     "stream_dt_est",
+    "average_cadence",
+    "hrr_drop_bpm",
+    "average_weather_temp",
     "z1_pct",
     "z2_pct",
     "z3_pct",
@@ -2033,9 +2074,14 @@ NUMERIC_SESSION_COLS = [
     "polar_start_delta_min",
     "polar_duration_gap_min",
     "load",
+    "trimp",
     "rpe",
     "rpe_present",
     "notes_present",
+    "icu_weighted_avg_watts",
+    "icu_joules_above_ftp",
+    "icu_max_wbal_depletion",
+    "decoupling",
     "run_power_available",
     "run_power_mean",
     "run_power_max",
@@ -2206,8 +2252,8 @@ def run_pipeline(oldest: str, newest: str, output_dir: Path,
         "session_id", "Fecha", "start_time", "sport", "sport_raw",
         "source", "vt1_used", "vt2_used", "zones_source",
         "duration_min", "moving_min", "distance_km",
-        "elev_gain_m", "elev_loss_m", "elev_density",
-        "hr_mean", "hr_max", "hr_p95",
+        "elev_gain_m", "elev_loss_m", "elev_density", "calories",
+        "hr_mean", "hr_max", "hr_p95", "average_cadence", "hrr_drop_bpm", "average_weather_temp",
         "z1_pct", "z2_pct", "z3_pct", "z1_total_min", "z2_total_min", "z3_total_min",
         "work_n_blocks", "work_total_min", "work_longest_min",
         "work_avg_z3_pct", "work_blocks_min", "work_blocks_z3pct",
@@ -2218,7 +2264,8 @@ def run_pipeline(oldest: str, newest: str, output_dir: Path,
         "speed_first_half", "speed_second_half",
         "cadence_first_half", "cadence_second_half",
         "polar_speed_available", "polar_cadence_available",
-        "load", "rpe", "feel",
+        "load", "trimp", "rpe", "feel",
+        "icu_weighted_avg_watts", "icu_joules_above_ftp", "icu_max_wbal_depletion", "decoupling",
         "intensity_category", "effort_vs_recent", "effort_vs_anchor",
         "session_group",
         "notes_raw", "rpe_present", "notes_present",
