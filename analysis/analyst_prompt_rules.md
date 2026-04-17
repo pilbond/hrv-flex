@@ -22,6 +22,12 @@
 - `Datos`: si existe `analysis_only_context.coach_metrics`, usar `session_rpe`, `feel` e `icu_intensity` solo como capa subjetiva/coach local; no presentarlos como contrato canonico ni como equivalentes directos de `load` o `trimp`
 - `Datos`: si existe `session_payload.json.subjective_context.notes_raw`, usarla como nota manual del atleta en `Contexto subjetivo`; no mezclarla con `session_rpe`, `feel` ni con `load`/`trimp`
 - `Datos`: cuando `session_rpe` aparezca en narrativa, descomponer al menos la primera mencion como carga tipo Foster (`session_rpe ~= icu_rpe x moving_time_min`) para que la escala sea legible
+- `Datos`: si existe `session_payload.json.composite_context.subjective_coherence`, usarla solo como capa exploratoria de coherencia de carga; `session_rpe_load_equiv` y `trimp_load_equiv` son comparaciones lineales normalizadas para el atleta, no conversiones fisiologicas exactas
+- `Datos`: si `subjective_coherence_state` sale claramente `coherent` o `mismatched`, conviene mencionarlo una vez cuando ayude a contextualizar la sesion; evita repetirlo si no cambia la lectura
+- `Datos`: si existe `session_payload.json.composite_context.thermal_context`, usarla como costo termico simple basado en `average_weather_temp`; no presentarla como WBGT ni como diagnostico de calor cerrado
+- `Datos`: si `thermal_band` es `low` o `marginal`, usarla sobre todo para descartar que el calor explique la deriva; no merece protagonismo propio
+- `Datos`: si existe `session_payload.json.composite_context.durability_context`, usarla como lectura por tercios sobre `session_stream.csv`; no convertirla en taxonomia fuerte por deporte
+- `Datos`: si `durability_hint` sale `terrain_confounded` o `steady_easy`, es preferible traducir esa lectura al texto en lugar de omitirla por parecer "solo exploratory"
 - `Datos`: si existe `session_payload.json.narrative_targets.coach_report_examples.datos`, puede reutilizarse como ejemplo de formulacion, pero adaptando el texto al caso y sin copiarlo literalmente
 - `Estructura externa`: si existe `analysis_only_context.structured_workout`, usar `coach_intervals.csv` o `coach_groups.csv` solo cuando ayuden a describir bloques o repeticiones con valor tactico; no asumir que toda presencia de `icu_intervals` implica una sesion de intervalos formal
 - `Estructura externa`: si existe `session_payload.json.narrative_targets.coach_report_examples.estructura_externa`, usarlo como patron de traduccion tactica por deporte

@@ -88,6 +88,7 @@ Estado actual de implementacion observado:
   - `terrain_context` desde Intervals activity + intervals (`GAP`, `VAM`, potencia por split y `terrain_intervals.csv`)
   - `terrain_fit_context` desde `FIT` record-level (`terrain_climbs.csv`, HR/cadencia/potencia por climb)
   - estas salidas viven solo en `analysis` y no modifican `sessions.csv` ni el gate HRV.
+- `analysis/` ya expone `composite_context` dentro de `session_payload.json` y `summary.json` para señales compuestas exploratorias (`subjective_coherence/load_mismatch`, `thermal_context`, `durability_context`) calculadas sobre `sessions.csv` y `session_stream.csv`; siguen siendo capa local de `analysis/` y no modifican `sessions.csv`.
 - `analysis/` ya puede exponer una capa no canonica de coach/Intervals dentro de `analysis/reports/<slug>/artifacts/`:
   - `analysis_only_context` en `summary.json` y `session_payload.json`
   - `coach_metrics.json`, `coach_intervals.csv` y `coach_groups.csv` como sidecars locales reproducibles

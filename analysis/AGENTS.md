@@ -112,6 +112,7 @@ En analisis semanal, el modulo debe responder ademas:
   - `structured_workout`
   - `route_context`
   - `zone_context`
+  - `composite_context` con `subjective_coherence`, `thermal_context` y `durability_context` cuando se haya calculado
   - `coach_metrics.json`, `coach_intervals.csv` y `coach_groups.csv` como detalle reproducible local del modulo.
 
 ### MUST NOT

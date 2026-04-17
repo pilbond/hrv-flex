@@ -6,10 +6,12 @@ import gzip
 import json
 import os
 import re
+import statistics
 import shutil
 import subprocess
 import sys
 from datetime import datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -493,6 +495,7 @@ def build_coach_usage_notes(sport_family: str) -> list[str]:
         "usar `analysis_only_context` como enriquecimiento local de `analysis/`, no como contrato canonico global",
         "tratar `session_rpe` como carga subjetiva tipo Foster (`moving_time_min x icu_rpe`); no compararla 1:1 contra `load` o `trimp`",
         "tratar `icu_intensity` y `polarization_index` como apoyo coach/Intervals, no como reemplazo automatico de `intensity_category` o de la lectura canonica de distribucion",
+        "si existe `composite_context`, usarlo como capa exploratoria de coherencia de carga, costo termico y durabilidad por tercios; no convertirlo en contrato canonico ni en taxonomy final",
     ]
     if sport_family in {"road", "trail"}:
         notes.append("si existe `average_stride`, usarla solo con semantica deporte-especifica y nunca como metrica transversal")
@@ -530,6 +533,7 @@ def build_coach_narrative_hints(
     structured = analysis_only_context.get("structured_workout") or {}
     route_context = analysis_only_context.get("route_context") or {}
     zone_context = analysis_only_context.get("zone_context") or {}
+    composite_context = analysis_only_context.get("composite_context") or {}
 
     session_rpe = _coerce_int_like(coach_metrics.get("session_rpe"))
     icu_rpe = _coerce_int_like(coach_metrics.get("icu_rpe"))
@@ -600,6 +604,60 @@ def build_coach_narrative_hints(
             f"`decoupling_pct={round(decoupling, 2)}` disponible desde coach; usarlo como apoyo local y no como reemplazo directo de `cardiac_drift_pct`"
         )
 
+    load_mismatch = composite_context.get("subjective_coherence") or {}
+    if load_mismatch:
+        mismatch_parts: list[str] = []
+        if load_mismatch.get("subjective_coherence_state"):
+            mismatch_parts.append(f"estado {load_mismatch.get('subjective_coherence_state')}")
+        if load_mismatch.get("subjective_objective_gap_pct") is not None:
+            mismatch_parts.append(f"gap subjetivo/objetivo ~{load_mismatch.get('subjective_objective_gap_pct')}%")
+        if load_mismatch.get("objective_spread_pct") is not None:
+            mismatch_parts.append(f"spread objetivo ~{load_mismatch.get('objective_spread_pct')}%")
+        if load_mismatch.get("session_rpe_load_equiv") is not None:
+            mismatch_parts.append(f"session_rpe_load_equiv={load_mismatch.get('session_rpe_load_equiv')}")
+        if load_mismatch.get("trimp_load_equiv") is not None:
+            mismatch_parts.append(f"trimp_load_equiv={load_mismatch.get('trimp_load_equiv')}")
+        hints["respuesta_interna"].append(
+            "coherencia subjetiva/carga disponible: "
+            + ", ".join(mismatch_parts)
+            + "; usarla como apoyo exploratorio entre `load`, `trimp`, `hr_load` y `session_rpe`, no como veto automatico"
+        )
+
+    thermal_context = composite_context.get("thermal_context") or {}
+    if thermal_context:
+        thermal_parts: list[str] = []
+        if thermal_context.get("temperature_c") is not None:
+            thermal_parts.append(f"temp_media={thermal_context.get('temperature_c')}C")
+        if thermal_context.get("thermal_cost_score") is not None:
+            thermal_parts.append(f"thermal_cost_score={thermal_context.get('thermal_cost_score')}")
+        if thermal_context.get("thermal_band"):
+            thermal_parts.append(f"banda={thermal_context.get('thermal_band')}")
+        hints["respuesta_interna"].append(
+            "costo termico simple disponible: "
+            + ", ".join(thermal_parts)
+            + "; usarlo para matizar drift o sensacion de coste, no como WBGT ni como prueba fisiologica cerrada"
+        )
+
+    durability_context = composite_context.get("durability_context") or {}
+    if durability_context:
+        durability_parts: list[str] = []
+        if durability_context.get("durability_hint"):
+            durability_parts.append(f"hint={durability_context.get('durability_hint')}")
+        if durability_context.get("confidence"):
+            durability_parts.append(f"confidence={durability_context.get('confidence')}")
+        if durability_context.get("delta_first_last_pct"):
+            delta = durability_context.get("delta_first_last_pct") or {}
+            delta_parts = ", ".join(
+                f"{key}={value}%" for key, value in delta.items() if value is not None
+            )
+            if delta_parts:
+                durability_parts.append(delta_parts)
+        hints["estructura_externa"].append(
+            "durabilidad por tercios disponible: "
+            + ", ".join(durability_parts)
+            + "; leerla como primitiva exploratoria de sostenimiento, no como taxonomia final"
+        )
+
     if hr_load is not None or trimp is not None or load is not None:
         load_parts: list[str] = []
         if load is not None:
@@ -661,6 +719,7 @@ def build_coach_report_examples(
     coach_metrics = analysis_only_context.get("coach_metrics") or {}
     structured = analysis_only_context.get("structured_workout") or {}
     route_context = analysis_only_context.get("route_context") or {}
+    composite_context = analysis_only_context.get("composite_context") or {}
     session_rpe = _coerce_int_like(coach_metrics.get("session_rpe"))
     icu_rpe = _coerce_int_like(coach_metrics.get("icu_rpe"))
     feel = _coerce_int_like(coach_metrics.get("feel"))
@@ -677,6 +736,28 @@ def build_coach_report_examples(
     trimp = parse_float(session_row.get("trimp"))
     duration_min = parse_float(session_row.get("moving_min")) or parse_float(session_row.get("duration_min"))
     session_rpe_label = _session_rpe_readout(session_rpe, duration_min, icu_rpe)
+
+    load_mismatch = composite_context.get("subjective_coherence") or {}
+    if load_mismatch:
+        examples["respuesta_interna"].append(
+            "Ejemplo: \"La coherencia subjetiva/carga sugiere una "
+            + str(load_mismatch.get("subjective_coherence_state") or "lectura mixta")
+            + " con gap subjetivo/objetivo de ~"
+            + str(load_mismatch.get("subjective_objective_gap_pct"))
+            + "%; conviene leer `load`, `trimp`, `hr_load` y `session_rpe` como señales relacionadas, no equivalentes.\""
+        )
+    thermal_context = composite_context.get("thermal_context") or {}
+    if thermal_context:
+        examples["respuesta_interna"].append(
+            "Ejemplo: \"El costo térmico simple ("
+            + (f"`thermal_cost_score={thermal_context.get('thermal_cost_score')}`" if thermal_context.get("thermal_cost_score") is not None else "`thermal_cost_score`")
+            + ") ayuda a explicar parte de la deriva o del coste percibido, pero no sustituye a la lectura cardiometabólica.\""
+        )
+    durability_context = composite_context.get("durability_context") or {}
+    if durability_context:
+        examples["estructura_externa"].append(
+            "Ejemplo: \"La durabilidad por tercios muestra la sesión como una secuencia de tres tramos sobre `session_stream.csv`; la comparación entre el primero y el último es una pista exploratoria de sostenimiento, no una taxonomía cerrada.\""
+        )
 
     if sport_family == "trail":
         if session_rpe is not None or icu_intensity is not None:
@@ -1225,6 +1306,325 @@ def build_subjective_context(session_row: dict[str, str]) -> dict[str, Any]:
     }
 
 
+def _mean_or_none(values: list[float]) -> float | None:
+    if not values:
+        return None
+    return round(sum(values) / len(values), 2)
+
+
+def _pct_change(current: float | None, baseline: float | None) -> float | None:
+    if current is None or baseline is None or baseline == 0:
+        return None
+    return round((current - baseline) / baseline * 100.0, 1)
+
+
+def _load_stream_rows(stream_csv_path: Path | None) -> list[dict[str, float | None]]:
+    if stream_csv_path is None or not stream_csv_path.exists():
+        return []
+    rows: list[dict[str, float | None]] = []
+    with stream_csv_path.open(encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        for raw in reader:
+            sec = parse_float(raw.get("sec"))
+            if sec is None:
+                continue
+            rows.append(
+                {
+                    "sec": sec,
+                    "hr": parse_float(raw.get("hr")),
+                    "speed_kmh": parse_float(raw.get("speed_kmh")),
+                    "cadence": parse_float(raw.get("cadence")),
+                }
+            )
+    rows.sort(key=lambda row: row["sec"] or 0.0)
+    return rows
+
+
+@lru_cache(maxsize=1)
+def _historical_trimp_to_load_ratio() -> float | None:
+    if not DEFAULT_SESSIONS_CSV.exists():
+        return None
+    ratios: list[float] = []
+    try:
+        rows = load_sessions_rows(DEFAULT_SESSIONS_CSV)
+    except Exception:
+        return None
+    for row in rows:
+        load = parse_float(row.get("load"))
+        trimp = parse_float(row.get("trimp"))
+        if load is None or trimp is None or load <= 0:
+            continue
+        ratios.append(trimp / load)
+    if not ratios:
+        return None
+    return round(statistics.median(ratios), 3)
+
+
+@lru_cache(maxsize=1)
+def _historical_session_rpe_to_load_ratio() -> float | None:
+    if not DEFAULT_SESSIONS_CSV.exists():
+        return None
+    ratios: list[float] = []
+    try:
+        rows = load_sessions_rows(DEFAULT_SESSIONS_CSV)
+    except Exception:
+        return None
+    for row in rows:
+        load = parse_float(row.get("load"))
+        rpe = parse_float(row.get("rpe"))
+        moving_min = parse_float(row.get("moving_min")) or parse_float(row.get("duration_min"))
+        if load is None or load <= 0 or rpe is None or moving_min is None or moving_min <= 0:
+            continue
+        session_rpe = moving_min * rpe
+        ratios.append(session_rpe / load)
+    if not ratios:
+        return None
+    return round(statistics.median(ratios), 3)
+
+
+def build_load_mismatch_context(
+    analysis_only_context: dict[str, Any] | None,
+    session_row: dict[str, str],
+) -> dict[str, Any] | None:
+    if not isinstance(analysis_only_context, dict):
+        return None
+
+    coach_metrics = analysis_only_context.get("coach_metrics") or {}
+    load = parse_float(session_row.get("load"))
+    trimp = parse_float(session_row.get("trimp"))
+    hr_load = _coerce_int_like(coach_metrics.get("hr_load"))
+    session_rpe = _coerce_int_like(coach_metrics.get("session_rpe"))
+    if session_rpe is None:
+        return None
+
+    objective_values: list[tuple[str, float]] = []
+    if load is not None:
+        objective_values.append(("load", load))
+    if trimp is not None:
+        trimp_ratio = _historical_trimp_to_load_ratio()
+        if trimp_ratio and trimp_ratio > 0:
+            objective_values.append(("trimp_load_equiv", trimp / trimp_ratio))
+        else:
+            objective_values.append(("trimp", trimp))
+    if hr_load is not None:
+        objective_values.append(("hr_load", float(hr_load)))
+    if len(objective_values) < 2:
+        return None
+
+    objective_nums = [value for _, value in objective_values]
+    objective_anchor = statistics.median(objective_nums)
+    if objective_anchor == 0:
+        return None
+
+    session_rpe_ratio = _historical_session_rpe_to_load_ratio()
+    if session_rpe_ratio and session_rpe_ratio > 0:
+        session_rpe_load_equiv = round(session_rpe / session_rpe_ratio, 1)
+        subjective_method = "session_rpe/session_rpe_load_ratio_ref"
+    else:
+        session_rpe_load_equiv = round(session_rpe / 10.0, 1)
+        subjective_method = "session_rpe/10_fallback"
+    objective_spread_pct = round((max(objective_nums) - min(objective_nums)) / objective_anchor * 100.0, 1)
+    subjective_objective_gap_pct = round(abs(session_rpe_load_equiv - objective_anchor) / objective_anchor * 100.0, 1)
+    coherence_score = round(max(0.0, 100.0 - subjective_objective_gap_pct), 1)
+    if subjective_objective_gap_pct <= 15 and objective_spread_pct <= 15:
+        coherence_state = "coherent"
+    elif subjective_objective_gap_pct <= 30 or objective_spread_pct <= 30:
+        coherence_state = "mixed"
+    else:
+        coherence_state = "mismatched"
+
+    deviations = [(name, abs(value - objective_anchor)) for name, value in objective_values]
+    deviations.append(("session_rpe", abs(session_rpe_load_equiv - objective_anchor)))
+    driver = max(deviations, key=lambda item: item[1])[0]
+
+    return {
+        "method": f"objective_anchor=median(load,trimp_load_equiv,hr_load); subjective_anchor={subjective_method}",
+        "load": round(load, 1) if load is not None else None,
+        "trimp": round(trimp, 1) if trimp is not None else None,
+        "trimp_load_equiv": round(trimp / trimp_ratio, 1) if trimp is not None and trimp_ratio and trimp_ratio > 0 else None,
+        "trimp_load_ratio_ref": trimp_ratio,
+        "hr_load": hr_load,
+        "session_rpe": session_rpe,
+        "session_rpe_load_equiv": session_rpe_load_equiv,
+        "session_rpe_load_ratio_ref": session_rpe_ratio,
+        "objective_values": {name: round(value, 1) for name, value in objective_values},
+        "objective_anchor": round(objective_anchor, 1),
+        "objective_spread_pct": objective_spread_pct,
+        "subjective_objective_gap_pct": subjective_objective_gap_pct,
+        "subjective_coherence_score": coherence_score,
+        "subjective_coherence_state": coherence_state,
+        "driver": driver,
+    }
+
+
+def build_thermal_context(session_row: dict[str, str]) -> dict[str, Any] | None:
+    average_temp = parse_float(session_row.get("average_weather_temp"))
+    moving_min = parse_float(session_row.get("moving_min")) or parse_float(session_row.get("duration_min"))
+    if average_temp is None or moving_min is None:
+        return None
+
+    thermal_threshold_c = 20.0
+    thermal_excess_c = max(0.0, average_temp - thermal_threshold_c)
+    thermal_cost_score = round(thermal_excess_c * (moving_min / 60.0), 2)
+    if thermal_cost_score <= 0:
+        thermal_band = "low"
+    elif thermal_cost_score < 3:
+        thermal_band = "marginal"
+    elif thermal_cost_score < 8:
+        thermal_band = "moderate"
+    else:
+        thermal_band = "high"
+    return {
+        "temperature_c": round(average_temp, 1),
+        "duration_min": round(moving_min, 1),
+        "threshold_c": thermal_threshold_c,
+        "excess_c": round(thermal_excess_c, 1),
+        "thermal_cost_score": thermal_cost_score,
+        "thermal_band": thermal_band,
+        "method": "max(0, average_weather_temp - threshold_c) * moving_min_hours; exploratory thermal load, not WBGT",
+    }
+
+
+def build_durability_thirds_context(
+    stream_csv_path: Path | None,
+    session_row: dict[str, str] | None = None,
+) -> dict[str, Any] | None:
+    stream_rows = _load_stream_rows(stream_csv_path)
+    if len(stream_rows) < 30:
+        return None
+
+    start_sec = stream_rows[0]["sec"] or 0.0
+    end_sec = stream_rows[-1]["sec"] or 0.0
+    span_sec = end_sec - start_sec
+    if span_sec <= 0:
+        return None
+
+    first_boundary = start_sec + span_sec / 3.0
+    second_boundary = start_sec + 2.0 * span_sec / 3.0
+    thirds: list[list[dict[str, float | None]]] = [[], [], []]
+    for row in stream_rows:
+        sec = row["sec"] or 0.0
+        index = 0 if sec <= first_boundary else 1 if sec <= second_boundary else 2
+        thirds[index].append(row)
+
+    if any(not third for third in thirds):
+        return None
+
+    third_profiles: list[dict[str, Any]] = []
+    for index, rows in enumerate(thirds, start=1):
+        hr_values = [row["hr"] for row in rows if row["hr"] is not None]
+        speed_values = [row["speed_kmh"] for row in rows if row["speed_kmh"] is not None]
+        cadence_values = [row["cadence"] for row in rows if row["cadence"] is not None]
+        third_profiles.append(
+            {
+                "third": index,
+                "start_sec": round(rows[0]["sec"] or 0.0, 1),
+                "end_sec": round(rows[-1]["sec"] or 0.0, 1),
+                "duration_sec": round((rows[-1]["sec"] or 0.0) - (rows[0]["sec"] or 0.0), 1),
+                "n_samples": len(rows),
+                "hr_mean": _mean_or_none([float(v) for v in hr_values if v is not None]),
+                "speed_mean_kmh": _mean_or_none([float(v) for v in speed_values if v is not None]),
+                "cadence_mean": _mean_or_none([float(v) for v in cadence_values if v is not None]),
+                "hr_coverage_pct": round(100.0 * len(hr_values) / len(rows), 1) if rows else None,
+                "speed_coverage_pct": round(100.0 * len(speed_values) / len(rows), 1) if rows else None,
+                "cadence_coverage_pct": round(100.0 * len(cadence_values) / len(rows), 1) if rows else None,
+            }
+        )
+
+    first_third = third_profiles[0]
+    middle_third = third_profiles[1]
+    last_third = third_profiles[2]
+    hr_change_pct = _pct_change(last_third.get("hr_mean"), first_third.get("hr_mean"))
+    speed_change_pct = _pct_change(last_third.get("speed_mean_kmh"), first_third.get("speed_mean_kmh"))
+    cadence_change_pct = _pct_change(last_third.get("cadence_mean"), first_third.get("cadence_mean"))
+    sport = (session_row or {}).get("sport") or ""
+    z2_pct = parse_float((session_row or {}).get("z2_pct"))
+    z3_pct = parse_float((session_row or {}).get("z3_pct"))
+    work_total_min = parse_float((session_row or {}).get("work_total_min"))
+
+    is_easy_subthreshold = (
+        (z2_pct or 0.0) == 0.0
+        and (z3_pct or 0.0) == 0.0
+        and (work_total_min or 0.0) == 0.0
+    )
+
+    if (
+        is_easy_subthreshold
+        and speed_change_pct is not None
+        and abs(speed_change_pct) <= 10
+        and hr_change_pct is not None
+        and abs(hr_change_pct) <= 3
+        and cadence_change_pct is not None
+        and abs(cadence_change_pct) <= 5
+    ):
+        durability_hint = "steady_easy"
+    elif (
+        sport in {"trail_run", "hike"}
+        and speed_change_pct is not None
+        and speed_change_pct <= -10
+        and hr_change_pct is not None
+        and hr_change_pct <= 0
+    ):
+        durability_hint = "terrain_confounded"
+    elif speed_change_pct is not None and speed_change_pct >= 5:
+        durability_hint = "negative_split_like"
+    elif speed_change_pct is not None and speed_change_pct <= -8 and hr_change_pct is not None and hr_change_pct >= 5:
+        durability_hint = "fade_like"
+    elif speed_change_pct is not None and abs(speed_change_pct) <= 5 and hr_change_pct is not None and abs(hr_change_pct) <= 5:
+        durability_hint = "stable"
+    elif hr_change_pct is not None and hr_change_pct >= 5 and speed_change_pct is not None and speed_change_pct > -3:
+        durability_hint = "drift_like"
+    else:
+        durability_hint = "mixed"
+
+    cadence_change_abs_pct = abs(cadence_change_pct) if cadence_change_pct is not None else None
+    if (
+        len(stream_rows) >= 300
+        and first_third.get("speed_mean_kmh") is not None
+        and last_third.get("speed_mean_kmh") is not None
+    ):
+        confidence = "high"
+    elif len(stream_rows) >= 120:
+        confidence = "medium"
+    else:
+        confidence = "low"
+    return {
+        "basis": "stream_elapsed_sec_equal_thirds",
+        "start_sec": round(start_sec, 1),
+        "end_sec": round(end_sec, 1),
+        "span_sec": round(span_sec, 1),
+        "n_samples": len(stream_rows),
+        "thirds": third_profiles,
+        "delta_first_last_pct": {
+            "hr": hr_change_pct,
+            "speed_kmh": speed_change_pct,
+            "cadence": cadence_change_pct,
+        },
+        "cadence_change_abs_pct": cadence_change_abs_pct,
+        "durability_hint": durability_hint,
+        "confidence": confidence,
+        "method": "three equal elapsed thirds from session_stream.csv; exploratory primitive, not final taxonomy",
+    }
+
+
+def build_composite_context(
+    analysis_only_context: dict[str, Any] | None,
+    session_row: dict[str, str],
+    stream_csv_path: Path | None,
+) -> dict[str, Any] | None:
+    composite_context: dict[str, Any] = {}
+    load_mismatch = build_load_mismatch_context(analysis_only_context, session_row)
+    if load_mismatch:
+        composite_context["subjective_coherence"] = load_mismatch
+    thermal_context = build_thermal_context(session_row)
+    if thermal_context:
+        composite_context["thermal_context"] = thermal_context
+    durability_context = build_durability_thirds_context(stream_csv_path, session_row=session_row)
+    if durability_context:
+        composite_context["durability_context"] = durability_context
+    return composite_context or None
+
+
 def prepare_bundle(
     sessions_csv: Path,
     bundle_root: Path,
@@ -1299,6 +1699,10 @@ def prepare_bundle(
         except Exception as exc:
             terrain_intervals_error = str(exc)
     analysis_only_context = summarize_intervals_analysis_context(activity_detail, intervals_payload, row)
+    composite_context = build_composite_context(analysis_only_context, row, stream_csv)
+    if composite_context:
+        analysis_only_context = dict(analysis_only_context or {})
+        analysis_only_context["composite_context"] = composite_context
     subjective_context = build_subjective_context(row)
     coach_interval_rows = []
     coach_group_rows = []
@@ -1341,6 +1745,7 @@ def prepare_bundle(
         "terrain_intervals": terrain_intervals,
         "terrain_intervals_error": terrain_intervals_error,
         "analysis_only_context": analysis_only_context,
+        "composite_context": composite_context,
         "subjective_context": subjective_context,
         "coach_interval_rows": coach_interval_rows,
         "coach_group_rows": coach_group_rows,
@@ -1424,6 +1829,59 @@ def render_report_markdown(summary: dict[str, Any]) -> str:
             f"- notes_raw: `{subjective_context.get('notes_raw')}`",
             "",
         ])
+
+    composite_context = summary.get("composite_context")
+    if not isinstance(composite_context, dict):
+        analysis_composite_context = (analysis_only_context.get("composite_context") or {}) if isinstance(analysis_only_context, dict) else {}
+        composite_context = analysis_composite_context if isinstance(analysis_composite_context, dict) else {}
+    if composite_context:
+        subjective_coherence = composite_context.get("subjective_coherence") or {}
+        thermal_context = composite_context.get("thermal_context") or {}
+        durability_context = composite_context.get("durability_context") or {}
+        lines.append("## Composite Context")
+        if subjective_coherence:
+            lines.extend([
+                "### Subjective Coherence",
+                f"- state: `{subjective_coherence.get('subjective_coherence_state')}`",
+                f"- score: `{subjective_coherence.get('subjective_coherence_score')}`",
+                f"- objective_anchor: `{subjective_coherence.get('objective_anchor')}`",
+                f"- objective_spread_pct: `{subjective_coherence.get('objective_spread_pct')}`",
+                f"- subjective_objective_gap_pct: `{subjective_coherence.get('subjective_objective_gap_pct')}`",
+                f"- session_rpe_load_equiv: `{subjective_coherence.get('session_rpe_load_equiv')}`",
+                f"- trimp_load_equiv: `{subjective_coherence.get('trimp_load_equiv')}`",
+                f"- trimp_load_ratio_ref: `{subjective_coherence.get('trimp_load_ratio_ref')}`",
+                f"- driver: `{subjective_coherence.get('driver')}`",
+                f"- method: `{subjective_coherence.get('method')}`",
+                "",
+            ])
+        if thermal_context:
+            lines.extend([
+                "### Thermal Context",
+                f"- temperature_c: `{thermal_context.get('temperature_c')}`",
+                f"- duration_min: `{thermal_context.get('duration_min')}`",
+                f"- threshold_c: `{thermal_context.get('threshold_c')}`",
+                f"- excess_c: `{thermal_context.get('excess_c')}`",
+                f"- thermal_cost_score: `{thermal_context.get('thermal_cost_score')}`",
+                f"- thermal_band: `{thermal_context.get('thermal_band')}`",
+                f"- method: `{thermal_context.get('method')}`",
+                "",
+            ])
+        if durability_context:
+            delta = durability_context.get("delta_first_last_pct") or {}
+            delta_parts = ", ".join(
+                f"{key}={value}" for key, value in delta.items() if value is not None
+            )
+            lines.extend([
+                "### Durability Context",
+                f"- basis: `{durability_context.get('basis')}`",
+                f"- confidence: `{durability_context.get('confidence')}`",
+                f"- durability_hint: `{durability_context.get('durability_hint')}`",
+                f"- span_sec: `{durability_context.get('span_sec')}`",
+                f"- n_samples: `{durability_context.get('n_samples')}`",
+                f"- delta_first_last_pct: `{delta_parts or None}`",
+                f"- method: `{durability_context.get('method')}`",
+                "",
+            ])
 
     if terrain_context:
         lines.extend([
@@ -1589,6 +2047,9 @@ def build_conversational_payload(
     terrain_context = summary.get("terrain_context")
     terrain_fit_context = summary.get("terrain_fit_context")
     analysis_only_context = summary.get("analysis_only_context")
+    composite_context = None
+    if isinstance(analysis_only_context, dict):
+        composite_context = analysis_only_context.get("composite_context")
     terrain_intervals_csv = None
     terrain_climbs_csv = None
     coach_metrics_json = None
@@ -1697,6 +2158,7 @@ def build_conversational_payload(
 
     rr_summary_payload = dict(summary)
     rr_summary_payload.pop("analysis_only_context", None)
+    rr_summary_payload.pop("composite_context", None)
 
     return {
         "meta": {
@@ -1719,6 +2181,7 @@ def build_conversational_payload(
         },
         "session_row": session_row,
         "subjective_context": subjective_context,
+        "composite_context": composite_context,
         "rr_analysis_summary": rr_summary_payload,
         "terrain_context": terrain_context,
         "terrain_fit_context": terrain_fit_context,
@@ -1765,6 +2228,7 @@ def build_conversational_payload(
             "sport_family": sport_family,
             "sport_family_notes": session_family_notes(sport_family),
             "subjective_context": subjective_context,
+            "composite_context": composite_context,
             "coach_usage_notes": coach_usage_notes,
             "coach_narrative_hints": coach_narrative_hints,
             "coach_report_examples": coach_report_examples,
@@ -1816,6 +2280,9 @@ def enrich_summary_with_manifest_context(summary: dict[str, Any], manifest: dict
     analysis_only_context = manifest.get("analysis_only_context")
     if isinstance(analysis_only_context, dict) and analysis_only_context:
         enriched["analysis_only_context"] = analysis_only_context
+        composite_context = analysis_only_context.get("composite_context")
+        if isinstance(composite_context, dict) and composite_context:
+            enriched["composite_context"] = composite_context
     subjective_context = manifest.get("subjective_context")
     if isinstance(subjective_context, dict) and subjective_context:
         enriched["subjective_context"] = subjective_context
@@ -1957,6 +2424,7 @@ def build_analyst_prompt_markdown(
             "Redacta un informe rico de sesion en espanol, con tono tecnico y prudente, usando `session_payload.json` como fuente compacta principal y sin inventar metricas ni fuentes no presentes.",
             "- trata `analysis_only_context` y sus sidecars coach como enriquecimiento local de `analysis/`; no los eleves a verdad canonica global si contradicen `sessions.csv` o los contratos HRV",
             "- si existe `session_payload.json.subjective_context.notes_raw`, usala como nota manual del atleta en `Contexto subjetivo`; no la mezcles con `session_rpe`, `feel` ni con `load`/`trimp`",
+            "- si existe `session_payload.json.composite_context`, usalo como capa exploratoria para `subjective_coherence/load_mismatch`, `thermal_context` y `durability_context`; no lo conviertas en contrato canonico ni en taxonomia cerrada",
             "",
             "## Sport Family",
             "- usa `session_payload.json.meta.sport_family` como guia primaria de lenguaje y semantica",

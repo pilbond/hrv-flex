@@ -810,6 +810,11 @@ Los datos de la sesion deben facilitar la lectura posterior, no competir con ell
 - si existe `analysis_only_context.coach_metrics`, `session_rpe`, `feel` e `icu_intensity` pueden entrar en **Contexto subjetivo** como apoyo local; MUST NOT presentarse como equivalentes directos de `load` o `trimp`.
 - si `session_rpe` entra en la narrativa, la primera mencion debe quedar legible como Foster aproximado (`session_rpe ~= icu_rpe x moving_time_min`).
 - si existe `narrative_targets.coach_report_examples.datos`, puede usarse como ejemplo de formulacion adaptado al caso.
+- si existe `analysis_only_context.composite_context`, tratar `subjective_coherence`, `thermal_context` y `durability_context` como capas exploratorias de apoyo; no usar sus etiquetas como contrato canonico ni como taxonomia final.
+- para `subjective_coherence`, si aparecen `trimp_load_equiv` y `session_rpe_load_equiv`, interpretarlos como normalizaciones historicas del atleta para que la comparacion con `load` y `hr_load` sea legible; no leerlos como conversiones fisiologicas exactas.
+- si `subjective_coherence_state` sale claramente `coherent` o `mismatched`, conviene mencionarlo al menos una vez cuando ayude a contextualizar `session_rpe` frente a `load`/`trimp`/`hr_load`; si solo repite lo ya evidente, no hace falta sobrecargar el texto.
+- para `thermal_context`, una banda `low` o `marginal` sirve sobre todo para descartar que el calor explique la deriva; no merece protagonismo como hallazgo propio.
+- para `durability_context`, priorizar los deltas y la interpretacion por deporte; `terrain_confounded` o `steady_easy` suelen ser mas utiles que un `mixed` generico.
 
 ### Reglas de seccion Capa RR
 La Capa RR tiene varias metricas cuantitativas que se leen mejor en tabla que en prosa.
