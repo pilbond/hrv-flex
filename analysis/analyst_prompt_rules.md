@@ -1,4 +1,4 @@
-<!-- rules_version: 1.3 -->
+<!-- rules_version: 1.6 -->
 ## Reglas generales
 - separa claramente lo observado en los datos de lo inferido
 - cuando una capa no sea interpretable, dilo de forma explicita
@@ -19,15 +19,29 @@
 
 ## Reglas por seccion
 - `Datos`: estructura en apartados curados (`Perfil de sesion` 4-5 datos, `Intensidad` 3-4 bullets, `Estructura util` 2-4 bullets, `Contexto subjetivo` 1-2 bullets); no repitas cifras que luego se reinterpretan con mas valor en secciones posteriores
+- `Datos`: si existe `analysis_only_context.coach_metrics`, usar `session_rpe`, `feel` e `icu_intensity` solo como capa subjetiva/coach local; no presentarlos como contrato canonico ni como equivalentes directos de `load` o `trimp`
+- `Datos`: si existe `session_payload.json.subjective_context.notes_raw`, usarla como nota manual del atleta en `Contexto subjetivo`; no mezclarla con `session_rpe`, `feel` ni con `load`/`trimp`
+- `Datos`: cuando `session_rpe` aparezca en narrativa, descomponer al menos la primera mencion como carga tipo Foster (`session_rpe ~= icu_rpe x moving_time_min`) para que la escala sea legible
+- `Datos`: si existe `session_payload.json.narrative_targets.coach_report_examples.datos`, puede reutilizarse como ejemplo de formulacion, pero adaptando el texto al caso y sin copiarlo literalmente
+- `Estructura externa`: si existe `analysis_only_context.structured_workout`, usar `coach_intervals.csv` o `coach_groups.csv` solo cuando ayuden a describir bloques o repeticiones con valor tactico; no asumir que toda presencia de `icu_intervals` implica una sesion de intervalos formal
+- `Estructura externa`: si existe `session_payload.json.narrative_targets.coach_report_examples.estructura_externa`, usarlo como patron de traduccion tactica por deporte
 - `Respuesta interna`: cuando la ausencia de senal confirme un patron controlado, hazla visible (`late_intensity = 0`, `cardiac_drift_pct` bajo, sin acumulacion de Z3); la evidencia negativa sostiene la lectura tanto como la positiva
+- `Respuesta interna`: si coexisten `cardiac_drift_pct` y `analysis_only_context.coach_metrics.decoupling_pct`, leerlos como señales relacionadas pero no equivalentes; si divergen, declararlo como discrepancia de capa y no fuerces una fusion
+- `Respuesta interna`: en `road` o `trail` con terreno ondulado/quebrado, contextualiza el drift; un `cardiac_drift_pct` moderado no significa automaticamente lo mismo que en una sesion llana y estable
 - `Capa RR`: presenta RMSSD y DFA-alpha1 en tablas markdown; incluye apartado `Sintesis de coste` con scores y sus anclajes observacionales (`cardio_evidence[]`, `mecanico_evidence[]` de `summary.json`); declara la `Limitacion clave` cuando exista; cierra con `Jerarquia de evidencia` numerada (que sostiene la lectura, que aporta RR, que no permite hacer)
+- `Capa RR`: en `bike` o esfuerzos muy faciles, si aparece `DFA` muy alto junto a `RMSSD` de ejercicio bajo, explica que ambas escalas no son directamente equivalentes; prioriza `DFA-alpha1` para clasificar el dominio de esfuerzo y usa RMSSD como apoyo contextual
 - `HR @ alpha1=0.75`: si `hr_at_075_usable = false` pero `hr_at_075_crossing` tiene valor no nulo, incluye en `Capa RR` una linea de estimacion secundaria con este formato exacto: `HR estimada en α1=0.75: ~X lpm (mediana de N cruces HR-sorted, confianza: C)`; si `confidence = low` o `approximate` añade entre parentesis `solo orientativo`; nunca uses esta estimacion para validar umbrales o reclasificar zonas
 - `Contexto de recuperacion y carga`: estructura en apartados (`Sueno previo`, `HRV matinal`, `Carga reciente`); si `gate_badge` es favorable pero `reason_text` introduce cautela (baseline60_degraded, saturacion parasimpatica), resuelve la tension en un apartado `Tension explicita` que diga que tipo de verde es y que permite o impide
 - `Contexto de recuperacion y carga`: si `baseline60_degraded = True`, rebaja la fuerza del lenguaje; no conviertas HRV matinal + feel en diagnostico cerrado
-- `Encaje en el bloque`: incluye tabla cuantificada con 3-4 sesiones relevantes (fecha, deporte, duracion, D+, work_total_min, load); prioriza sesiones comparables sobre recencia ciega; tras la tabla, lectura comparativa breve
+- `Contexto de recuperacion y carga`: si `n_sessions dia > 1` y puedes identificar otras sesiones del mismo dia desde `sessions.csv`, menciona cuales fueron y si ocurrieron antes o despues; no dejes la doble sesion como numero sin contexto
+- `Encaje en el bloque`: incluye tabla cuantificada con 3-4 sesiones relevantes (fecha, deporte, duracion, D+, work_total_min, load); prioriza sesiones comparables por etapa de bloque, proximidad temporal, intensidad y tipo de estimulo sobre recencia ciega; el mismo deporte ayuda, pero no es un filtro duro; tras la tabla, lectura comparativa breve
+- `Encaje en el bloque`: si existe `analysis_only_context.coach_metrics.hr_load` o `session_rpe`, pueden usarse como señales paralelas de carga local, pero presentalas siempre junto a `load`/`trimp` y sin asumir equivalencia de escala
+- `Encaje en el bloque`: si existe `session_payload.json.narrative_targets.coach_report_examples.encaje_bloque`, puede usarse como ejemplo de redaccion comparativa prudente
 - `Conclusion`: integra la sintesis de coste (cardio_score, mecanico_score, coste_dominante) con la clasificacion cualitativa; el lector debe poder verificar que la etiqueta esta sostenida por datos concretos
 - `Interpretacion fisiologica`: ancla al menos una observacion a un valor numerico medido (RMSSD, alpha1); cuando la huella mecanica condicione mas la recuperacion que la fatiga central, dilo
 - `Interpretacion fisiologica`: no conviertas Naismith, `pace equivalente`, drift, `residual_z`, `hr_at_075_crossing` o molestias subjetivas en la prueba principal de una conclusion fuerte
+- `Advertencias`: si aparece `polarization_index` en `analysis_only_context`, recordar que su formula ICU es opaca; no usarlo como prueba fuerte aislada
+- `Advertencias`: si existe `session_payload.json.narrative_targets.coach_report_examples.advertencias`, usarlo como ejemplo de cautela semantica por deporte
 - `Implicacion practica`: incluye arbol de decision concreto para la sesion siguiente con 2-3 escenarios condicionales anclados a variables observadas; si la recomendacion sirve para cualquier sesion, no aporta valor
 - `Implicacion practica`: no derives decisiones fuertes desde una unica heuristica debil o desde una molestia aislada
 - `Confianza`: cuando las capas tengan calidad distinta, desglosa en tabla (Capa, Nivel, Limitacion); no uses etiqueta plana si la clasificacion global es robusta pero la lectura fina no lo es

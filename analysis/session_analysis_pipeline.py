@@ -50,10 +50,13 @@ DEFAULT_REPORTS_DIR = ANALYSIS_DIR / "reports"
 DEFAULT_BUNDLE_ROOT = ANALYSIS_DIR / ".cache" / "session_bundles"
 ANALYZER_SCRIPT = ANALYSIS_DIR / "endurance_rr_session_v4.py"
 EXPECTED_CONTRACT_VERSIONS = {
-    "SESSION_ANALYSIS_METHOD.md": "1.3",
+    "SESSION_ANALYSIS_METHOD.md": "1.6",
     "ENDURANCE_AGENT_DOMAIN.md": "1.3",
 }
 ANALYST_PROMPT_RULES_PATH = ANALYSIS_DIR / "analyst_prompt_rules.md"
+# Heuristica local de analysis/: si drift y decoupling difieren <=2.5 pp,
+# se consideran aproximadamente alineados para narrativa, no equivalentes.
+DRIFT_DECOUPLING_ALIGNMENT_DELTA_PCT = 2.5
 
 def style_reference_paths(limit: int = 3) -> list[str]:
     candidates = [
@@ -310,10 +313,7 @@ def fetch_intervals_activity_terrain_context(row: dict[str, str]) -> dict[str, A
     activity = client.get(f"/activity/{session_id}").json()
 
     gap_mean = parse_float(activity.get("gap"))
-    gap_model_raw = activity.get("gap_model")
-    gap_model = str(gap_model_raw).strip() if gap_model_raw is not None else None
-    if gap_model == "":
-        gap_model = None
+    gap_model = _coerce_text_or_none_sentinel(activity.get("gap_model"), {"NONE", "NULL"})
 
     return {
         "source": "intervals_activity",
@@ -323,6 +323,578 @@ def fetch_intervals_activity_terrain_context(row: dict[str, str]) -> dict[str, A
         "vam_uphill_mean": None,
         "vam_source": None,
     }
+
+
+def fetch_intervals_activity_detail(row: dict[str, str]) -> dict[str, Any]:
+    session_id = row.get("session_id")
+    if not session_id:
+        raise ValueError("session row has no session_id")
+
+    client = _get_intervals_client()
+    payload = client.get(f"/activity/{session_id}").json()
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"Intervals activity payload invalido para {session_id}")
+    return payload
+
+
+def fetch_intervals_activity_intervals_payload(row: dict[str, str]) -> dict[str, Any]:
+    session_id = row.get("session_id")
+    if not session_id:
+        raise ValueError("session row has no session_id")
+
+    client = _get_intervals_client()
+    payload = client.get(f"/activity/{session_id}/intervals").json()
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"Intervals intervals payload invalido para {session_id}")
+    return payload
+
+
+def _coerce_text_or_none(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _coerce_text_or_none_sentinel(value: Any, sentinels: set[str] | None = None) -> str | None:
+    text = _coerce_text_or_none(value)
+    if text is None:
+        return None
+    if sentinels and text.upper() in sentinels:
+        return None
+    return text
+
+
+def _coerce_int_like(value: Any) -> int | None:
+    numeric = parse_float(value)
+    if numeric is None:
+        return None
+    rounded = int(round(numeric))
+    if abs(numeric - rounded) > 1e-6:
+        return None
+    return rounded
+
+
+def _achievement_preview(values: Any, limit: int = 5) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    preview: list[str] = []
+    for item in values:
+        if isinstance(item, dict):
+            label = _coerce_text_or_none(
+                item.get("label")
+                or item.get("name")
+                or item.get("description")
+                or item.get("type")
+            )
+        else:
+            label = _coerce_text_or_none(item)
+        if not label or label in preview:
+            continue
+        preview.append(label)
+        if len(preview) >= limit:
+            break
+    return preview
+
+
+def summarize_intervals_analysis_context(
+    activity: dict[str, Any] | None,
+    intervals_payload: dict[str, Any] | None,
+    session_row: dict[str, str],
+) -> dict[str, Any] | None:
+    if not isinstance(activity, dict) and not isinstance(intervals_payload, dict):
+        return None
+
+    activity = activity or {}
+    intervals_payload = intervals_payload or {}
+    icu_intervals = intervals_payload.get("icu_intervals") or []
+    icu_groups = intervals_payload.get("icu_groups") or []
+    interval_types: list[str] = []
+    labels_preview: list[str] = []
+    for row in icu_intervals:
+        if not isinstance(row, dict):
+            continue
+        interval_type = _coerce_text_or_none(row.get("type"))
+        if interval_type and interval_type not in interval_types:
+            interval_types.append(interval_type)
+        label = _coerce_text_or_none(row.get("label"))
+        if label and label not in labels_preview:
+            labels_preview.append(label)
+        if len(labels_preview) >= 6:
+            break
+
+    hr_zone_times = activity.get("icu_hr_zone_times")
+    power_zone_times = activity.get("icu_zone_times")
+    sport_family = analyzer_sport_from_session(session_row)
+    average_stride_raw = parse_float(activity.get("average_stride"))
+    average_stride = average_stride_raw if sport_family in {"road", "trail"} else None
+
+    return {
+        "source": "intervals_activity+/intervals",
+        "coach_metrics": {
+            "session_rpe": _coerce_int_like(activity.get("session_rpe")),
+            "icu_rpe": _coerce_int_like(activity.get("icu_rpe")),
+            "icu_intensity_pct": round(parse_float(activity.get("icu_intensity")), 1)
+            if parse_float(activity.get("icu_intensity")) is not None
+            else None,
+            "polarization_index": round(parse_float(activity.get("polarization_index")), 2)
+            if parse_float(activity.get("polarization_index")) is not None
+            else None,
+            "average_stride": round(average_stride, 3) if average_stride is not None else None,
+            "average_stride_semantics": "sport_specific" if average_stride is not None else None,
+            "decoupling_pct": round(parse_float(activity.get("decoupling")), 2)
+            if parse_float(activity.get("decoupling")) is not None
+            else None,
+            "cardiac_drift_pct": round(parse_float(session_row.get("cardiac_drift_pct")), 2)
+            if parse_float(session_row.get("cardiac_drift_pct")) is not None
+            else None,
+            "hr_load": _coerce_int_like(activity.get("hr_load")),
+            "hr_load_type": _coerce_text_or_none(activity.get("hr_load_type")),
+            "power_load": round(parse_float(activity.get("power_load")), 2)
+            if parse_float(activity.get("power_load")) is not None
+            else None,
+            "pace_load": round(parse_float(activity.get("pace_load")), 2)
+            if parse_float(activity.get("pace_load")) is not None
+            else None,
+            "strain_score": round(parse_float(activity.get("strain_score")), 2)
+            if parse_float(activity.get("strain_score")) is not None
+            else None,
+            "feel": _coerce_int_like(activity.get("feel")),
+        },
+            "structured_workout": {
+            "intervals_count": len([row for row in icu_intervals if isinstance(row, dict)]),
+            "groups_count": len([row for row in icu_groups if isinstance(row, dict)]),
+            "interval_types": interval_types,
+            "labels_preview": labels_preview,
+            "lap_count": _coerce_int_like(activity.get("icu_lap_count")),
+            "intervals_edited": bool(activity.get("icu_intervals_edited")) if activity.get("icu_intervals_edited") is not None else None,
+        },
+        "route_context": {
+            "route_id": _coerce_int_like(activity.get("route_id")),
+            "gap_raw": round(parse_float(activity.get("gap")) * 3.6, 2)
+            if parse_float(activity.get("gap")) is not None
+            else None,
+            "gap_unit": "km/h" if parse_float(activity.get("gap")) is not None else None,
+            "gap_model": _coerce_text_or_none_sentinel(activity.get("gap_model"), {"NONE", "NULL"}),
+        },
+        "achievements": {
+            "count": len(activity.get("icu_achievements") or []) if isinstance(activity.get("icu_achievements"), list) else 0,
+            "preview": _achievement_preview(activity.get("icu_achievements")),
+        },
+        "zone_context": {
+            "hr_zone_times": hr_zone_times if isinstance(hr_zone_times, list) else None,
+            "power_zone_times": power_zone_times if isinstance(power_zone_times, list) else None,
+        },
+    }
+
+
+def build_coach_usage_notes(sport_family: str) -> list[str]:
+    notes = [
+        "usar `analysis_only_context` como enriquecimiento local de `analysis/`, no como contrato canonico global",
+        "tratar `session_rpe` como carga subjetiva tipo Foster (`moving_time_min x icu_rpe`); no compararla 1:1 contra `load` o `trimp`",
+        "tratar `icu_intensity` y `polarization_index` como apoyo coach/Intervals, no como reemplazo automatico de `intensity_category` o de la lectura canonica de distribucion",
+    ]
+    if sport_family in {"road", "trail"}:
+        notes.append("si existe `average_stride`, usarla solo con semantica deporte-especifica y nunca como metrica transversal")
+    if sport_family == "bike":
+        notes.append("en bike, leer `coach_intervals` y `coach_groups` como estructura de esfuerzo o bloques, no con semantica de zancada o impacto")
+    if sport_family == "swim":
+        notes.append("en swim, rebajar el peso interpretativo de `average_stride` y priorizar estructura de bloques o sensacion subjetiva si aporta valor")
+    return notes
+
+
+def _session_rpe_readout(session_rpe: int | None, duration_min: float | None, icu_rpe: int | None) -> str | None:
+    if session_rpe is None:
+        return None
+    if icu_rpe is not None and duration_min is not None and duration_min > 0:
+        duration_label = int(round(duration_min))
+        return f"`session_rpe={session_rpe}` (Foster: ~`{icu_rpe}` RPE x `{duration_label}` min)"
+    return f"`session_rpe={session_rpe}`"
+
+
+def build_coach_narrative_hints(
+    analysis_only_context: dict[str, Any] | None,
+    session_row: dict[str, str],
+) -> dict[str, list[str]]:
+    hints: dict[str, list[str]] = {
+        "datos": [],
+        "estructura_externa": [],
+        "respuesta_interna": [],
+        "encaje_bloque": [],
+        "advertencias": [],
+    }
+    if not isinstance(analysis_only_context, dict):
+        return hints
+
+    coach_metrics = analysis_only_context.get("coach_metrics") or {}
+    structured = analysis_only_context.get("structured_workout") or {}
+    route_context = analysis_only_context.get("route_context") or {}
+    zone_context = analysis_only_context.get("zone_context") or {}
+
+    session_rpe = _coerce_int_like(coach_metrics.get("session_rpe"))
+    icu_rpe = _coerce_int_like(coach_metrics.get("icu_rpe"))
+    feel = _coerce_int_like(coach_metrics.get("feel"))
+    icu_intensity = parse_float(coach_metrics.get("icu_intensity_pct"))
+    hr_load = _coerce_int_like(coach_metrics.get("hr_load"))
+    hr_load_type = _coerce_text_or_none(coach_metrics.get("hr_load_type"))
+    load = parse_float(session_row.get("load"))
+    trimp = parse_float(session_row.get("trimp"))
+    stride = parse_float(coach_metrics.get("average_stride"))
+    duration_min = parse_float(session_row.get("moving_min")) or parse_float(session_row.get("duration_min"))
+    session_rpe_label = _session_rpe_readout(session_rpe, duration_min, icu_rpe)
+    if session_rpe is not None or feel is not None or icu_intensity is not None:
+        parts: list[str] = []
+        if session_rpe_label is not None:
+            parts.append(session_rpe_label)
+        if feel is not None:
+            parts.append(f"`feel={feel}`")
+        if icu_intensity is not None:
+            parts.append(f"`icu_intensity={round(icu_intensity, 1)}%`")
+        hints["datos"].append(
+            "capa subjetiva/coach disponible: "
+            + ", ".join(parts)
+            + "; usarla en `Contexto subjetivo` como apoyo local, no como sustituto del contrato canonico"
+        )
+    if stride is not None:
+        hints["datos"].append(
+            f"`average_stride={round(stride, 3)}` disponible; usar solo con semantica deporte-especifica en `{session_row.get('sport') or 'sport'}`"
+        )
+
+    intervals_count = _coerce_int_like(structured.get("intervals_count")) or 0
+    groups_count = _coerce_int_like(structured.get("groups_count")) or 0
+    lap_count = _coerce_int_like(structured.get("lap_count"))
+    interval_types = structured.get("interval_types") or []
+    intervals_edited = structured.get("intervals_edited")
+    if intervals_count or groups_count or lap_count:
+        structure_parts = [f"`icu_intervals={intervals_count}`", f"`icu_groups={groups_count}`"]
+        if lap_count is not None:
+            structure_parts.append(f"`icu_lap_count={lap_count}`")
+        if interval_types:
+            structure_parts.append(f"`interval_types={interval_types}`")
+        if intervals_edited is not None:
+            structure_parts.append(f"`intervals_edited={intervals_edited}`")
+        hints["estructura_externa"].append(
+            "estructura ICU disponible: "
+            + ", ".join(structure_parts)
+            + "; usar `coach_intervals.csv` y `coach_groups.csv` si ayudan a describir bloques o repeticiones con valor tactico"
+        )
+
+    decoupling = parse_float(coach_metrics.get("decoupling_pct"))
+    cardiac_drift = parse_float(coach_metrics.get("cardiac_drift_pct"))
+    if decoupling is not None and cardiac_drift is not None:
+        drift_delta = abs(decoupling - cardiac_drift)
+        relation = (
+            f"aproximadamente alineadas (delta ~{round(drift_delta, 2)} pp)"
+            if drift_delta <= DRIFT_DECOUPLING_ALIGNMENT_DELTA_PCT
+            else f"no directamente alineadas (delta ~{round(drift_delta, 2)} pp)"
+        )
+        hints["respuesta_interna"].append(
+            f"`cardiac_drift_pct={round(cardiac_drift, 2)}` y `decoupling_pct={round(decoupling, 2)}` disponibles; leerlas como señales relacionadas pero no equivalentes ({relation})"
+        )
+    elif cardiac_drift is not None:
+        hints["respuesta_interna"].append(
+            f"`cardiac_drift_pct={round(cardiac_drift, 2)}` disponible en `sessions.csv`; `decoupling` coach no disponible para contraste directo"
+        )
+    elif decoupling is not None:
+        hints["respuesta_interna"].append(
+            f"`decoupling_pct={round(decoupling, 2)}` disponible desde coach; usarlo como apoyo local y no como reemplazo directo de `cardiac_drift_pct`"
+        )
+
+    if hr_load is not None or trimp is not None or load is not None:
+        load_parts: list[str] = []
+        if load is not None:
+            load_parts.append(f"`load={round(load, 1)}`")
+        if trimp is not None:
+            load_parts.append(f"`trimp={round(trimp, 1)}`")
+        if hr_load is not None:
+            label = f"{hr_load}"
+            if hr_load_type:
+                label += f" ({hr_load_type})"
+            load_parts.append(f"`hr_load={label}`")
+        if session_rpe is not None:
+            load_parts.append(session_rpe_label or f"`session_rpe={session_rpe}`")
+        hints["encaje_bloque"].append(
+            "si comparas capas de carga, presentalas como señales paralelas y no como equivalentes directas: "
+            + ", ".join(load_parts)
+        )
+
+    route_id = _coerce_int_like(route_context.get("route_id"))
+    gap_model = _coerce_text_or_none(route_context.get("gap_model"))
+    if route_id is not None or gap_model:
+        route_parts: list[str] = []
+        if route_id is not None:
+            route_parts.append(f"`route_id={route_id}`")
+        if gap_model:
+            route_parts.append(f"`gap_model={gap_model}`")
+        hints["estructura_externa"].append(
+            "contexto de ruta/coach disponible: "
+            + ", ".join(route_parts)
+            + "; usarlo para reencuadrar terreno o repetibilidad, no como prueba central de intensidad interna"
+        )
+
+    if isinstance(zone_context.get("power_zone_times"), list):
+        hints["advertencias"].append(
+            "`icu_zone_times` de potencia existe solo como capa coach local; no convertirla en lectura canonica de zonas"
+        )
+    if parse_float(coach_metrics.get("polarization_index")) is not None:
+        hints["advertencias"].append(
+            "`polarization_index` puede orientar la narrativa, pero su formula ICU sigue siendo opaca; no usarlo como prueba fuerte aislada"
+        )
+    return hints
+
+
+def build_coach_report_examples(
+    sport_family: str,
+    analysis_only_context: dict[str, Any] | None,
+    session_row: dict[str, str],
+) -> dict[str, list[str]]:
+    examples: dict[str, list[str]] = {
+        "datos": [],
+        "estructura_externa": [],
+        "respuesta_interna": [],
+        "encaje_bloque": [],
+        "advertencias": [],
+    }
+    if not isinstance(analysis_only_context, dict):
+        return examples
+
+    coach_metrics = analysis_only_context.get("coach_metrics") or {}
+    structured = analysis_only_context.get("structured_workout") or {}
+    route_context = analysis_only_context.get("route_context") or {}
+    session_rpe = _coerce_int_like(coach_metrics.get("session_rpe"))
+    icu_rpe = _coerce_int_like(coach_metrics.get("icu_rpe"))
+    feel = _coerce_int_like(coach_metrics.get("feel"))
+    icu_intensity = parse_float(coach_metrics.get("icu_intensity_pct"))
+    cardiac_drift = parse_float(coach_metrics.get("cardiac_drift_pct"))
+    decoupling = parse_float(coach_metrics.get("decoupling_pct"))
+    hr_load = _coerce_int_like(coach_metrics.get("hr_load"))
+    hr_load_type = _coerce_text_or_none(coach_metrics.get("hr_load_type")) or "coach"
+    intervals_count = _coerce_int_like(structured.get("intervals_count")) or 0
+    groups_count = _coerce_int_like(structured.get("groups_count")) or 0
+    route_id = _coerce_int_like(route_context.get("route_id"))
+    gap_model = _coerce_text_or_none(route_context.get("gap_model"))
+    load = parse_float(session_row.get("load"))
+    trimp = parse_float(session_row.get("trimp"))
+    duration_min = parse_float(session_row.get("moving_min")) or parse_float(session_row.get("duration_min"))
+    session_rpe_label = _session_rpe_readout(session_rpe, duration_min, icu_rpe)
+
+    if sport_family == "trail":
+        if session_rpe is not None or icu_intensity is not None:
+            examples["datos"].append(
+                f"Ejemplo: \"La capa coach deja una percepcion de esfuerzo media-alta ({session_rpe_label or f'`session_rpe={session_rpe}`'}"
+                + (f", `icu_intensity={round(icu_intensity, 1)}%`" if icu_intensity is not None else "")
+                + "), compatible con un trail que costó más por terreno y continuidad que por simple tiempo en Z3.\""
+            )
+        if intervals_count or groups_count or route_id is not None:
+            examples["estructura_externa"].append(
+                f"Ejemplo: \"Intervals describe la sesión como una estructura con `icu_intervals={intervals_count}` y `icu_groups={groups_count}`"
+                + (f"; `route_id={route_id}`" if route_id is not None else "")
+                + ", útil para explicar dónde estuvieron los bloques de subida o los tramos corribles sin convertir esa capa en contrato canónico.\""
+            )
+        if cardiac_drift is not None or decoupling is not None:
+            parts: list[str] = []
+            if cardiac_drift is not None:
+                parts.append(f"`cardiac_drift_pct={round(cardiac_drift, 2)}`")
+            if decoupling is not None:
+                parts.append(f"`decoupling_pct={round(decoupling, 2)}`")
+            examples["respuesta_interna"].append(
+                "Ejemplo: \""
+                + " / ".join(parts)
+                + " apuntan a una lectura de deriva condicionada por el relieve; conviene tratarlas como capas relacionadas pero no idénticas.\""
+            )
+        if load is not None or trimp is not None or hr_load is not None:
+            examples["encaje_bloque"].append(
+                f"Ejemplo: \"Dentro del bloque, la combinación `load={round(load,1) if load is not None else None}`, `trimp={round(trimp,1) if trimp is not None else None}`"
+                + (f", `hr_load={hr_load} ({hr_load_type})`" if hr_load is not None else "")
+                + (f" y {session_rpe_label}" if session_rpe_label is not None else "")
+                + " sugiere una sesión de trail cara de absorber, no solo larga por terreno.\""
+            )
+    elif sport_family == "road":
+        if session_rpe is not None or feel is not None or icu_intensity is not None:
+            examples["datos"].append(
+                f"Ejemplo: \"En la capa subjetiva/coach, {session_rpe_label or f'`session_rpe={session_rpe}`'}"
+                + (f", `feel={feel}`" if feel is not None else "")
+                + (f" e `icu_intensity={round(icu_intensity, 1)}%`" if icu_intensity is not None else "")
+                + " ayudan a describir cuánto costó la sesión, pero no sustituyen a `load` ni a `trimp`.\""
+            )
+        if intervals_count or groups_count:
+            examples["estructura_externa"].append(
+                f"Ejemplo: \"La sesión dejó `icu_intervals={intervals_count}` y `icu_groups={groups_count}`; esto permite describirla como estructurada por bloques si ese patrón también se sostiene en `work_blocks` o en la continuidad real del FIT.\""
+            )
+        if load is not None or trimp is not None or hr_load is not None:
+            examples["encaje_bloque"].append(
+                f"Ejemplo: \"Para situarla en el bloque, puede leerse la combinación `load={round(load,1) if load is not None else None}`, `trimp={round(trimp,1) if trimp is not None else None}`"
+                + (f" y `hr_load={hr_load} ({hr_load_type})`" if hr_load is not None else "")
+                + (f" y {session_rpe_label}" if session_rpe_label is not None else "")
+                + " como señales paralelas de carga interna, no como métricas equivalentes de la misma escala.\""
+            )
+    elif sport_family == "bike":
+        if session_rpe is not None or hr_load is not None:
+            examples["datos"].append(
+                f"Ejemplo: \"En bici, {session_rpe_label or f'`session_rpe={session_rpe}`'}"
+                + (f" y `hr_load={hr_load} ({hr_load_type})`" if hr_load is not None else "")
+                + " sirven para matizar la carga interna del pedaleo, pero deben presentarse junto a `load`/`trimp`, no por separado como si midieran lo mismo.\""
+            )
+        if intervals_count or groups_count:
+            examples["estructura_externa"].append(
+                f"Ejemplo: \"`coach_intervals.csv` y `coach_groups.csv` pueden ayudar a contar la sesión como una sucesión de tramos o repeticiones de pedaleo, siempre evitando lenguaje de zancada o impacto propio de carrera.\""
+            )
+        if load is not None or trimp is not None or hr_load is not None:
+            examples["encaje_bloque"].append(
+                f"Ejemplo: \"Dentro del bloque ciclista, `load={round(load,1) if load is not None else None}`, `trimp={round(trimp,1) if trimp is not None else None}`"
+                + (f", `hr_load={hr_load} ({hr_load_type})`" if hr_load is not None else "")
+                + (f" y {session_rpe_label}" if session_rpe_label is not None else "")
+                + " apuntan a una carga fácil-larga; suman volumen, no trabajo útil sobre VT1.\""
+            )
+    elif sport_family == "swim":
+        if session_rpe is not None or feel is not None:
+            examples["datos"].append(
+                f"Ejemplo: \"En natación, `session_rpe={session_rpe}`"
+                + (f" y `feel={feel}`" if feel is not None else "")
+                + " pueden enriquecer la lectura subjetiva, pero la técnica y la estructura de bloques siguen siendo más informativas que cualquier intento de equipararlo a la carga de carrera.\""
+            )
+        examples["advertencias"].append(
+            "Ejemplo: \"Si aparece `average_stride` o métricas similares, no deben traducirse con semántica terrestre; en swim la prioridad es bloque, sensación y técnica.\""
+        )
+    else:
+        if session_rpe is not None or hr_load is not None:
+            examples["datos"].append(
+                "Ejemplo: \"La capa coach aporta señales de carga subjetiva o interna útiles para matizar el relato, pero no para reescribir la clasificación canónica de la sesión.\""
+            )
+
+    if gap_model:
+        examples["advertencias"].append(
+            f"Ejemplo: \"`gap_model={gap_model}` puede reencuadrar el terreno o la ruta, pero no debe usarse como prueba central de intensidad fisiológica.\""
+        )
+    return examples
+
+
+def _normalize_intervals_structure_rows(
+    session_id: str,
+    rows: list[dict[str, Any]],
+    structure_type: str,
+) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for index, row in enumerate(rows, start=1):
+        if not isinstance(row, dict):
+            continue
+        distance_m = parse_float(row.get("distance"))
+        average_speed = parse_float(row.get("average_speed"))
+        gap = parse_float(row.get("gap"))
+        average_gradient = parse_float(row.get("average_gradient"))
+        normalized.append(
+            {
+                "session_id": session_id,
+                "structure_type": structure_type,
+                "row_index": index,
+                "row_id": _coerce_int_like(row.get("id")),
+                "group_id": _coerce_int_like(row.get("group_id")),
+                "type": _coerce_text_or_none(row.get("type")),
+                "label": _coerce_text_or_none(row.get("label")),
+                "count": _coerce_int_like(row.get("count")),
+                "distance_km": round(distance_m / 1000.0, 3) if distance_m is not None else None,
+                "elapsed_time_s": round(parse_float(row.get("elapsed_time")), 1)
+                if parse_float(row.get("elapsed_time")) is not None
+                else None,
+                "moving_time_s": round(parse_float(row.get("moving_time")), 1)
+                if parse_float(row.get("moving_time")) is not None
+                else None,
+                "start_time_s": round(parse_float(row.get("start_time")), 1)
+                if parse_float(row.get("start_time")) is not None
+                else None,
+                "end_time_s": round(parse_float(row.get("end_time")), 1)
+                if parse_float(row.get("end_time")) is not None
+                else None,
+                "average_speed_kmh": round(average_speed * 3.6, 2) if average_speed is not None else None,
+                "gap_kmh": round(gap * 3.6, 2) if gap is not None else None,
+                "average_gradient_pct": round(average_gradient * 100.0, 1) if average_gradient is not None else None,
+                "elev_gain_m": round(parse_float(row.get("total_elevation_gain")), 1)
+                if parse_float(row.get("total_elevation_gain")) is not None
+                else None,
+                "average_heartrate": round(parse_float(row.get("average_heartrate")), 1)
+                if parse_float(row.get("average_heartrate")) is not None
+                else None,
+                "max_heartrate": round(parse_float(row.get("max_heartrate")), 1)
+                if parse_float(row.get("max_heartrate")) is not None
+                else None,
+                "average_cadence": round(parse_float(row.get("average_cadence")), 1)
+                if parse_float(row.get("average_cadence")) is not None
+                else None,
+                "average_stride": round(parse_float(row.get("average_stride")), 3)
+                if parse_float(row.get("average_stride")) is not None
+                else None,
+                "average_watts": round(parse_float(row.get("average_watts")), 1)
+                if parse_float(row.get("average_watts")) is not None
+                else None,
+                "weighted_average_watts": round(parse_float(row.get("weighted_average_watts")), 1)
+                if parse_float(row.get("weighted_average_watts")) is not None
+                else None,
+                "intensity_pct": round(parse_float(row.get("intensity")), 1)
+                if parse_float(row.get("intensity")) is not None
+                else None,
+                "zone": _coerce_int_like(row.get("zone")),
+                "decoupling_pct": round(parse_float(row.get("decoupling")), 2)
+                if parse_float(row.get("decoupling")) is not None
+                else None,
+                "training_load": round(parse_float(row.get("training_load")), 2)
+                if parse_float(row.get("training_load")) is not None
+                else None,
+                "strain_score": round(parse_float(row.get("strain_score")), 2)
+                if parse_float(row.get("strain_score")) is not None
+                else None,
+                "wbal_start": round(parse_float(row.get("wbal_start")), 1)
+                if parse_float(row.get("wbal_start")) is not None
+                else None,
+                "wbal_end": round(parse_float(row.get("wbal_end")), 1)
+                if parse_float(row.get("wbal_end")) is not None
+                else None,
+            }
+        )
+    return normalized
+
+
+def write_intervals_structure_csv(path: Path, rows: list[dict[str, Any]]) -> Path | None:
+    if not rows:
+        return None
+    fieldnames = [
+        "session_id",
+        "structure_type",
+        "row_index",
+        "row_id",
+        "group_id",
+        "type",
+        "label",
+        "count",
+        "distance_km",
+        "elapsed_time_s",
+        "moving_time_s",
+        "start_time_s",
+        "end_time_s",
+        "average_speed_kmh",
+        "gap_kmh",
+        "average_gradient_pct",
+        "elev_gain_m",
+        "average_heartrate",
+        "max_heartrate",
+        "average_cadence",
+        "average_stride",
+        "average_watts",
+        "weighted_average_watts",
+        "intensity_pct",
+        "zone",
+        "decoupling_pct",
+        "training_load",
+        "strain_score",
+        "wbal_start",
+        "wbal_end",
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({field: row.get(field) for field in fieldnames})
+    return path
 
 
 def _extract_intervals_payload_rows(payload: Any) -> tuple[list[dict[str, Any]], str | None]:
@@ -495,8 +1067,7 @@ def fetch_intervals_terrain_interval_rows(row: dict[str, str], fit_path: Path | 
     if not session_id:
         raise ValueError("session row has no session_id")
 
-    client = _get_intervals_client()
-    payload = client.get(f"/activity/{session_id}/intervals").json()
+    payload = fetch_intervals_activity_intervals_payload(row)
     rows, source_key = _extract_intervals_payload_rows(payload)
     if source_key in {"unrecognized_dict_payload"} or (source_key or "").startswith("unsupported_payload_type:"):
         raise RuntimeError(f"intervals payload shape not recognized: {source_key}")
@@ -644,6 +1215,16 @@ def fetch_session_rr_csv(row: dict[str, str], target_csv: Path) -> dict[str, Any
     }
 
 
+def build_subjective_context(session_row: dict[str, str]) -> dict[str, Any]:
+    return {
+        "rpe": _coerce_int_like(session_row.get("rpe")),
+        "rpe_present": _coerce_int_like(session_row.get("rpe_present")),
+        "feel": _coerce_int_like(session_row.get("feel")),
+        "notes_raw": _coerce_text_or_none(session_row.get("notes_raw")),
+        "notes_present": _coerce_int_like(session_row.get("notes_present")),
+    }
+
+
 def prepare_bundle(
     sessions_csv: Path,
     bundle_root: Path,
@@ -663,13 +1244,37 @@ def prepare_bundle(
 
     write_json(session_json, row)
     stream_info = fetch_intervals_stream_csv(row, stream_csv)
+    activity_detail = None
+    activity_error = None
+    try:
+        activity_detail = fetch_intervals_activity_detail(row)
+    except Exception as exc:
+        activity_error = str(exc)
+    intervals_payload = None
+    intervals_payload_error = None
+    try:
+        intervals_payload = fetch_intervals_activity_intervals_payload(row)
+    except Exception as exc:
+        intervals_payload_error = str(exc)
     terrain_context = None
     terrain_error = None
     terrain_intervals = None
     terrain_intervals_error = None
     if _supports_terrain_context(row):
         try:
-            terrain_context = fetch_intervals_activity_terrain_context(row)
+            if activity_detail is not None:
+                gap_mean = parse_float(activity_detail.get("gap"))
+                gap_model = _coerce_text_or_none_sentinel(activity_detail.get("gap_model"), {"NONE", "NULL"})
+                terrain_context = {
+                    "source": "intervals_activity",
+                    "gap_mean": round(gap_mean * 3.6, 1) if gap_mean is not None else None,
+                    "gap_unit": "km/h",
+                    "gap_model": gap_model,
+                    "vam_uphill_mean": None,
+                    "vam_source": None,
+                }
+            else:
+                terrain_context = fetch_intervals_activity_terrain_context(row)
         except Exception as exc:
             terrain_error = str(exc)
     fit_info = None
@@ -680,10 +1285,34 @@ def prepare_bundle(
         fit_error = str(exc)
     if terrain_context is not None:
         try:
-            terrain_intervals = fetch_intervals_terrain_interval_rows(row, fit_path=fit_file if fit_file.exists() else None)
+            if intervals_payload is None:
+                raise RuntimeError(intervals_payload_error or "intervals payload unavailable")
+            fit_records = None
+            if fit_file.exists():
+                fit_records = parse_fit_terrain_data(fit_file)["records"]
+            terrain_intervals = _normalize_terrain_interval_rows(
+                row["session_id"],
+                intervals_payload,
+                fit_records=fit_records,
+            )
             terrain_context = _summarize_terrain_context_from_intervals(terrain_context, terrain_intervals, session_row=row)
         except Exception as exc:
             terrain_intervals_error = str(exc)
+    analysis_only_context = summarize_intervals_analysis_context(activity_detail, intervals_payload, row)
+    subjective_context = build_subjective_context(row)
+    coach_interval_rows = []
+    coach_group_rows = []
+    if isinstance(intervals_payload, dict):
+        coach_interval_rows = _normalize_intervals_structure_rows(
+            row["session_id"],
+            intervals_payload.get("icu_intervals") or [],
+            "icu_interval",
+        )
+        coach_group_rows = _normalize_intervals_structure_rows(
+            row["session_id"],
+            intervals_payload.get("icu_groups") or [],
+            "icu_group",
+        )
     rr_info = None
     rr_error = None
     try:
@@ -703,11 +1332,18 @@ def prepare_bundle(
         "hr_stream_csv": str(stream_csv),
         "fit_path": str(fit_file) if fit_info else None,
         "rr_csv": str(rr_csv) if rr_info else None,
+        "activity_detail": activity_detail,
+        "activity_error": activity_error,
+        "intervals_payload_error": intervals_payload_error,
         "stream_info": stream_info,
         "terrain_context": terrain_context,
         "terrain_error": terrain_error,
         "terrain_intervals": terrain_intervals,
         "terrain_intervals_error": terrain_intervals_error,
+        "analysis_only_context": analysis_only_context,
+        "subjective_context": subjective_context,
+        "coach_interval_rows": coach_interval_rows,
+        "coach_group_rows": coach_group_rows,
         "fit_info": fit_info,
         "fit_error": fit_error,
         "rr_info": rr_info,
@@ -724,6 +1360,8 @@ def render_report_markdown(summary: dict[str, Any]) -> str:
     final_cost = summary.get("final_cost_interpretation") or {}
     terrain_context = summary.get("terrain_context") or {}
     terrain_fit_context = summary.get("terrain_fit_context") or {}
+    analysis_only_context = summary.get("analysis_only_context") or {}
+    subjective_context = summary.get("subjective_context") or {}
     rmssd_1m = summary.get("rmssd_1min") or {}
     rmssd_5m = summary.get("rmssd_5min") or {}
     training_audit = summary_training_audit(summary)
@@ -776,6 +1414,16 @@ def render_report_markdown(summary: dict[str, Any]) -> str:
         f"- final_note: {final_cost.get('note')}",
         "",
     ])
+
+    if subjective_context:
+        lines.extend([
+            "## Subjective Context",
+            f"- rpe: `{subjective_context.get('rpe')}`",
+            f"- feel: `{subjective_context.get('feel')}`",
+            f"- notes_present: `{subjective_context.get('notes_present')}`",
+            f"- notes_raw: `{subjective_context.get('notes_raw')}`",
+            "",
+        ])
 
     if terrain_context:
         lines.extend([
@@ -836,6 +1484,37 @@ def render_report_markdown(summary: dict[str, Any]) -> str:
             "- note: capa FIT paralela a V2; no recalcula GAP",
             "",
         ])
+
+    if analysis_only_context:
+        coach_metrics = analysis_only_context.get("coach_metrics") or {}
+        structured = analysis_only_context.get("structured_workout") or {}
+        route_context = analysis_only_context.get("route_context") or {}
+        coach_lines = ["## Coach Analysis-Only Context"]
+        for label, value in (
+            ("session_rpe", coach_metrics.get("session_rpe")),
+            ("icu_intensity_pct", coach_metrics.get("icu_intensity_pct")),
+            ("polarization_index", coach_metrics.get("polarization_index")),
+            ("average_stride", coach_metrics.get("average_stride")),
+            ("decoupling_pct", coach_metrics.get("decoupling_pct")),
+            ("cardiac_drift_pct", coach_metrics.get("cardiac_drift_pct")),
+            ("hr_load", coach_metrics.get("hr_load")),
+            ("hr_load_type", coach_metrics.get("hr_load_type")),
+            ("intervals_count", structured.get("intervals_count")),
+            ("groups_count", structured.get("groups_count")),
+            ("lap_count", structured.get("lap_count")),
+            ("interval_types", structured.get("interval_types")),
+            ("intervals_edited", structured.get("intervals_edited")),
+            ("route_id", route_context.get("route_id")),
+            ("gap_model", route_context.get("gap_model")),
+        ):
+            if value in (None, "", [], {}):
+                continue
+            coach_lines.append(f"- {label}: `{value}`")
+        coach_lines.extend([
+            "- note: capa local de analysis; apoyo narrativo y tactico, no contrato canonico global",
+            "",
+        ])
+        lines.extend(coach_lines)
     if summary.get("terrain_fit_error"):
         lines.extend([
             "## Terrain FIT Warnings",
@@ -906,10 +1585,15 @@ def build_conversational_payload(
 ) -> dict[str, Any]:
     sport_family = analyzer_sport_from_session(session_row)
     session_date = session_row.get("Fecha") or manifest.get("date")
+    subjective_context = build_subjective_context(session_row)
     terrain_context = summary.get("terrain_context")
     terrain_fit_context = summary.get("terrain_fit_context")
+    analysis_only_context = summary.get("analysis_only_context")
     terrain_intervals_csv = None
     terrain_climbs_csv = None
+    coach_metrics_json = None
+    coach_intervals_csv = None
+    coach_groups_csv = None
     if artifacts_dir is not None:
         terrain_intervals_path = artifacts_dir / "terrain_intervals.csv"
         if terrain_intervals_path.exists():
@@ -917,6 +1601,15 @@ def build_conversational_payload(
         terrain_climbs_path = artifacts_dir / "terrain_climbs.csv"
         if terrain_climbs_path.exists():
             terrain_climbs_csv = str(terrain_climbs_path)
+        coach_metrics_path = artifacts_dir / "coach_metrics.json"
+        if coach_metrics_path.exists():
+            coach_metrics_json = str(coach_metrics_path)
+        coach_intervals_path = artifacts_dir / "coach_intervals.csv"
+        if coach_intervals_path.exists():
+            coach_intervals_csv = str(coach_intervals_path)
+        coach_groups_path = artifacts_dir / "coach_groups.csv"
+        if coach_groups_path.exists():
+            coach_groups_csv = str(coach_groups_path)
     sessions_day = compact_row(
         row_by_date(ROOT / "data" / "ENDURANCE_HRV_sessions_day.csv", session_date),
         [
@@ -989,6 +1682,9 @@ def build_conversational_payload(
         stream_sampling = sessions_metadata.get("stream_sampling")
         training_audit = sessions_metadata.get("training_audit")
     versions = contract_version_status()
+    coach_usage_notes = build_coach_usage_notes(sport_family)
+    coach_narrative_hints = build_coach_narrative_hints(analysis_only_context, session_row)
+    coach_report_examples = build_coach_report_examples(sport_family, analysis_only_context, session_row)
 
     # --- Vector velocidad desde FIT artifact ---
     speed_metrics: dict | None = None
@@ -998,6 +1694,9 @@ def build_conversational_payload(
         wbm = session_row.get("work_blocks_min") or ""
         wbn = len([x for x in wbm.split(";") if x.strip()]) if wbm else 0
         speed_metrics = _compute_speed_metrics(fit_artifact, vt1, wbn, sport_family)
+
+    rr_summary_payload = dict(summary)
+    rr_summary_payload.pop("analysis_only_context", None)
 
     return {
         "meta": {
@@ -1019,11 +1718,16 @@ def build_conversational_payload(
             "terrain_fit_error": summary.get("terrain_fit_error"),
         },
         "session_row": session_row,
-        "rr_analysis_summary": summary,
+        "subjective_context": subjective_context,
+        "rr_analysis_summary": rr_summary_payload,
         "terrain_context": terrain_context,
         "terrain_fit_context": terrain_fit_context,
+        "analysis_only_context": analysis_only_context,
         "terrain_intervals_csv": terrain_intervals_csv,
         "terrain_climbs_csv": terrain_climbs_csv,
+        "coach_metrics_json": coach_metrics_json,
+        "coach_intervals_csv": coach_intervals_csv,
+        "coach_groups_csv": coach_groups_csv,
         "context": {
             "sessions_day": sessions_day,
             "sleep": sleep_row,
@@ -1060,6 +1764,10 @@ def build_conversational_payload(
             "style_reference_paths": style_reference_paths(),
             "sport_family": sport_family,
             "sport_family_notes": session_family_notes(sport_family),
+            "subjective_context": subjective_context,
+            "coach_usage_notes": coach_usage_notes,
+            "coach_narrative_hints": coach_narrative_hints,
+            "coach_report_examples": coach_report_examples,
         },
         "speed_metrics": speed_metrics,
     }
@@ -1105,6 +1813,12 @@ def enrich_summary_with_manifest_context(summary: dict[str, Any], manifest: dict
     terrain_context = manifest.get("terrain_context")
     if isinstance(terrain_context, dict) and terrain_context:
         enriched["terrain_context"] = terrain_context
+    analysis_only_context = manifest.get("analysis_only_context")
+    if isinstance(analysis_only_context, dict) and analysis_only_context:
+        enriched["analysis_only_context"] = analysis_only_context
+    subjective_context = manifest.get("subjective_context")
+    if isinstance(subjective_context, dict) and subjective_context:
+        enriched["subjective_context"] = subjective_context
     return enriched
 
 
@@ -1116,6 +1830,9 @@ def build_ai_handoff_markdown(
     blocks_path: Path | None,
     terrain_intervals_path: Path | None,
     terrain_climbs_path: Path | None,
+    coach_metrics_path: Path | None,
+    coach_intervals_path: Path | None,
+    coach_groups_path: Path | None,
     debug_dir: Path | None,
 ) -> str:
     style_refs = style_reference_paths()
@@ -1145,6 +1862,12 @@ def build_ai_handoff_markdown(
         lines.append(f"- `{terrain_intervals_path}`")
     if terrain_climbs_path:
         lines.append(f"- `{terrain_climbs_path}`")
+    if coach_metrics_path:
+        lines.append(f"- `{coach_metrics_path}`")
+    if coach_intervals_path:
+        lines.append(f"- `{coach_intervals_path}`")
+    if coach_groups_path:
+        lines.append(f"- `{coach_groups_path}`")
     if style_refs:
         lines.extend(["", "## Referencias de estilo opcionales"])
         lines.extend([f"- `{path}`" for path in style_refs])
@@ -1156,6 +1879,7 @@ def build_ai_handoff_markdown(
             "- usar `SESSION_ANALYSIS_METHOD.md` para secciones obligatorias y metodo",
             "- usar `ENDURANCE_AGENT_DOMAIN.md` para tono, confianza e interpretacion",
             "- abrir `blocks.csv` solo si hace falta granularidad de bloques",
+            "- usar `coach_metrics.json`, `coach_intervals.csv` y `coach_groups.csv` solo como enriquecimiento local de `analysis/`, nunca como contrato canonico global",
         ]
     )
     if debug_dir and debug_dir.exists():
@@ -1176,6 +1900,9 @@ def build_analyst_prompt_markdown(
     blocks_path: Path | None,
     terrain_intervals_path: Path | None,
     terrain_climbs_path: Path | None,
+    coach_metrics_path: Path | None,
+    coach_intervals_path: Path | None,
+    coach_groups_path: Path | None,
 ) -> str:
     style_refs = style_reference_paths()
     versions = contract_version_status()
@@ -1214,6 +1941,12 @@ def build_analyst_prompt_markdown(
         lines.append(f"- terreno por split: `{terrain_intervals_path}`")
     if terrain_climbs_path:
         lines.append(f"- climbs FIT: `{terrain_climbs_path}`")
+    if coach_metrics_path:
+        lines.append(f"- coach metrics no canonicos: `{coach_metrics_path}`")
+    if coach_intervals_path:
+        lines.append(f"- estructura ICU por intervalo: `{coach_intervals_path}`")
+    if coach_groups_path:
+        lines.append(f"- estructura ICU por grupo: `{coach_groups_path}`")
     if style_refs:
         lines.extend(["", "## Referencias de estilo opcionales"])
         lines.extend([f"- `{path}`" for path in style_refs])
@@ -1222,10 +1955,14 @@ def build_analyst_prompt_markdown(
             "",
             "## Instruccion",
             "Redacta un informe rico de sesion en espanol, con tono tecnico y prudente, usando `session_payload.json` como fuente compacta principal y sin inventar metricas ni fuentes no presentes.",
+            "- trata `analysis_only_context` y sus sidecars coach como enriquecimiento local de `analysis/`; no los eleves a verdad canonica global si contradicen `sessions.csv` o los contratos HRV",
+            "- si existe `session_payload.json.subjective_context.notes_raw`, usala como nota manual del atleta en `Contexto subjetivo`; no la mezcles con `session_rpe`, `feel` ni con `load`/`trimp`",
             "",
             "## Sport Family",
             "- usa `session_payload.json.meta.sport_family` como guia primaria de lenguaje y semantica",
             "- aplica las notas de familia incluidas en `session_payload.json.narrative_targets.sport_family_notes`",
+            "- aplica tambien `session_payload.json.narrative_targets.coach_usage_notes` y `coach_narrative_hints` cuando exista `analysis_only_context`",
+            "- si existe `session_payload.json.narrative_targets.coach_report_examples`, usalos como ejemplos de traduccion narrativa por seccion, adaptandolos al caso sin copiarlos literalmente",
             "- no traslades semantica de trail a `hike`, `elliptical`, `bike` o `swim` si la familia declarada no lo permite",
             "",
             "## Secciones obligatorias",
@@ -1242,6 +1979,10 @@ def build_analyst_prompt_markdown(
             "- Implicacion practica",
             "- Confianza",
             "- Advertencias",
+            "",
+            "## Regla de bloque",
+            "- la carga de entrenamiento es un continuo: no silos por deporte si otra sesion de distinto deporte explica mejor la secuencia de fatiga o recuperacion",
+            "- para `Encaje en el bloque`, prioriza sesiones comparables por etapa de bloque, proximidad temporal, intensidad y tipo de estimulo; el mismo deporte ayuda, pero no es un filtro duro",
         ]
     )
     # Rules from external file (single source of truth)
@@ -1457,6 +2198,9 @@ def run_analysis(bundle_manifest: Path, reports_dir: Path, keep_debug_artifacts:
             shutil.copy2(fit_src, fit_artifact_path)
 
     terrain_climbs_csv_path = None
+    coach_metrics_path = None
+    coach_intervals_csv_path = None
+    coach_groups_csv_path = None
     if _supports_terrain_context(session_row):
         if fit_artifact_path and fit_artifact_path.exists():
             try:
@@ -1475,6 +2219,24 @@ def run_analysis(bundle_manifest: Path, reports_dir: Path, keep_debug_artifacts:
                 summary["terrain_fit_error"] = str(exc)
         else:
             summary["terrain_fit_error"] = "fit artifact unavailable"
+
+    analysis_only_context = manifest.get("analysis_only_context")
+    if isinstance(analysis_only_context, dict) and analysis_only_context:
+        summary["analysis_only_context"] = analysis_only_context
+        coach_metrics_path = artifacts_dir / "coach_metrics.json"
+        write_json(coach_metrics_path, analysis_only_context)
+    coach_interval_rows = manifest.get("coach_interval_rows") or []
+    if isinstance(coach_interval_rows, list) and coach_interval_rows:
+        coach_intervals_csv_path = write_intervals_structure_csv(
+            artifacts_dir / "coach_intervals.csv",
+            coach_interval_rows,
+        )
+    coach_group_rows = manifest.get("coach_group_rows") or []
+    if isinstance(coach_group_rows, list) and coach_group_rows:
+        coach_groups_csv_path = write_intervals_structure_csv(
+            artifacts_dir / "coach_groups.csv",
+            coach_group_rows,
+        )
 
     write_json(summary_path, summary)
     technical_report_md = report_dir / "technical_report.md"
@@ -1503,6 +2265,9 @@ def run_analysis(bundle_manifest: Path, reports_dir: Path, keep_debug_artifacts:
             blocks_path=blocks_path if blocks_path.exists() else None,
             terrain_intervals_path=terrain_intervals_csv_path,
             terrain_climbs_path=terrain_climbs_csv_path,
+            coach_metrics_path=coach_metrics_path,
+            coach_intervals_path=coach_intervals_csv_path,
+            coach_groups_path=coach_groups_csv_path,
         ),
         encoding="utf-8",
     )
@@ -1547,6 +2312,9 @@ def run_analysis(bundle_manifest: Path, reports_dir: Path, keep_debug_artifacts:
             blocks_path=blocks_path if blocks_path.exists() else None,
             terrain_intervals_path=terrain_intervals_csv_path,
             terrain_climbs_path=terrain_climbs_csv_path,
+            coach_metrics_path=coach_metrics_path,
+            coach_intervals_path=coach_intervals_csv_path,
+            coach_groups_path=coach_groups_csv_path,
             debug_dir=debug_dir if debug_dir.exists() else None,
         ),
         encoding="utf-8",
@@ -1561,6 +2329,9 @@ def run_analysis(bundle_manifest: Path, reports_dir: Path, keep_debug_artifacts:
         "blocks_csv": str(blocks_path) if blocks_path.exists() else None,
         "terrain_intervals_csv": str(terrain_intervals_csv_path) if terrain_intervals_csv_path else None,
         "terrain_climbs_csv": str(terrain_climbs_csv_path) if terrain_climbs_csv_path else None,
+        "coach_metrics_json": str(coach_metrics_path) if coach_metrics_path else None,
+        "coach_intervals_csv": str(coach_intervals_csv_path) if coach_intervals_csv_path else None,
+        "coach_groups_csv": str(coach_groups_csv_path) if coach_groups_csv_path else None,
         "fit_artifact": str(fit_artifact_path) if fit_artifact_path else None,
         "session_payload": str(payload_path),
         "ai_handoff": str(ai_handoff_path),

@@ -107,6 +107,12 @@ En analisis semanal, el modulo debe responder ademas:
   - `cadence_unit`
   - `validation_vs_v2`
   - `terrain_climbs.csv` como detalle reproducible por climb.
+- `analysis_only_context` cuando exista en `summary.json` o `session_payload.json` como capa no canonica de Intervals/coach:
+  - `coach_metrics`
+  - `structured_workout`
+  - `route_context`
+  - `zone_context`
+  - `coach_metrics.json`, `coach_intervals.csv` y `coach_groups.csv` como detalle reproducible local del modulo.
 
 ### MUST NOT
 - tratar contexto verbal como sustituto de un dato medido, salvo para describir carga externa indoor cuando el archivo no la represente bien.
@@ -203,6 +209,7 @@ debe interpretarse con este contrato por defecto, sin que el usuario tenga que r
 - usar `analysis/reports/<slug>/artifacts/session_payload.json` como fuente compacta principal,
 - usar `analysis/reports/<slug>/artifacts/summary.json` como apoyo tecnico,
 - abrir `analysis/reports/<slug>/artifacts/blocks.csv` solo si hace falta granularidad adicional,
+- abrir `analysis/reports/<slug>/artifacts/coach_metrics.json`, `coach_intervals.csv` y `coach_groups.csv` solo si hace falta enriquecer el relato tactico o la lectura por bloques,
 - cargar y respetar `ENDURANCE_AGENT_DOMAIN.md` y `SESSION_ANALYSIS_METHOD.md`,
 - usar `analysis/delete/session_report_*.md` como referencia de densidad y estructura cuando existan,
 - guardar el resultado final en `analysis/reports/<slug>/report.md`,
@@ -210,6 +217,7 @@ debe interpretarse con este contrato por defecto, sin que el usuario tenga que r
 
 ### MUST - disciplina de fuentes
 - tratar `session_payload.json` como fuente humana principal y `summary.json` como fuente tecnica reproducible,
+- tratar `analysis_only_context` y sus sidecars coach como enriquecimiento local de `analysis/`, nunca como sustituto del contrato canonico global,
 - usar `technical_report.md`, `report.md`, informes previos, prompts previos o handoffs solo como apoyo operacional, nunca como evidencia primaria,
 - si una conclusion no puede sostenerse con `session_payload.json` o `summary.json`, declararla como no demostrada o eliminarla,
 - cuando `session_payload.json` y otra fuente textual discrepen, priorizar el payload salvo error evidente y declarado.

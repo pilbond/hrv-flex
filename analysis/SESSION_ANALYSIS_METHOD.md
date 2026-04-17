@@ -1,4 +1,4 @@
-<!-- contract_version: 1.3 -->
+<!-- contract_version: 1.6 -->
 # SESSION_ANALYSIS_METHOD.md - Session analysis method
 
 ## 1. Alcance
@@ -93,6 +93,16 @@ Si existe fila canonica en `sessions.csv`, usar para esa sesion como referencia 
 
 Si `zones_source = fallback`, declararlo y rebajar la fuerza de cualquier conclusion fina basada en zonas.
 En este contexto, `fallback` significa que `sessions` uso umbrales genericos por deporte por falta de zonas configuradas en Intervals para esa disciplina.
+
+### Capa analysis-only de coach / Intervals
+Si existen `analysis_only_context`, `coach_metrics.json`, `coach_intervals.csv` o `coach_groups.csv` en los artefactos del slug:
+
+- tratarlos como enriquecimiento local de `analysis/`, no como contrato canonico global,
+- usarlos para describir mejor bloques, tactica, carga subjetiva o estructura coach cuando aporten valor claro,
+- si existen `narrative_targets.coach_narrative_hints` o `narrative_targets.coach_report_examples` en `session_payload.json`, tratarlos como ayudas de traduccion narrativa por seccion y por deporte,
+- cuando `session_rpe` se use en la narrativa final, descomponer al menos la primera mencion en formato Foster aproximado (`session_rpe ~= icu_rpe x moving_time_min`) para que la escala sea interpretable,
+- no convertir `session_rpe`, `icu_intensity`, `polarization_index` o `hr_load` en sustitutos automaticos de `load`, `trimp`, `intensity_category` o la distribucion canonica,
+- si una lectura coach contradice `sessions.csv`, `training_audit` o la capa RR, declarar la discrepancia y jerarquizar la confianza en vez de fusionarlas a la fuerza.
 
 ### Complejidad analitica
 - **Simple**: sesion continua, terreno llano o estable, sin RR, sin discrepancias obvias.
@@ -271,6 +281,9 @@ Cuando la ausencia de senal sea relevante para la lectura, hacerla explicitament
 - ausencia de acumulacion significativa de tiempo en `Z3`
 
 Regla: no omitir la evidencia negativa relevante simplemente porque no haya hallazgo; su ausencia confirma un patron de sesion controlada y debe decirse.
+
+Regla adicional de contexto:
+- en `road` o `trail` con terreno ondulado o quebrado, un `cardiac_drift_pct` moderado debe leerse con semantica de perfil; no equivale automaticamente al mismo fenomeno que en llano estable.
 
 ### Continuidad fisiologica util
 Para continuidad `>=VT1`, reutilizar por defecto la definicion canonica de `work blocks` del proyecto en `ENDURANCE_HRV_Sessions_Schema.md`.
@@ -794,6 +807,9 @@ Los datos de la sesion deben facilitar la lectura posterior, no competir con ell
   - **Estructura util**: 2-4 bullets (work blocks, bloque maximo, Z3 dentro de bloque),
   - **Contexto subjetivo**: 1-2 bullets (RPE, feel, nota del atleta si existe),
 - las cifras que luego se reinterpretan con mas valor en Estructura externa, Respuesta interna o Capa RR no deben repetirse aqui; basta con presentarlas una vez donde aporten mas senal.
+- si existe `analysis_only_context.coach_metrics`, `session_rpe`, `feel` e `icu_intensity` pueden entrar en **Contexto subjetivo** como apoyo local; MUST NOT presentarse como equivalentes directos de `load` o `trimp`.
+- si `session_rpe` entra en la narrativa, la primera mencion debe quedar legible como Foster aproximado (`session_rpe ~= icu_rpe x moving_time_min`).
+- si existe `narrative_targets.coach_report_examples.datos`, puede usarse como ejemplo de formulacion adaptado al caso.
 
 ### Reglas de seccion Capa RR
 La Capa RR tiene varias metricas cuantitativas que se leen mejor en tabla que en prosa.
@@ -803,20 +819,26 @@ La Capa RR tiene varias metricas cuantitativas que se leen mejor en tabla que en
 - si existe una limitacion que recorte la lectura fina (HR@0.75 no usable, gradiente alpha1 incoherente, etc.), declararla en un apartado **Limitacion clave** antes de cerrar,
 - cerrar la seccion con una **Jerarquia de evidencia** numerada en 3 niveles: que sostiene la lectura estructural principal, que aporta la capa RR, y que no permite hacer.
 - si `hr_at_075.usable = false`, cualquier `crossing` de baja confianza debe presentarse solo como orientacion secundaria; nunca como base de validacion de umbral.
+- si `DFA-alpha1` es muy alto pero `RMSSD` de ejercicio sale bajo en una sesion facil, explicitar la diferencia de escala y dar mas peso interpretativo a `DFA-alpha1` para clasificar el dominio fisiologico.
 
 ### Reglas de seccion Contexto de recuperacion y carga
 El contexto previo condiciona la lectura de la sesion. Para que sea rapido de consultar:
 - estructurar en apartados con negrita: **Sueno previo**, **HRV matinal**, **Carga reciente**,
 - si existe `training_audit.metric_level.load_context.state` y no es `high`, declararlo al abrir **Carga reciente** antes de citar `ACWR`, `monotony`, `strain` o clustering,
 - si hay tension entre un `gate_badge` favorable y un `reason_text` con cautela, no dejarla como nota al margen; resolverla en un apartado **Tension explicita** que diga que tipo de verde es y que permite o impide operativamente.
+- si `n_sessions` del dia es `> 1` y puede identificarse la otra sesion en `sessions.csv`, declarar cual fue y su posicion temporal relativa (antes o despues) para cerrar la lectura de carga intradia.
+- si existe `analysis_only_context.coach_metrics.hr_load` o `session_rpe`, pueden citarse como señales paralelas de carga local, pero siempre junto a `load`/`trimp` y sin asumir equivalencia de escala.
+- si existe `narrative_targets.coach_report_examples.encaje_bloque`, puede usarse como patron de comparacion prudente, especialmente en `road`, `trail` y `bike`.
 
 ### Reglas de seccion Encaje en el bloque
 La comparacion con sesiones recientes aporta contexto que el analisis aislado no tiene.
+- La carga de entrenamiento es un continuo: no encierres el contexto en un silo por deporte si otra sesion de distinto deporte explica mejor la secuencia de fatiga o recuperacion.
 - incluir una tabla cuantificada con 3-4 sesiones relevantes del bloque o periodo reciente,
 - columnas minimas: fecha, deporte, duracion, D+ si aplica, `work_total_min`, `load`,
-- priorizar sesiones comparables (mismo deporte, bloque activo) sobre recencia ciega,
+- priorizar sesiones comparables por etapa de bloque, proximidad temporal, intensidad y tipo de estimulo; el mismo deporte ayuda, pero no es un filtro duro,
 - usar `sessions.csv` como fuente primaria,
 - tras la tabla, una lectura comparativa breve que situe la sesion actual dentro de la secuencia.
+- si existe capa coach local, usar `session_rpe` u `hr_load` solo como apoyo secundario para matizar coherencia subjetiva o carga interna, nunca como eje unico de comparacion longitudinal.
 
 ### Reglas de seccion Conclusion
 La conclusion debe integrar la lectura cualitativa con sus anclajes numericos.
