@@ -1,4 +1,5 @@
 import inspect
+import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -368,6 +369,49 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
             row["reason_text"],
         )
         self.assertIn("VERDE, pero sueño y carga reciente piden prudencia", row["reason_text"])
+        sidecar = final.attrs["reason_items_sidecar"]
+        reason_items = sidecar["items_by_date"]["2026-02-08"]
+        reason_types = {item["type"] for item in reason_items}
+        self.assertEqual(sidecar["schema_version"], "1.0")
+        self.assertEqual(sidecar["source"], "build_hrv_final_dashboard.py")
+        self.assertIn("recovery_discordance", reason_types)
+        self.assertIn("action_constraint", reason_types)
+
+    def test_recovery_discordance_message_falls_back_with_context_when_summary_is_empty(self):
+        message = final_builder._recovery_discordance_message("VERDE", "fragile", "basic", "")
+        self.assertIn("Discordancia de recuperación", message)
+        self.assertIn("VERDE", message)
+        self.assertIn("fragile", message)
+        self.assertIn("cobertura=basic", message)
+
+    def test_main_writes_reason_items_sidecar_json(self):
+        core = _core_frame()
+
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            core.to_csv(data_dir / "ENDURANCE_HRV_master_CORE.csv", index=False)
+            _write_sessions_day(
+                data_dir,
+                [
+                    {
+                        "Fecha": "2026-02-08",
+                        "load_day": 70,
+                        "load_3d": 210,
+                        "load_3d_nobs": 3,
+                    }
+                ],
+            )
+
+            exit_code = final_builder.main(["--data-dir", str(data_dir)])
+
+            self.assertEqual(exit_code, 0)
+            sidecar_path = data_dir / "ENDURANCE_HRV_master_FINAL_reason_items.json"
+            self.assertTrue(sidecar_path.exists())
+            payload = json.loads(sidecar_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["schema_version"], "1.0")
+            self.assertEqual(payload["source"], "build_hrv_final_dashboard.py")
+            self.assertIn("2026-02-08", payload["items_by_date"])
+            self.assertTrue(payload["items_by_date"]["2026-02-08"])
 
     def test_recovery_context_marks_amber_as_supported_when_night_and_load_are_favorable(self):
         core = _core_frame()

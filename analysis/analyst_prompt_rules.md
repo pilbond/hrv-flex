@@ -1,4 +1,4 @@
-<!-- rules_version: 1.6 -->
+<!-- rules_version: 1.8 -->
 ## Reglas generales
 - separa claramente lo observado en los datos de lo inferido
 - cuando una capa no sea interpretable, dilo de forma explicita
@@ -11,6 +11,7 @@
 ## Reglas de fuentes y calidad
 - en `Fuentes`, jerarquiza por funcion analitica (continuidad, FC temporal, contexto integrado, comparativa de bloque); usa tabla markdown con columnas `Rol analitico` y `Fuente` cuando haya 3 o mas fuentes
 - trata `session_payload.json` como fuente humana principal y `summary.json` como fuente tecnica reproducible
+- si `session_payload.json.final_reason_items_contract.fallback_to_reason_text = false` y la seccion `Tension explicita` usa cautelas HRV tipificadas, declara tambien la fuente estructurada de esa capa; cuando aplique, incluye `ENDURANCE_HRV_master_FINAL_reason_items.json` en `Fuentes`
 - no cites `technical_report.md`, `report.md` ni informes previos como evidencia del caso
 - si el bundle incluye `fit_path`, tratalo como fuente preferente para continuidad y granularidad temporal; `STREAM_CSV` complementa cuando aporte HR, velocidad o cadencia normalizadas
 - si `hr_source = STREAM_CSV` sin FIT, la lectura global e intensidad siguen siendo validas; la ausencia de FIT solo limita trayectoria, splits o distribucion por segmentos
@@ -37,8 +38,14 @@
 - `Capa RR`: presenta RMSSD y DFA-alpha1 en tablas markdown; incluye apartado `Sintesis de coste` con scores y sus anclajes observacionales (`cardio_evidence[]`, `mecanico_evidence[]` de `summary.json`); declara la `Limitacion clave` cuando exista; cierra con `Jerarquia de evidencia` numerada (que sostiene la lectura, que aporta RR, que no permite hacer)
 - `Capa RR`: en `bike` o esfuerzos muy faciles, si aparece `DFA` muy alto junto a `RMSSD` de ejercicio bajo, explica que ambas escalas no son directamente equivalentes; prioriza `DFA-alpha1` para clasificar el dominio de esfuerzo y usa RMSSD como apoyo contextual
 - `HR @ alpha1=0.75`: si `hr_at_075_usable = false` pero `hr_at_075_crossing` tiene valor no nulo, incluye en `Capa RR` una linea de estimacion secundaria con este formato exacto: `HR estimada en α1=0.75: ~X lpm (mediana de N cruces HR-sorted, confianza: C)`; si `confidence = low` o `approximate` añade entre parentesis `solo orientativo`; nunca uses esta estimacion para validar umbrales o reclasificar zonas
-- `Contexto de recuperacion y carga`: estructura en apartados (`Sueno previo`, `HRV matinal`, `Carga reciente`); si `gate_badge` es favorable pero `reason_text` introduce cautela (baseline60_degraded, saturacion parasimpatica), resuelve la tension en un apartado `Tension explicita` que diga que tipo de verde es y que permite o impide
+- `Contexto de recuperacion y carga`: estructura en apartados (`Sueno previo`, `HRV matinal`, `Carga reciente`); si existe `session_payload.json.final_reason_flags.has_explicit_tension = true`, abre `Tension explicita` usando primero `final_reason_items`; solo si no existen, recurre a `reason_text` como fallback
+- `Contexto de recuperacion y carga`: cuando `session_payload.json.final_reason_items_contract.fallback_to_reason_text = false`, `Tension explicita` MUST describir los items estructurados por `type` y, cuando existan, `value` y `threshold`; no debe parafrasear `reason_text` como fuente primaria
+- `Contexto de recuperacion y carga`: cuando haya mas de un item en `final_reason_items`, distingue su papel fisiologico u operativo; no colapses `intensity_clustering` y `green_load_caution` en una sola prudencia generica si el payload los separa
+- `Contexto de recuperacion y carga`: si `final_reason_flags.has_action_constraint = false`, dilo explicitamente cuando cierre la tension; permiso con margen reducido no equivale a restriccion operativa
 - `Contexto de recuperacion y carga`: si `baseline60_degraded = True`, rebaja la fuerza del lenguaje; no conviertas HRV matinal + feel en diagnostico cerrado
+- `Contexto de recuperacion y carga`: si `gate_badge` ya es `ÁMBAR...` o `ROJO...`, abre `Tension explicita` desde el color/accion (`gate_badge`, `Action`) y usa los items para explicar por que el gate ya cambió; no lo redactes como un verde con cautelas
+- `Contexto de recuperacion y carga`: si `gate_badge` sigue en `VERDE...`, puedes abrir desde el permiso condicionado y despues explicar las cautelas tipificadas
+- `Contexto de recuperacion y carga`: no presentes `has_action_constraint = false` ni `baseline60_degraded = True` como bullets paralelos al mismo nivel que los `final_reason_items`; el primero es una lectura operativa derivada y el segundo un modificador de precision
 - `Contexto de recuperacion y carga`: si `n_sessions dia > 1` y puedes identificar otras sesiones del mismo dia desde `sessions.csv`, menciona cuales fueron y si ocurrieron antes o despues; no dejes la doble sesion como numero sin contexto
 - `Encaje en el bloque`: incluye tabla cuantificada con 3-4 sesiones relevantes (fecha, deporte, duracion, D+, work_total_min, load); prioriza sesiones comparables por etapa de bloque, proximidad temporal, intensidad y tipo de estimulo sobre recencia ciega; el mismo deporte ayuda, pero no es un filtro duro; tras la tabla, lectura comparativa breve
 - `Encaje en el bloque`: si existe `analysis_only_context.coach_metrics.hr_load` o `session_rpe`, pueden usarse como señales paralelas de carga local, pero presentalas siempre junto a `load`/`trimp` y sin asumir equivalencia de escala

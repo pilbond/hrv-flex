@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Sessions Schema
 
-**Revisión:** r2026-04-16 v3.11 (params_hash: c1c78a78)
+**Revisión:** r2026-04-20 v3.12 (params_hash: c1c78a78)
 **Estado:** Producción
 
 **Documentos relacionados:**
@@ -8,7 +8,7 @@
 - `ENDURANCE_HRV_Spec_Tecnica.md` — fórmulas y algoritmos del gate HRV
 - `ENDURANCE_HRV_Diccionario.md` — diccionario de columnas del gate HRV
 
-**Convención de versión:** esta cabecera identifica la revisión del pipeline de sesiones (`r2026-04-07 v3.7`), no la versión global del sistema HRV. La versión de sistema vigente se declara en `ENDURANCE_HRV_Spec_Tecnica.md`.
+**Convención de versión:** esta cabecera identifica la revisión del pipeline de sesiones (`r2026-04-20 v3.12`), no la versión global del sistema HRV. La versión de sistema vigente se declara en `ENDURANCE_HRV_Spec_Tecnica.md`.
 
 ---
 
@@ -88,7 +88,7 @@ El pipeline de sesiones y el módulo `analysis/` se conectan, pero no comparten 
 
 ## 2. SESSIONS.CSV — columnas y significado
 
-67 columnas organizadas en bloques funcionales. Cada bloque agrupa campos relacionados.
+68 columnas organizadas en bloques funcionales. Cada bloque agrupa campos relacionados.
 
 ### Bloque A — Identidad
 
@@ -97,6 +97,7 @@ Quién eres, cuándo entrenaste, y qué zonas se usaron para clasificar el esfue
 | Campo | Tipo | Qué es | Ejemplo |
 |-------|------|--------|---------|
 | `session_id` | string | Identificador único de la actividad en Intervals.icu. Empieza con "i" seguido de un número. Sirve para rastrear cualquier sesión hasta su fuente original. | i127783816 |
+| `route_id` | int? | Identificador de la ruta de Intervals.icu cuando la actividad viene asociada a un recorrido repetible. Permite comparar la sesión con la última vez que se hizo el mismo route_id, sin inventar comparadores por parecido visual. | 42 |
 | `Fecha` | date | Día en que se realizó la sesión (YYYY-MM-DD). Si entrenas dos veces un día, habrá dos filas con la misma Fecha pero distinto session_id. | 2026-02-25 |
 | `start_time` | HH:MM | Hora de inicio de la sesión. Útil para distinguir sesiones dobles y para análisis de distribución horaria del entrenamiento. | 15:16 |
 | `sport` | enum | Tipo de deporte normalizado (minúsculas, guiones bajos). El pipeline lo usa para asignar umbrales de zonas, decidir si hay velocidad disponible, y clasificar la sesión. | trail_run, bike, strength, swim |

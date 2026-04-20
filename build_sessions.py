@@ -1116,6 +1116,7 @@ def build_session_row(activity: dict, client: IntervalsClient,
 
     row = {
         "session_id": aid,
+        "route_id": _coerce_int_or_none(activity.get("route_id")),
         "Fecha": activity["start_date_local"][:10],
         "start_time": activity["start_date_local"][11:16],
         "sport": sport,
@@ -2045,6 +2046,7 @@ def warn_if_stream_sampling_suspicious(dt_stats: Optional[dict]) -> None:
 
 
 NUMERIC_SESSION_COLS = [
+    "route_id",
     "duration_min",
     "moving_min",
     "distance_km",
@@ -2249,7 +2251,7 @@ def run_pipeline(oldest: str, newest: str, output_dir: Path,
     df["effort_vs_anchor"] = compute_effort_anchor(df)
 
     col_order = [
-        "session_id", "Fecha", "start_time", "sport", "sport_raw",
+        "session_id", "route_id", "Fecha", "start_time", "sport", "sport_raw",
         "source", "vt1_used", "vt2_used", "zones_source",
         "duration_min", "moving_min", "distance_km",
         "elev_gain_m", "elev_loss_m", "elev_density", "calories",

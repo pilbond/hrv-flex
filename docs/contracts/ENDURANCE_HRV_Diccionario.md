@@ -1,12 +1,12 @@
 # ENDURANCE HRV — Diccionario de Columnas (FINAL/DASHBOARD)
 
-**Revisión:** r2026-04-10 v4.10 (SS-01 reason_items interno sin cambio de esquema)
+**Revisión:** r2026-04-18 v4.11 (SS-02 sidecar reason_items público para analysis)
 **Estado:** Producción
 
 **Documentos relacionados:**
 - `ENDURANCE_HRV_Spec_Tecnica.md` — especificación técnica (fórmulas y reglas)
 - `ENDURANCE_HRV_Estructura.md` — contrato de datos (columnas y orden exacto)
-- `ENDURANCE_HRV_Sessions_Schema.md` — contrato del pipeline de sesiones (`sessions.csv`, `sessions_day.csv`, `ENDURANCE_HRV_sessions_metadata.json`), revisión `r2026-04-16 v3.11`
+- `ENDURANCE_HRV_Sessions_Schema.md` — contrato del pipeline de sesiones (`sessions.csv`, `sessions_day.csv`, `ENDURANCE_HRV_sessions_metadata.json`), revisión `r2026-04-20 v3.12`
 
 **Límite de alcance de este diccionario:**
 - documenta `CORE`, `FINAL` y `DASHBOARD`,
@@ -320,7 +320,39 @@ Mapping:
 | `recovery_support_class` | Lectura resumida de cómo encajan gate, sueño Polar y carga reciente. `supported` = el contexto externo acompaña la lectura; `neutral` = no añade gran cosa o está mezclado; `fragile` = el gate sale razonable pero sueño/carga meten cautela; `conflicted` = el gate sale mal pero sueño/carga no lo explican bien. No cambia la acción por sí mismo. |
 | `recovery_discordance_flag` | True cuando RE-01 detecta una tensión operativa material entre el gate y el soporte objetivo externo. Hoy se activa en clases `fragile` y `conflicted`. |
 | `recovery_discordance_reason` | Códigos transparentes que explican la discordancia detectada por RE-01. Ejemplos: `sleep_basic_poor`, `nightly_rmssd_low`, `load_context_high`, `sleep_score_good`, `recent_load_low`. Pensado para auditoría o análisis posterior; no es texto para consumo diario. |
-| `reason_text` | Texto explicativo contextual que combina información del gate con datos de sueño y carga. Múltiples razones separadas por ` \| `. Puede incluir: caída brusca de HRV, noche corta/fragmentada (basado en tus percentiles, no en umbrales fijos), carga acumulada alta (`load_3d`), `ACWR`, `monotony`, `strain`, clustering reciente de intensidad, HRV inusualmente alto fuera de tu rango habitual y divergencias gate↔contexto. Desde RE-01 también puede cerrar con mensajes semánticos como `VERDE con recuperación frágil...`, `ÁMBAR con soporte nocturno aceptable...` o `ROJO con discordancia objetiva...`. Desde SS-01 este texto se renderiza internamente a partir de `reason_items` estructurados en memoria, pero **no existe aún** una columna pública `reason_items_json` en `FINAL` ni en `DASHBOARD`. El wellness subjetivo de Intervals queda fuera de `reason_text` y se reserva para capas retrospectivas o separadas. **No recolorea** el gate — es contexto para tu decisión. |
+| `reason_text` | Texto explicativo contextual que combina información del gate con datos de sueño y carga. Múltiples razones separadas por ` \| `. Puede incluir: caída brusca de HRV, noche corta/fragmentada (basado en tus percentiles, no en umbrales fijos), carga acumulada alta (`load_3d`), `ACWR`, `monotony`, `strain`, clustering reciente de intensidad, HRV inusualmente alto fuera de tu rango habitual y divergencias gate↔contexto. Desde RE-01 también puede cerrar con mensajes semánticos como `VERDE con recuperación frágil...`, `ÁMBAR con soporte nocturno aceptable...` o `ROJO con discordancia objetiva...`. Desde SS-01 este texto se renderiza internamente a partir de `reason_items` estructurados en memoria, pero no existe columna pública `reason_items_json` en `FINAL` ni en `DASHBOARD`. El wellness subjetivo de Intervals queda fuera de `reason_text` y se reserva para capas retrospectivas o separadas. **No recolorea** el gate — es contexto para tu decisión. |
+
+### Sidecar estructurado para analysis
+
+Desde SS-02 existe el sidecar `ENDURANCE_HRV_master_FINAL_reason_items.json`, que serializa por fecha los `reason_items` usados para construir `reason_text`.
+
+`analysis/` consume ese sidecar y deriva:
+- `final_reason_items`: items normalizados listos para lectura semántica,
+- `final_reason_flags`: flags agregados de cautela/tensión,
+- `final_reason_items_contract`: disponibilidad, conformidad y fallback,
+- `narrative_targets.final_reason_rendered`: capa narrativa local para informes de sesión.
+
+### `narrative_targets.final_reason_rendered` (solo analysis)
+
+No forma parte del contrato global de `FINAL`, pero sí del contrato local de `analysis/session_payload.json`.
+
+Campos relevantes:
+- `items[]`: lista renderizada por item, preservando el `message` cuantificado original.
+- `items[].signal_kind`: naturaleza de la señal ya resuelta por Python.
+  - `temporal_density`: densidad temporal de días duros, como `intensity_clustering`.
+  - `accumulated_load`: carga acumulada reciente, como `green_load_caution`, `acwr`, `monotony` o `strain`.
+  - `precision_modifier`: modulador de precisión interpretativa, como `baseline60_degraded`.
+- `baseline_modifier`: lectura separada cuando `baseline60_degraded = true`; en `analysis/` debe leerse como rebaja de precisión, no como veto operativo por sí sola.
+
+Artefacto complementario:
+- `artifacts/report_sync_status.json`: estado de sincronización del `report.md` humano.
+  - `status`: `missing`, `unmanaged_legacy`, `stale`, `up_to_date`.
+  - `current_token`: token calculado desde `session_payload.json`, `summary.json` y `technical_report.md`.
+  - `report_token`: token encontrado en `report.md`, si existe.
+
+Regla de trazabilidad:
+- si `final_reason_items_contract.fallback_to_reason_text = false`, los informes de `analysis/` deben tratar este sidecar como fuente estructurada activa y pueden declararlo explícitamente en `Fuentes`.
+- si `report_sync_status.status != up_to_date`, el `report.md` debe considerarse no alineado con la regeneración técnica más reciente.
 
 ---
 
@@ -795,11 +827,12 @@ Desde SS-01, `reason_text` debe leerse como un render humano compacto, no como e
 - inferencia,
 - acción.
 
-Esa mejora es interna y de trazabilidad. El contrato público no cambia:
+Esa mejora es interna y de trazabilidad. Desde SS-02, además, el builder publica un sidecar `ENDURANCE_HRV_master_FINAL_reason_items.json` con los `reason_items` por fecha para consumo de `analysis/`. El contrato público del CSV no cambia:
 
 - `FINAL` sigue teniendo 62 columnas,
 - `DASHBOARD` sigue teniendo 10 columnas,
-- no existe `reason_items_json` público para consumidores externos.
+- no existe `reason_items_json` público como columna en `FINAL` ni en `DASHBOARD`;
+- el sidecar `ENDURANCE_HRV_master_FINAL_reason_items.json` sí existe y se usa como entrada estructurada de `analysis/`.
 
 ### Baseline 60d (BASE60)
 Tu "normal reciente": la **mediana** de lnRMSSD y HR en los últimos 60 días (solo clean, shift-1). ¿Por qué mediana y no media? Porque la mediana ignora valores extremos puntuales: si en 60 días tuviste 2 días con HRV muy bajo por una gripe, la mediana apenas se mueve. La ventana de 60 días es un compromiso: lo bastante larga para ser estable, lo bastante corta para seguir adaptaciones reales (si mejoras por entrenamiento sostenido, el baseline sube). Necesita al menos 30 días clean para operar.

@@ -23,6 +23,8 @@ Importante:
 - Si `sessions_day.csv` y `sessions_metadata.json` estan al dia, `FINAL` puede incorporar contexto de carga canonico (`ACWR`, `monotony`, `strain`, clustering de intensidad) y capas de recuperacion multisenal sin tocar el gate.
 - La capa de terreno `FP-02` no nace aqui: se genera despues dentro de `analysis/` al correr `analysis\\run_session_analysis.py` o `analysis\\analyze_session.py`.
 - Esa misma capa local de `analysis/` ya puede enriquecer el bundle de sesion con `composite_context` (`subjective_coherence`, `thermal_context`, `durability_context`) sin tocar `sessions.csv`, `sessions_day.csv` ni otros contratos canonicos.
+- Desde `SYA-01`, `analysis/` deja tambien `artifacts/report_sync_status.json` para explicitar si el `report.md` humano esta alineado con `session_payload.json`, `summary.json` y `technical_report.md`. El prompt/handoff incluyen un `report_sync_token` que debe copiarse al inicio del `report.md`.
+- Desde esta misma fase, `analysis/run_analysis()` genera `report.md` directamente como artefacto final gobernado por pipeline. Si encuentra un `report.md` legacy sin token, crea antes un backup `report.legacy.md` y luego toma posesion del informe principal.
 
 ## 2) Script por script
 
@@ -181,6 +183,7 @@ Importante:
 - Aplica la logica del decisor FINAL/DASHBOARD (decision operativa diaria).
   - Enriquce `reason_text` con contexto de sueno y carga.
   - Desde SS-01, construye internamente `reason_items` estructurados y despues renderiza `reason_text` desde esa capa.
+  - Desde SS-02, publica ademas `ENDURANCE_HRV_master_FINAL_reason_items.json` como sidecar estable para consumo de `analysis/`.
   - Valida semanticamente cada motivo con enums cerrados de `layer` (`measured/proxy/inference/action`) y `severity` (`low/medium/high/very_high`).
   - Consume la capa CDC-01 de contexto canonico de carga desde `ENDURANCE_HRV_sessions_day.csv`:
     - `acwr_simple_prev`
@@ -210,10 +213,11 @@ Importante:
   - Opcional: `ENDURANCE_HRV_sessions_day.csv`
 - Salidas:
   - FINAL y DASHBOARD.
-  - `reason_items` queda en memoria como detalle interno del builder; no se expone en `FINAL` ni en `DASHBOARD`.
+  - `reason_items` sigue sin exponerse como columna en `FINAL` ni en `DASHBOARD`, pero ahora tambien se serializa en `ENDURANCE_HRV_master_FINAL_reason_items.json`.
   - `FINAL` mantiene `gate_final`, `Action` y `Action_detail` como arbitros operativos.
   - RE-01 solo aporta soporte o discordancia objetiva via columnas y `reason_text`.
   - CDC-01 y AP-01 solo aportan contexto de carga/clustering en `reason_text`; no recolorean el gate.
+  - `analysis/` puede tratar el sidecar como fuente estructurada primaria cuando `fallback_to_reason_text = false`, pero eso no cambia el contrato público de los CSV.
 - Automatico o manual:
   - Automatico dentro de `polar_hrv_automation.py --process`.
   - Tambien se puede correr manual.

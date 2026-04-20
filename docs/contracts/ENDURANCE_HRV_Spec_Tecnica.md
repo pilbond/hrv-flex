@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Especificación Técnica
 
-**Revisión:** r2026-04-10 v4.10 (SS-01 reason_items interno sin cambio de salida)
+**Revisión:** r2026-04-19 v4.12 (SS-02 trazabilidad estructurada en analysis)
 **Estado:** Producción
 
 ---
@@ -833,7 +833,12 @@ bad_7d = nº de ROJO en los últimos 7 días
 - `ENDURANCE_HRV_sleep.csv` — sueño Polar (noche corta, fragmentada, nightly_rmssd)
 - `ENDURANCE_HRV_sessions_day.csv` — carga de entrenamiento (`ACWR`, `monotony`, `strain`, `work_7d`, `z3_7d`), clustering reciente de intensidad, señal DO-02 de polarización por familia y resumen de episodios
 
-**Generación:** Internamente, `build_hrv_final_dashboard.py` ya no apila texto libre sin estructura: emite `reason_items` en memoria y después renderiza `reason_text` como salida humana compacta. Cada item puede declarar `type`, `layer`, `source` y, cuando aplica, evidencia estructurada (`metric`, `value`, `threshold`, `codes`, `evidence`). Esta capa todavía es **interna**: no existe columna pública `reason_items_json` en `FINAL` ni `DASHBOARD`.
+**Generación:** `build_hrv_final_dashboard.py` construye `reason_items` estructurados y después renderiza `reason_text` como salida humana compacta. Además, escribe un sidecar estable `ENDURANCE_HRV_master_FINAL_reason_items.json` con los items por fecha para consumo local de `analysis/`. Cada item puede declarar `type`, `layer`, `source` y, cuando aplica, evidencia estructurada (`metric`, `value`, `threshold`, `codes`, `evidence`). La tabla `FINAL` sigue sin exponer una columna pública `reason_items_json`; el contrato público del CSV no cambia.
+
+**Consumo en analysis:** `analysis/session_analysis_pipeline.py` no usa ya `reason_text` como única interfaz semántica cuando el sidecar está disponible. Deriva `final_reason_items`, `final_reason_flags`, `final_reason_items_contract` y una capa narrativa local `narrative_targets.final_reason_rendered`. Esa capa local:
+- preserva el mensaje cuantificado del item original (por ejemplo `1 día intenso en los últimos 3 (y 2 en los últimos 5)`),
+- distingue la naturaleza de la señal con `signal_kind` (p.ej. `temporal_density`, `accumulated_load`, `precision_modifier`),
+- y permite que los informes de `analysis/` declaren en `Fuentes` la cadena de trazabilidad estructurada (`ENDURANCE_HRV_master_FINAL_reason_items.json`) cuando `fallback_to_reason_text = false`.
 
 Las condiciones visibles se siguen evaluando en orden y las que se cumplen se concatenan con separador ` | `:
 
@@ -1066,7 +1071,9 @@ Secciones obligatorias:
 | 2026-03-01 v4.1 | sleep.csv simplificado: 34→17 cols (solo Polar sleep/nightly, sin Intervals) |
 | 2026-03-01 v4.1 | reason_text dual source: sueño de sleep.csv, carga de sessions_day.csv |
 | 2026-03-01 v4.1 | Nuevos archivos sessions.csv (43 cols), sessions_day.csv (40 cols iniciales), ENDURANCE_HRV_sessions_metadata.json |
+| 2026-04-19 v4.12 | `analysis/` añade `narrative_targets.final_reason_rendered` como capa narrativa derivada de `final_reason_items`, con `signal_kind` y trazabilidad explícita del sidecar en `Fuentes` cuando el fallback a `reason_text` está desactivado |
 | 2026-04-10 v4.9 | DO-02: `build_sessions.py` genera la señal rolling de polarización por familia en `sessions_day.csv` (`dominant_family_prev_7d`, `dominant_family_share_prev_7d`, `n_sessions_usable_prev_7d`, `z1/z2/z3_pct_weighted_prev_7d`, `distribution_signal_confidence_prev_7d`, `polarisation_index_prev_7d`, `intensity_blackhole_flag`, `intensity_blackhole_episode_id`, `intensity_blackhole_episode_len`); cálculo causal `D-7..D-1` desde `sessions.csv`, sin tocar el gate; la frecuencia operativa se interpreta por episodios consecutivos de `True` y no por días sueltos; `episode_len` cuenta filas consecutivas emitidas en `sessions_day.csv`, no días calendario; el umbral de volumen de 90 min aplica a la familia dominante |
+| 2026-04-18 v4.11 | SS-02: `build_hrv_final_dashboard.py` publica el sidecar `ENDURANCE_HRV_master_FINAL_reason_items.json` para `analysis/`; `reason_text` sigue siendo el render humano, pero `analysis/session_analysis_pipeline.py` consume `final_reason_items` y deriva flags de cautela/tensión |
 | 2026-04-10 v4.10 | SS-01: `reason_text` pasa a renderizarse desde `reason_items` estructurados en memoria (`type/layer/source/...`), con separación interna entre dato medido, proxy, inferencia y acción; sin cambio de columnas públicas en `FINAL` ni `DASHBOARD` |
 | 2026-04-08 v4.7 | DO-01: `build_sessions.py` genera `ENDURANCE_HRV_intensity_distribution_weekly.csv` (21 cols, 1 fila por semana ISO × deporte); `classify_distribution_pattern` clasifica la semana como `polarized`, `pyramidal`, `threshold` o `mixed` con ponderación por minutos y confianza explícita; sidecar analítico, no alimenta el gate ni `reason_text` |
 | 2026-04-08 v4.6 | RE-01: `build_hrv_final_dashboard.py` añade `recovery_context_quality`, `recovery_support_class`, `recovery_discordance_flag` y `recovery_discordance_reason`; `reason_text` gana cierres semánticos de recuperación sin tocar `gate_final` |

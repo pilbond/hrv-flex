@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Estructura de Datos
 
-**Revisión:** r2026-04-10 v3.11 (SS-01 reason_items interno sin cambio de esquema publico)
+**Revisión:** r2026-04-18 v3.12 (SS-02 sidecar reason_items público para analysis)
 **Estado:** Producción
 
 **Documentos relacionados:**
@@ -41,8 +41,9 @@ El sistema genera 7 archivos CSV + 1 JSON de trazabilidad. Cada uno tiene un rol
 | `ENDURANCE_HRV_master_CORE.csv` | La medición fisiológica del día: pulso, variabilidad, calidad de señal y trazabilidad mínima de estabilidad. Sin ninguna decisión de entrenamiento. | `build_hrv_core.py` | 18 |
 | `ENDURANCE_HRV_master_FINAL.csv` | El gate de entrenamiento, las sombras, el residual, el veto agudo, el reason_text y la capa RE-01 de recuperación multiseñal necesaria para contextualizar soporte o discordancia sin tocar el gate. | `build_hrv_final_dashboard.py` | 62 |
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | Lo esencial para decidir en 10 segundos: semáforo, acción, warning, y reason_text contextual. Subconjunto de FINAL. | `build_hrv_final_dashboard.py` | 10 |
+| `ENDURANCE_HRV_master_FINAL_reason_items.json` | Sidecar estable con `reason_items` por fecha para consumo de `analysis/`; conserva la separación entre dato medido, proxy, inferencia y acción. Cuando `analysis/` lo usa como fuente primaria, los informes deben poder declararlo explícitamente en `Fuentes`. | `build_hrv_final_dashboard.py` | n/a |
 | `ENDURANCE_HRV_sleep.csv` | Sueño nocturno y señales de recuperación (Polar). Alimenta el reason_text pero NO afecta al gate. | `hrv_app.sleep_store` (coordinado por `polar_hrv_automation.py`) | 17 |
-| `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento: zonas, work blocks, drift, effort, clasificación, primitivas mínimas de coach metrics por sesión y capa mecánica opcional. | `build_sessions.py` | 67 |
+| `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento: zonas, work blocks, drift, effort, clasificación, `route_id` cuando existe, primitivas mínimas de coach metrics por sesión y capa mecánica opcional. | `build_sessions.py` | 68 |
 | `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios de entrenamiento + rolling con cobertura (_nobs), más contexto canónico de carga (`ACWR`, `monotony`, `strain`), clustering reciente de intensidad y la señal rolling `DO-02` de polarización por familia con resumen de episodio. Alimenta el reason_text para checks de carga. | `build_sessions.py` | 60 |
 | `ENDURANCE_HRV_intensity_distribution_weekly.csv` | Resumen semanal por deporte de distribución observada de intensidad (`sport x week`), con minutos ponderados por zona, `work_*`, patrón descriptivo y confianza. Es sidecar analítico; no alimenta el gate. | `build_sessions.py` | 21 |
 | `ENDURANCE_HRV_sessions_metadata.json` | Trazabilidad del pipeline de sesiones: versión, parámetros, hash, sampling rate, cobertura y auditoría ligera `dataset/signal/metric` para coaching/carga. | `build_sessions.py` | — |
@@ -108,7 +109,14 @@ Fecha,Calidad,HRV_Stability,Stability_Subtype,Artifact_pct,Tiempo_Estabilizacion
 
 FINAL es el archivo de auditoría completo: contiene la medición del día, el suavizado, los baselines, todos los gates, el veto agudo, el residual, la acción, la acumulación, los warnings y el `reason_text` contextual. Además, desde r2026-03-12 expone una capa mínima de auditoría `raw vs ref` para entender mejor los días `Unstable` sin cambiar el `gate_final`.
 
-**Nota SS-01:** `build_hrv_final_dashboard.py` construye internamente `reason_text` desde una capa estructurada de `reason_items` en memoria (`type`, `layer`, `source`, `message`, etc.), pero **esa capa no forma parte aún del contrato público**. No existe `reason_items_json` en `FINAL` ni en `DASHBOARD`; el esquema público sigue siendo de 62 y 10 columnas respectivamente.
+**Nota SS-02:** `build_hrv_final_dashboard.py` construye internamente `reason_text` desde una capa estructurada de `reason_items` en memoria (`type`, `layer`, `source`, `message`, etc.) y además publica el sidecar `ENDURANCE_HRV_master_FINAL_reason_items.json` para consumo de `analysis/`. El esquema público de `FINAL` y `DASHBOARD` sigue siendo de 62 y 10 columnas respectivamente; no se añade una columna `reason_items_json` al CSV.
+
+**Nota analysis:** `analysis/session_analysis_pipeline.py` deriva una capa local `narrative_targets.final_reason_rendered` dentro de `session_payload.json`. Esa capa no cambia el contrato global HRV, pero sí fija cómo `analysis/` debe traducir las cautelas tipificadas:
+- mantiene el mensaje cuantificado del item original,
+- distingue `signal_kind` (por ejemplo `temporal_density`, `accumulated_load`, `precision_modifier`),
+- y separa `baseline60_degraded` como modulador de precisión, no como otra señal de carga.
+
+**Nota analysis/report sync:** el mismo pipeline deja `analysis/reports/<slug>/artifacts/report_sync_status.json` para declarar si el `report.md` humano está alineado con los artefactos técnicos regenerados. Estados esperados: `missing`, `unmanaged_legacy`, `stale`, `up_to_date`. `analyst_prompt.md` y `ai_handoff.md` deben incluir el `report_sync_token` que el informe final tiene que copiar en un comentario HTML al inicio. Desde esta fase, `run_analysis()` ya genera también `report.md` como artefacto gestionado por pipeline; si encuentra un informe legacy sin token, preserva primero `report.legacy.md`.
 
 **Cabecera exacta (copiar literal):**
 
