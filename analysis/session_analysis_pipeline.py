@@ -2346,7 +2346,7 @@ def render_report_markdown(summary: dict[str, Any]) -> str:
             f"- validation_warnings: `{', '.join(warnings) if warnings else 'none'}`",
             f"- validation_infos: `{', '.join(infos) if infos else 'none'}`",
             "- note: capa FIT paralela a V2; no recalcula GAP",
-            "- note: la potencia estimada de esta capa solo se genera para bike; es un proxy de subida en carretera y no sustituye potencia medida cuando esa exista en la sesión",
+            "- note: la potencia estimada de esta capa solo se genera para bike; la potencia medida puede aparecer en bike, trail o road y se presenta como medicion directa cuando la fuente la declara como measured",
             "",
         ])
 
@@ -2659,7 +2659,7 @@ def _build_rr_detail_lines(summary: dict[str, Any]) -> list[str]:
     return lines
 
 
-def _report_bike_climb_count(
+def _report_terrain_climb_count(
     session_row: dict[str, Any],
     terrain_fit_context: dict[str, Any] | None,
 ) -> int | None:
@@ -2680,21 +2680,24 @@ def _climb_phrase(count: int | None, fallback: str) -> str:
     return f"{count} subidas"
 
 
-def _bike_climb_metrics(
+def _terrain_climb_metrics(
     session_row: dict[str, Any],
     terrain_fit_context: dict[str, Any] | None,
 ) -> dict[str, Any] | None:
     if not isinstance(terrain_fit_context, dict):
         return None
-    climb_count = _report_bike_climb_count(session_row, terrain_fit_context)
+    climb_count = _report_terrain_climb_count(session_row, terrain_fit_context)
     climb_hr_mean = _float_or_none(terrain_fit_context.get("climb_hr_mean"))
     climb_time_min = _float_or_none(terrain_fit_context.get("climb_time_min"))
     climb_gain_m = _float_or_none(terrain_fit_context.get("climb_gain_m"))
+    climb_power_measured = _float_or_none(terrain_fit_context.get("climb_power_mean"))
     climb_power_est = _float_or_none(terrain_fit_context.get("climb_power_estimated_mean"))
     climb_power_source = terrain_fit_context.get("climb_power_source")
     climb_power_measured_count = terrain_fit_context.get("climb_power_measured_count") or 0
     climb_power_estimated_count = terrain_fit_context.get("climb_power_estimated_count") or 0
+    climb_z3_pct_mean = _float_or_none(terrain_fit_context.get("climb_z3_pct_mean"))
     z1_pct = _float_or_none(session_row.get("z1_pct"))
+    z3_pct = _float_or_none(session_row.get("z3_pct"))
     vt1_used = _float_or_none(session_row.get("vt1_used"))
     if climb_count is None and climb_hr_mean is None and climb_time_min is None and climb_gain_m is None:
         return None
@@ -2703,20 +2706,23 @@ def _bike_climb_metrics(
         "climb_hr_mean": climb_hr_mean,
         "climb_time_min": climb_time_min,
         "climb_gain_m": climb_gain_m,
+        "climb_power_measured_mean": climb_power_measured,
         "climb_power_estimated_mean": climb_power_est,
         "climb_power_source": climb_power_source,
         "climb_power_measured_count": climb_power_measured_count,
         "climb_power_estimated_count": climb_power_estimated_count,
+        "climb_z3_pct_mean": climb_z3_pct_mean,
         "z1_pct": z1_pct,
+        "z3_pct": z3_pct,
         "vt1_used": vt1_used,
-    }
+}
 
 
-def _bike_climb_dilation_sentence(
+def _terrain_climb_dilation_sentence(
     session_row: dict[str, Any],
     terrain_fit_context: dict[str, Any] | None,
 ) -> str | None:
-    metrics = _bike_climb_metrics(session_row, terrain_fit_context)
+    metrics = _terrain_climb_metrics(session_row, terrain_fit_context)
     if not metrics:
         return None
     climb_count = metrics["climb_count"]
@@ -2754,26 +2760,28 @@ def _bike_climb_dilation_sentence(
             measured_count=int(metrics.get("climb_power_measured_count", 0) or 0),
         ) or ""
     elif climb_power_meas is not None and power_source == "measured":
-        # Measured power from running (e.g., Polar M3)
         detail += "; "
         wkg = round(climb_power_meas / ATHLETE_WEIGHT_KG, 1)
         detail += f"potencia medida `{_fmt_num(climb_power_meas)} W` (`{wkg} W/kg atleta`)"
 
-    # Check for Z3 dilution in climbs (high Z3% in climbs despite lower global Z3%)
     climb_z3_pct_mean = metrics.get("climb_z3_pct_mean")
     z3_pct_global = metrics.get("z3_pct")
-    if (climb_z3_pct_mean is not None and climb_z3_pct_mean > 25 and
-        z3_pct_global is not None and z3_pct_global < 20):
+    if (
+        climb_z3_pct_mean is not None
+        and climb_z3_pct_mean > 25
+        and z3_pct_global is not None
+        and z3_pct_global < 20
+    ):
         detail += f"; las subidas concentraron `{_fmt_pct(climb_z3_pct_mean)}` en Z3 pese a media global `{_fmt_pct(z3_pct_global)}` en Z3"
 
     return f"{' '.join(parts)}, {detail}."
 
 
-def _bike_climb_specificity_sentence(
+def _terrain_climb_specificity_sentence(
     session_row: dict[str, Any],
     terrain_fit_context: dict[str, Any] | None,
 ) -> str | None:
-    metrics = _bike_climb_metrics(session_row, terrain_fit_context)
+    metrics = _terrain_climb_metrics(session_row, terrain_fit_context)
     if not metrics:
         return None
     climb_count = metrics["climb_count"]
@@ -2786,11 +2794,11 @@ def _bike_climb_specificity_sentence(
     )
 
 
-def _bike_climb_summary_sentence(
+def _terrain_climb_summary_sentence(
     session_row: dict[str, Any],
     terrain_fit_context: dict[str, Any] | None,
 ) -> str | None:
-    metrics = _bike_climb_metrics(session_row, terrain_fit_context)
+    metrics = _terrain_climb_metrics(session_row, terrain_fit_context)
     if not metrics:
         return None
     climb_count = metrics["climb_count"]
@@ -2809,11 +2817,11 @@ def _bike_climb_summary_sentence(
     )
 
 
-def _bike_climb_cost_sentence(
+def _terrain_climb_cost_sentence(
     session_row: dict[str, Any],
     terrain_fit_context: dict[str, Any] | None,
 ) -> str | None:
-    metrics = _bike_climb_metrics(session_row, terrain_fit_context)
+    metrics = _terrain_climb_metrics(session_row, terrain_fit_context)
     if not metrics:
         return None
     climb_count = metrics["climb_count"]
@@ -2831,6 +2839,15 @@ def _bike_climb_cost_sentence(
         f"El peaje cardiovascular real queda mejor explicado por `{_fmt_num(climb_hr_mean)} lpm` de media en subida "
         f"durante `{_fmt_num(climb_count, digits=0)}` climbs."
     )
+
+
+# Backward compatibility aliases retained for existing imports and tests.
+_report_bike_climb_count = _report_terrain_climb_count
+_bike_climb_metrics = _terrain_climb_metrics
+_bike_climb_dilation_sentence = _terrain_climb_dilation_sentence
+_bike_climb_specificity_sentence = _terrain_climb_specificity_sentence
+_bike_climb_summary_sentence = _terrain_climb_summary_sentence
+_bike_climb_cost_sentence = _terrain_climb_cost_sentence
 
 
 def _compress_adaptation_phrase(text: str) -> str:
@@ -2898,7 +2915,7 @@ def _build_tension_synthesis(
     items = final_reason_rendered.get("reason_items") or final_reason_rendered.get("items") or []
     has_density = any(str(item.get("signal_kind") or "") == "temporal_density" for item in items if isinstance(item, dict))
     has_load = any(str(item.get("signal_kind") or "") == "accumulated_load" for item in items if isinstance(item, dict))
-    climb_count = _report_bike_climb_count(session_row, terrain_fit_context)
+    climb_count = _report_terrain_climb_count(session_row, terrain_fit_context)
     climb_phrase = _climb_phrase(climb_count, fallback="tramos duros")
     if reporting_mode == "gate_first":
         if sport_family == "bike":
@@ -2939,7 +2956,7 @@ def _build_response_synthesis(
     durability = (composite_context or {}).get("durability_context") or {}
     durability_hint = str(durability.get("durability_hint") or "").strip()
     if sport_family == "bike":
-        climb_sentence = _bike_climb_summary_sentence(session_row, terrain_fit_context)
+        climb_sentence = _terrain_climb_summary_sentence(session_row, terrain_fit_context)
         clauses: list[str] = []
         if work_total >= 30 and z3_pct >= 12:
             clauses.append("La carga útil fue real y bastante concentrada: mucho tiempo controlado y pocos segmentos realmente duros.")
@@ -2990,7 +3007,7 @@ def _build_practical_synthesis(
 ) -> list[str]:
     thermal = (composite_context or {}).get("thermal_context") or {}
     durability = (composite_context or {}).get("durability_context") or {}
-    climb_count = _report_bike_climb_count(session_row, terrain_fit_context)
+    climb_count = _report_terrain_climb_count(session_row, terrain_fit_context)
     climb_phrase = _climb_phrase(climb_count, fallback="los tramos duros")
     lines: list[str] = [
         "La decisión del día siguiente debe apoyarse en el coste total de esta sesión, no solo en la percepción del tramo fácil o del tramo duro aislado.",
@@ -3024,7 +3041,7 @@ def _build_positive_adaptations(
             positives.append("Metió una dosis clara de trabajo útil dentro de una salida larga, algo valioso para tolerar mejor esfuerzos duros sin perder estabilidad aeróbica global.")
         if z3_pct >= 12:
             positives.append("Refuerza la capacidad de cambiar de un pedaleo controlado a segmentos de subida exigentes sin que toda la sesión se convierta en un esfuerzo continuo alto.")
-        climb_sentence = _bike_climb_specificity_sentence(session_row, terrain_fit_context)
+        climb_sentence = _terrain_climb_specificity_sentence(session_row, terrain_fit_context)
         if climb_sentence:
             positives.append(climb_sentence)
     elif sport_family == "trail":
@@ -3051,13 +3068,13 @@ def _build_negative_costs(
     durability = (composite_context or {}).get("durability_context") or {}
     negatives: list[str] = []
     if sport_family == "bike":
-        climb_count = _report_bike_climb_count(session_row, terrain_fit_context)
+        climb_count = _report_terrain_climb_count(session_row, terrain_fit_context)
         climb_phrase = _climb_phrase(climb_count, fallback="los tramos duros")
         if duration >= 180:
             negatives.append("El peaje no viene solo de los bloques: la propia duración hace que la recuperación posterior sea más costosa de lo que sugiere mirar solo el tiempo duro.")
         if str(thermal.get("thermal_band") or "") == "high":
             negatives.append(f"El calor añade fatiga de fondo y reduce el valor de releer la salida como si hubiera sido solo una sesión táctica de {climb_phrase}.")
-        climb_sentence = _bike_climb_cost_sentence(session_row, terrain_fit_context)
+        climb_sentence = _terrain_climb_cost_sentence(session_row, terrain_fit_context)
         if climb_sentence:
             negatives.append(climb_sentence)
     elif sport_family == "trail":
@@ -3137,7 +3154,7 @@ def _build_window_effect(
     session_row: dict[str, Any],
 ) -> list[str]:
     thermal = (composite_context or {}).get("thermal_context") or {}
-    climb_count = _report_bike_climb_count(session_row, terrain_fit_context)
+    climb_count = _report_terrain_climb_count(session_row, terrain_fit_context)
     climb_phrase = _climb_phrase(climb_count, fallback="los tramos duros")
     lines: list[str] = []
     if reporting_mode == "gate_first":
@@ -3161,7 +3178,7 @@ def _build_do_not_overread(
     session_row: dict[str, Any],
 ) -> list[str]:
     lines: list[str] = []
-    climb_count = _report_bike_climb_count(session_row, terrain_fit_context)
+    climb_count = _report_terrain_climb_count(session_row, terrain_fit_context)
     climb_phrase = _climb_phrase(climb_count, fallback="los tramos duros")
     if reporting_mode == "gate_first":
         lines.append("No sobrerreleer el tiempo fácil de la sesión como si neutralizara el peaje de los segmentos duros.")
@@ -3317,7 +3334,7 @@ def _build_better_fit_readout(
     terrain_fit_context: dict[str, Any] | None,
     session_row: dict[str, Any],
 ) -> str:
-    climb_count = _report_bike_climb_count(session_row, terrain_fit_context)
+    climb_count = _report_terrain_climb_count(session_row, terrain_fit_context)
     climb_phrase = _climb_phrase(climb_count, fallback="los tramos duros")
     if reporting_mode == "gate_first":
         if sport_family == "bike":
@@ -3726,7 +3743,7 @@ def _build_sport_climbs_table(
     else:
         display_rows = climb_rows
 
-    is_running = sport_family in ("road", "trail")
+    is_running = sport_family in ("road", "trail", "hike")
     is_bike = sport_family == "bike"
 
     # For bike: show power if available; for running: no power column (use pace instead)
@@ -4000,7 +4017,7 @@ def build_final_report_markdown(
         )
         climb_hr = terrain_fit_context.get("climb_hr_mean")
         climb_power_est = terrain_fit_context.get("climb_power_estimated_mean")
-        climb_power_meas = terrain_fit_context.get("climb_power_measured_mean")
+        climb_power_meas = terrain_fit_context.get("climb_power_mean")
         climb_power_source = terrain_fit_context.get("climb_power_source")
         if climb_hr is not None and climb_power_est is not None and climb_power_source in ("estimated", "mixed"):
             pow_label = _fmt_estimated_power_display(
@@ -4017,7 +4034,7 @@ def build_final_report_markdown(
             climb_line += f" FC media en subida `{_fmt_num(climb_hr)} lpm`; potencia medida `{_fmt_num(climb_power_meas)} W` (`{wkg} W/kg atleta`)."
         elif climb_hr is not None:
             climb_line += f" FC media en subida `{_fmt_num(climb_hr)} lpm`."
-        if sport_family == "bike":
+        if sport_family == "bike" and climb_power_source in ("estimated", "mixed"):
             climb_line += " La estimacion de potencia es un proxy de `bike`; si otra sesion trae potencia medida, ese dato vive en la capa de sesion, no en este estimador de terreno."
         lines.append(climb_line)
         terrain_climbs = summary.get("terrain_climbs") or []
@@ -4044,10 +4061,10 @@ def build_final_report_markdown(
             f"`{_fmt_pct(session_row.get('z3_pct'))}` en `Z3` y `hr_p95 = {_fmt_num(session_row.get('hr_p95'))} lpm`."
         ]
     )
-    if sport_family == "bike":
-        bike_climb_sentence = _bike_climb_dilation_sentence(session_row, terrain_fit_context if isinstance(terrain_fit_context, dict) else None)
-        if bike_climb_sentence:
-            lines.append(bike_climb_sentence)
+    if sport_family in ("bike", "trail", "road"):
+        terrain_climb_sentence = _terrain_climb_dilation_sentence(session_row, terrain_fit_context if isinstance(terrain_fit_context, dict) else None)
+        if terrain_climb_sentence:
+            lines.append(terrain_climb_sentence)
     if composite_context:
         durability = composite_context.get("durability_context") or {}
         subjective_coherence = composite_context.get("subjective_coherence") or {}

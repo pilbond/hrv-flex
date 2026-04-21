@@ -745,6 +745,211 @@ class AnalysisContractTests(unittest.TestCase):
         self.assertIn("peaje cardiovascular real", report)
         self.assertIn("proxy de `bike`", report)
 
+    def test_build_final_report_markdown_omits_bike_power_proxy_disclaimer_when_power_is_measured(self):
+        payload = {
+            "meta": {
+                "session_id": "i_bike_measured",
+                "date": "2026-04-13",
+                "start_time": "09:36",
+                "sport": "bike",
+            },
+            "session_row": {
+                "session_id": "i_bike_measured",
+                "Fecha": "2026-04-13",
+                "start_time": "09:36",
+                "sport": "bike",
+                "moving_min": "150.0",
+                "duration_min": "158.0",
+                "distance_km": "64.2",
+                "elev_gain_m": "1120",
+                "elev_loss_m": "1124",
+                "hr_mean": "138",
+                "hr_max": "181",
+                "vt1_used": "140",
+                "vt2_used": "160",
+                "zones_source": "icu",
+                "z1_pct": "64.0",
+                "z2_pct": "20.0",
+                "z3_pct": "16.0",
+                "hr_p95": "170",
+                "load": "165",
+                "trimp": "240.0",
+                "work_n_blocks": "3",
+                "work_total_min": "40.5",
+                "work_longest_min": "18.0",
+                "work_blocks_min": "18.0;12.5;10.0",
+                "work_avg_z3_pct": "72.0",
+                "late_intensity": "1.0",
+                "cardiac_drift_pct": "-1.5",
+                "session_group": "endurance_hard",
+            },
+            "subjective_context": {"rpe": 6, "feel": 2, "notes_raw": "Bike con potencia medida"},
+            "composite_context": {},
+            "terrain_fit_context": {
+                "climb_count": 5,
+                "climb_gain_m": 910.0,
+                "climb_time_min": 52.0,
+                "climb_hr_mean": 154.0,
+                "climb_power_mean": 242.0,
+                "climb_power_source": "measured",
+                "climb_z3_pct_mean": 18.0,
+                "climb_power_measured_count": 5,
+                "climb_power_estimated_count": 0,
+            },
+            "analysis_only_context": {},
+            "context": {
+                "sleep": {},
+                "final": {"gate_badge": "VERDE", "Action": "NORMAL", "baseline60_degraded": "False"},
+                "sessions_day": {},
+                "sessions_metadata": {"training_audit": {}},
+            },
+            "narrative_targets": {"final_reason_rendered": {"enabled": False}},
+            "rr_analysis_summary": {},
+        }
+        summary = {
+            "session_cost_model": {"usable": True, "coste_dominante": "mecanico"},
+            "duration_consistency": "OK",
+            "hr_source": "FIT",
+            "rr_unavailable": True,
+        }
+        report = build_final_report_markdown(payload, summary, "bike123")
+        self.assertIn("potencia medida `242 W`", report)
+        self.assertNotIn("proxy de `bike`", report)
+
+    def test_build_final_report_markdown_includes_trail_measured_climb_power(self):
+        payload = {
+            "meta": {
+                "session_id": "i_trail_power",
+                "date": "2026-04-12",
+                "start_time": "08:10",
+                "sport": "trail_run",
+            },
+            "session_row": {
+                "session_id": "i_trail_power",
+                "Fecha": "2026-04-12",
+                "start_time": "08:10",
+                "sport": "trail_run",
+                "moving_min": "82.0",
+                "duration_min": "85.5",
+                "distance_km": "12.4",
+                "elev_gain_m": "560",
+                "elev_loss_m": "548",
+                "hr_mean": "149",
+                "hr_max": "171",
+                "vt1_used": "142",
+                "vt2_used": "158",
+                "zones_source": "icu",
+                "z1_pct": "68.0",
+                "z2_pct": "20.5",
+                "z3_pct": "11.5",
+                "hr_p95": "166",
+                "load": "112",
+                "trimp": "176.4",
+                "work_n_blocks": "4",
+                "work_total_min": "31.2",
+                "work_longest_min": "14.4",
+                "work_blocks_min": "14.4;8.6;5.8;2.4",
+                "work_avg_z3_pct": "58.0",
+                "late_intensity": "0.0",
+                "cardiac_drift_pct": "1.8",
+                "session_group": "endurance_hard",
+            },
+            "subjective_context": {"rpe": 6, "feel": 3, "notes_raw": "Trail con subidas sostenidas y potencia medida"},
+            "composite_context": {
+                "subjective_coherence": {"subjective_coherence_state": "coherent", "subjective_coherence_score": 88.4},
+                "durability_context": {"durability_hint": "steady_easy", "confidence": "medium"},
+                "thermal_context": {"thermal_band": "marginal", "temperature_c": 16.5},
+            },
+            "terrain_fit_context": {
+                "climb_count": 6,
+                "climb_gain_m": 472.6,
+                "climb_time_min": 37.4,
+                "climb_hr_mean": 160.0,
+                "climb_power_mean": 266.0,
+                "climb_power_source": "measured",
+                "climb_z3_pct_mean": 34.2,
+                "climb_power_measured_count": 6,
+                "climb_power_estimated_count": 0,
+            },
+            "analysis_only_context": {"coach_metrics": {"session_rpe": 920, "icu_intensity_pct": 58.1}},
+            "context": {
+                "sleep": {
+                    "polar_sleep_duration_min": "402",
+                    "polar_sleep_score": "80",
+                    "polar_efficiency_pct": "92.1",
+                    "polar_night_rmssd": "45",
+                },
+                "final": {
+                    "RMSSD_stable": "41.2",
+                    "residual_z": "1.3",
+                    "gate_badge": "VERDE",
+                    "Action": "NORMAL",
+                    "baseline60_degraded": "False",
+                },
+                "sessions_day": {
+                    "load_day": "112",
+                    "load_3d": "240",
+                    "load_7d": "312",
+                    "work_7d_sum": "58.2",
+                    "z3_7d_sum": "10.2",
+                },
+                "sessions_metadata": {"training_audit": {}},
+            },
+            "narrative_targets": {
+                "final_reason_rendered": {
+                    "enabled": True,
+                    "reporting_mode": "permission_conditional",
+                    "gate_readout": "`gate_badge = VERDE` y `Action = NORMAL`",
+                    "reason_items": [],
+                    "action_readout": "`has_action_constraint = false` -> no hay restriccion de accion activa.",
+                    "baseline_readout": "`baseline60_degraded = false` -> precision normal.",
+                }
+            },
+            "rr_analysis_summary": {},
+        }
+        summary = {
+            "session_cost_model": {"usable": True, "coste_dominante": "mecanico"},
+            "duration_consistency": "OK",
+            "hr_source": "FIT",
+            "dfa_gate": {"state": "DFA_OK"},
+            "hr_at_075": {"usable": False},
+            "terrain_climbs": [
+                {
+                    "climb_index": 1,
+                    "distance_km": 0.6,
+                    "elev_gain_m": 120.0,
+                    "duration_s": 300.0,
+                    "grade_mean_pct": 20.0,
+                    "hr_mean": 168.0,
+                    "vam_mh": 1440.0,
+                    "power_mean": 265.0,
+                },
+                {
+                    "climb_index": 2,
+                    "distance_km": 0.5,
+                    "elev_gain_m": 95.0,
+                    "duration_s": 250.0,
+                    "grade_mean_pct": 19.0,
+                    "hr_mean": 165.0,
+                    "vam_mh": 1368.0,
+                    "power_mean": 254.0,
+                },
+            ],
+            "rr_unavailable": True,
+        }
+        report = build_final_report_markdown(payload, summary, "trail123")
+        self.assertIn("potencia medida `266 W`", report)
+        self.assertIn("W/kg atleta", report)
+        self.assertIn("subidas concentraron `34.2%` en Z3", report)
+        self.assertIn("Trail running", report)
+        self.assertIn("| # | Km | D+ | Tiempo | Pend. | FC media | VAM | Ritmo |", report)
+        self.assertNotIn("| # | Km | D+ | Tiempo | Pend. | FC media | VAM | Ritmo | Potencia |", report)
+        self.assertIn("8:20", report)
+
+        structure_section = report.split("## Respuesta interna", 1)[0]
+        self.assertIn("En la capa FIT aparecen `6` climbs", structure_section)
+        self.assertIn("potencia medida `266 W`", structure_section)
+
     def test_build_final_report_markdown_includes_same_day_sessions_context(self):
         payload = {
             "meta": {
@@ -2318,6 +2523,18 @@ class AnalysisContractTests(unittest.TestCase):
         self.assertEqual(_terrain_fit_cadence_unit({"sport": "bike"}), "rpm")
         self.assertEqual(_terrain_fit_cadence_unit({"sport": "trail_run"}), "strides_per_min")
 
+    def test_supports_terrain_context_accepts_hike_outdoor_and_uses_stride_cadence(self):
+        self.assertTrue(
+            _supports_terrain_context(
+                {
+                    "sport": "hike",
+                    "sport_raw": "Hiking",
+                    "polar_sport_raw": "hiking",
+                }
+            )
+        )
+        self.assertEqual(_terrain_fit_cadence_unit({"sport": "hike"}), "strides_per_min")
+
     def test_fit_validation_gain_upper_bound_uses_all_positive_split_gain(self):
         records = []
         distance = 0.0
@@ -2751,7 +2968,7 @@ class TestBikePowerEstimation(unittest.TestCase):
             self.assertEqual(row["z3_pct"], "35.0")
 
     def test_bike_climb_dilation_sentence_includes_estimated_power(self):
-        from analysis.session_analysis_pipeline import _bike_climb_dilation_sentence
+        from analysis.session_analysis_pipeline import _bike_climb_dilation_sentence, _terrain_climb_dilation_sentence
         session_row = {"z1_pct": "72.0", "vt1_used": "148", "sport": "bike"}
         terrain_fit_context = {
             "climb_count": 6,
@@ -2762,11 +2979,33 @@ class TestBikePowerEstimation(unittest.TestCase):
             "climb_power_source": "estimated",
         }
         sentence = _bike_climb_dilation_sentence(session_row, terrain_fit_context)
+        terrain_sentence = _terrain_climb_dilation_sentence(session_row, terrain_fit_context)
         self.assertIsNotNone(sentence)
+        self.assertEqual(sentence, terrain_sentence)
         self.assertIn("~215 W", sentence)
         self.assertIn("W/kg atleta", sentence)
         self.assertIn("estimada", sentence)
         self.assertIn("potencia estimada", sentence)
+
+    def test_bike_climb_dilation_sentence_includes_measured_power_and_z3_dilution(self):
+        from analysis.session_analysis_pipeline import _bike_climb_dilation_sentence
+
+        session_row = {"z1_pct": "72.0", "z3_pct": "11.5", "vt1_used": "148", "sport": "trail_run"}
+        terrain_fit_context = {
+            "climb_count": 6,
+            "climb_hr_mean": 160.0,
+            "climb_time_min": 37.4,
+            "climb_gain_m": 472.6,
+            "climb_power_mean": 266.0,
+            "climb_power_source": "measured",
+            "climb_z3_pct_mean": 34.2,
+        }
+        sentence = _bike_climb_dilation_sentence(session_row, terrain_fit_context)
+        self.assertIsNotNone(sentence)
+        self.assertIn("potencia medida", sentence)
+        self.assertIn("W/kg atleta", sentence)
+        self.assertIn("subidas concentraron", sentence)
+        self.assertIn("34.2%", sentence)
 
     def test_build_sport_climbs_table_bike_with_power(self):
         """Test that bike table shows power column and no ritmo."""
@@ -2839,8 +3078,8 @@ class TestBikePowerEstimation(unittest.TestCase):
         self.assertIn("30%", full)
         self.assertIn("40%", full)
 
-    def test_build_sport_climbs_table_hike_without_pace(self):
-        """Test that hike sport (separate category) doesn't get pace column like road/trail."""
+    def test_build_sport_climbs_table_hike_with_pace(self):
+        """Test that hike sport gets pace column like other running-style sessions."""
         from analysis.session_analysis_pipeline import _build_sport_climbs_table
         rows = [
             {"climb_index": 1, "distance_km": 1.5, "elev_gain_m": 150.0, "duration_s": 600.0,
@@ -2848,9 +3087,10 @@ class TestBikePowerEstimation(unittest.TestCase):
         ]
         lines = _build_sport_climbs_table(rows, 68.0, sport_family="hike")
         header = lines[0]
-        # Hike is separate category: uses VAM but not pace like road/trail
-        self.assertNotIn("Ritmo", header)
+        full = "\n".join(lines)
+        self.assertIn("Ritmo", header)
         self.assertIn("VAM", header)
+        self.assertIn("6:40", full)  # pace: 600s / 1.5km = 400s/km = 6:40
 
 
 if __name__ == "__main__":

@@ -320,6 +320,7 @@ En sesiones de pie soportadas:
 - `terrain_fit_context` representa la capa FIT paralela (`terrain_climbs.csv`, HR/cadencia/potencia por climb)
 - en `bike`, la cadencia de esa capa se expresa en `rpm`; en deportes a pie se mantiene en `strides_per_min`
 - en `bike`, la capa FIT puede anadir `power_estimated_mean` como proxy local de subida en carretera; no sustituye potencia medida de sesion ni cambia contratos canonicos
+- en `bike`, `trail` y `road`, la capa FIT puede anadir `climb_power_mean` como potencia medida cuando la fuente lo declare; en ese caso se lee como medicion directa, no como proxy
 - ambas capas enriquecen el analisis, pero no recolorean el gate HRV ni sustituyen el cost model local
 
 ---

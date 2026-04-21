@@ -210,6 +210,7 @@ Si se usan otros, deben declararse.
 - `grade_mean_pct` en esa capa significa pendiente neta del climb detectado, no media aritmetica de pendientes por muestra,
 - `cadence` debe declararse en `strides_per_min` cuando se exponga como media de carrera y en `rpm` cuando la sesion sea `bike`,
 - la potencia estimada por climb solo aplica a `bike`; debe leerse como proxy local de subida en carretera y no como sustituto de potencia medida ni como validacion directa de FTP.
+- la potencia medida por climb puede aparecer en `bike`, `trail` y `road` cuando la fuente FIT la declara como `measured`; en ese caso se presenta como medicion directa y no como proxy.
 
 ### 7.3 Reglas de fuente
 - en cinta, priorizar `FIT` sobre `TCX` para continuidad real si ambos discrepan,
@@ -221,7 +222,7 @@ Si se usan otros, deben declararse.
 
 ### 7.4 Familias operativas
 - `VirtualRun` / cinta: tratar como familia de carrera indoor; usar la parte cardiometabolica con normalidad, pero rebajar el peso de terreno, `moving/pause` y cualquier lectura espacial si el archivo cuantiza mal la velocidad o la distancia.
-- `Hike`: tratar como familia de terreno con locomocion de marcha, no como carrera continua; mantener la lectura de desnivel y continuidad, pero rebajar la semantica de bloque corrible y tempo de carrera.
+- `Hike`: tratar como familia de terreno con locomocion de marcha, no como carrera continua; mantener la lectura de desnivel y continuidad, rebajar la semantica de bloque corrible y tempo de carrera, y en la capa FIT de climbs leer `Ritmo` cuando exista.
 - `Elliptical`: tratar como cardio indoor de bajo impacto; no aplicar semantica de terreno, y usar `SWOLF` no aplica. Si faltan ritmo por bloques, cadence o serie interpretable, preferir `no_clasificable` en la dimension mecanica.
 
 Regla:

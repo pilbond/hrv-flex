@@ -21,6 +21,8 @@ except Exception:  # pragma: no cover - optional import at runtime
     FitFile = None
 
 
+# Empirical defaults for the local road-cycling proxy model.
+# They stay local to this module because they are tuning constants, not canonically measured session fields.
 _ROAD_CRR  = 0.004
 _ROAD_CDA  = 0.35
 _AIR_RHO   = 1.2
