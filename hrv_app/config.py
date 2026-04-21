@@ -147,6 +147,17 @@ SLEEP_PATH = DATA_DIR / "ENDURANCE_HRV_sleep.csv"
 INTERVALS_SOURCE_PATH = BETA_AUDIT_PATH
 INTERVALS_BASE_URL = (os.environ.get("INTERVALS_BASE_URL") or "https://intervals.icu").strip()
 
+# Dos masas distintas con roles distintos:
+# - SYSTEM_BIKE_WEIGHT_KG: masa total para el modelo físico de potencia
+#   (atleta + bicicleta + bidón + ropa/calzado). Determina los vatios estimados.
+# - ATHLETE_WEIGHT_KG: masa corporal del atleta, denominador de W/kg.
+#   Convención estándar del sector (Strava, TrainingPeaks, WKO): W/kg usa
+#   solo la masa corporal, independientemente del equipo. Los vatios reflejan
+#   el esfuerzo para mover el sistema completo; W/kg atleta es el índice de
+#   rendimiento relativo a la masa corporal.
+ATHLETE_WEIGHT_KG     = float(os.environ.get("ATHLETE_WEIGHT_KG",     "68.0"))
+SYSTEM_BIKE_WEIGHT_KG = float(os.environ.get("SYSTEM_BIKE_WEIGHT_KG", "80.0"))
+
 SPORTS_FILTER = ["BODY_AND_MIND"]
 MAX_DURATION_MINUTES = 10
 MAX_EXERCISES = 50

@@ -18,6 +18,7 @@ from analysis.session_analysis_pipeline import (
     _build_no_rr_summary,
     _normalize_terrain_interval_rows,
     _supports_terrain_context,
+    _terrain_fit_cadence_unit,
     _summarize_terrain_context_from_intervals,
     build_ai_handoff_markdown,
     build_analyst_prompt_markdown,
@@ -671,7 +672,16 @@ class AnalysisContractTests(unittest.TestCase):
                 "durability_context": {"durability_hint": "fade_like", "confidence": "high"},
                 "thermal_context": {"thermal_band": "high", "temperature_c": 22.5},
             },
-            "terrain_fit_context": {"climb_count": 3, "climb_gain_m": 420, "climb_time_min": 31.2},
+            "terrain_fit_context": {
+                "climb_count": 9,
+                "climb_gain_m": 843.8,
+                "climb_time_min": 79.4,
+                "climb_hr_mean": 160.2,
+                "climb_power_estimated_mean": 215.0,
+                "climb_power_source": "estimated",
+                "climb_power_estimated_count": 9,
+                "climb_power_measured_count": 0,
+            },
             "analysis_only_context": {"coach_metrics": {"session_rpe": 1173, "icu_intensity_pct": 67.3}},
             "context": {
                 "sleep": {
@@ -728,8 +738,12 @@ class AnalysisContractTests(unittest.TestCase):
             "rr_unavailable": False,
         }
         report = build_final_report_markdown(payload, summary, "abc123def4567890")
-        self.assertIn("3 subidas", report)
-        self.assertNotIn("dos subidas", report)
+        self.assertIn("9 subidas", report)
+        self.assertIn("Aunque la sesión salió `71.8%` en Z1 global", report)
+        self.assertIn("FC media en subida fue `160.2 lpm`", report)
+        self.assertIn("especificidad de montaña", report)
+        self.assertIn("peaje cardiovascular real", report)
+        self.assertIn("proxy de `bike`", report)
 
     def test_build_final_report_markdown_includes_same_day_sessions_context(self):
         payload = {
@@ -2291,6 +2305,19 @@ class AnalysisContractTests(unittest.TestCase):
             )
         )
 
+    def test_supports_terrain_context_accepts_bike_outdoor_and_uses_rpm(self):
+        self.assertTrue(
+            _supports_terrain_context(
+                {
+                    "sport": "bike",
+                    "sport_raw": "Cycling",
+                    "polar_sport_raw": "cycling",
+                }
+            )
+        )
+        self.assertEqual(_terrain_fit_cadence_unit({"sport": "bike"}), "rpm")
+        self.assertEqual(_terrain_fit_cadence_unit({"sport": "trail_run"}), "strides_per_min")
+
     def test_fit_validation_gain_upper_bound_uses_all_positive_split_gain(self):
         records = []
         distance = 0.0
@@ -2326,6 +2353,504 @@ class AnalysisContractTests(unittest.TestCase):
         checks = result["terrain_fit_context"]["validation_vs_v2"]["checks"]
         self.assertEqual(checks["gain_upper_bound"]["reference_scope"], "all_positive_split_gain")
         self.assertTrue(checks["gain_upper_bound"]["passed"])
+
+
+class TestBikePowerEstimation(unittest.TestCase):
+    def _make_climb_records(self, n_seconds: int = 300, speed_mps: float = 4.0, grade_pct: float = 6.0) -> list[dict]:
+        records = []
+        distance = 0.0
+        altitude = 100.0
+        elev_per_sec = speed_mps * (grade_pct / 100.0)
+        for sec in range(n_seconds):
+            distance += speed_mps
+            altitude += elev_per_sec
+            records.append({
+                "sec": float(sec),
+                "distance_m": round(distance, 2),
+                "altitude_m": round(altitude, 2),
+                "hr": 155.0,
+                "cadence": 80.0,
+                "paused": False,
+            })
+        return records
+
+    def test_estimate_climb_power_physics_reasonable(self):
+        from analysis.fit_terrain_utils import _estimate_climb_power_w
+        # 80kg sistema, 6% pendiente, 15 km/h (~4.17 m/s)
+        p = _estimate_climb_power_w(
+            distance_m=1250.0,
+            duration_s=300.0,
+            elev_gain_m=75.0,
+            system_bike_weight_kg=80.0,
+        )
+        self.assertIsNotNone(p)
+        # Rango fisiológico razonable para 80kg a 6% pendiente: 200-320W
+        self.assertGreater(p, 200.0)
+        self.assertLess(p, 320.0)
+
+    def test_estimate_climb_power_returns_none_on_zero_distance(self):
+        from analysis.fit_terrain_utils import _estimate_climb_power_w
+        self.assertIsNone(_estimate_climb_power_w(0.0, 300.0, 60.0, 80.0))
+        self.assertIsNone(_estimate_climb_power_w(1000.0, 0.0, 60.0, 80.0))
+
+    def test_analyze_terrain_records_populates_estimated_power_when_no_fit_power(self):
+        records = self._make_climb_records()
+        result = analyze_terrain_records(
+            records=records,
+            pause_filter_mode="heuristic_stationary",
+            session_elev_gain_m=300.0,
+            system_bike_weight_kg=80.0,
+        )
+        ctx = result["terrain_fit_context"]
+        self.assertIsNotNone(ctx.get("climb_power_estimated_mean"))
+        self.assertIsNotNone(ctx.get("climb_power_estimated_max"))
+        self.assertEqual(ctx.get("climb_power_source"), "estimated")
+        climbs = result["terrain_climbs"]
+        self.assertTrue(all(c.get("power_source") == "estimated" for c in climbs))
+        self.assertTrue(all(c.get("power_estimated_mean") is not None for c in climbs))
+
+    def test_analyze_terrain_records_skips_estimation_when_fit_power_present(self):
+        records = self._make_climb_records()
+        for r in records:
+            r["power"] = 250.0
+        result = analyze_terrain_records(
+            records=records,
+            pause_filter_mode="heuristic_stationary",
+            session_elev_gain_m=300.0,
+            system_bike_weight_kg=80.0,
+        )
+        ctx = result["terrain_fit_context"]
+        self.assertIsNone(ctx.get("climb_power_estimated_mean"))
+        self.assertEqual(ctx.get("climb_power_source"), "measured")
+
+    def test_analyze_terrain_records_mixed_power_source(self):
+        # First climb: measured power; second climb: no measured power → estimated
+        # Build two separate climbs with a flat gap between them
+        climb1 = self._make_climb_records(n_seconds=300)
+        for r in climb1:
+            r["power"] = 250.0  # measured
+
+        flat_gap = []
+        base_sec = float(climb1[-1]["sec"]) + 1.0
+        base_dist = climb1[-1]["distance_m"]
+        base_alt = climb1[-1]["altitude_m"]
+        for i in range(120):
+            base_dist += 6.0
+            flat_gap.append({
+                "sec": base_sec + i,
+                "distance_m": round(base_dist, 2),
+                "altitude_m": round(base_alt, 2),
+                "hr": 130.0,
+                "cadence": 80.0,
+                "paused": False,
+            })
+
+        climb2 = []
+        base_sec2 = flat_gap[-1]["sec"] + 1.0
+        base_dist2 = flat_gap[-1]["distance_m"]
+        base_alt2 = flat_gap[-1]["altitude_m"]
+        for i in range(300):
+            base_dist2 += 4.0
+            base_alt2 += 0.24
+            climb2.append({
+                "sec": base_sec2 + i,
+                "distance_m": round(base_dist2, 2),
+                "altitude_m": round(base_alt2, 2),
+                "hr": 155.0,
+                "cadence": 75.0,
+                "paused": False,
+                # no power field → will trigger estimation if weight provided
+            })
+
+        records = climb1 + flat_gap + climb2
+        result = analyze_terrain_records(
+            records=records,
+            pause_filter_mode="heuristic_stationary",
+            session_elev_gain_m=150.0,
+            system_bike_weight_kg=80.0,
+        )
+        ctx = result["terrain_fit_context"]
+        self.assertEqual(ctx.get("climb_power_source"), "mixed")
+        self.assertGreater(ctx.get("climb_power_measured_count", 0), 0)
+        self.assertGreater(ctx.get("climb_power_estimated_count", 0), 0)
+        # estimated mean must reflect only the estimated climbs (not None)
+        self.assertIsNotNone(ctx.get("climb_power_estimated_mean"))
+
+    def test_analyze_terrain_records_no_estimation_without_weight(self):
+        records = self._make_climb_records()
+        result = analyze_terrain_records(
+            records=records,
+            pause_filter_mode="heuristic_stationary",
+            session_elev_gain_m=300.0,
+        )
+        ctx = result["terrain_fit_context"]
+        self.assertIsNone(ctx.get("climb_power_estimated_mean"))
+        self.assertIsNone(ctx.get("climb_power_source"))
+
+    def test_climb_thresholds_bike_stricter_than_trail(self):
+        """bike thresholds must be >= trail thresholds for distance and product."""
+        from analysis.fit_terrain_utils import _climb_thresholds
+        bike = _climb_thresholds("bike")
+        trail = _climb_thresholds("trail")
+        self.assertGreaterEqual(bike["min_distance_m"], trail["min_distance_m"])
+        self.assertGreaterEqual(bike["min_product"], trail["min_product"])
+
+    def test_trail_climb_passes_trail_thresholds_but_fails_bike(self):
+        """A short steep trail climb (200 m, 10%) passes trail but not bike filters."""
+        from analysis.fit_terrain_utils import _climb_thresholds
+        dist_m = 200.0
+        grade_pct = 10.0
+        product = dist_m * grade_pct  # 2000 > 300 (trail ok), but dist < 300 (bike fails)
+        bike = _climb_thresholds("bike")
+        trail = _climb_thresholds("trail")
+        self.assertLess(dist_m, bike["min_distance_m"])          # filtered out by bike
+        self.assertGreaterEqual(dist_m, trail["min_distance_m"]) # passes trail
+        self.assertGreaterEqual(product, trail["min_product"])   # passes trail product
+
+    def test_sport_family_propagated_to_detect_climbs_trail(self):
+        """trail sport_family uses permissive thresholds: a 200 m climb passes."""
+        # Build a climb: 200 m at ~10% grade (20 m gain) over 60 s → passes trail, fails bike
+        records = []
+        for i in range(65):
+            records.append({
+                "sec": float(i),
+                "distance_m": round(i * (200.0 / 60), 2),
+                "altitude_m": round(100.0 + i * (20.0 / 60), 2),
+                "hr": 150.0,
+                "cadence": 75.0,
+                "paused": False,
+            })
+        result_trail = analyze_terrain_records(
+            records=records,
+            pause_filter_mode="heuristic_stationary",
+            session_elev_gain_m=20.0,
+            sport_family="trail",
+        )
+        result_bike = analyze_terrain_records(
+            records=records,
+            pause_filter_mode="heuristic_stationary",
+            session_elev_gain_m=20.0,
+            sport_family="bike",
+        )
+        self.assertGreater(result_trail["terrain_fit_context"]["climb_count"], 0,
+                           "trail should detect the short steep climb")
+        self.assertEqual(result_bike["terrain_fit_context"]["climb_count"], 0,
+                         "bike should filter out the short climb")
+
+    def test_road_sport_family_uses_run_thresholds_not_bike(self):
+        """road_run → sport_family='road' must use run thresholds (150 m), not bike (300 m)."""
+        from analysis.fit_terrain_utils import _climb_thresholds
+        road = _climb_thresholds("road")
+        run  = _climb_thresholds("run")
+        bike = _climb_thresholds("bike")
+        # road must equal run
+        self.assertEqual(road["min_distance_m"], run["min_distance_m"])
+        self.assertEqual(road["min_product"],    run["min_product"])
+        # and must be less restrictive than bike
+        self.assertLess(road["min_distance_m"], bike["min_distance_m"])
+        self.assertLess(road["min_product"],    bike["min_product"])
+
+    def test_road_sport_family_detects_short_climb(self):
+        """A 200 m climb passes road thresholds but not bike thresholds."""
+        records = []
+        for i in range(65):
+            records.append({
+                "sec": float(i),
+                "distance_m": round(i * (200.0 / 60), 2),
+                "altitude_m": round(100.0 + i * (20.0 / 60), 2),
+                "hr": 150.0,
+                "cadence": 75.0,
+                "paused": False,
+            })
+        result_road = analyze_terrain_records(
+            records=records,
+            pause_filter_mode="heuristic_stationary",
+            session_elev_gain_m=20.0,
+            sport_family="road",
+        )
+        result_bike = analyze_terrain_records(
+            records=records,
+            pause_filter_mode="heuristic_stationary",
+            session_elev_gain_m=20.0,
+            sport_family="bike",
+        )
+        self.assertGreater(result_road["terrain_fit_context"]["climb_count"], 0,
+                           "road should detect the short climb (same thresholds as run)")
+        self.assertEqual(result_bike["terrain_fit_context"]["climb_count"], 0,
+                         "bike should filter out the short climb")
+
+    def test_write_terrain_climbs_csv_includes_power_estimated_fields(self):
+        from analysis.session_analysis_pipeline import write_terrain_climbs_csv
+        rows = [
+            {
+                "climb_index": 1,
+                "start_sec": 0.0,
+                "end_sec": 300.0,
+                "duration_s": 300.0,
+                "distance_km": 1.25,
+                "elev_gain_m": 75.0,
+                "grade_mean_pct": 6.0,
+                "vam_mh": 900.0,
+                "hr_mean": 155.0,
+                "hr_max": 162.0,
+                "cadence_mean": 80.0,
+                "power_mean": None,
+                "power_max": None,
+                "power_estimated_mean": 245.0,
+                "power_source": "estimated",
+                "hr_available": True,
+                "cadence_available": True,
+                "power_available": False,
+            }
+        ]
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "terrain_climbs.csv"
+            write_terrain_climbs_csv(path, rows)
+            import csv as csv_mod
+            with path.open() as f:
+                reader = csv_mod.DictReader(f)
+                row = next(reader)
+            self.assertEqual(row["power_estimated_mean"], "245.0")
+            self.assertEqual(row["power_source"], "estimated")
+
+    def test_build_bike_climbs_table_with_estimated_power(self):
+        from analysis.session_analysis_pipeline import _build_bike_climbs_table
+        rows = [
+            {"climb_index": 1, "distance_km": 2.1, "elev_gain_m": 142.0, "duration_s": 480.0,
+             "grade_mean_pct": 6.8, "hr_mean": 154.0, "vam_mh": 1065.0, "power_estimated_mean": 218.0},
+            {"climb_index": 2, "distance_km": 1.4, "elev_gain_m": 98.0, "duration_s": 310.0,
+             "grade_mean_pct": 7.0, "hr_mean": 163.0, "vam_mh": 1138.0, "power_estimated_mean": 241.0},
+        ]
+        lines = _build_bike_climbs_table(rows, 68.0)
+        full = "\n".join(lines)
+        self.assertIn("Potencia", lines[0])
+        self.assertIn("Km", lines[0])
+        self.assertIn("D+", lines[0])
+        self.assertIn("~220 W", full)
+        self.assertIn("*(est.)*", full)
+        self.assertIn("W/kg atleta)", full)
+        self.assertEqual(len(lines), 4)  # header + sep + 2 rows
+
+    def test_build_bike_climbs_table_with_measured_power_no_est_label(self):
+        from analysis.session_analysis_pipeline import _build_bike_climbs_table
+        rows = [
+            {"climb_index": 1, "distance_km": 1.5, "elev_gain_m": 90.0, "duration_s": 300.0,
+             "grade_mean_pct": 6.0, "hr_mean": 152.0, "vam_mh": 1080.0, "power_mean": 230.0},
+            {"climb_index": 2, "distance_km": 1.2, "elev_gain_m": 75.0, "duration_s": 250.0,
+             "grade_mean_pct": 6.3, "hr_mean": 158.0, "vam_mh": 1080.0, "power_mean": 245.0},
+        ]
+        lines = _build_bike_climbs_table(rows, 68.0)
+        full = "\n".join(lines)
+        self.assertNotIn("est.", full)
+        self.assertIn("230", full)
+
+    def test_build_bike_climbs_table_without_power_hides_column(self):
+        from analysis.session_analysis_pipeline import _build_bike_climbs_table
+        rows = [
+            {"climb_index": 1, "distance_km": 1.0, "elev_gain_m": 60.0, "duration_s": 240.0,
+             "grade_mean_pct": 6.0, "hr_mean": 150.0, "vam_mh": 900.0},
+            {"climb_index": 2, "distance_km": 0.8, "elev_gain_m": 45.0, "duration_s": 180.0,
+             "grade_mean_pct": 5.6, "hr_mean": 148.0, "vam_mh": 900.0},
+        ]
+        lines = _build_bike_climbs_table(rows, 68.0)
+        self.assertNotIn("Potencia", lines[0])
+
+    def test_build_bike_climbs_table_single_climb_not_rendered_in_report(self):
+        # La tabla solo se renderiza con >= 2 climbs; verificamos que el umbral funciona
+        # inspeccionando directamente la función (no el report completo)
+        from analysis.session_analysis_pipeline import _build_bike_climbs_table
+        rows = [
+            {"climb_index": 1, "distance_km": 1.0, "elev_gain_m": 60.0, "duration_s": 240.0,
+             "grade_mean_pct": 6.0, "hr_mean": 150.0, "vam_mh": 900.0, "power_estimated_mean": 200.0},
+        ]
+        lines = _build_bike_climbs_table(rows, 68.0)
+        self.assertEqual(len(lines), 3)  # header + sep + 1 fila — la función siempre genera; el umbral está en quien la llama
+
+    def test_summarize_climb_rows_computes_zones_when_vt1_vt2_provided(self):
+        from analysis.fit_terrain_utils import _summarize_climb_rows
+        rows = []
+        distance = 0.0
+        altitude = 100.0
+        for sec in range(0, 300):
+            distance += 4.0
+            altitude += 0.24
+            hr = 140.0 if sec < 100 else (158.0 if sec < 200 else 172.0)
+            rows.append({"sec": float(sec), "distance_m": round(distance, 1),
+                         "altitude_smooth_m": round(altitude, 2), "hr": hr})
+        result = _summarize_climb_rows(1, rows, vt1=152.0, vt2=166.0)
+        self.assertIsNotNone(result["z1_pct"])
+        self.assertIsNotNone(result["z2_pct"])
+        self.assertIsNotNone(result["z3_pct"])
+        total = result["z1_pct"] + result["z2_pct"] + result["z3_pct"]
+        self.assertAlmostEqual(total, 100.0, delta=0.5)
+        self.assertGreater(result["z1_pct"], 0)
+        self.assertGreater(result["z2_pct"], 0)
+        self.assertGreater(result["z3_pct"], 0)
+
+    def test_summarize_climb_rows_no_zones_without_thresholds(self):
+        from analysis.fit_terrain_utils import _summarize_climb_rows
+        rows = [
+            {"sec": 0.0, "distance_m": 0.0, "altitude_smooth_m": 100.0, "hr": 155.0},
+            {"sec": 60.0, "distance_m": 240.0, "altitude_smooth_m": 115.0, "hr": 160.0},
+        ]
+        result = _summarize_climb_rows(1, rows)
+        self.assertIsNone(result["z1_pct"])
+        self.assertIsNone(result["z2_pct"])
+        self.assertIsNone(result["z3_pct"])
+
+    def test_analyze_terrain_records_propagates_zones(self):
+        records = self._make_climb_records(n_seconds=300, speed_mps=4.0, grade_pct=6.0)
+        for r in records:
+            r["hr"] = 165.0
+        result = analyze_terrain_records(
+            records=records,
+            pause_filter_mode="heuristic_stationary",
+            session_elev_gain_m=300.0,
+            vt1=152.0,
+            vt2=166.0,
+        )
+        climbs = result["terrain_climbs"]
+        self.assertTrue(all(c.get("z1_pct") is not None for c in climbs))
+
+    def test_build_bike_climbs_table_shows_zone_columns_when_available(self):
+        from analysis.session_analysis_pipeline import _build_bike_climbs_table
+        rows = [
+            {"climb_index": 1, "distance_km": 2.1, "elev_gain_m": 142.0, "duration_s": 480.0,
+             "grade_mean_pct": 6.8, "hr_mean": 154.0, "vam_mh": 1065.0,
+             "z1_pct": 30.0, "z2_pct": 45.0, "z3_pct": 25.0},
+            {"climb_index": 2, "distance_km": 1.4, "elev_gain_m": 98.0, "duration_s": 310.0,
+             "grade_mean_pct": 7.0, "hr_mean": 163.0, "vam_mh": 1138.0,
+             "z1_pct": 10.0, "z2_pct": 35.0, "z3_pct": 55.0},
+        ]
+        lines = _build_bike_climbs_table(rows, 68.0)
+        header = lines[0]
+        self.assertIn("Z1", header)
+        self.assertIn("Z2", header)
+        self.assertIn("Z3", header)
+        full = "\n".join(lines)
+        self.assertIn("55%", full)
+        self.assertIn("30%", full)
+
+    def test_write_terrain_climbs_csv_includes_zone_columns(self):
+        from analysis.session_analysis_pipeline import write_terrain_climbs_csv
+        rows = [{
+            "climb_index": 1, "start_sec": 0.0, "end_sec": 300.0, "duration_s": 300.0,
+            "distance_km": 1.25, "elev_gain_m": 75.0, "grade_mean_pct": 6.0, "vam_mh": 900.0,
+            "hr_mean": 158.0, "hr_max": 168.0, "cadence_mean": 80.0,
+            "power_mean": None, "power_max": None, "power_estimated_mean": 245.0,
+            "power_source": "estimated", "z1_pct": 20.0, "z2_pct": 45.0, "z3_pct": 35.0,
+            "hr_available": True, "cadence_available": True, "power_available": False,
+        }]
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "terrain_climbs.csv"
+            write_terrain_climbs_csv(path, rows)
+            import csv as csv_mod
+            with path.open() as f:
+                row = next(csv_mod.DictReader(f))
+            self.assertEqual(row["z1_pct"], "20.0")
+            self.assertEqual(row["z3_pct"], "35.0")
+
+    def test_bike_climb_dilation_sentence_includes_estimated_power(self):
+        from analysis.session_analysis_pipeline import _bike_climb_dilation_sentence
+        session_row = {"z1_pct": "72.0", "vt1_used": "148", "sport": "bike"}
+        terrain_fit_context = {
+            "climb_count": 6,
+            "climb_hr_mean": 160.0,
+            "climb_time_min": 37.4,
+            "climb_gain_m": 472.6,
+            "climb_power_estimated_mean": 215.0,
+            "climb_power_source": "estimated",
+        }
+        sentence = _bike_climb_dilation_sentence(session_row, terrain_fit_context)
+        self.assertIsNotNone(sentence)
+        self.assertIn("~215 W", sentence)
+        self.assertIn("W/kg atleta", sentence)
+        self.assertIn("estimada", sentence)
+        self.assertIn("potencia estimada", sentence)
+
+    def test_build_sport_climbs_table_bike_with_power(self):
+        """Test that bike table shows power column and no ritmo."""
+        from analysis.session_analysis_pipeline import _build_sport_climbs_table
+        rows = [
+            {"climb_index": 1, "distance_km": 2.1, "elev_gain_m": 142.0, "duration_s": 480.0,
+             "grade_mean_pct": 6.8, "hr_mean": 154.0, "vam_mh": 1065.0, "power_mean": 230.0},
+            {"climb_index": 2, "distance_km": 1.4, "elev_gain_m": 98.0, "duration_s": 310.0,
+             "grade_mean_pct": 7.0, "hr_mean": 163.0, "vam_mh": 1138.0, "power_mean": 245.0},
+        ]
+        lines = _build_sport_climbs_table(rows, 68.0, sport_family="bike")
+        header = lines[0]
+        full = "\n".join(lines)
+        self.assertIn("Potencia", header)
+        self.assertNotIn("Ritmo", header)
+        self.assertIn("230", full)
+        self.assertIn("W/kg atleta", full)
+
+    def test_build_sport_climbs_table_trail_with_measured_power(self):
+        """Test that trail table shows ritmo column and power when available."""
+        from analysis.session_analysis_pipeline import _build_sport_climbs_table
+        rows = [
+            {"climb_index": 1, "distance_km": 0.6, "elev_gain_m": 120.0, "duration_s": 300.0,
+             "grade_mean_pct": 20.0, "hr_mean": 168.0, "vam_mh": 1440.0, "power_mean": 265.0},
+            {"climb_index": 2, "distance_km": 0.5, "elev_gain_m": 95.0, "duration_s": 250.0,
+             "grade_mean_pct": 19.0, "hr_mean": 165.0, "vam_mh": 1368.0, "power_mean": 254.0},
+        ]
+        lines = _build_sport_climbs_table(rows, 68.0, sport_family="trail")
+        header = lines[0]
+        full = "\n".join(lines)
+        self.assertIn("Ritmo", header)
+        # For trail with measured power, power column is still shown (bike-only gate removed)
+        # but NOT as primary; ritmo is the running-specific metric
+        self.assertIn("8:20", full)  # Pace: 300s / 0.6km = 500s/km = 8:20
+        self.assertIn("8:20", full)  # Pace: 250s / 0.5km = 500s/km = 8:20
+
+    def test_build_sport_climbs_table_road_without_power(self):
+        """Test that road table shows ritmo and omits power column when absent."""
+        from analysis.session_analysis_pipeline import _build_sport_climbs_table
+        rows = [
+            {"climb_index": 1, "distance_km": 1.2, "elev_gain_m": 75.0, "duration_s": 360.0,
+             "grade_mean_pct": 6.3, "hr_mean": 152.0, "vam_mh": 750.0},
+            {"climb_index": 2, "distance_km": 0.9, "elev_gain_m": 55.0, "duration_s": 270.0,
+             "grade_mean_pct": 6.1, "hr_mean": 150.0, "vam_mh": 733.0},
+        ]
+        lines = _build_sport_climbs_table(rows, 68.0, sport_family="road")
+        header = lines[0]
+        full = "\n".join(lines)
+        self.assertIn("Ritmo", header)
+        self.assertNotIn("Potencia", header)
+        self.assertIn("5:00", full)  # pace: 360s / 1.2km
+
+    def test_build_sport_climbs_table_zones_works_for_all_sports(self):
+        """Test that zone columns are shown for all sports when data available."""
+        from analysis.session_analysis_pipeline import _build_sport_climbs_table
+        rows = [
+            {"climb_index": 1, "distance_km": 1.0, "elev_gain_m": 60.0, "duration_s": 300.0,
+             "grade_mean_pct": 6.0, "hr_mean": 155.0, "vam_mh": 720.0,
+             "z1_pct": 30.0, "z2_pct": 40.0, "z3_pct": 30.0},
+            {"climb_index": 2, "distance_km": 0.8, "elev_gain_m": 50.0, "duration_s": 240.0,
+             "grade_mean_pct": 6.3, "hr_mean": 158.0, "vam_mh": 750.0,
+             "z1_pct": 25.0, "z2_pct": 45.0, "z3_pct": 30.0},
+        ]
+        lines = _build_sport_climbs_table(rows, 68.0, sport_family="trail")
+        header = lines[0]
+        full = "\n".join(lines)
+        self.assertIn("Z1", header)
+        self.assertIn("Z2", header)
+        self.assertIn("Z3", header)
+        self.assertIn("30%", full)
+        self.assertIn("40%", full)
+
+    def test_build_sport_climbs_table_hike_without_pace(self):
+        """Test that hike sport (separate category) doesn't get pace column like road/trail."""
+        from analysis.session_analysis_pipeline import _build_sport_climbs_table
+        rows = [
+            {"climb_index": 1, "distance_km": 1.5, "elev_gain_m": 150.0, "duration_s": 600.0,
+             "grade_mean_pct": 10.0, "hr_mean": 130.0, "vam_mh": 900.0},
+        ]
+        lines = _build_sport_climbs_table(rows, 68.0, sport_family="hike")
+        header = lines[0]
+        # Hike is separate category: uses VAM but not pace like road/trail
+        self.assertNotIn("Ritmo", header)
+        self.assertIn("VAM", header)
 
 
 if __name__ == "__main__":

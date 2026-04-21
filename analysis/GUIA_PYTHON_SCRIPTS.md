@@ -140,7 +140,8 @@ python run_session_analysis.py \
 - Modulo central con toda la logica de preparacion y analisis. No se ejecuta directamente.
 - Implementa las funciones que usan los tres CLIs anteriores:
   - `prepare_bundle()` — descarga FIT, stream CSV y RR; construye manifest.
-    - para sesiones a pie soportadas, tambien consulta `GET /activity/{id}` y `GET /activity/{id}/intervals` para la capa `FP-02`
+    - para sesiones soportadas por la capa Intervals de `FP-02`, tambien consulta `GET /activity/{id}` y `GET /activity/{id}/intervals`
+    - la capa FIT de `FP-02` puede seguir procesandose en `run_analysis()` aunque la capa Intervals no aplique; hoy incluye `bike` ademas de deportes a pie soportados
   - `run_analysis()` — ejecuta `endurance_rr_session_v4.py` como subprocess; genera todos los artefactos del report.
   - `build_conversational_payload()` — ensambla el JSON compacto para el analista IA.
     - incrusta contexto canonico de `sessions.csv`, `sessions_day.csv` y `ENDURANCE_HRV_sessions_metadata.json`
@@ -157,7 +158,7 @@ python run_session_analysis.py \
     - consume `training_audit` a traves de la resolucion compartida `training_audit_utils.py`; no reimplementa reglas locales por consumidor
     - ya expone `Training Audit`, `Dataset Audit Limits` y `Session Audit Flags` cuando hay `training_audit`
     - ya expone evidencia mecanica minima de AP-02 en deportes de pie (`run_power_mean`, `speed_first_half/second_half`, `cadence_first_half/second_half`) cuando existe en `sessions.csv`
-    - ya expone `Terrain Context` y `Terrain FIT Context` cuando la sesion soporta la capa `FP-02`
+    - ya expone `Terrain Context` y `Terrain FIT Context` cuando la sesion soporta alguna parte de la capa `FP-02`
   - `cleanup_bundle()` — elimina el bundle de cache tras el analisis.
 
 **Dependencias externas en runtime:**
@@ -260,7 +261,7 @@ Cada report se genera en `reports/YYYY/MM/[slug]/`:
 | `artifacts/report_sync_status.json` | `run_analysis()` | Estado de sincronizacion del `report.md` humano respecto a los artefactos tecnicos actuales. Estados: `missing`, `unmanaged_legacy`, `stale`, `up_to_date`. |
 | `report.legacy.md` | `run_analysis()` (solo migracion) | Backup del `report.md` previo sin token, creado una sola vez cuando el pipeline toma posesion de un informe legacy. |
 | `artifacts/terrain_intervals.csv` | `session_analysis_pipeline.py` | Detalle por split/km de la capa Intervals: `GAP`, clase de terreno (`uphill/rolling/downhill`), `VAM` uphill y potencia por split cuando hay fuente util. |
-| `artifacts/terrain_climbs.csv` | `fit_terrain_utils.py` via `session_analysis_pipeline.py` | Detalle por climb detectado desde `FIT` record-level con `HR`, `cadence`, `power`, `grade_mean_pct` neto y validacion frente a V2. |
+| `artifacts/terrain_climbs.csv` | `fit_terrain_utils.py` via `session_analysis_pipeline.py` | Detalle por climb detectado desde `FIT` record-level con `HR`, `cadence`, `power` o `power_estimated_mean` cuando aplique, `power_source`, `grade_mean_pct` neto, reparto `z1/z2/z3` y validacion frente a V2. |
 | `artifacts/session.fit` | `run_analysis()` (copia) | FIT de la sesion copiado desde el bundle para que el report sea autocontenido. |
 | `artifacts/manifest.json` | `run_analysis()` | Manifest del bundle: rutas de origen, info de descarga, errores. |
 | `artifacts/blocks.csv` | `endurance_rr_session_v4.py` | Bloques de trabajo detectados (existe solo si la sesion tiene bloques). |
@@ -308,7 +309,8 @@ Esto alinea el informe con `ADC-01` y `AP-02` sin convertir esas capas en output
 
 La capa `FP-02` no se intenta en todos los deportes:
 
-- `bike`, `swim`, `strength` y deportes no-a-pie quedan con `terrain_context = null` y `terrain_fit_context = null`
+- `swim`, `strength` y deportes no soportados quedan con `terrain_context = null` y `terrain_fit_context = null`
+- `bike` puede exponer `terrain_fit_context` aunque `terrain_context` siga en `null`
 - sesiones indoor/virtual/treadmill tambien quedan fuera aunque el deporte base sea `road_run`
 - esto es una exclusion deliberada, no un error operativo
 
@@ -316,6 +318,8 @@ En sesiones de pie soportadas:
 
 - `terrain_context` representa la capa Intervals (`GAP`, `VAM`, potencia por split, `terrain_intervals.csv`)
 - `terrain_fit_context` representa la capa FIT paralela (`terrain_climbs.csv`, HR/cadencia/potencia por climb)
+- en `bike`, la cadencia de esa capa se expresa en `rpm`; en deportes a pie se mantiene en `strides_per_min`
+- en `bike`, la capa FIT puede anadir `power_estimated_mean` como proxy local de subida en carretera; no sustituye potencia medida de sesion ni cambia contratos canonicos
 - ambas capas enriquecen el analisis, pero no recolorean el gate HRV ni sustituyen el cost model local
 
 ---

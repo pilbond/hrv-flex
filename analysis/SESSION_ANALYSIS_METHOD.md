@@ -206,9 +206,10 @@ Si se usan otros, deben declararse.
 
 #### Capa FIT de terreno
 - la capa `terrain_fit_context` es paralela a la capa de splits de Intervals y NO la sustituye,
-- `terrain_climbs.csv` resume climbs detectados desde `FIT` record-level con `HR`, `cadence` y `power` cuando existan,
+- `terrain_climbs.csv` resume climbs detectados desde `FIT` record-level con `HR`, `cadence`, `power` y, cuando aplique, `power_estimated_mean`, `power_source` y reparto `z1/z2/z3`,
 - `grade_mean_pct` en esa capa significa pendiente neta del climb detectado, no media aritmetica de pendientes por muestra,
-- `cadence` debe declararse en `strides_per_min` cuando se exponga como media de carrera.
+- `cadence` debe declararse en `strides_per_min` cuando se exponga como media de carrera y en `rpm` cuando la sesion sea `bike`,
+- la potencia estimada por climb solo aplica a `bike`; debe leerse como proxy local de subida en carretera y no como sustituto de potencia medida ni como validacion directa de FTP.
 
 ### 7.3 Reglas de fuente
 - en cinta, priorizar `FIT` sobre `TCX` para continuidad real si ambos discrepan,
@@ -745,7 +746,7 @@ Usar:
 
 Reglas:
 
-- en `bike`, sin potencia la confianza mecanica rara vez pasa de `media`
+- en `bike`, sin potencia medida la confianza mecanica rara vez pasa de `media`; la potencia estimada por climb puede enriquecer el contexto de terreno, pero no equivale a un potenciómetro
 - en `swim`, sin datos de serie o tecnica la confianza mecanica suele ser `baja` o `no_clasificable`
 
 ### Etiqueta final

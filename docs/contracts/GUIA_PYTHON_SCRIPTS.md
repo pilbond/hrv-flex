@@ -22,6 +22,7 @@ Importante:
 - `build_hrv_final_dashboard.py` usa `ENDURANCE_HRV_sessions_day.csv` solo si ya existe.
 - Si `sessions_day.csv` y `sessions_metadata.json` estan al dia, `FINAL` puede incorporar contexto de carga canonico (`ACWR`, `monotony`, `strain`, clustering de intensidad) y capas de recuperacion multisenal sin tocar el gate.
 - La capa de terreno `FP-02` no nace aqui: se genera despues dentro de `analysis/` al correr `analysis\\run_session_analysis.py` o `analysis\\analyze_session.py`.
+- Esa capa sigue siendo local a `analysis/`: hoy puede exponer `terrain_fit_context` tambien en `bike`, con `terrain_climbs.csv`, zonas por climb y potencia estimada exploratoria cuando no cambia ningun contrato canonico global.
 - Esa misma capa local de `analysis/` ya puede enriquecer el bundle de sesion con `composite_context` (`subjective_coherence`, `thermal_context`, `durability_context`) sin tocar `sessions.csv`, `sessions_day.csv` ni otros contratos canonicos.
 - Desde `SYA-01`, `analysis/` deja tambien `artifacts/report_sync_status.json` para explicitar si el `report.md` humano esta alineado con `session_payload.json`, `summary.json` y `technical_report.md`. El prompt/handoff incluyen un `report_sync_token` que debe copiarse al inicio del `report.md`.
 - Desde esta misma fase, `analysis/run_analysis()` genera `report.md` directamente como artefacto final gobernado por pipeline. Si encuentra un `report.md` legacy sin token, crea antes un backup `report.legacy.md` y luego toma posesion del informe principal.
@@ -361,6 +362,6 @@ Y aparte, opcional recomendado:
 
 1. `build_sessions.py` para mantener al dia `sessions.csv`, `sessions_day.csv`, `sessions_metadata.json` y `wellness_subjective.csv`, y asi habilitar AP-01, AP-02, CDC-01, ADC-01 y RE-02 en el contexto del sistema.
 2. `analysis\\analyze_session.py` o `analysis\\run_session_analysis.py` cuando quieras explotar la capa analitica local sin tocar contratos canonicos:
-   - terreno (`GAP`, `VAM`, potencia por split y climbs FIT)
+   - terreno (`GAP`, `VAM`, potencia por split y climbs FIT`; en `bike`, la capa FIT puede anadir potencia estimada local por subida)
    - `composite_context` de `SYA-07` (`subjective_coherence`, `thermal_context`, `durability_context`)
 
