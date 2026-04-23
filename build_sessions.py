@@ -53,7 +53,7 @@ from hrv_app.polar_sessions import PolarSessionClient, extract_mechanical_metric
 
 # ─── Version & params ─────────────────────────────────────────────────────────
 
-PIPELINE_VERSION = "v3.11"
+PIPELINE_VERSION = "v3.12"
 
 PARAMS = {
     "gap_max_s": 60,
@@ -995,6 +995,69 @@ def _elev_bin(ed):
     if ed < 50:
         return "mountain"
     return "steep_mountain"
+
+
+_DURABILITY_SPORTS = {"road_run", "trail_run", "hike"}
+_DURABILITY_MAX_BLOCKS = 2
+_DURABILITY_MIN_DURATION_ROAD_POWER = 60.0
+_DURABILITY_MIN_DURATION_ROAD_SPEED = 75.0
+_DURABILITY_MIN_DURATION_TRAIL_POWER = 75.0
+_DURABILITY_MIN_DURATION_TRAIL_SPEED = 90.0
+_DURABILITY_MIN_DURATION_HIKE = 90.0
+# Threshold candidates from FP-01 backtesting (N=30, 2025-05 to 2026-04).
+# NOT yet used for flags or reason_text — pending validation at N>=50.
+# Mechanical fatigue: speed_ratio < 0.93 AND cardiac_drift_pct > 5.
+# Cardiac decoupling without mechanical drop: cardiac_drift_pct > 10 AND speed_ratio >= 0.93.
+_DURABILITY_SPEED_RATIO_THRESHOLD = 0.93
+_DURABILITY_DRIFT_THRESHOLD = 5.0
+
+
+def compute_durability_cols(df: pd.DataFrame) -> pd.DataFrame:
+    """Derive durability signals for foot sports.
+
+    speed_ratio  = speed_second_half / speed_first_half (always when available).
+    power_ratio  = run_power_second_half / run_power_first_half (only when power available).
+    durability_applicable: run-aware gate for classical durability, with sport/signal-specific
+    minimum durations, work_n_blocks <= 2, and at least speed halves available.
+    Preferred signal: power_ratio when present, speed_ratio otherwise.
+    """
+    def _col(name: str) -> pd.Series:
+        if name in df.columns:
+            return pd.to_numeric(df[name], errors="coerce")
+        return pd.Series(float("nan"), index=df.index, dtype="float64")
+
+    df = df.copy()
+    dur = _col("duration_min")
+    blocks = _col("work_n_blocks").fillna(0)
+    run_power_available = _col("run_power_available").fillna(0) >= 0.5
+
+    sh = _col("speed_first_half")
+    sl = _col("speed_second_half")
+    df["speed_ratio"] = (sl / sh.replace(0, float("nan"))).where(sh.notna() & sl.notna()).round(3)
+
+    ph = _col("run_power_first_half")
+    pl = _col("run_power_second_half")
+    df["power_ratio"] = (pl / ph.replace(0, float("nan"))).where(ph.notna() & pl.notna() & run_power_available).round(3)
+
+    min_duration = pd.Series(float("inf"), index=df.index, dtype="float64")
+    is_road = df["sport"].eq("road_run")
+    is_trail = df["sport"].eq("trail_run")
+    is_hike = df["sport"].eq("hike")
+    min_duration.loc[is_road & run_power_available] = _DURABILITY_MIN_DURATION_ROAD_POWER
+    min_duration.loc[is_road & ~run_power_available] = _DURABILITY_MIN_DURATION_ROAD_SPEED
+    min_duration.loc[is_trail & run_power_available] = _DURABILITY_MIN_DURATION_TRAIL_POWER
+    min_duration.loc[is_trail & ~run_power_available] = _DURABILITY_MIN_DURATION_TRAIL_SPEED
+    min_duration.loc[is_hike] = _DURABILITY_MIN_DURATION_HIKE
+
+    applicable = (
+        df["sport"].isin(_DURABILITY_SPORTS)
+        & (dur >= min_duration)
+        & (blocks <= _DURABILITY_MAX_BLOCKS)
+        & sh.notna()
+        & sl.notna()
+    )
+    df["durability_applicable"] = applicable.astype(int)
+    return df
 
 
 def compute_effort_recent(df: pd.DataFrame) -> pd.Series:
@@ -2094,6 +2157,11 @@ NUMERIC_SESSION_COLS = [
     "cadence_second_half",
     "polar_speed_available",
     "polar_cadence_available",
+    "run_power_first_half",
+    "run_power_second_half",
+    "durability_applicable",
+    "speed_ratio",
+    "power_ratio",
 ]
 
 
@@ -2245,6 +2313,8 @@ def run_pipeline(oldest: str, newest: str, output_dir: Path,
     df = coerce_numeric_session_cols(df)
 
     # Effort: dual mode (on full history to keep daily mode causal)
+    log.info("Computing durability cols (speed_ratio, durability_applicable)...")
+    df = compute_durability_cols(df)
     log.info("Computing effort_vs_recent (online 60d)...")
     df["effort_vs_recent"] = compute_effort_recent(df)
     log.info("Computing effort_vs_anchor...")
@@ -2266,6 +2336,8 @@ def run_pipeline(oldest: str, newest: str, output_dir: Path,
         "speed_first_half", "speed_second_half",
         "cadence_first_half", "cadence_second_half",
         "polar_speed_available", "polar_cadence_available",
+        "run_power_first_half", "run_power_second_half",
+        "durability_applicable", "speed_ratio", "power_ratio",
         "load", "trimp", "rpe", "feel",
         "icu_weighted_avg_watts", "icu_joules_above_ftp", "icu_max_wbal_depletion", "decoupling",
         "intensity_category", "effort_vs_recent", "effort_vs_anchor",

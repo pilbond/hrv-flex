@@ -14,6 +14,7 @@ from build_sessions import (
     build_sessions_day,
     build_session_row,
     classify_session_group,
+    compute_durability_cols,
     compute_effort_anchor,
     compute_effort_recent,
     merge_sessions_incremental,
@@ -133,6 +134,11 @@ EXPECTED_SESSIONS_COLUMNS = [
     "cadence_second_half",
     "polar_speed_available",
     "polar_cadence_available",
+    "run_power_first_half",
+    "run_power_second_half",
+    "durability_applicable",
+    "speed_ratio",
+    "power_ratio",
     "load",
     "rpe",
     "feel",
@@ -238,8 +244,100 @@ def _session(**overrides):
 
 
 class BuildSessionsContractTests(unittest.TestCase):
+    def test_compute_durability_cols_marks_road_run_with_power_applicable_from_60min(self):
+        df = pd.DataFrame(
+            [
+                _session(
+                    sport="road_run",
+                    duration_min=62.0,
+                    moving_min=62.0,
+                    work_n_blocks=1,
+                    run_power_available=1,
+                    run_power_first_half=250.0,
+                    run_power_second_half=235.0,
+                    speed_first_half=12.0,
+                    speed_second_half=11.5,
+                )
+            ]
+        )
+
+        out = compute_durability_cols(df)
+
+        self.assertEqual(int(out.loc[0, "durability_applicable"]), 1)
+        self.assertAlmostEqual(float(out.loc[0, "power_ratio"]), 0.94, places=3)
+        self.assertAlmostEqual(float(out.loc[0, "speed_ratio"]), 0.958, places=3)
+
+    def test_compute_durability_cols_keeps_road_run_without_power_below_75min_not_applicable(self):
+        df = pd.DataFrame(
+            [
+                _session(
+                    sport="road_run",
+                    duration_min=62.0,
+                    moving_min=62.0,
+                    work_n_blocks=1,
+                    run_power_available=0,
+                    run_power_first_half=None,
+                    run_power_second_half=None,
+                    speed_first_half=12.0,
+                    speed_second_half=11.5,
+                )
+            ]
+        )
+
+        out = compute_durability_cols(df)
+
+        self.assertEqual(int(out.loc[0, "durability_applicable"]), 0)
+        self.assertTrue(pd.isna(out.loc[0, "power_ratio"]))
+        self.assertAlmostEqual(float(out.loc[0, "speed_ratio"]), 0.958, places=3)
+
+    def test_compute_durability_cols_marks_trail_run_with_power_applicable_from_75min(self):
+        df = pd.DataFrame(
+            [
+                _session(
+                    sport="trail_run",
+                    duration_min=76.0,
+                    moving_min=76.0,
+                    work_n_blocks=1,
+                    run_power_available=1,
+                    run_power_first_half=300.0,
+                    run_power_second_half=270.0,
+                    speed_first_half=9.5,
+                    speed_second_half=8.9,
+                )
+            ]
+        )
+
+        out = compute_durability_cols(df)
+
+        self.assertEqual(int(out.loc[0, "durability_applicable"]), 1)
+        self.assertAlmostEqual(float(out.loc[0, "power_ratio"]), 0.9, places=3)
+        self.assertAlmostEqual(float(out.loc[0, "speed_ratio"]), 0.937, places=3)
+
+    def test_compute_durability_cols_keeps_trail_run_without_power_below_90min_not_applicable(self):
+        df = pd.DataFrame(
+            [
+                _session(
+                    sport="trail_run",
+                    duration_min=76.0,
+                    moving_min=76.0,
+                    work_n_blocks=1,
+                    run_power_available=0,
+                    run_power_first_half=None,
+                    run_power_second_half=None,
+                    speed_first_half=9.5,
+                    speed_second_half=8.9,
+                )
+            ]
+        )
+
+        out = compute_durability_cols(df)
+
+        self.assertEqual(int(out.loc[0, "durability_applicable"]), 0)
+        self.assertTrue(pd.isna(out.loc[0, "power_ratio"]))
+        self.assertAlmostEqual(float(out.loc[0, "speed_ratio"]), 0.937, places=3)
+
     def test_sessions_csv_contract_header_matches_expected(self):
-        self.assertEqual(len(EXPECTED_SESSIONS_COLUMNS), 58)
+        self.assertEqual(len(EXPECTED_SESSIONS_COLUMNS), 63)
         self.assertEqual(EXPECTED_SESSIONS_COLUMNS[-1], "stream_dt_est")
 
     def test_weekly_distribution_schema_matches_expected_columns(self):
@@ -861,7 +959,12 @@ class BuildSessionsContractTests(unittest.TestCase):
         self.assertEqual(metrics["polar_cadence_available"], 1)
         self.assertEqual(metrics["mechanics_source"], "polar")
 
-    def test_extract_mechanical_metrics_splits_halves_by_chronology_not_valid_sample_count(self):
+    def test_extract_mechanical_metrics_splits_halves_by_moving_time_not_chronological_index(self):
+        # Stream: 20 samples paused (0 m/s) + 20 moderate (1 m/s = 3.6 km/h) + 40 fast (2 m/s = 7.2 km/h).
+        # Moving-time split: 60 valid samples, mid=30.
+        # first_half  = [3.6]*20 + [7.2]*10 → mean = (20*3.6 + 10*7.2) / 30 = 4.8
+        # second_half = [7.2]*30            → mean = 7.2
+        # Pauses do not shift the split boundary.
         speed_series = ["0.0"] * 20 + ["1.0"] * 20 + ["2.0"] * 40
         exercise = {
             "sport": "TRAIL_RUNNING",
@@ -872,7 +975,7 @@ class BuildSessionsContractTests(unittest.TestCase):
         metrics = extract_mechanical_metrics(exercise)
         self.assertEqual(metrics["mechanics_source"], "polar")
         self.assertEqual(metrics["polar_speed_available"], 1)
-        self.assertAlmostEqual(metrics["speed_first_half"], 3.6, places=2)
+        self.assertAlmostEqual(metrics["speed_first_half"], 4.8, places=2)
         self.assertAlmostEqual(metrics["speed_second_half"], 7.2, places=2)
 
     def test_build_session_row_prefers_intervals_fit_mechanics_over_polar(self):

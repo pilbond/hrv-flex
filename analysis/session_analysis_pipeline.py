@@ -1040,15 +1040,15 @@ def build_coach_narrative_hints(
             + "; usarlo para matizar drift o sensacion de coste, no como WBGT ni como prueba fisiologica cerrada"
         )
 
-    durability_context = composite_context.get("durability_context") or {}
-    if durability_context:
+    durability_thirds_context = composite_context.get("durability_context") or {}
+    if durability_thirds_context:
         durability_parts: list[str] = []
-        if durability_context.get("durability_hint"):
-            durability_parts.append(f"hint={durability_context.get('durability_hint')}")
-        if durability_context.get("confidence"):
-            durability_parts.append(f"confidence={durability_context.get('confidence')}")
-        if durability_context.get("delta_first_last_pct"):
-            delta = durability_context.get("delta_first_last_pct") or {}
+        if durability_thirds_context.get("durability_hint"):
+            durability_parts.append(f"hint={durability_thirds_context.get('durability_hint')}")
+        if durability_thirds_context.get("confidence"):
+            durability_parts.append(f"confidence={durability_thirds_context.get('confidence')}")
+        if durability_thirds_context.get("delta_first_last_pct"):
+            delta = durability_thirds_context.get("delta_first_last_pct") or {}
             delta_parts = ", ".join(
                 f"{key}={value}%" for key, value in delta.items() if value is not None
             )
@@ -1887,6 +1887,280 @@ def build_thermal_context(session_row: dict[str, str]) -> dict[str, Any] | None:
     }
 
 
+def _build_durability_applicability_checks(
+    sport: str,
+    moving_min: float | None,
+    work_n_blocks: int | None,
+    run_power_available: int,
+    power_ratio: float | None,
+    speed_ratio: float | None,
+) -> tuple[float, list[str]]:
+    applicability_checks: list[str] = []
+    min_duration = 90.0
+    if sport == "road_run":
+        min_duration = 60.0 if run_power_available and power_ratio is not None else 75.0
+    elif sport == "trail_run":
+        min_duration = 75.0 if run_power_available and power_ratio is not None else 90.0
+    elif sport == "hike":
+        min_duration = 90.0
+    else:
+        applicability_checks.append("sport_not_supported")
+
+    if moving_min is None or moving_min < min_duration:
+        applicability_checks.append(f"duration_lt_{int(min_duration)}min")
+    if work_n_blocks is None or work_n_blocks > 2:
+        applicability_checks.append("too_many_work_blocks")
+    if speed_ratio is None:
+        applicability_checks.append("speed_halves_unavailable")
+    return min_duration, applicability_checks
+
+
+def build_analysis_durability_context(
+    analysis_only_context: dict[str, Any] | None,
+    session_row: dict[str, str],
+) -> dict[str, Any]:
+    sport = _coerce_text_or_none(session_row.get("sport")) or "unknown"
+    moving_min = parse_float(session_row.get("moving_min")) or parse_float(session_row.get("duration_min"))
+    work_n_blocks = _coerce_int_like(session_row.get("work_n_blocks"))
+    mechanics_source = _coerce_text_or_none(session_row.get("mechanics_source"))
+    run_power_available = 1 if (parse_float(session_row.get("run_power_available")) or 0.0) >= 0.5 else 0
+    durability_applicable_raw = parse_float(session_row.get("durability_applicable"))
+    speed_ratio = parse_float(session_row.get("speed_ratio"))
+    power_ratio = parse_float(session_row.get("power_ratio"))
+    speed_first_half = parse_float(session_row.get("speed_first_half"))
+    speed_second_half = parse_float(session_row.get("speed_second_half"))
+    power_first_half = parse_float(session_row.get("run_power_first_half"))
+    power_second_half = parse_float(session_row.get("run_power_second_half"))
+
+    if speed_ratio is None and speed_first_half not in {None, 0} and speed_second_half is not None:
+        speed_ratio = round(speed_second_half / speed_first_half, 3)
+    if (
+        power_ratio is None
+        and run_power_available
+        and power_first_half not in {None, 0}
+        and power_second_half is not None
+    ):
+        power_ratio = round(power_second_half / power_first_half, 3)
+
+    coach_metrics = (analysis_only_context or {}).get("coach_metrics") or {}
+    decoupling_pct = parse_float(coach_metrics.get("decoupling_pct"))
+    if decoupling_pct is None:
+        decoupling_pct = parse_float(session_row.get("decoupling"))
+    cardiac_drift_pct = parse_float(session_row.get("cardiac_drift_pct"))
+
+    min_duration, applicability_checks = _build_durability_applicability_checks(
+        sport=sport,
+        moving_min=moving_min,
+        work_n_blocks=work_n_blocks,
+        run_power_available=run_power_available,
+        power_ratio=power_ratio,
+        speed_ratio=speed_ratio,
+    )
+
+    if durability_applicable_raw is not None:
+        applicable = durability_applicable_raw >= 0.5
+        if applicable:
+            applicability_reason = None
+        else:
+            derived_reason = ", ".join(applicability_checks)
+            applicability_reason = "sessions_csv_durability_applicable=0"
+            if derived_reason:
+                applicability_reason += f" ({derived_reason})"
+    else:
+        applicable = not applicability_checks
+        applicability_reason = None if applicable else ", ".join(applicability_checks)
+
+    if run_power_available and power_ratio is not None:
+        preferred_signal = "power_ratio"
+    elif speed_ratio is not None:
+        preferred_signal = "speed_ratio"
+    else:
+        preferred_signal = "none"
+
+    if sport == "road_run":
+        terrain_sensitivity = "low" if preferred_signal == "power_ratio" else "medium"
+    elif sport in {"trail_run", "hike"}:
+        terrain_sensitivity = "medium" if preferred_signal == "power_ratio" else "high"
+    else:
+        terrain_sensitivity = "high"
+
+    confidence = "low"
+    if applicable and preferred_signal == "power_ratio" and sport == "road_run":
+        confidence = "high"
+    elif applicable and preferred_signal == "power_ratio":
+        confidence = "medium"
+    elif applicable and preferred_signal == "speed_ratio" and terrain_sensitivity == "medium":
+        confidence = "medium"
+
+    if not applicable:
+        durability_pattern = "not_applicable"
+    elif preferred_signal == "speed_ratio" and terrain_sensitivity == "high":
+        durability_pattern = "ambiguous_due_to_terrain"
+    else:
+        signal_ratio = power_ratio if preferred_signal == "power_ratio" else speed_ratio
+        if signal_ratio is None:
+            durability_pattern = "mixed_signal"
+        elif work_n_blocks is not None and work_n_blocks > 2:
+            durability_pattern = "ambiguous_due_to_structure"
+        elif decoupling_pct is not None and decoupling_pct >= 10.0 and signal_ratio >= 0.97:
+            durability_pattern = "cardiovascular_drift_only"
+        elif decoupling_pct is not None and decoupling_pct >= 10.0 and signal_ratio < 0.97:
+            durability_pattern = "mechanical_drop_with_drift"
+        elif cardiac_drift_pct is not None and cardiac_drift_pct >= 5.0 and signal_ratio < 0.93:
+            durability_pattern = "mechanical_drop_with_drift"
+        elif signal_ratio < 0.93:
+            durability_pattern = "mechanical_drop_without_drift"
+        elif signal_ratio >= 0.97 and ((decoupling_pct is None or decoupling_pct < 10.0) and (cardiac_drift_pct is None or cardiac_drift_pct < 5.0)):
+            durability_pattern = "stable_output"
+        else:
+            durability_pattern = "mixed_signal"
+
+    notes: list[str] = []
+    if preferred_signal == "speed_ratio" and sport in {"trail_run", "hike"}:
+        notes.append("speed_ratio en deporte de terreno variable; leer con cautela")
+    if sport == "hike" and speed_ratio is not None and speed_ratio > 1.0:
+        notes.append("speed_ratio > 1 en hike puede reflejar descenso o terreno favorable")
+    if decoupling_pct is None:
+        notes.append("decoupling_pct no disponible; la lectura cardiovascular queda incompleta")
+    if run_power_available and power_ratio is None and speed_ratio is not None:
+        notes.append("power_ratio no disponible (NaN o ausente); tratar como sin señal y usar speed_ratio como fallback")
+    if run_power_available == 0 and power_first_half is not None and power_second_half is not None:
+        notes.append("run_power_available=0; no promocionar potencia parcial a señal principal")
+
+    return {
+        "version": "fp01_v1",
+        "source_scope": "sessions_csv_primitives",
+        "applicable": applicable,
+        "applicability_reason": applicability_reason,
+        "preferred_signal": preferred_signal,
+        "decoupling_pct": round(decoupling_pct, 2) if decoupling_pct is not None else None,
+        "cardiac_drift_pct": round(cardiac_drift_pct, 2) if cardiac_drift_pct is not None else None,
+        "power_ratio": round(power_ratio, 3) if power_ratio is not None and run_power_available else None,
+        "speed_ratio": round(speed_ratio, 3) if speed_ratio is not None else None,
+        "mechanics_source": mechanics_source,
+        "run_power_available": run_power_available,
+        "terrain_sensitivity": terrain_sensitivity,
+        "interpretation_confidence": confidence,
+        "durability_pattern": durability_pattern,
+        "method": "FP-01 local analysis context from sessions.csv primitives; decoupling and mechanical ratios are interpreted jointly, not collapsed into one score",
+        "notes": notes,
+    }
+
+
+_HARD_WORK_MIN_DURATION = 6.0
+_HARD_WORK_MIN_Z3_PCT = 20.0
+_VERY_HARD_WORK_MIN_DURATION = 8.0
+_VERY_HARD_WORK_MIN_Z3_PCT = 40.0
+_DOMINANT_WORK_BLOCK_SHARE_THRESHOLD = 0.33
+
+
+def _parse_semicolon_float_list(raw_value: Any) -> list[float]:
+    raw = str(raw_value or "").strip()
+    if not raw:
+        return []
+    values: list[float] = []
+    for part in raw.split(";"):
+        parsed = _float_or_none(part.strip())
+        if parsed is not None:
+            values.append(parsed)
+    return values
+
+
+def build_analysis_work_block_context(session_row: dict[str, str]) -> dict[str, Any]:
+    work_blocks_min = _parse_semicolon_float_list(session_row.get("work_blocks_min"))
+    work_blocks_z3_pct = _parse_semicolon_float_list(session_row.get("work_blocks_z3pct"))
+    work_total_min = _float_or_none(session_row.get("work_total_min"))
+    work_n_blocks = _coerce_int_like(session_row.get("work_n_blocks"))
+
+    if not work_blocks_min:
+        return {
+            "version": "v1",
+            "source_scope": "sessions_csv_work_blocks",
+            "available": False,
+            "block_count": work_n_blocks or 0,
+            "hard_work_blocks": None,
+            "very_hard_work_blocks": None,
+            "hard_work_min": None,
+            "hard_work_share": None,
+            "dominant_work_block_index": None,
+            "dominant_work_block_min": None,
+            "dominant_work_block_z3_pct": None,
+            "dominant_work_block_share": None,
+            "work_block_pattern": "unavailable",
+            "method": "analysis-only classification from work_blocks_min and work_blocks_z3pct",
+            "notes": ["work_blocks_min no disponible; no se puede reclasificar la dureza real de los bloques"],
+        }
+
+    if work_total_min is None or work_total_min <= 0:
+        work_total_min = sum(work_blocks_min)
+
+    dominant_idx = max(range(len(work_blocks_min)), key=lambda idx: work_blocks_min[idx])
+    dominant_work_block_min = work_blocks_min[dominant_idx]
+    dominant_work_block_z3_pct = (
+        work_blocks_z3_pct[dominant_idx]
+        if dominant_idx < len(work_blocks_z3_pct)
+        else None
+    )
+    dominant_work_block_share = (
+        round(dominant_work_block_min / work_total_min, 3)
+        if work_total_min and work_total_min > 0
+        else None
+    )
+
+    hard_indexes: list[int] = []
+    very_hard_indexes: list[int] = []
+    for idx, duration in enumerate(work_blocks_min):
+        z3_pct = work_blocks_z3_pct[idx] if idx < len(work_blocks_z3_pct) else None
+        if z3_pct is None:
+            continue
+        if duration >= _HARD_WORK_MIN_DURATION and z3_pct >= _HARD_WORK_MIN_Z3_PCT:
+            hard_indexes.append(idx)
+        if duration >= _VERY_HARD_WORK_MIN_DURATION and z3_pct >= _VERY_HARD_WORK_MIN_Z3_PCT:
+            very_hard_indexes.append(idx)
+
+    hard_work_min = round(sum(work_blocks_min[idx] for idx in hard_indexes), 1) if hard_indexes else 0.0
+    hard_work_share = (
+        round(hard_work_min / work_total_min, 3)
+        if work_total_min and work_total_min > 0
+        else None
+    )
+
+    if not hard_indexes:
+        pattern = "no_hard_block_identified"
+    elif len(hard_indexes) == 1 and dominant_work_block_share is not None and dominant_work_block_share >= _DOMINANT_WORK_BLOCK_SHARE_THRESHOLD:
+        pattern = "one_dominant_hard_block"
+    elif len(hard_indexes) == 1:
+        pattern = "one_hard_block_plus_secondary_work"
+    else:
+        pattern = "repeated_hard_blocks"
+
+    notes: list[str] = []
+    if len(work_blocks_z3_pct) != len(work_blocks_min):
+        notes.append("work_blocks_z3pct no cubre todos los bloques; la reclasificación de dureza es parcial")
+    if hard_indexes:
+        notes.append("la dureza real se clasifica con duracion y Z3 por bloque, no solo con work_n_blocks")
+    else:
+        notes.append("hay bloques útiles detectados, pero ninguno cumple el umbral local de bloque duro")
+
+    return {
+        "version": "v1",
+        "source_scope": "sessions_csv_work_blocks",
+        "available": True,
+        "block_count": work_n_blocks if work_n_blocks is not None else len(work_blocks_min),
+        "hard_work_blocks": len(hard_indexes),
+        "very_hard_work_blocks": len(very_hard_indexes),
+        "hard_work_min": hard_work_min,
+        "hard_work_share": hard_work_share,
+        "dominant_work_block_index": dominant_idx + 1,
+        "dominant_work_block_min": round(dominant_work_block_min, 1),
+        "dominant_work_block_z3_pct": round(dominant_work_block_z3_pct, 1) if dominant_work_block_z3_pct is not None else None,
+        "dominant_work_block_share": dominant_work_block_share,
+        "work_block_pattern": pattern,
+        "method": "hard block if duration >= 6 min and z3_pct >= 20; very hard block if duration >= 8 min and z3_pct >= 40",
+        "notes": notes,
+    }
+
+
 def build_durability_thirds_context(
     stream_csv_path: Path | None,
     session_row: dict[str, str] | None = None,
@@ -2101,9 +2375,13 @@ def prepare_bundle(
         except Exception as exc:
             terrain_intervals_error = str(exc)
     analysis_only_context = summarize_intervals_analysis_context(activity_detail, intervals_payload, row)
+    durability_context = build_analysis_durability_context(analysis_only_context, row)
+    work_block_context = build_analysis_work_block_context(row)
+    analysis_only_context = dict(analysis_only_context or {})
+    analysis_only_context["durability_context"] = durability_context
+    analysis_only_context["work_block_context"] = work_block_context
     composite_context = build_composite_context(analysis_only_context, row, stream_csv)
     if composite_context:
-        analysis_only_context = dict(analysis_only_context or {})
         analysis_only_context["composite_context"] = composite_context
     subjective_context = build_subjective_context(row)
     coach_interval_rows = []
@@ -2239,7 +2517,7 @@ def render_report_markdown(summary: dict[str, Any]) -> str:
     if composite_context:
         subjective_coherence = composite_context.get("subjective_coherence") or {}
         thermal_context = composite_context.get("thermal_context") or {}
-        durability_context = composite_context.get("durability_context") or {}
+        durability_thirds_context = composite_context.get("durability_context") or {}
         lines.append("## Composite Context")
         if subjective_coherence:
             lines.extend([
@@ -2268,20 +2546,20 @@ def render_report_markdown(summary: dict[str, Any]) -> str:
                 f"- method: `{thermal_context.get('method')}`",
                 "",
             ])
-        if durability_context:
-            delta = durability_context.get("delta_first_last_pct") or {}
+        if durability_thirds_context:
+            delta = durability_thirds_context.get("delta_first_last_pct") or {}
             delta_parts = ", ".join(
                 f"{key}={value}" for key, value in delta.items() if value is not None
             )
             lines.extend([
-                "### Durability Context",
-                f"- basis: `{durability_context.get('basis')}`",
-                f"- confidence: `{durability_context.get('confidence')}`",
-                f"- durability_hint: `{durability_context.get('durability_hint')}`",
-                f"- span_sec: `{durability_context.get('span_sec')}`",
-                f"- n_samples: `{durability_context.get('n_samples')}`",
+                "### Durability Context (tercios)",
+                f"- basis: `{durability_thirds_context.get('basis')}`",
+                f"- confidence: `{durability_thirds_context.get('confidence')}`",
+                f"- durability_hint: `{durability_thirds_context.get('durability_hint')}`",
+                f"- span_sec: `{durability_thirds_context.get('span_sec')}`",
+                f"- n_samples: `{durability_thirds_context.get('n_samples')}`",
                 f"- delta_first_last_pct: `{delta_parts or None}`",
-                f"- method: `{durability_context.get('method')}`",
+                f"- method: `{durability_thirds_context.get('method')}`",
                 "",
             ])
 
@@ -2591,6 +2869,68 @@ def _work_blocks_asymmetry_note(work_blocks_min: Any) -> str | None:
     if len(nums) >= 3 and shortest <= 0.5 * sorted(nums)[-2]:
         return "La secuencia deja ver una caída temporal marcada en un bloque intermedio, compatible con fatiga acumulada o colapso de continuidad."
     return None
+
+
+def _work_block_context_summary_line(work_block_context: dict[str, Any] | None) -> str | None:
+    if not isinstance(work_block_context, dict) or not work_block_context.get("available"):
+        return None
+    pattern = str(work_block_context.get("work_block_pattern") or "").strip()
+    hard_blocks = _coerce_int_like(work_block_context.get("hard_work_blocks"))
+    dominant_min = _float_or_none(work_block_context.get("dominant_work_block_min"))
+    dominant_share = _float_or_none(work_block_context.get("dominant_work_block_share"))
+    very_hard_blocks = _coerce_int_like(work_block_context.get("very_hard_work_blocks"))
+    if pattern == "one_dominant_hard_block":
+        return (
+            f"La dureza real no equivale a todos los bloques útiles: hubo `{_fmt_num(hard_blocks, digits=0)}` bloque duro dominante "
+            f"de `{_fmt_num(dominant_min)} min`, que concentró `{_fmt_pct((dominant_share or 0.0) * 100.0)}` del trabajo útil."
+        )
+    if pattern == "one_hard_block_plus_secondary_work":
+        return (
+            f"La sesión dejó `{_fmt_num(hard_blocks, digits=0)}` bloque duro claro de `{_fmt_num(dominant_min)} min`, "
+            "más varios segmentos de trabajo alrededor que no fueron igual de exigentes."
+        )
+    if pattern == "repeated_hard_blocks":
+        detail = ""
+        if very_hard_blocks and very_hard_blocks > 0:
+            detail = f"; al menos `{_fmt_num(very_hard_blocks, digits=0)}` fue claramente muy duro"
+        return (
+            f"La dureza sí estuvo repartida: `{_fmt_num(hard_blocks, digits=0)}` bloques cumplen criterio local de bloque duro{detail}."
+        )
+    if pattern == "no_hard_block_identified":
+        return "Hay bloques útiles detectados, pero ninguno cumple el criterio local de bloque duro; conviene leer la sesión más por continuidad que por picos."
+    return None
+
+
+def _work_block_context_verdict_phrase(
+    work_block_context: dict[str, Any] | None,
+    fallback_blocks: str,
+    fallback_work_total_min: str,
+) -> str:
+    if not isinstance(work_block_context, dict) or not work_block_context.get("available"):
+        return (
+            f"El estímulo útil quedó concentrado en `{fallback_blocks}` bloques y `{fallback_work_total_min} min` de trabajo relevante"
+        )
+    pattern = str(work_block_context.get("work_block_pattern") or "").strip()
+    hard_blocks = _string_or_na(work_block_context.get("hard_work_blocks"))
+    dominant_min = _fmt_num(work_block_context.get("dominant_work_block_min"))
+    if pattern == "one_dominant_hard_block":
+        return (
+            f"El estímulo útil sumó `{fallback_blocks}` bloques y `{fallback_work_total_min} min` de trabajo relevante, "
+            f"pero la dureza real quedó concentrada en `{hard_blocks}` bloque duro dominante de `{dominant_min} min`"
+        )
+    if pattern == "one_hard_block_plus_secondary_work":
+        return (
+            f"El estímulo útil sumó `{fallback_blocks}` bloques y `{fallback_work_total_min} min` de trabajo relevante, "
+            f"con `{hard_blocks}` bloque duro claro y varios segmentos accesorios"
+        )
+    if pattern == "repeated_hard_blocks":
+        return (
+            f"El estímulo útil quedó repartido entre `{fallback_blocks}` bloques y `{fallback_work_total_min} min` de trabajo relevante, "
+            f"con `{hard_blocks}` bloques duros reales"
+        )
+    return (
+        f"El estímulo útil quedó concentrado en `{fallback_blocks}` bloques y `{fallback_work_total_min} min` de trabajo relevante"
+    )
 
 
 def _build_rr_detail_lines(summary: dict[str, Any]) -> list[str]:
@@ -2972,9 +3312,97 @@ def _build_response_synthesis(
             if drift is not None and drift >= 10:
                 text += " La deriva y la pérdida de continuidad entre vueltas sugieren un coste creciente con el paso de la sesión."
             return text
+        if work_total > 0:
+            return (
+                "En trail esto debe leerse como una sesión de continuidad y desnivel: "
+                "si la durabilidad es simple, `power_ratio` manda sobre `speed_ratio` y el ritmo solo confirma el sesgo de terreno."
+            )
     if work_total > 0:
         return "La respuesta interna confirma que el coste útil estuvo en los bloques relevantes y no solo en la duración bruta de la sesión."
     return None
+
+
+def _build_analysis_durability_report_lines(
+    sport_family: str,
+    durability_context: dict[str, Any] | None,
+) -> list[str]:
+    if not isinstance(durability_context, dict) or not durability_context:
+        return []
+
+    pattern = str(durability_context.get("durability_pattern") or "").strip()
+    preferred = str(durability_context.get("preferred_signal") or "").strip()
+    confidence = _string_or_na(durability_context.get("interpretation_confidence"))
+    decoupling = durability_context.get("decoupling_pct")
+    power_ratio = durability_context.get("power_ratio")
+    speed_ratio = durability_context.get("speed_ratio")
+    terrain_sensitivity = _string_or_na(durability_context.get("terrain_sensitivity"))
+
+    signal_name = "power_ratio" if preferred == "power_ratio" else ("speed_ratio" if preferred == "speed_ratio" else None)
+    signal_value = power_ratio if preferred == "power_ratio" else speed_ratio
+    readout_parts: list[str] = []
+    if signal_name and signal_value is not None:
+        readout_parts.append(f"`{signal_name} = {_fmt_num(signal_value, digits=3)}`")
+    if decoupling is not None:
+        readout_parts.append(f"`decoupling_pct = {_fmt_num(decoupling, digits=2)}`")
+    readout = ", ".join(readout_parts) if readout_parts else "sin ratio mecánico ni decoupling suficientes"
+
+    if pattern == "cardiovascular_drift_only":
+        base = (
+            f"La capa local de durabilidad apunta a deriva cardiovascular sin caída mecánica clara: {readout}. "
+            f"La señal preferida fue `{preferred}` y la confianza narrativa es `{confidence}`."
+        )
+    elif pattern == "mechanical_drop_with_drift":
+        base = (
+            f"La capa local de durabilidad encaja mejor con caída mecánica acompañada de deriva: {readout}. "
+            f"La señal preferida fue `{preferred}` y la confianza narrativa es `{confidence}`."
+        )
+    elif pattern == "mechanical_drop_without_drift":
+        base = (
+            f"La capa local de durabilidad sugiere caída mecánica sin una deriva cardiovascular igual de marcada: {readout}. "
+            f"La señal preferida fue `{preferred}` y la confianza narrativa es `{confidence}`."
+        )
+    elif pattern == "stable_output":
+        base = (
+            f"La capa local de durabilidad describe un sostenimiento bastante estable del output: {readout}. "
+            f"La señal preferida fue `{preferred}` y la confianza narrativa es `{confidence}`."
+        )
+    elif pattern == "ambiguous_due_to_terrain":
+        base = (
+            f"La capa local de durabilidad queda ambigua por terreno: {readout}. "
+            f"La señal preferida fue `{preferred}` y `terrain_sensitivity = {terrain_sensitivity}`."
+        )
+    elif pattern == "ambiguous_due_to_structure":
+        base = (
+            f"La capa local de durabilidad queda ambigua por estructura de sesión: {readout}. "
+            f"La confianza narrativa es `{confidence}`."
+        )
+    elif pattern == "not_applicable":
+        reason = _string_or_na(durability_context.get("applicability_reason"))
+        base = (
+            f"La capa local de durabilidad no aplica en esta sesión (`{reason}`), así que no conviene convertir el cierre en lectura mecánica fuerte."
+        )
+    else:
+        base = (
+            f"La capa local de durabilidad deja una señal mixta: {readout}. "
+            f"La señal preferida fue `{preferred or 'none'}` y la confianza narrativa es `{confidence}`."
+        )
+
+    lines = [base]
+    if sport_family == "trail" and pattern == "stable_output":
+        if preferred == "power_ratio":
+            lines.append(
+                "En trail simple, la lectura limpia prioriza `power_ratio`; `speed_ratio` solo acompaña y no debe mandar sobre el perfil del terreno."
+            )
+        elif preferred == "speed_ratio":
+            lines.append(
+                "En trail simple sin potencia útil, `speed_ratio` solo acompaña y exige un perfil bastante estable para no confundir terreno con fatiga."
+            )
+    if pattern == "ambiguous_due_to_terrain":
+        if sport_family == "trail":
+            lines.append("En trail esto obliga a no leer una caída de velocidad como fatiga periférica cerrada sin apoyo de potencia o contexto de terreno.")
+        elif sport_family == "hike":
+            lines.append("En marcha esto obliga a no leer el cambio de velocidad como deterioro fisiológico limpio sin saber si la segunda mitad fue más favorable.")
+    return lines
 
 
 def _build_block_synthesis(
@@ -3842,6 +4270,8 @@ def build_final_report_markdown(
     terrain_context = payload.get("terrain_context") or {}
     terrain_fit_context = payload.get("terrain_fit_context") or {}
     analysis_only_context = payload.get("analysis_only_context") or {}
+    durability_context = payload.get("durability_context") or {}
+    work_block_context = payload.get("work_block_context") or {}
     coach_metrics = (analysis_only_context.get("coach_metrics") or {}) if isinstance(analysis_only_context, dict) else {}
     duration_consistency = summary.get("duration_consistency") or {}
     if not isinstance(duration_consistency, dict):
@@ -3859,25 +4289,30 @@ def build_final_report_markdown(
     cost_label_display = _display_cost_label(cost_label)
     work_total_min = _fmt_num(session_row.get("work_total_min"))
     work_blocks = _string_or_na(session_row.get("work_n_blocks"))
+    work_block_verdict_phrase = _work_block_context_verdict_phrase(
+        work_block_context if isinstance(work_block_context, dict) else None,
+        fallback_blocks=work_blocks,
+        fallback_work_total_min=work_total_min,
+    )
     gate_badge = _string_or_na(final_row.get("gate_badge"), "n/d")
     action_label = _string_or_na(final_row.get("Action"), "n/d")
     reporting_mode = final_reason_rendered.get("reporting_mode")
     if sport_family == "bike":
         verdict = (
             f"Salida larga de {sport_label.lower()} con coste dominante **{cost_label_display}**. "
-            f"El estímulo útil quedó concentrado en `{work_blocks}` bloques y `{work_total_min} min` de trabajo relevante, "
+            f"{work_block_verdict_phrase}, "
             f"sobre un contexto matinal `{gate_badge}` con `Action = {action_label}`."
         )
     elif sport_family == "trail":
         verdict = (
             f"Sesión de cuestas en {sport_label.lower()} con coste dominante **{cost_label_display}**. "
-            f"El estímulo útil quedó concentrado en `{work_blocks}` bloques y `{work_total_min} min` de trabajo relevante, "
+            f"{work_block_verdict_phrase}, "
             f"sobre un contexto matinal `{gate_badge}` con `Action = {action_label}`."
         )
     else:
         verdict = (
             f"Sesión de {sport_label.lower()} con coste dominante **{cost_label_display}**. "
-            f"El estímulo útil quedó concentrado en `{work_blocks}` bloques y `{work_total_min} min` de trabajo relevante, "
+            f"{work_block_verdict_phrase}, "
             f"sobre un contexto matinal `{gate_badge}` con `Action = {action_label}`."
         )
     if final_reason_rendered.get("enabled"):
@@ -3976,6 +4411,7 @@ def build_final_report_markdown(
             f"- `work_total_min = {_fmt_num(session_row.get('work_total_min'))}`",
             f"- `work_longest_min = {_fmt_num(session_row.get('work_longest_min'))}`",
             f"- `work_blocks_min = {_format_work_blocks_min(session_row.get('work_blocks_min'))}`",
+            f"- `work_blocks_z3pct = {_format_work_blocks_min(session_row.get('work_blocks_z3pct'))}`",
             f"- `work_avg_z3_pct = {_fmt_num(session_row.get('work_avg_z3_pct'))}`",
             f"- `late_intensity = {_fmt_num(session_row.get('late_intensity'))}`, `cardiac_drift_pct = {_fmt_num(session_row.get('cardiac_drift_pct'))}`",
             "",
@@ -4002,13 +4438,18 @@ def build_final_report_markdown(
             f"`{work_blocks}` bloques útiles y un bloque máximo de `{_fmt_num(session_row.get('work_longest_min'))} min`."
         ]
     )
+    work_block_summary_line = _work_block_context_summary_line(
+        work_block_context if isinstance(work_block_context, dict) else None
+    )
+    if work_block_summary_line:
+        lines.append(work_block_summary_line)
     if sport_family == "bike":
         lines.append(
             "En ciclismo esto sugiere una salida larga con bastante tiempo controlado y un coste concentrado en pocos segmentos duros, no una sesión homogéneamente exigente de principio a fin."
         )
     elif sport_family == "trail":
         lines.append(
-            "En trail esto debe leerse como una sesión de continuidad y desnivel, donde la repetición de climbs pesa más que el ritmo absoluto en llano."
+            "En trail esto debe leerse como una sesión de continuidad y desnivel: cuando la durabilidad es simple, `power_ratio` manda sobre `speed_ratio` y el ritmo solo confirma el sesgo de terreno."
         )
     if terrain_fit_context:
         climb_line = (
@@ -4075,15 +4516,32 @@ def build_final_report_markdown(
                 f"con `score = {_fmt_num(subjective_coherence.get('subjective_coherence_score'))}`."
             )
         if durability:
-            lines.append(
-                f"La durabilidad sale `{_string_or_na(durability.get('durability_hint'))}` "
-                f"con `confidence = {_string_or_na(durability.get('confidence'))}`."
-            )
+            analysis_applicable = False
+            if isinstance(durability_context, dict):
+                analysis_applicable = bool(durability_context.get("applicable"))
+            if analysis_applicable:
+                lines.append(
+                    f"Como contraste exploratorio por tercios, la lectura de `session_stream.csv` sale "
+                    f"`{_string_or_na(durability.get('durability_hint'))}` con "
+                    f"`confidence = {_string_or_na(durability.get('confidence'))}`."
+                )
+            else:
+                lines.append(
+                    f"La durabilidad sale `{_string_or_na(durability.get('durability_hint'))}` "
+                    f"con `confidence = {_string_or_na(durability.get('confidence'))}`."
+                )
         if thermal_context:
             lines.append(
                 f"El contexto térmico fue `thermal_band = {_string_or_na(thermal_context.get('thermal_band'))}` "
                 f"con `temperature_c = {_fmt_num(thermal_context.get('temperature_c'))}`."
             )
+    if work_block_summary_line:
+        lines.append(work_block_summary_line)
+    for durability_line in _build_analysis_durability_report_lines(
+        sport_family=sport_family,
+        durability_context=durability_context if isinstance(durability_context, dict) else None,
+    ):
+        lines.append(durability_line)
     response_synthesis = _build_response_synthesis(
         sport_family,
         session_row,
@@ -4448,6 +4906,15 @@ def build_final_report_markdown(
                     f"La velocidad sostuvo o mejoró de {_fmt_num(speed_first, digits=2)} km/h a {_fmt_num(speed_second, digits=2)} km/h, "
                     "así que no hubo un fade de marcha claro."
                 )
+    durability_fp01_context = payload.get("durability_context") or {}
+    if isinstance(durability_fp01_context, dict) and durability_fp01_context:
+        pattern = str(durability_fp01_context.get("durability_pattern") or "").strip()
+        if pattern == "mechanical_drop_with_drift":
+            lines.append("La lectura conjunta de decoupling y ratio mecánico encaja mejor con un peaje periférico real que con una simple deriva cardiovascular aislada.")
+        elif pattern == "cardiovascular_drift_only":
+            lines.append("La lectura conjunta encaja mejor con deriva cardiovascular que con un colapso mecánico del output.")
+        elif pattern == "ambiguous_due_to_terrain":
+            lines.append("La lectura conjunta no permite cerrar fatiga periférica limpia porque el terreno sigue siendo una fuente fuerte de confusión.")
     if show_rr:
         lines.extend([
             "",
@@ -4634,9 +5101,20 @@ def build_conversational_payload(
     terrain_fit_context = summary.get("terrain_fit_context")
     terrain_climbs = summary.get("terrain_climbs") or []
     analysis_only_context = summary.get("analysis_only_context")
+    if not isinstance(analysis_only_context, dict):
+        manifest_analysis_only = manifest.get("analysis_only_context")
+        analysis_only_context = manifest_analysis_only if isinstance(manifest_analysis_only, dict) else None
     composite_context = None
     if isinstance(analysis_only_context, dict):
         composite_context = analysis_only_context.get("composite_context")
+    analysis_only_context = dict(analysis_only_context or {})
+    if not isinstance(analysis_only_context.get("durability_context"), dict):
+        analysis_only_context["durability_context"] = build_analysis_durability_context(
+            analysis_only_context,
+            session_row,
+        )
+    if not isinstance(analysis_only_context.get("work_block_context"), dict):
+        analysis_only_context["work_block_context"] = build_analysis_work_block_context(session_row)
     terrain_intervals_csv = None
     terrain_climbs_csv = None
     coach_metrics_json = None
@@ -4757,6 +5235,16 @@ def build_conversational_payload(
     rr_summary_payload = dict(summary)
     rr_summary_payload.pop("analysis_only_context", None)
     rr_summary_payload.pop("composite_context", None)
+    durability_context = (
+        analysis_only_context.get("durability_context")
+        if isinstance(analysis_only_context, dict)
+        else None
+    )
+    work_block_context = (
+        analysis_only_context.get("work_block_context")
+        if isinstance(analysis_only_context, dict)
+        else None
+    )
 
     return {
         "meta": {
@@ -4780,6 +5268,8 @@ def build_conversational_payload(
         "session_row": session_row,
         "subjective_context": subjective_context,
         "composite_context": composite_context,
+        "durability_context": durability_context,
+        "work_block_context": work_block_context,
         "rr_analysis_summary": rr_summary_payload,
         "terrain_context": terrain_context,
         "terrain_fit_context": terrain_fit_context,
@@ -4831,6 +5321,8 @@ def build_conversational_payload(
             "sport_family_notes": session_family_notes(sport_family),
             "subjective_context": subjective_context,
             "composite_context": composite_context,
+            "durability_context": durability_context,
+            "work_block_context": work_block_context,
             "final_reason_rendered": final_reason_rendered,
             "coach_usage_notes": coach_usage_notes,
             "coach_narrative_hints": coach_narrative_hints,
@@ -5089,7 +5581,8 @@ def build_analyst_prompt_markdown(
             "Redacta un informe rico de sesion en espanol, con tono tecnico y prudente, usando `session_payload.json` como fuente compacta principal y sin inventar metricas ni fuentes no presentes.",
             "- trata `analysis_only_context` y sus sidecars coach como enriquecimiento local de `analysis/`; no los eleves a verdad canonica global si contradicen `sessions.csv` o los contratos HRV",
             "- si existe `session_payload.json.subjective_context.notes_raw`, usala como nota manual del atleta en `Contexto subjetivo`; no la mezcles con `session_rpe`, `feel` ni con `load`/`trimp`",
-            "- si existe `session_payload.json.composite_context`, usalo como capa exploratoria para `subjective_coherence/load_mismatch`, `thermal_context` y `durability_context`; no lo conviertas en contrato canonico ni en taxonomia cerrada",
+            "- si existe `session_payload.json.composite_context`, usalo como capa exploratoria para `subjective_coherence/load_mismatch`, `thermal_context` y el `durability_context` por tercios; no lo conviertas en contrato canonico ni en taxonomia cerrada",
+            "- si existe `session_payload.json.durability_context`, priorizalo como lectura local FP-01 desde primitivas de `sessions.csv`; usa `durability_pattern`, `preferred_signal` e `interpretation_confidence` como apoyo narrativo, no como contrato HRV canonico",
             "- si existe `session_payload.json.final_reason_items`, tratalo como fuente primaria de cautelas HRV diarias; usa `session_payload.json.final_reason_flags` para decidir si abrir `Tension explicita`",
             "- cuando `session_payload.json.final_reason_items_contract.fallback_to_reason_text = false`, `Tension explicita` debe describir los `final_reason_items` por `type` y, cuando existan, por `value/threshold`; no parafrasees `reason_text` como fuente primaria",
             "- si `final_reason_items` contiene varios items, distingue su funcion y no los colapses en una sola prudencia generica; explicita tambien si `has_action_constraint = false` para separar cautela de restriccion operativa",

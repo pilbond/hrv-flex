@@ -88,7 +88,7 @@ El pipeline de sesiones y el módulo `analysis/` se conectan, pero no comparten 
 
 ## 2. SESSIONS.CSV — columnas y significado
 
-68 columnas organizadas en bloques funcionales. Cada bloque agrupa campos relacionados.
+73 columnas organizadas en bloques funcionales. Cada bloque agrupa campos relacionados.
 
 ### Bloque A — Identidad
 
@@ -185,7 +185,7 @@ Un "bloque de trabajo" es un periodo continuo donde tu corazón estuvo por encim
 
 **¿Por qué "mitades" y no "últimos 20 minutos"?** El diseño por mitades es más robusto para sesiones de distinta duración: en una sesión de 45 min, "últimos 20 min" es casi la mitad; en una de 120 min, es solo el último sexto. Las mitades se adaptan automáticamente a la duración.
 
-### Capa opcional — Señal mecánica (14 campos)
+### Capa opcional — Señal mecánica (16 campos)
 
 Cuando existe señal utilizable, `sessions.csv` añade una capa mecánica mínima para deportes de pie (`road_run`, `trail_run`, `hike`). La prioridad es `Intervals FIT` y el fallback es `Polar AccessLink`. Si ninguna fuente está disponible, las columnas quedan vacías o en `0` y el pipeline sigue funcionando igual.
 
@@ -199,6 +199,8 @@ Cuando existe señal utilizable, `sessions.csv` añade una capa mecánica mínim
 | `run_power_mean` | float? | Potencia media útil en vatios de la fuente mecánica seleccionada. |
 | `run_power_max` | float? | Potencia máxima útil en vatios de la fuente mecánica seleccionada. |
 | `run_power_p95` | float? | Percentil 95 de potencia útil en vatios de la fuente mecánica seleccionada. |
+| `run_power_first_half` | float? | Potencia media de la primera mitad útil en vatios. Solo presente cuando `run_power_available=1`. |
+| `run_power_second_half` | float? | Potencia media de la segunda mitad útil en vatios. Solo presente cuando `run_power_available=1`. |
 | `speed_first_half` | float? | Velocidad media de la primera mitad útil de la sesión, en km/h, usando la fuente mecánica seleccionada. |
 | `speed_second_half` | float? | Velocidad media de la segunda mitad útil de la sesión, en km/h, usando la fuente mecánica seleccionada. |
 | `cadence_first_half` | float? | Cadencia media de la primera mitad útil usando la fuente mecánica seleccionada. |
@@ -210,9 +212,29 @@ Cuando existe señal utilizable, `sessions.csv` añade una capa mecánica mínim
 
 **Relación con `FP-02`:** la capa mecánica mínima sí puede ser reutilizada por `analysis/` para enriquecer terreno, pero `build_sessions.py` no persiste `GAP`, `VAM`, `terrain_context` ni artefactos por split/climb dentro de `sessions.csv`.
 
-**Limitación semántica importante:** `speed_first_half`, `speed_second_half`, `cadence_first_half` y `cadence_second_half` se calculan hoy cortando la serie en su mitad cronológica y filtrando dentro de cada mitad las muestras no útiles. Esto corrige el sesgo de partir por conteo de muestras válidas, pero sigue siendo una aproximación por índice de muestra: si la señal tiene huecos largos o muestreo muy irregular, la frontera no equivale exactamente a la mitad del tiempo absoluto.
+**Semántica temporal (FP-01):** `speed_first_half`, `speed_second_half`, `cadence_first_half`, `cadence_second_half`, `run_power_first_half` y `run_power_second_half` se calculan sobre **tiempo en movimiento**: primero se filtran las muestras válidas (velocidad > umbral mínimo, cadencia > 0, potencia > 0) y luego se parte el array resultante por su mitad. Las pausas no computan ni desplazan el punto de corte. Esto es relevante en `hike`, donde el tiempo de pausa puede superar el 30% del tiempo total. El sampling rate es 1 Hz en todas las sesiones conocidas, por lo que la frontera equivale exactamente a la mitad del tiempo en movimiento.
 
 **Cobertura Polar:** cuando `mechanics_source = polar`, la cobertura depende de la ventana reciente realmente expuesta por Polar AccessLink en `/v3/exercises`. No debe asumirse como fuente de backfill histórico completo.
+
+### Capa derivada — Durabilidad mecánica (3 campos)
+
+Señales derivadas de FP-01 para detectar fatiga periférica en sesiones largas de deportes de pie. Solo se calculan en `build_sessions.py` como post-proceso; no dependen de ninguna fuente externa adicional.
+
+| Campo | Tipo | Qué es |
+|-------|------|--------|
+| `durability_applicable` | 0/1 | 1 si la sesión cumple los criterios mínimos para calcular una lectura clásica de durabilidad: `sport` en `{road_run, trail_run, hike}`, `work_n_blocks <= 2`, `speed_first_half` disponible y duración mínima dependiente de deporte/señal. Reglas v1 run-aware: `road_run >= 60 min` con potencia útil o `>= 75 min` sin ella; `trail_run >= 75 min` con potencia útil o `>= 90 min` sin ella; `hike >= 90 min`. Las sesiones de intervalos o demasiado cortas quedan en 0. |
+| `speed_ratio` | float? | `speed_second_half / speed_first_half`. Ratio de velocidad entre segunda y primera mitad. Valores <1 indican caída de velocidad; por debajo de ~0.93 y con `cardiac_drift_pct > 5` la combinación sugiere fatiga mecánica periférica. En `hike`, ratio > 1.10 con elevación alta es ambiguo (posible descenso en segunda mitad). |
+| `power_ratio` | float? | `run_power_second_half / run_power_first_half`. **NaN cuando `run_power_available=0`**, incluso si las mitades existen en el CSV. La gate es explícita en el pipeline: el cálculo usa `run_power_available` como condición necesaria, no se infiere de la presencia de los valores. Señal preferida sobre `speed_ratio` cuando está disponible: la potencia es output directo del motor muscular, independiente de la variabilidad de terreno. |
+
+**Nota de interpretación:** `power_ratio` es la señal preferida cuando está disponible. `speed_ratio` es el fallback. Ambas pueden coexistir en la misma sesión. Para `hike`, `speed_ratio < 0.90` con `cardiac_drift_pct > 5` es la combinación más fiable; el ratio positivo alto es menos interpretable sin conocer el perfil de elevación.
+
+**Thresholds candidatos (backtesting FP-01, N=30, 2025-05 a 2026-04):**
+- Fatiga mecánica: `speed_ratio < 0.93` AND `cardiac_drift_pct > 5` → 1 caso claro (hike 0.773/+31.7). Sin falsos positivos con este criterio dual.
+- Decoupling cardíaco sin caída mecánica: `cardiac_drift_pct > 10` AND `speed_ratio >= 0.93` → 3 sesiones (patrón diferente: el corazón trabaja más pero la velocidad aguanta).
+- N insuficiente para producción: solo 1 caso positivo inequívoco. Revisión prevista a N≥50 sesiones aplicables.
+- Las constantes están en `build_sessions.py` (`_DURABILITY_SPEED_RATIO_THRESHOLD`, `_DURABILITY_DRIFT_THRESHOLD`) para ajuste sin cambio de lógica.
+
+**Alcance FP-01:** estas columnas son solo de `sessions.csv`. No alimentan `reason_text`, `FINAL` ni ningún gate HRV hasta que los thresholds se validen con N≥50.
 
 ### Bloque F — Carga, percepción y métricas coach de sesión
 
@@ -643,9 +665,18 @@ Cuántos días de la ventana rolling tenían un valor real (no NaN) para esa mé
 
 ## 10. Historial de versiones y fixes
 
-**Versión operativa actual:** `v3.11`
+**Versión operativa actual:** `v3.12`
 
 Lo siguiente es historial de cambios acumulados. No sustituye al estado vigente declarado al inicio del documento.
+
+### v3.12 (FP-01 durabilidad mecánica — spike de validación)
+1) `sessions.csv` bumped `68 -> 73` columnas (nota: 68 = 67 declaradas al cierre de v3.11 + `stream_dt_est` que ya existía desde v3.10 pero no figuraba en el conteo oficial de v3.11)
+2) columnas nuevas en capa mecánica: `run_power_first_half`, `run_power_second_half` (antes se calculaban y se descartaban; ahora persisten cuando `run_power_available=1`)
+3) columnas derivadas nuevas: `durability_applicable` (0/1), `speed_ratio`, `power_ratio`
+4) alcance: `road_run`, `trail_run`, `hike`; bike excluido sin potenciómetro
+5) `durability_applicable=1` usa puerta clásica run-aware: `road_run >= 60/75 min` según potencia útil, `trail_run >= 75/90 min`, `hike >= 90 min`, además de `work_n_blocks <= 2` y `speed_first_half` disponible
+6) `power_ratio` es **NaN cuando `run_power_available=0`** — la gate es explícita en el pipeline, no inferida de la presencia de las mitades. `speed_ratio` es el fallback cuando `power_ratio` no está disponible.
+7) estas columnas no alimentan `reason_text`, `FINAL` ni ningún gate HRV (spike de validación; thresholds pendientes de backtesting)
 
 ### v3.11 (SYA-04 extracción mínima canónica de coach metrics)
 1) `sessions.csv` bumped `58 -> 67` columnas con la extracción mínima cerrada en `SYA-03A`

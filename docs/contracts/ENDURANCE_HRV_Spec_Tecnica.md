@@ -933,7 +933,7 @@ Si tu baseline actual está por debajo del P20 de todos tus baselines histórico
 | `ENDURANCE_HRV_master_FINAL.csv` | Gate, veto agudo, sombras, residual, reason_text, auditoría raw-vs-ref y RE-01 recovery context | 62 |
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | Lo esencial para decidir en 10 segundos + reason_text | 10 |
 | `ENDURANCE_HRV_sleep.csv` | Sueño nocturno y recuperación (Polar) | 17 |
-| `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento, incluyendo primitivas mínimas de coach metrics por sesión | 67 |
+| `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento, incluyendo primitivas mínimas de coach metrics por sesión y capa de durabilidad mecánica | 73 |
 | `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios + rolling con cobertura (_nobs) + contexto canónico de carga + clustering reciente de intensidad + señal DO-02 de polarización por familia + resumen de episodios | 60 |
 | `ENDURANCE_HRV_intensity_distribution_weekly.csv` | Distribución observada de intensidad por deporte y semana ISO (DO-01). Sidecar analítico; no alimenta el gate ni `reason_text`. | 21 |
 | `ENDURANCE_HRV_sessions_metadata.json` | Trazabilidad pipeline sesiones (versión, params, sampling rate) + auditoría ligera de interpretabilidad para coaching/carga | — |

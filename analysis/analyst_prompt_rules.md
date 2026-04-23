@@ -27,7 +27,8 @@
 - `Datos`: si `subjective_coherence_state` sale claramente `coherent` o `mismatched`, conviene mencionarlo una vez cuando ayude a contextualizar la sesion; evita repetirlo si no cambia la lectura
 - `Datos`: si existe `session_payload.json.composite_context.thermal_context`, usarla como costo termico simple basado en `average_weather_temp`; no presentarla como WBGT ni como diagnostico de calor cerrado
 - `Datos`: si `thermal_band` es `low` o `marginal`, usarla sobre todo para descartar que el calor explique la deriva; no merece protagonismo propio
-- `Datos`: si existe `session_payload.json.composite_context.durability_context`, usarla como lectura por tercios sobre `session_stream.csv`; no convertirla en taxonomia fuerte por deporte
+- `Datos`: si existe `session_payload.json.composite_context.durability_context`, usarla como lectura exploratoria por tercios sobre `session_stream.csv`; no convertirla en taxonomia fuerte por deporte ni confundirla con la capa FP-01
+- `Datos`: si existe `session_payload.json.durability_context`, priorizarla como lectura local FP-01 desde primitivas de `sessions.csv` (`decoupling`, `power_ratio`, `speed_ratio`, `durability_applicable`); usar `durability_pattern`, `preferred_signal` e `interpretation_confidence` como apoyo narrativo, no como contrato HRV canonico
 - `Datos`: si `durability_hint` sale `terrain_confounded` o `steady_easy`, es preferible traducir esa lectura al texto en lugar de omitirla por parecer "solo exploratory"
 - `Datos`: si existe `session_payload.json.narrative_targets.coach_report_examples.datos`, puede reutilizarse como ejemplo de formulacion, pero adaptando el texto al caso y sin copiarlo literalmente
 - `Estructura externa`: si existe `analysis_only_context.structured_workout`, usar `coach_intervals.csv` o `coach_groups.csv` solo cuando ayuden a describir bloques o repeticiones con valor tactico; no asumir que toda presencia de `icu_intervals` implica una sesion de intervalos formal

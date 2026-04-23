@@ -43,7 +43,7 @@ El sistema genera 7 archivos CSV + 1 JSON de trazabilidad. Cada uno tiene un rol
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | Lo esencial para decidir en 10 segundos: semáforo, acción, warning, y reason_text contextual. Subconjunto de FINAL. | `build_hrv_final_dashboard.py` | 10 |
 | `ENDURANCE_HRV_master_FINAL_reason_items.json` | Sidecar estable con `reason_items` por fecha para consumo de `analysis/`; conserva la separación entre dato medido, proxy, inferencia y acción. Cuando `analysis/` lo usa como fuente primaria, los informes deben poder declararlo explícitamente en `Fuentes`. | `build_hrv_final_dashboard.py` | n/a |
 | `ENDURANCE_HRV_sleep.csv` | Sueño nocturno y señales de recuperación (Polar). Alimenta el reason_text pero NO afecta al gate. | `hrv_app.sleep_store` (coordinado por `polar_hrv_automation.py`) | 17 |
-| `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento: zonas, work blocks, drift, effort, clasificación, `route_id` cuando existe, primitivas mínimas de coach metrics por sesión y capa mecánica opcional. | `build_sessions.py` | 68 |
+| `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento: zonas, work blocks, drift, effort, clasificación, `route_id` cuando existe, primitivas mínimas de coach metrics por sesión, capa mecánica opcional y señales de durabilidad mecánica (`FP-01`). | `build_sessions.py` | 73 |
 | `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios de entrenamiento + rolling con cobertura (_nobs), más contexto canónico de carga (`ACWR`, `monotony`, `strain`), clustering reciente de intensidad y la señal rolling `DO-02` de polarización por familia con resumen de episodio. Alimenta el reason_text para checks de carga. | `build_sessions.py` | 60 |
 | `ENDURANCE_HRV_intensity_distribution_weekly.csv` | Resumen semanal por deporte de distribución observada de intensidad (`sport x week`), con minutos ponderados por zona, `work_*`, patrón descriptivo y confianza. Es sidecar analítico; no alimenta el gate. | `build_sessions.py` | 21 |
 | `ENDURANCE_HRV_sessions_metadata.json` | Trazabilidad del pipeline de sesiones: versión, parámetros, hash, sampling rate, cobertura y auditoría ligera `dataset/signal/metric` para coaching/carga. | `build_sessions.py` | — |
@@ -369,7 +369,7 @@ Muestra qué entra y qué sale de cada script, y cómo se encadenan:
                     │    (sueño + recuperación)
                     │
   Intervals.icu ────┤
-├──► build_sessions.py ──► SESSIONS.csv (67 cols)
+├──► build_sessions.py ──► SESSIONS.csv (73 cols)
 │                     ├──► SESSIONS_DAY.csv (60 cols)
 │                     ├──► INTENSITY_DISTRIBUTION_WEEKLY.csv (21 cols)
                     │                     └──► ENDURANCE_HRV_sessions_metadata.json

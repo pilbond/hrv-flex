@@ -21,6 +21,8 @@ from analysis.session_analysis_pipeline import (
     _terrain_fit_cadence_unit,
     _summarize_terrain_context_from_intervals,
     build_ai_handoff_markdown,
+    build_analysis_durability_context,
+    build_analysis_work_block_context,
     build_analyst_prompt_markdown,
     build_conversational_payload,
     build_final_reason_rendered,
@@ -304,6 +306,205 @@ class AnalysisContractTests(unittest.TestCase):
         self.assertFalse(rendered["enabled"])
         self.assertEqual(rendered["source"], "reason_text_fallback")
 
+    def test_build_analysis_durability_context_detects_cardiovascular_drift_only(self):
+        session_row = _session_row(
+            sport="road_run",
+            moving_min="124.0",
+            work_n_blocks="1",
+            durability_applicable="1",
+            run_power_available="1",
+            run_power_first_half="248.0",
+            run_power_second_half="243.0",
+            power_ratio="0.98",
+            speed_first_half="12.1",
+            speed_second_half="11.9",
+            speed_ratio="0.983",
+            cardiac_drift_pct="4.1",
+            mechanics_source="intervals_fit",
+        )
+        analysis_only_context = {"coach_metrics": {"decoupling_pct": 12.8}}
+
+        context = build_analysis_durability_context(analysis_only_context, session_row)
+
+        self.assertTrue(context["applicable"])
+        self.assertEqual(context["preferred_signal"], "power_ratio")
+        self.assertEqual(context["durability_pattern"], "cardiovascular_drift_only")
+        self.assertEqual(context["interpretation_confidence"], "high")
+        self.assertEqual(context["terrain_sensitivity"], "low")
+        self.assertAlmostEqual(context["power_ratio"], 0.98, places=3)
+
+    def test_build_analysis_durability_context_marks_trail_speed_only_as_terrain_ambiguous(self):
+        session_row = _session_row(
+            sport="trail_run",
+            moving_min="132.0",
+            work_n_blocks="1",
+            durability_applicable="1",
+            run_power_available="0",
+            speed_first_half="9.6",
+            speed_second_half="8.7",
+            speed_ratio="0.906",
+            cardiac_drift_pct="3.2",
+            mechanics_source="polar",
+        )
+
+        context = build_analysis_durability_context({}, session_row)
+
+        self.assertTrue(context["applicable"])
+        self.assertEqual(context["preferred_signal"], "speed_ratio")
+        self.assertEqual(context["durability_pattern"], "ambiguous_due_to_terrain")
+        self.assertEqual(context["terrain_sensitivity"], "high")
+        self.assertEqual(context["interpretation_confidence"], "low")
+        self.assertTrue(any("speed_ratio" in note for note in context["notes"]))
+
+    def test_build_analysis_durability_context_treats_nan_power_ratio_as_missing_signal(self):
+        session_row = _session_row(
+            sport="road_run",
+            moving_min="92.0",
+            work_n_blocks="1",
+            durability_applicable="1",
+            run_power_available="1",
+            run_power_first_half="248.0",
+            run_power_second_half="nan",
+            speed_first_half="12.1",
+            speed_second_half="11.9",
+            speed_ratio="0.983",
+            mechanics_source="intervals_fit",
+        )
+
+        context = build_analysis_durability_context({}, session_row)
+
+        self.assertTrue(context["applicable"])
+        self.assertEqual(context["preferred_signal"], "speed_ratio")
+        self.assertIsNone(context["power_ratio"])
+        self.assertTrue(any("power_ratio no disponible" in note for note in context["notes"]))
+
+    def test_build_analysis_durability_context_not_applicable_when_session_structure_is_unsuitable(self):
+        session_row = _session_row(
+            sport="road_run",
+            moving_min="82.0",
+            work_n_blocks="4",
+            durability_applicable="0",
+            run_power_available="1",
+            run_power_first_half="220.0",
+            run_power_second_half="205.0",
+            power_ratio="0.932",
+            mechanics_source="intervals_fit",
+        )
+
+        context = build_analysis_durability_context({"coach_metrics": {"decoupling_pct": 11.2}}, session_row)
+
+        self.assertFalse(context["applicable"])
+        self.assertEqual(context["durability_pattern"], "not_applicable")
+        self.assertTrue(context["applicability_reason"].startswith("sessions_csv_durability_applicable=0"))
+        self.assertIn("too_many_work_blocks", context["applicability_reason"])
+        self.assertIn("speed_halves_unavailable", context["applicability_reason"])
+
+    def test_build_analysis_work_block_context_detects_one_dominant_hard_block(self):
+        session_row = _session_row(
+            sport="trail_run",
+            work_n_blocks="5",
+            work_total_min="34.2",
+            work_longest_min="11.4",
+            work_blocks_min="3.3;3.5;11.4;9.0;7.0",
+            work_blocks_z3pct="0;0;75;0;14",
+        )
+
+        context = build_analysis_work_block_context(session_row)
+
+        self.assertTrue(context["available"])
+        self.assertEqual(context["block_count"], 5)
+        self.assertEqual(context["hard_work_blocks"], 1)
+        self.assertEqual(context["very_hard_work_blocks"], 1)
+        self.assertEqual(context["dominant_work_block_index"], 3)
+        self.assertAlmostEqual(context["dominant_work_block_min"], 11.4, places=1)
+        self.assertAlmostEqual(context["dominant_work_block_share"], 0.333, places=3)
+        self.assertEqual(context["work_block_pattern"], "one_dominant_hard_block")
+
+    def test_build_conversational_payload_exposes_analysis_durability_context(self):
+        session_row = _session_row(
+            sport="road_run",
+            moving_min="121.0",
+            work_n_blocks="1",
+            durability_applicable="1",
+            run_power_available="1",
+            run_power_first_half="250.0",
+            run_power_second_half="235.0",
+            power_ratio="0.94",
+            speed_first_half="12.2",
+            speed_second_half="11.8",
+            speed_ratio="0.967",
+            cardiac_drift_pct="6.0",
+            mechanics_source="intervals_fit",
+        )
+        manifest = {
+            "session_id": "i1",
+            "slug": "2026-03-25_09-00_road_run_i1",
+            "date": "2026-03-25",
+            "start_time": "09:00",
+            "sport": "road_run",
+            "analysis_only_context": {"coach_metrics": {"decoupling_pct": 11.6}},
+        }
+
+        def fake_row_by_date(path, date_str):
+            if path.name == "ENDURANCE_HRV_master_FINAL.csv":
+                return {"Fecha": date_str, "reason_text": "ok"}
+            if path.name == "ENDURANCE_HRV_master_DASHBOARD.csv":
+                return {"Fecha": date_str, "reason_text": "ok"}
+            return None
+
+        with patch("analysis.session_analysis_pipeline.row_by_date", side_effect=fake_row_by_date), patch(
+            "analysis.session_analysis_pipeline.load_optional_json", return_value=None
+        ), patch(
+            "analysis.session_analysis_pipeline.load_final_reason_items_lookup", return_value={}
+        ), patch(
+            "analysis.session_analysis_pipeline._compute_speed_metrics", return_value=None
+        ):
+            payload = build_conversational_payload({}, manifest, session_row)
+
+        self.assertEqual(payload["durability_context"]["durability_pattern"], "mechanical_drop_with_drift")
+        self.assertEqual(
+            payload["analysis_only_context"]["durability_context"]["durability_pattern"],
+            "mechanical_drop_with_drift",
+        )
+        self.assertEqual(payload["narrative_targets"]["durability_context"]["preferred_signal"], "power_ratio")
+
+    def test_build_conversational_payload_exposes_work_block_context(self):
+        session_row = _session_row(
+            sport="trail_run",
+            work_n_blocks="5",
+            work_total_min="34.2",
+            work_longest_min="11.4",
+            work_blocks_min="3.3;3.5;11.4;9.0;7.0",
+            work_blocks_z3pct="0;0;75;0;14",
+        )
+        manifest = {
+            "session_id": "i1",
+            "slug": "2026-03-25_09-00_trail_run_i1",
+            "date": "2026-03-25",
+            "start_time": "09:00",
+            "sport": "trail_run",
+            "analysis_only_context": {},
+        }
+
+        def fake_row_by_date(path, date_str):
+            if path.name == "ENDURANCE_HRV_master_FINAL.csv":
+                return {"Fecha": date_str, "reason_text": "ok"}
+            if path.name == "ENDURANCE_HRV_master_DASHBOARD.csv":
+                return {"Fecha": date_str, "reason_text": "ok"}
+            return None
+
+        with patch("analysis.session_analysis_pipeline.row_by_date", side_effect=fake_row_by_date), patch(
+            "analysis.session_analysis_pipeline.load_optional_json", return_value=None
+        ), patch(
+            "analysis.session_analysis_pipeline.load_final_reason_items_lookup", return_value={}
+        ), patch(
+            "analysis.session_analysis_pipeline._compute_speed_metrics", return_value=None
+        ):
+            payload = build_conversational_payload({}, manifest, session_row)
+
+        self.assertEqual(payload["work_block_context"]["work_block_pattern"], "one_dominant_hard_block")
+        self.assertEqual(payload["analysis_only_context"]["work_block_context"]["hard_work_blocks"], 1)
+
     def test_build_final_reason_rendered_preserves_temporal_density_and_precision_modifier(self):
         rendered = build_final_reason_rendered(
             final_reason_items=[
@@ -416,6 +617,8 @@ class AnalysisContractTests(unittest.TestCase):
         self.assertIn("<!-- report_sync_token: abc123def4567890 -->", prompt)
         self.assertIn("`intensity_clustering` (`intensity_clustering_flag=1`)", prompt)
         self.assertIn("no hay restriccion de accion activa", prompt)
+        self.assertIn("`durability_context` por tercios", prompt)
+        self.assertIn("si existe `session_payload.json.durability_context`, priorizalo", prompt)
 
     def test_build_ai_handoff_markdown_includes_report_sync_token_instruction(self):
         with TemporaryDirectory() as tmp:
@@ -1386,6 +1589,101 @@ class AnalysisContractTests(unittest.TestCase):
         self.assertIn("En carretera eso suele significar que el pacing", report)
         self.assertIn("La velocidad cayó de 9.42 km/h a 8.88 km/h", report)
 
+    def test_build_final_report_markdown_includes_analysis_durability_mechanical_drop(self):
+        payload = {
+            "meta": {
+                "session_id": "i_road_durability",
+                "date": "2026-04-13",
+                "start_time": "08:10",
+                "sport": "road_run",
+            },
+            "session_row": {
+                "session_id": "i_road_durability",
+                "Fecha": "2026-04-13",
+                "start_time": "08:10",
+                "sport": "road_run",
+                "moving_min": "121.0",
+                "duration_min": "123.0",
+                "distance_km": "21.2",
+                "elev_gain_m": "95",
+                "hr_mean": "149",
+                "vt1_used": "140",
+                "vt2_used": "158",
+                "zones_source": "icu",
+                "z2_pct": "47.0",
+                "z3_pct": "18.0",
+                "hr_p95": "166",
+                "load": "102",
+                "trimp": "152.4",
+                "work_n_blocks": "1",
+                "work_total_min": "24.0",
+                "work_longest_min": "24.0",
+                "work_blocks_min": "24.0",
+                "speed_first_half": "12.2",
+                "speed_second_half": "11.8",
+                "session_group": "tempo",
+            },
+            "subjective_context": {"rpe": 6, "feel": 3, "notes_raw": "Rodaje sostenido con fatiga final"},
+            "composite_context": {},
+            "durability_context": {
+                "durability_pattern": "mechanical_drop_with_drift",
+                "preferred_signal": "power_ratio",
+                "power_ratio": 0.94,
+                "decoupling_pct": 11.6,
+                "interpretation_confidence": "high",
+            },
+            "terrain_fit_context": {},
+            "analysis_only_context": {},
+            "context": {
+                "sleep": {
+                    "polar_sleep_duration_min": "410",
+                    "polar_sleep_score": "80",
+                    "polar_efficiency_pct": "92.0",
+                    "polar_night_rmssd": "44",
+                },
+                "final": {
+                    "RMSSD_stable": "40.20",
+                    "residual_z": "1.90",
+                    "gate_badge": "VERDE+++",
+                    "Action": "INTENSIDAD_OK",
+                    "baseline60_degraded": "False",
+                    "reason_text": "VERDE con margen",
+                },
+                "sessions_day": {
+                    "load_day": "102",
+                    "load_3d": "210",
+                    "load_7d": "320",
+                    "work_7d_sum": "61.5",
+                    "z3_7d_sum": "21.2",
+                },
+                "sessions_metadata": {"training_audit": {}},
+            },
+            "narrative_targets": {
+                "final_reason_rendered": {
+                    "enabled": True,
+                    "reporting_mode": "caution_first",
+                    "gate_readout": "`gate_badge = VERDE+++` y `Action = INTENSIDAD_OK`",
+                    "reason_items": [],
+                    "action_readout": "`has_action_constraint = false` -> no hay veto adicional.",
+                    "baseline_readout": "`baseline60_degraded = false` -> sin rebaja adicional de precisión del contexto.",
+                }
+            },
+            "rr_analysis_summary": {},
+        }
+        summary = {
+            "session_cost_model": {"usable": True, "coste_dominante": "cardiometabolico"},
+            "duration_consistency": "OK",
+            "hr_source": "FIT",
+            "dfa_gate": {"state": "DFA_OK"},
+            "hr_at_075": {"usable": False},
+            "rr_unavailable": False,
+        }
+
+        report = build_final_report_markdown(payload, summary, "durability123")
+        self.assertIn("caída mecánica acompañada de deriva", report)
+        self.assertIn("`power_ratio = 0.940`", report)
+        self.assertIn("peaje periférico real", report)
+
     def test_build_final_report_markdown_includes_hike_fade_context(self):
         payload = {
             "meta": {
@@ -1480,6 +1778,300 @@ class AnalysisContractTests(unittest.TestCase):
         report = build_final_report_markdown(payload, summary, "abc123def4567890")
         self.assertIn("En marcha eso suele significar que la continuidad de paso", report)
         self.assertIn("La velocidad cayó de 3.97 km/h a 3.07 km/h", report)
+
+    def test_build_final_report_markdown_includes_analysis_durability_terrain_ambiguity(self):
+        payload = {
+            "meta": {
+                "session_id": "i_trail_durability",
+                "date": "2026-04-14",
+                "start_time": "14:08",
+                "sport": "trail_run",
+            },
+            "session_row": {
+                "session_id": "i_trail_durability",
+                "Fecha": "2026-04-14",
+                "start_time": "14:08",
+                "sport": "trail_run",
+                "moving_min": "132.0",
+                "duration_min": "138.0",
+                "distance_km": "17.1",
+                "elev_gain_m": "920",
+                "hr_mean": "147",
+                "vt1_used": "140",
+                "vt2_used": "158",
+                "zones_source": "icu",
+                "z2_pct": "42.0",
+                "z3_pct": "21.0",
+                "hr_p95": "169",
+                "load": "118",
+                "trimp": "165.2",
+                "work_n_blocks": "1",
+                "work_total_min": "26.0",
+                "work_longest_min": "26.0",
+                "work_blocks_min": "26.0",
+                "speed_first_half": "9.60",
+                "speed_second_half": "8.70",
+                "session_group": "endurance",
+            },
+            "subjective_context": {"rpe": 5, "feel": 3, "notes_raw": "Trail largo con segunda mitad rota"},
+            "composite_context": {},
+            "durability_context": {
+                "durability_pattern": "ambiguous_due_to_terrain",
+                "preferred_signal": "speed_ratio",
+                "speed_ratio": 0.906,
+                "decoupling_pct": 7.4,
+                "terrain_sensitivity": "high",
+                "interpretation_confidence": "low",
+            },
+            "terrain_fit_context": {},
+            "analysis_only_context": {},
+            "context": {
+                "sleep": {
+                    "polar_sleep_duration_min": "430",
+                    "polar_sleep_score": "81",
+                    "polar_efficiency_pct": "93.0",
+                    "polar_night_rmssd": "46",
+                },
+                "final": {
+                    "RMSSD_stable": "41.70",
+                    "residual_z": "1.20",
+                    "gate_badge": "VERDE+++",
+                    "Action": "INTENSIDAD_OK",
+                    "baseline60_degraded": "False",
+                    "reason_text": "VERDE",
+                },
+                "sessions_day": {
+                    "load_day": "118",
+                    "load_3d": "240",
+                    "load_7d": "360",
+                    "work_7d_sum": "66.0",
+                    "z3_7d_sum": "22.5",
+                },
+                "sessions_metadata": {"training_audit": {}},
+            },
+            "narrative_targets": {
+                "final_reason_rendered": {
+                    "enabled": True,
+                    "reporting_mode": "caution_first",
+                    "gate_readout": "`gate_badge = VERDE+++` y `Action = INTENSIDAD_OK`",
+                    "reason_items": [],
+                    "action_readout": "`has_action_constraint = false` -> no hay veto adicional.",
+                    "baseline_readout": "`baseline60_degraded = false` -> sin rebaja adicional de precisión del contexto.",
+                }
+            },
+            "rr_analysis_summary": {},
+        }
+        summary = {
+            "session_cost_model": {"usable": True, "coste_dominante": "mixto"},
+            "duration_consistency": "OK",
+            "hr_source": "FIT",
+            "dfa_gate": {"state": "DFA_OK"},
+            "hr_at_075": {"usable": False},
+            "rr_unavailable": False,
+        }
+
+        report = build_final_report_markdown(payload, summary, "durabilityterrain123")
+        self.assertIn("ambigua por terreno", report)
+        self.assertIn("`speed_ratio = 0.906`", report)
+        self.assertIn("no permite cerrar fatiga periférica limpia", report)
+
+    def test_build_final_report_markdown_uses_power_ratio_first_in_simple_trail(self):
+        payload = {
+            "meta": {
+                "session_id": "i_trail_simple",
+                "date": "2026-04-14",
+                "start_time": "10:30",
+                "sport": "trail_run",
+            },
+            "session_row": {
+                "session_id": "i_trail_simple",
+                "Fecha": "2026-04-14",
+                "start_time": "10:30",
+                "sport": "trail_run",
+                "moving_min": "108.0",
+                "duration_min": "110.0",
+                "distance_km": "14.8",
+                "elev_gain_m": "640.0",
+                "hr_mean": "144",
+                "vt1_used": "140",
+                "vt2_used": "158",
+                "zones_source": "icu",
+                "z2_pct": "41.0",
+                "z3_pct": "16.0",
+                "hr_p95": "162",
+                "load": "98",
+                "trimp": "138.8",
+                "work_n_blocks": "1",
+                "work_total_min": "24.0",
+                "work_longest_min": "24.0",
+                "work_blocks_min": "24.0",
+                "speed_first_half": "9.10",
+                "speed_second_half": "9.18",
+                "session_group": "endurance",
+            },
+            "subjective_context": {"rpe": 5, "feel": 3, "notes_raw": "Trail continuo con subida estable"},
+            "composite_context": {},
+            "durability_context": {
+                "durability_pattern": "stable_output",
+                "preferred_signal": "power_ratio",
+                "power_ratio": 1.01,
+                "speed_ratio": 1.009,
+                "decoupling_pct": 4.6,
+                "interpretation_confidence": "medium",
+            },
+            "terrain_fit_context": {},
+            "analysis_only_context": {},
+            "context": {
+                "sleep": {
+                    "polar_sleep_duration_min": "435",
+                    "polar_sleep_score": "83",
+                    "polar_efficiency_pct": "94.0",
+                    "polar_night_rmssd": "47",
+                },
+                "final": {
+                    "RMSSD_stable": "42.10",
+                    "residual_z": "1.10",
+                    "gate_badge": "VERDE+++",
+                    "Action": "INTENSIDAD_OK",
+                    "baseline60_degraded": "False",
+                    "reason_text": "VERDE",
+                },
+                "sessions_day": {
+                    "load_day": "98",
+                    "load_3d": "208",
+                    "load_7d": "318",
+                    "work_7d_sum": "58.0",
+                    "z3_7d_sum": "20.4",
+                },
+                "sessions_metadata": {"training_audit": {}},
+            },
+            "narrative_targets": {
+                "final_reason_rendered": {
+                    "enabled": True,
+                    "reporting_mode": "caution_first",
+                    "gate_readout": "`gate_badge = VERDE+++` y `Action = INTENSIDAD_OK`",
+                    "reason_items": [],
+                    "action_readout": "`has_action_constraint = false` -> no hay veto adicional.",
+                    "baseline_readout": "`baseline60_degraded = false` -> sin rebaja adicional de precisión del contexto.",
+                }
+            },
+            "rr_analysis_summary": {},
+        }
+        summary = {
+            "session_cost_model": {"usable": True, "coste_dominante": "mixto"},
+            "duration_consistency": "OK",
+            "hr_source": "FIT",
+            "dfa_gate": {"state": "DFA_OK"},
+            "hr_at_075": {"usable": False},
+            "rr_unavailable": False,
+        }
+
+        report = build_final_report_markdown(payload, summary, "trailsimple123")
+        self.assertIn("si la durabilidad es simple, `power_ratio` manda sobre `speed_ratio`", report)
+        self.assertIn("En trail simple, la lectura limpia prioriza `power_ratio`", report)
+        self.assertIn("`speed_ratio` solo acompaña y no debe mandar sobre el perfil del terreno", report)
+
+    def test_build_final_report_markdown_reframes_many_blocks_into_one_dominant_hard_block(self):
+        payload = {
+            "meta": {
+                "session_id": "i_trail_block_shape",
+                "date": "2026-04-21",
+                "start_time": "14:56",
+                "sport": "trail_run",
+            },
+            "session_row": {
+                "session_id": "i_trail_block_shape",
+                "Fecha": "2026-04-21",
+                "start_time": "14:56",
+                "sport": "trail_run",
+                "moving_min": "61.6",
+                "duration_min": "62.5",
+                "distance_km": "8.75",
+                "elev_gain_m": "245.0",
+                "hr_mean": "149",
+                "vt1_used": "143",
+                "vt2_used": "161",
+                "zones_source": "icu",
+                "z2_pct": "34.0",
+                "z3_pct": "15.5",
+                "hr_p95": "167",
+                "load": "65",
+                "trimp": "114.6",
+                "work_n_blocks": "5",
+                "work_total_min": "34.2",
+                "work_longest_min": "11.4",
+                "work_blocks_min": "3.3;3.5;11.4;9.0;7.0",
+                "work_blocks_z3pct": "0;0;75;0;14",
+                "work_avg_z3_pct": "28",
+                "late_intensity": "0",
+                "cardiac_drift_pct": "-14.0",
+                "session_group": "endurance_hard",
+            },
+            "subjective_context": {"rpe": 6, "feel": 3, "notes_raw": "La subida larga se apretó conscientemente"},
+            "composite_context": {},
+            "durability_context": {
+                "durability_pattern": "not_applicable",
+                "applicability_reason": "sessions_csv_durability_applicable=0",
+            },
+            "work_block_context": {
+                "available": True,
+                "hard_work_blocks": 1,
+                "very_hard_work_blocks": 1,
+                "dominant_work_block_index": 3,
+                "dominant_work_block_min": 11.4,
+                "dominant_work_block_share": 0.333,
+                "work_block_pattern": "one_dominant_hard_block",
+            },
+            "terrain_fit_context": {},
+            "analysis_only_context": {},
+            "context": {
+                "sleep": {
+                    "polar_sleep_duration_min": "430",
+                    "polar_sleep_score": "81",
+                    "polar_efficiency_pct": "93.0",
+                    "polar_night_rmssd": "46",
+                },
+                "final": {
+                    "RMSSD_stable": "41.70",
+                    "residual_z": "1.20",
+                    "gate_badge": "VERDE--",
+                    "Action": "INTENSIDAD_OK",
+                    "baseline60_degraded": "False",
+                    "reason_text": "VERDE--",
+                },
+                "sessions_day": {
+                    "load_day": "65",
+                    "load_3d": "180",
+                    "load_7d": "320",
+                    "work_7d_sum": "52.0",
+                    "z3_7d_sum": "19.4",
+                },
+                "sessions_metadata": {"training_audit": {}},
+            },
+            "narrative_targets": {
+                "final_reason_rendered": {
+                    "enabled": True,
+                    "reporting_mode": "caution_first",
+                    "gate_readout": "`gate_badge = VERDE--` y `Action = INTENSIDAD_OK`",
+                    "reason_items": [],
+                    "action_readout": "`has_action_constraint = false` -> no hay veto adicional.",
+                    "baseline_readout": "`baseline60_degraded = false` -> sin rebaja adicional de precisión del contexto.",
+                }
+            },
+            "rr_analysis_summary": {},
+        }
+        summary = {
+            "session_cost_model": {"usable": True, "coste_dominante": "cardiometabolico"},
+            "duration_consistency": "OK",
+            "hr_source": "FIT",
+            "dfa_gate": {"state": "DFA_NO_INTERPRETABLE"},
+            "hr_at_075": {"usable": False},
+            "rr_unavailable": False,
+        }
+
+        report = build_final_report_markdown(payload, summary, "hardblock123")
+        self.assertIn("la dureza real quedó concentrada en `1` bloque duro dominante de `11.4 min`", report)
+        self.assertIn("La dureza real no equivale a todos los bloques útiles", report)
 
     def test_build_final_report_markdown_includes_route_history_comparator(self):
         payload = {
