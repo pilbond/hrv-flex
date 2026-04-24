@@ -364,4 +364,5 @@ Y aparte, opcional recomendado:
 2. `analysis\\analyze_session.py` o `analysis\\run_session_analysis.py` cuando quieras explotar la capa analitica local sin tocar contratos canonicos:
    - terreno (`GAP`, `VAM`, potencia por split y climbs FIT`; en `bike`, la capa FIT puede anadir potencia estimada local por subida)
    - `composite_context` de `SYA-07` (`subjective_coherence`, `thermal_context`, `durability_context`)
+   - para sesiones `trail_run`: capa shadow AP-03 (`runaware_context`, `v1_shadow_history`) — validacion paralela del clustering AP-01 v1 con senal de terreno y potencia de carrera; shadow-only, no modifica ningun contrato canonico
 

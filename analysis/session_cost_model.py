@@ -136,12 +136,16 @@ def cardio_score(row: dict[str, str]) -> tuple[int | None, str, list[str]]:
 
 def trail_mechanical_score(row: dict[str, str]) -> tuple[int | None, str, list[str]]:
     evidence: list[str] = []
+    sport = normalize_sport(row.get("sport"))
     moving = parse_float(row, "moving_min")
     gain = parse_float(row, "elev_gain_m")
     loss = parse_float(row, "elev_loss_m")
     density = parse_float(row, "elev_density")
     work_total = parse_float(row, "work_total_min")
     work_longest = parse_float(row, "work_longest_min")
+    work_n = parse_int(row, "work_n_blocks")
+    work_avg_z3 = parse_float(row, "work_avg_z3_pct")
+    zones_source = (row.get("zones_source") or "").strip().lower()
 
     if moving is None or moving <= 0:
         return None, "low", ["faltan metricas de moving_min"]
@@ -151,9 +155,10 @@ def trail_mechanical_score(row: dict[str, str]) -> tuple[int | None, str, list[s
     terrain_score = 0
     terrain_signal = max(v for v in [uphill_h, downhill_h] if v is not None) if any(v is not None for v in [uphill_h, downhill_h]) else None
     if terrain_signal is not None:
+        terrain_second_threshold = 220 if sport == "trail" else 400
         if terrain_signal >= 800:
             terrain_score = 3
-        elif terrain_signal >= 400:
+        elif terrain_signal >= terrain_second_threshold:
             terrain_score = 2
         elif terrain_signal >= 150:
             terrain_score = 1
@@ -161,6 +166,8 @@ def trail_mechanical_score(row: dict[str, str]) -> tuple[int | None, str, list[s
             append_evidence(evidence, f"D+/h = {uphill_h:.0f}")
         if downhill_h is not None:
             append_evidence(evidence, f"D-/h = {downhill_h:.0f}")
+        if terrain_score >= 2:
+            append_evidence(evidence, f"umbral {sport} = D+/h>={terrain_second_threshold}")
     elif density is not None:
         if density >= 100:
             terrain_score = 3
@@ -181,9 +188,32 @@ def trail_mechanical_score(row: dict[str, str]) -> tuple[int | None, str, list[s
         if locomotion_score >= 1:
             append_evidence(evidence, f"bloque corrible sostenido: total {work_total:.1f} min, max {work_longest:.1f} min")
 
+    trail_technical_bonus = 0
+    if sport == "trail" and terrain_score >= 2 and work_n is not None and work_avg_z3 is not None:
+        if work_n >= 4 and work_avg_z3 >= 25:
+            if zones_source == "fallback":
+                append_evidence(evidence, "zones_source = fallback; bonus tecnico trail no aplicado")
+            else:
+                trail_technical_bonus = 1
+                append_evidence(
+                    evidence,
+                    f"bloque tecnico trail: work_n_blocks = {work_n}, work_avg_z3_pct = {work_avg_z3:.1f}",
+                )
+        elif work_n >= 3 and work_avg_z3 >= 20 and work_total is not None and work_total >= 20:
+            if zones_source == "fallback":
+                append_evidence(evidence, "zones_source = fallback; bonus tecnico trail no aplicado")
+            else:
+                trail_technical_bonus = 1
+                append_evidence(
+                    evidence,
+                    f"bloque tecnico trail: work_n_blocks = {work_n}, work_avg_z3_pct = {work_avg_z3:.1f}",
+                )
+
     score = max(terrain_score, locomotion_score)
     if terrain_score >= 2 and locomotion_score >= 2:
         score = min(3, score + 1)
+    if trail_technical_bonus and score < 3:
+        score = min(3, score + trail_technical_bonus)
 
     confidence = "high" if terrain_signal is not None or density is not None else "medium"
     if not evidence:
@@ -404,6 +434,8 @@ def build_cost_model_result(row: dict[str, str]) -> dict[str, Any]:
         "coste_dominante": dominant_cost(cardio, mech),
         "confidence_cardio": cardio_conf,
         "confidence_mecanico": mech_conf,
+        "cardio_basis": cardio_evidence,
+        "mecanico_basis": mech_evidence,
         "cardio_evidence": cardio_evidence,
         "mecanico_evidence": mech_evidence,
         "inputs_used": {

@@ -107,6 +107,13 @@ En analisis semanal, el modulo debe responder ademas:
   - `cadence_unit`
   - `validation_vs_v2`
   - `terrain_climbs.csv` como detalle reproducible por climb.
+- `v1_shadow_history` cuando exista como comparacion AP-03:
+  - `v1_scope` y `shadow_scope` para no confundir alcance con criterio,
+  - `scope_note` para recordar que v1 cuenta dias intensos de cualquier deporte y la sombra rolling solo sesiones trail,
+  - `strength_grade_summaries` como corte adicional para separar `terrain_sparse`, `terrain_moderate`, `terrain_robust` y `combined`,
+  - `next_day_warning` cuando falten outcomes del dia siguiente,
+  - `sample_warning` cuando la muestra sea pequena,
+  - `shadow_positive_rate` solo como tasa de activacion, nunca como precision o valor predictivo.
 - `analysis_only_context` cuando exista en `summary.json` o `session_payload.json` como capa no canonica de Intervals/coach:
   - `coach_metrics`
   - `structured_workout`
@@ -144,6 +151,7 @@ En analisis semanal, el modulo debe responder ademas:
 - si existe `training_audit`, usarlo como gobierno de confianza antes de reforzar lecturas de carga, drift, zonas o coaching.
 - si existe `terrain_context`, tratarlo como la capa Intervals validada para `GAP` y `VAM`; no recalcular `GAP` localmente si ya viene trazado con `gap_model`.
 - si existe `terrain_fit_context`, tratarlo como enriquecimiento biomecanico/fisiologico de terreno; no usarlo para reescribir la semantica de `terrain_context`, sino para complementarla.
+- si existe `v1_shadow_history`, no mezclar su tasa global con el corte por `strength_grade`; leer ambas ventanas en paralelo para evitar que `terrain_sparse` pese igual que `terrain_robust`.
 
 ## 7. Reglas de validez RR
 La definicion operativa de RR valido y los parametros de limpieza viven en `SESSION_ANALYSIS_METHOD.md`.

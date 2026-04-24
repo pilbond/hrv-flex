@@ -6,7 +6,7 @@ ENDURANCE HRV — Decisor FINAL/DASHBOARD
 
 Revisión de módulo: r2026-04-08
 Contrato esperado: FINAL 62 cols, DASHBOARD 10 cols
-Sistema vigente: ENDURANCE HRV V4.6
+Sistema vigente: ENDURANCE HRV V4.10
 
 Lee:
   - ENDURANCE_HRV_master_CORE.csv

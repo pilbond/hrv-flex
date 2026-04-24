@@ -264,20 +264,22 @@ def build_report_sync_status(
     summary_path: Path,
     technical_report_path: Path,
 ) -> dict[str, Any]:
+    report_name = report_path.name
+    report_key = "report_auto_md" if report_name == "report.auto.md" else "report_md"
     exists = report_path.exists()
     report_token = extract_report_sync_token(report_path) if exists else None
     if not exists:
         status = "missing"
-        reason = "report.md does not exist"
+        reason = f"{report_name} does not exist"
     elif not report_token:
         status = "unmanaged_legacy"
-        reason = "report.md exists but has no report_sync_token"
+        reason = f"{report_name} exists but has no report_sync_token"
     elif report_token == current_token:
         status = "up_to_date"
-        reason = "report.md token matches current analysis artifacts"
+        reason = f"{report_name} token matches current analysis artifacts"
     else:
         status = "stale"
-        reason = "report.md token differs from current analysis artifacts"
+        reason = f"{report_name} token differs from current analysis artifacts"
     return {
         "schema_version": REPORT_SYNC_SCHEMA_VERSION,
         "status": status,
@@ -286,7 +288,7 @@ def build_report_sync_status(
         "report_token": report_token,
         "report_exists": exists,
         "paths": {
-            "report_md": str(report_path),
+            report_key: str(report_path),
             "session_payload_json": str(payload_path),
             "summary_json": str(summary_path),
             "technical_report_md": str(technical_report_path),
@@ -379,6 +381,29 @@ def row_by_date(path: Path, date_str: str) -> dict[str, str] | None:
         if row.get("Fecha") == date_str:
             return row
     return None
+
+
+def _next_day_date(date_str: str) -> str | None:
+    try:
+        return (datetime.fromisoformat(date_str).date() + timedelta(days=1)).isoformat()
+    except Exception:
+        return None
+
+
+def _load_next_day_outcome(date_str: str) -> dict[str, Any] | None:
+    next_date = _next_day_date(date_str)
+    if not next_date:
+        return None
+    final_row = row_by_date(ROOT / "data" / "ENDURANCE_HRV_master_FINAL.csv", next_date)
+    if not final_row:
+        return None
+    return {
+        "next_day_date": next_date,
+        "next_day_gate": _coerce_text_or_none(final_row.get("gate_badge")),
+        "next_day_residual_z": parse_float(final_row.get("residual_z")),
+        "next_day_action": _coerce_text_or_none(final_row.get("Action")),
+        "next_day_hrv_delta": parse_float(final_row.get("residual_ln")),
+    }
 
 
 def compact_row(row: dict[str, str] | None, keys: list[str]) -> dict[str, Any] | None:
@@ -1720,6 +1745,171 @@ def _pct_change(current: float | None, baseline: float | None) -> float | None:
     return round((current - baseline) / baseline * 100.0, 1)
 
 
+def _build_rolling_only_durability_context(
+    terrain_intervals: list[dict[str, Any]] | None,
+    session_row: dict[str, str] | None = None,
+) -> dict[str, Any] | None:
+    if not terrain_intervals:
+        return None
+
+    rolling_rows = [row for row in terrain_intervals if row.get("terrain_class") == "rolling"]
+    if len(rolling_rows) < 3:
+        return None
+
+    rolling_rows = sorted(
+        rolling_rows,
+        key=lambda row: (
+            parse_float(row.get("start_time_s")) or 0.0,
+            parse_float(row.get("split_index")) or 0.0,
+        ),
+    )
+    start_times = [parse_float(row.get("start_time_s")) for row in rolling_rows if parse_float(row.get("start_time_s")) is not None]
+    end_times = [parse_float(row.get("end_time_s")) for row in rolling_rows if parse_float(row.get("end_time_s")) is not None]
+    if not start_times or not end_times:
+        return None
+
+    rolling_start = min(start_times)
+    rolling_end = max(end_times)
+    rolling_span = rolling_end - rolling_start
+    if rolling_span <= 0:
+        return None
+
+    first_boundary = rolling_start + rolling_span / 3.0
+    second_boundary = rolling_start + 2.0 * rolling_span / 3.0
+    thirds: list[list[dict[str, Any]]] = [[], [], []]
+    for row in rolling_rows:
+        start_sec = parse_float(row.get("start_time_s"))
+        end_sec = parse_float(row.get("end_time_s"))
+        if start_sec is None or end_sec is None or end_sec <= start_sec:
+            continue
+        midpoint = (start_sec + end_sec) / 2.0
+        index = 0 if midpoint <= first_boundary else 1 if midpoint <= second_boundary else 2
+        thirds[index].append(row)
+
+    if any(not third for third in thirds):
+        return None
+
+    third_profiles: list[dict[str, Any]] = []
+    for index, rows in enumerate(thirds, start=1):
+        elapsed_values = [parse_float(row.get("elapsed_time_s")) for row in rows if parse_float(row.get("elapsed_time_s")) is not None]
+        hr_values = [parse_float(row.get("average_heartrate")) for row in rows if parse_float(row.get("average_heartrate")) is not None]
+        speed_values = [parse_float(row.get("average_speed_kmh")) for row in rows if parse_float(row.get("average_speed_kmh")) is not None]
+        cadence_values = [parse_float(row.get("average_cadence")) for row in rows if parse_float(row.get("average_cadence")) is not None]
+        third_profiles.append(
+            {
+                "third": index,
+                "start_sec": round(parse_float(rows[0].get("start_time_s")) or 0.0, 1),
+                "end_sec": round(parse_float(rows[-1].get("end_time_s")) or 0.0, 1),
+                "duration_sec": round(sum(elapsed_values), 1) if elapsed_values else None,
+                "n_samples": len(rows),
+                "hr_mean": _weighted_mean(rows, "average_heartrate", "elapsed_time_s"),
+                "speed_mean_kmh": _weighted_mean(rows, "average_speed_kmh", "elapsed_time_s"),
+                "cadence_mean": _weighted_mean(rows, "average_cadence", "elapsed_time_s"),
+                "hr_coverage_pct": round(100.0 * len(hr_values) / len(rows), 1) if rows else None,
+                "speed_coverage_pct": round(100.0 * len(speed_values) / len(rows), 1) if rows else None,
+                "cadence_coverage_pct": round(100.0 * len(cadence_values) / len(rows), 1) if rows else None,
+            }
+        )
+
+    first_third = third_profiles[0]
+    middle_third = third_profiles[1]
+    last_third = third_profiles[2]
+    hr_change_pct = _pct_change(last_third.get("hr_mean"), first_third.get("hr_mean"))
+    speed_change_pct = _pct_change(last_third.get("speed_mean_kmh"), first_third.get("speed_mean_kmh"))
+    cadence_change_pct = _pct_change(last_third.get("cadence_mean"), first_third.get("cadence_mean"))
+    sport = (session_row or {}).get("sport") or ""
+    elev_gain_m = parse_float((session_row or {}).get("elev_gain_m"))
+    work_n_blocks_numeric = parse_float((session_row or {}).get("work_n_blocks"))
+    z2_pct = parse_float((session_row or {}).get("z2_pct"))
+    z3_pct = parse_float((session_row or {}).get("z3_pct"))
+    work_total_min = parse_float((session_row or {}).get("work_total_min"))
+    cardiac_drift_pct = parse_float((session_row or {}).get("cardiac_drift_pct"))
+    is_easy_subthreshold = (
+        (z2_pct or 0.0) == 0.0
+        and (z3_pct or 0.0) == 0.0
+        and (work_total_min or 0.0) == 0.0
+    )
+
+    if (
+        is_easy_subthreshold
+        and speed_change_pct is not None
+        and abs(speed_change_pct) <= 10
+        and hr_change_pct is not None
+        and abs(hr_change_pct) <= 3
+        and cadence_change_pct is not None
+        and abs(cadence_change_pct) <= 5
+    ):
+        durability_hint = "steady_easy"
+        durability_hint_detail = "steady_easy"
+    elif (
+        sport in {"trail_run", "hike"}
+        and (
+            (elev_gain_m is not None and elev_gain_m >= 100.0)
+            or (work_n_blocks_numeric is not None and work_n_blocks_numeric >= 3)
+            or (work_total_min is not None and work_total_min >= 20.0)
+        )
+        and middle_third.get("hr_mean") is not None
+        and first_third.get("hr_mean") is not None
+        and last_third.get("hr_mean") is not None
+        and middle_third.get("hr_mean") >= first_third.get("hr_mean")
+        and middle_third.get("hr_mean") >= last_third.get("hr_mean")
+        and (cardiac_drift_pct is None or cardiac_drift_pct <= 0)
+    ):
+        durability_hint = "terrain_confounded"
+        durability_hint_detail = "terrain_confounded_hr_peak"
+    elif (
+        sport in {"trail_run", "hike"}
+        and speed_change_pct is not None
+        and speed_change_pct <= -10
+        and hr_change_pct is not None
+        and hr_change_pct <= 0
+    ):
+        durability_hint = "terrain_confounded"
+        durability_hint_detail = "terrain_confounded_speed_drop"
+    elif speed_change_pct is not None and speed_change_pct >= 5:
+        durability_hint = "negative_split_like"
+        durability_hint_detail = "negative_split_like"
+    elif speed_change_pct is not None and speed_change_pct <= -8 and hr_change_pct is not None and hr_change_pct >= 5:
+        durability_hint = "fade_like"
+        durability_hint_detail = "fade_like"
+    elif speed_change_pct is not None and abs(speed_change_pct) <= 5 and hr_change_pct is not None and abs(hr_change_pct) <= 5:
+        durability_hint = "stable"
+        durability_hint_detail = "stable"
+    elif hr_change_pct is not None and hr_change_pct >= 5 and speed_change_pct is not None and speed_change_pct > -3:
+        durability_hint = "drift_like"
+        durability_hint_detail = "drift_like"
+    else:
+        durability_hint = "mixed"
+        durability_hint_detail = "mixed"
+
+    notes: list[str] = []
+    if sport in {"trail_run", "hike"}:
+        notes.append("variant rolling-only desde terrain_intervals; excluye los splits clasificados como uphill")
+        notes.append("esta lectura reduce la confusión por desnivel frente a los tercios brutos")
+    if durability_hint == "terrain_confounded" and sport in {"trail_run", "hike"}:
+        notes.append("perfil de terreno con pico intermedio de FC; no leer como drift lineal")
+        notes.append(f"subtipo={durability_hint_detail}")
+
+    return {
+        "basis": "terrain_intervals_rolling_only",
+        "start_sec": round(rolling_start, 1),
+        "end_sec": round(rolling_end, 1),
+        "span_sec": round(rolling_span, 1),
+        "n_samples": len(rolling_rows),
+        "thirds": third_profiles,
+        "delta_first_last_pct": {
+            "hr": hr_change_pct,
+            "speed_kmh": speed_change_pct,
+            "cadence": cadence_change_pct,
+        },
+        "durability_hint": durability_hint,
+        "durability_hint_detail": durability_hint_detail,
+        "confidence": "medium" if len(rolling_rows) >= 6 else "low",
+        "notes": notes,
+        "method": "three equal elapsed thirds over rolling terrain intervals; exploratory terrain-adjusted variant",
+    }
+
+
 def _load_stream_rows(stream_csv_path: Path | None) -> list[dict[str, float | None]]:
     if stream_csv_path is None or not stream_csv_path.exists():
         return []
@@ -1947,6 +2137,10 @@ def build_analysis_durability_context(
     if decoupling_pct is None:
         decoupling_pct = parse_float(session_row.get("decoupling"))
     cardiac_drift_pct = parse_float(session_row.get("cardiac_drift_pct"))
+    elev_gain_m = parse_float(session_row.get("elev_gain_m"))
+    work_n_blocks_numeric = parse_float(session_row.get("work_n_blocks"))
+    elev_gain_m = parse_float(session_row.get("elev_gain_m"))
+    work_n_blocks_numeric = parse_float(session_row.get("work_n_blocks"))
 
     min_duration, applicability_checks = _build_durability_applicability_checks(
         sport=sport,
@@ -2016,8 +2210,24 @@ def build_analysis_durability_context(
             durability_pattern = "mixed_signal"
 
     notes: list[str] = []
+    if durability_pattern == "steady_easy":
+        notes.append("salida estable y facil; no leerla como terreno trivial si la ruta o la carga mecanica fueron relevantes")
     if preferred_signal == "speed_ratio" and sport in {"trail_run", "hike"}:
         notes.append("speed_ratio en deporte de terreno variable; leer con cautela")
+    if sport in {"trail_run", "hike"} and durability_pattern == "stable_output":
+        notes.append("output estable en la señal elegida; no confundir estabilidad métrica con terreno llano")
+    if sport in {"trail_run", "hike"} and preferred_signal == "power_ratio" and power_ratio is not None:
+        notes.append("power_ratio en trail puede reflejar distribucion desigual de desnivel entre mitades; leerlo como ambigua hasta contrastar el perfil de terreno")
+    if durability_pattern == "terrain_confounded" and sport in {"trail_run", "hike"}:
+        notes.append("perfil de terreno con pico intermedio de FC; no leer como drift lineal")
+    if durability_pattern == "drift_like":
+        notes.append("drift aparente en la señal; en trail revisar si el terreno explica mejor la subida de FC")
+    if durability_pattern == "fade_like":
+        notes.append("caida final de salida con subida de FC; en trail separar fatiga real de descenso o tramo mas tecnico")
+    if durability_pattern == "negative_split_like":
+        notes.append("mejor cierre de salida; no confundir con sesion facil si la parte final tuvo menos coste mecanico")
+    if durability_pattern == "mixed_signal":
+        notes.append("senal mixta; en trail suele ser mejor leerla como mezcla de terreno, ritmo y coste mecanico")
     if sport == "hike" and speed_ratio is not None and speed_ratio > 1.0:
         notes.append("speed_ratio > 1 en hike puede reflejar descenso o terreno favorable")
     if decoupling_pct is None:
@@ -2044,6 +2254,561 @@ def build_analysis_durability_context(
         "durability_pattern": durability_pattern,
         "method": "FP-01 local analysis context from sessions.csv primitives; decoupling and mechanical ratios are interpreted jointly, not collapsed into one score",
         "notes": notes,
+    }
+
+
+def build_runaware_context(
+    summary: dict[str, Any] | None,
+    session_row: dict[str, str],
+) -> dict[str, Any] | None:
+    sport_family = analyzer_sport_from_session(session_row)
+    if sport_family != "trail":
+        return None
+
+    summary = summary or {}
+    terrain_context = summary.get("terrain_context") if isinstance(summary, dict) else None
+    terrain_fit_context = summary.get("terrain_fit_context") if isinstance(summary, dict) else None
+
+    run_power_available = 1 if (parse_float(session_row.get("run_power_available")) or 0.0) >= 0.5 else 0
+    run_power_mean = parse_float(session_row.get("run_power_mean"))
+    power_ratio = parse_float(session_row.get("power_ratio"))
+
+    terrain_climb_count = _coerce_int_like(terrain_fit_context.get("climb_count")) if isinstance(terrain_fit_context, dict) else None
+    terrain_climb_gain_m = parse_float(terrain_fit_context.get("climb_gain_m")) if isinstance(terrain_fit_context, dict) else None
+    terrain_climb_time_min = parse_float(terrain_fit_context.get("climb_time_min")) if isinstance(terrain_fit_context, dict) else None
+    terrain_climb_hr_mean = parse_float(terrain_fit_context.get("climb_hr_mean")) if isinstance(terrain_fit_context, dict) else None
+    terrain_climb_z3_pct_mean = parse_float(terrain_fit_context.get("climb_z3_pct_mean")) if isinstance(terrain_fit_context, dict) else None
+    terrain_climb_vam_mean = parse_float(terrain_fit_context.get("climb_vam_mean")) if isinstance(terrain_fit_context, dict) else None
+    terrain_climb_power_mean = parse_float(terrain_fit_context.get("climb_power_mean")) if isinstance(terrain_fit_context, dict) else None
+    vt1_used = parse_float(session_row.get("vt1_used"))
+    vt2_used = parse_float(session_row.get("vt2_used"))
+    terrain_gap_mean = parse_float(terrain_context.get("gap_mean")) if isinstance(terrain_context, dict) else None
+    terrain_vam_uphill_mean = parse_float(terrain_context.get("vam_uphill_mean")) if isinstance(terrain_context, dict) else None
+
+    terrain_ready = any(
+        value is not None
+        for value in (
+            terrain_climb_count,
+            terrain_climb_gain_m,
+            terrain_climb_time_min,
+            terrain_gap_mean,
+            terrain_vam_uphill_mean,
+        )
+    )
+    power_ready = bool(run_power_available and (run_power_mean is not None or power_ratio is not None))
+
+    if not terrain_ready and not power_ready:
+        return None
+
+    terrain_strength_grade = None
+    if terrain_ready:
+        terrain_grade_points = 0
+        if terrain_climb_count is not None:
+            if terrain_climb_count >= 8:
+                terrain_grade_points += 2
+            elif terrain_climb_count >= 4:
+                terrain_grade_points += 1
+        if terrain_climb_gain_m is not None:
+            if terrain_climb_gain_m >= 1000:
+                terrain_grade_points += 2
+            elif terrain_climb_gain_m >= 400:
+                terrain_grade_points += 1
+        if terrain_climb_time_min is not None:
+            if terrain_climb_time_min >= 45:
+                terrain_grade_points += 2
+            elif terrain_climb_time_min >= 20:
+                terrain_grade_points += 1
+        if terrain_vam_uphill_mean is not None:
+            if terrain_vam_uphill_mean >= 650:
+                terrain_grade_points += 2
+            elif terrain_vam_uphill_mean >= 450:
+                terrain_grade_points += 1
+        if terrain_gap_mean is not None:
+            if terrain_gap_mean >= 9:
+                terrain_grade_points += 1
+            elif terrain_gap_mean >= 6:
+                terrain_grade_points += 0
+        if terrain_grade_points >= 4:
+            terrain_strength_grade = "terrain_robust"
+        elif terrain_grade_points >= 2:
+            terrain_strength_grade = "terrain_moderate"
+        else:
+            terrain_strength_grade = "terrain_sparse"
+
+    if terrain_ready and power_ready:
+        source = "combined"
+        strength = "strong"
+    elif terrain_ready:
+        source = "terrain"
+        strength = "exploratory"
+    else:
+        source = "power"
+        strength = "exploratory"
+
+    strength_basis: list[str] = []
+    if terrain_ready:
+        strength_basis.append("terrain_ready=true")
+    else:
+        strength_basis.append("terrain_ready=false")
+    if power_ready:
+        strength_basis.append("power_ready=true")
+    else:
+        strength_basis.append("power_ready=false")
+    strength_basis.append(f"run_power_available={run_power_available}")
+    if terrain_climb_count is not None:
+        strength_basis.append(f"terrain_climb_count={terrain_climb_count}")
+    if terrain_vam_uphill_mean is not None:
+        strength_basis.append(f"terrain_vam_uphill_mean={round(terrain_vam_uphill_mean, 1)}")
+    if terrain_climb_hr_mean is not None:
+        strength_basis.append(f"terrain_climb_hr_mean={round(terrain_climb_hr_mean, 1)}")
+    if terrain_strength_grade is not None:
+        strength_basis.append(f"terrain_strength_grade={terrain_strength_grade}")
+    if source == "combined":
+        strength_basis.append("combined_evidence=terrain_plus_power")
+    elif source == "terrain":
+        strength_basis.append("combined_evidence=terrain_only")
+    else:
+        strength_basis.append("combined_evidence=power_only")
+
+    if terrain_ready and not power_ready:
+        strength_grade = terrain_strength_grade
+    elif terrain_ready and power_ready:
+        strength_grade = "combined"
+    else:
+        strength_grade = "power_only"
+
+    runaware_intense_candidate = 1 if _coerce_text_or_none(session_row.get("intensity_category")) == "work_intense" else 0
+    runaware_candidate_basis: list[str] = []
+    if runaware_intense_candidate:
+        runaware_candidate_basis.append(f"intensity_category={_coerce_text_or_none(session_row.get('intensity_category'))}")
+    if terrain_climb_z3_pct_mean is not None:
+        runaware_candidate_basis.append(f"climb_z3_pct_mean={round(terrain_climb_z3_pct_mean, 1)}")
+    if terrain_vam_uphill_mean is not None:
+        runaware_candidate_basis.append(f"vam_uphill={int(round(terrain_vam_uphill_mean, 0))}")
+    if terrain_climb_hr_mean is not None:
+        runaware_candidate_basis.append(f"climb_hr_mean={round(terrain_climb_hr_mean, 1)}")
+
+    if runaware_intense_candidate:
+        if (
+            (terrain_climb_z3_pct_mean is not None and terrain_climb_z3_pct_mean >= 40.0)
+            or (terrain_vam_uphill_mean is not None and terrain_vam_uphill_mean >= 500.0)
+            or (terrain_climb_count is not None and terrain_climb_count >= 4 and terrain_climb_time_min is not None and terrain_climb_time_min >= 15.0)
+            or (terrain_climb_hr_mean is not None and vt1_used is not None and terrain_climb_hr_mean >= vt1_used)
+            or (terrain_climb_hr_mean is not None and vt2_used is not None and terrain_climb_hr_mean >= vt2_used)
+        ):
+            runaware_severity_candidate = "high"
+        else:
+            runaware_severity_candidate = "low"
+    else:
+        runaware_severity_candidate = None
+
+    runaware_severity_basis: list[str] = []
+    if runaware_intense_candidate:
+        runaware_severity_basis.append("intensity_category=work_intense")
+        if terrain_climb_z3_pct_mean is not None:
+            runaware_severity_basis.append(f"climb_z3_pct_mean={round(terrain_climb_z3_pct_mean, 1)}")
+        if terrain_vam_uphill_mean is not None:
+            runaware_severity_basis.append(f"vam_uphill={int(round(terrain_vam_uphill_mean, 0))}")
+        if terrain_climb_hr_mean is not None:
+            runaware_severity_basis.append(f"climb_hr_mean={round(terrain_climb_hr_mean, 1)}")
+            if vt1_used is not None:
+                runaware_severity_basis.append(f"vt1_used={round(vt1_used, 1)}")
+            if vt2_used is not None:
+                runaware_severity_basis.append(f"vt2_used={round(vt2_used, 1)}")
+        if runaware_severity_candidate == "high":
+            if terrain_climb_z3_pct_mean is not None and terrain_climb_z3_pct_mean >= 40.0:
+                runaware_severity_basis.append("threshold=climb_z3_pct_mean>=40")
+            if terrain_vam_uphill_mean is not None and terrain_vam_uphill_mean >= 500.0:
+                runaware_severity_basis.append("threshold=vam_uphill>=500")
+            if terrain_climb_count is not None and terrain_climb_count >= 4 and terrain_climb_time_min is not None and terrain_climb_time_min >= 15.0:
+                runaware_severity_basis.append("threshold=climb_count>=4+climb_time_min>=15")
+            if terrain_climb_hr_mean is not None and vt1_used is not None and terrain_climb_hr_mean >= vt1_used:
+                runaware_severity_basis.append("threshold=climb_hr_mean>=vt1_used")
+            if terrain_climb_hr_mean is not None and vt2_used is not None and terrain_climb_hr_mean >= vt2_used:
+                runaware_severity_basis.append("threshold=climb_hr_mean>=vt2_used")
+        elif runaware_severity_candidate == "low":
+            runaware_severity_basis.append("thresholds_not_reached_for_high")
+    else:
+        runaware_severity_basis.append("no_intensity_candidate")
+
+    notes = [
+        "capa en sombra para AP-03; comparar contra intensity_category y el contexto de carga",
+        "no alimentar reason_text ni el gate HRV durante la fase de validacion",
+    ]
+    if terrain_ready and not power_ready:
+        notes.append("la señal viene del terreno; run_power no aporta cobertura util suficiente en esta sesion")
+    elif power_ready and not terrain_ready:
+        notes.append("la señal viene de potencia run; la capa de terreno no aporta cobertura util suficiente en esta sesion")
+    elif terrain_ready and power_ready:
+        notes.append("terreno y potencia convergen como evidencia candidata para trail_run")
+
+    return {
+        "version": "ap03_shadow_v1",
+        "applicable": True,
+        "shadow_only": True,
+        "sport_family": sport_family,
+        "source": source,
+        "strength": strength,
+        "strength_grade": strength_grade,
+        "strength_basis": strength_basis,
+        "terrain_ready": terrain_ready,
+        "terrain_strength_grade": terrain_strength_grade,
+        "terrain_climb_count": terrain_climb_count,
+        "terrain_climb_gain_m": round(terrain_climb_gain_m, 1) if terrain_climb_gain_m is not None else None,
+        "terrain_climb_time_min": round(terrain_climb_time_min, 1) if terrain_climb_time_min is not None else None,
+        "terrain_climb_hr_mean": round(terrain_climb_hr_mean, 1) if terrain_climb_hr_mean is not None else None,
+        "climb_hr_mean": round(terrain_climb_hr_mean, 1) if terrain_climb_hr_mean is not None else None,
+        "terrain_gap_mean": round(terrain_gap_mean, 1) if terrain_gap_mean is not None else None,
+        "terrain_vam_uphill_mean": round(terrain_vam_uphill_mean, 1) if terrain_vam_uphill_mean is not None else None,
+        "terrain_climb_vam_mean": round(terrain_climb_vam_mean, 1) if terrain_climb_vam_mean is not None else None,
+        "terrain_climb_power_mean": round(terrain_climb_power_mean, 1) if terrain_climb_power_mean is not None else None,
+        "run_power_available": run_power_available,
+        "run_power_mean": round(run_power_mean, 1) if run_power_mean is not None else None,
+        "power_ratio": round(power_ratio, 3) if power_ratio is not None and run_power_available else None,
+        "intensity_category": _coerce_text_or_none(session_row.get("intensity_category")),
+        "runaware_intense_candidate": runaware_intense_candidate,
+        "runaware_severity_candidate": runaware_severity_candidate,
+        "runaware_severity_basis": runaware_severity_basis,
+        "runaware_candidate_basis": runaware_candidate_basis,
+        "candidate_scope": "trail_run",
+        "evaluation_target": "AP-01 v1 clustering review",
+        "notes": notes,
+    }
+
+
+def build_v1_snapshot(sessions_day_row: dict[str, str] | None) -> dict[str, Any] | None:
+    if not isinstance(sessions_day_row, dict):
+        return None
+
+    flag = _coerce_int_like(sessions_day_row.get("intensity_clustering_flag"))
+    level = _coerce_text_or_none(sessions_day_row.get("intensity_clustering_level"))
+    if flag is None and level is None:
+        return None
+
+    if level in {"low", "high"}:
+        severity = level
+    elif flag == 1:
+        severity = "low"
+    else:
+        severity = None
+
+    return {
+        "intensity_clustering_flag": flag,
+        "intensity_clustering_severity": severity,
+    }
+
+
+def build_v1_shadow_comparison(
+    v1_snapshot: dict[str, Any] | None,
+    runaware_context: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(v1_snapshot, dict) and not isinstance(runaware_context, dict):
+        return None
+
+    v1_flag = _coerce_int_like((v1_snapshot or {}).get("intensity_clustering_flag"))
+    v1_severity = _coerce_text_or_none((v1_snapshot or {}).get("intensity_clustering_severity"))
+    shadow_candidate = _coerce_int_like((runaware_context or {}).get("runaware_intense_candidate"))
+    shadow_severity = _coerce_text_or_none((runaware_context or {}).get("runaware_severity_candidate"))
+    shadow_source = _coerce_text_or_none((runaware_context or {}).get("source"))
+
+    flag_alignment = None
+    if v1_flag is not None and shadow_candidate is not None:
+        flag_alignment = "match" if v1_flag == shadow_candidate else "mismatch"
+
+    severity_alignment = None
+    if v1_severity is not None and shadow_severity is not None:
+        severity_alignment = "match" if v1_severity == shadow_severity else "mismatch"
+
+    if flag_alignment == "match" and (severity_alignment in {None, "match"}):
+        alignment = "aligned"
+    elif flag_alignment is None and severity_alignment is None:
+        alignment = "insufficient"
+    else:
+        alignment = "divergent"
+
+    notes: list[str] = []
+    if v1_flag is not None and shadow_candidate is not None and v1_flag != shadow_candidate:
+        notes.append("v1 y sombra discrepan en activacion binaria")
+    if v1_severity is not None and shadow_severity is not None and v1_severity != shadow_severity:
+        notes.append("v1 y sombra discrepan en severidad")
+    if not notes and alignment == "aligned":
+        notes.append("v1 y sombra coinciden de forma consistente")
+    if not notes and alignment == "insufficient":
+        notes.append("no hay señales suficientes para comparar")
+
+    return {
+        "alignment": alignment,
+        "flag_alignment": flag_alignment,
+        "severity_alignment": severity_alignment,
+        "v1_snapshot": {
+            "intensity_clustering_flag": v1_flag,
+            "intensity_clustering_severity": v1_severity,
+        },
+        "shadow_candidate": {
+            "runaware_intense_candidate": shadow_candidate,
+            "runaware_severity_candidate": shadow_severity,
+            "source": shadow_source,
+        },
+        "notes": notes,
+    }
+
+
+def build_v1_shadow_history(
+    current_summary: dict[str, Any],
+    current_session_row: dict[str, str],
+    *,
+    reports_root: Path = DEFAULT_REPORTS_DIR,
+    current_report_dir: Path | None = None,
+    limit: int = 8,
+) -> dict[str, Any] | None:
+    if analyzer_sport_from_session(current_session_row) != "trail":
+        return None
+
+    current_meta = current_summary.get("meta") if isinstance(current_summary, dict) else None
+    current_session_id = _coerce_text_or_none(current_session_row.get("session_id") or (current_meta or {}).get("session_id"))
+    current_date = _coerce_text_or_none(current_session_row.get("Fecha") or (current_meta or {}).get("date"))
+
+    def _build_entry(summary_data: dict[str, Any], source_path: Path) -> dict[str, Any] | None:
+        if not isinstance(summary_data, dict):
+            return None
+        meta = summary_data.get("meta") if isinstance(summary_data.get("meta"), dict) else {}
+        session_row = summary_data.get("session_row") if isinstance(summary_data.get("session_row"), dict) else {}
+        if analyzer_sport_from_session(session_row) != "trail":
+            return None
+        date = _coerce_text_or_none(session_row.get("Fecha") or meta.get("date"))
+        session_id = _coerce_text_or_none(meta.get("session_id") or session_row.get("session_id"))
+        if not date or not session_id:
+            return None
+        next_day_outcome = _load_next_day_outcome(date)
+
+        sessions_day_row = row_by_date(ROOT / "data" / "ENDURANCE_HRV_sessions_day.csv", date)
+        v1_snapshot = summary_data.get("v1_snapshot")
+        if not isinstance(v1_snapshot, dict):
+            v1_snapshot = build_v1_snapshot(sessions_day_row)
+
+        runaware_context = summary_data.get("runaware_context")
+        if not isinstance(runaware_context, dict):
+            runaware_context = build_runaware_context(summary_data, session_row)
+
+        comparison = build_v1_shadow_comparison(v1_snapshot, runaware_context)
+        if not isinstance(comparison, dict):
+            return None
+
+        return {
+            "date": date,
+            "session_id": session_id,
+            "report_dir": str(source_path.parent.parent),
+            "v1_flag": comparison.get("v1_snapshot", {}).get("intensity_clustering_flag"),
+            "v1_severity": comparison.get("v1_snapshot", {}).get("intensity_clustering_severity"),
+            "shadow_session_candidate": comparison.get("shadow_candidate", {}).get("runaware_intense_candidate"),
+            "shadow_session_severity": comparison.get("shadow_candidate", {}).get("runaware_severity_candidate"),
+            "shadow_source": comparison.get("shadow_candidate", {}).get("source"),
+            "strength_grade": _coerce_text_or_none(runaware_context.get("strength_grade")),
+            "session_alignment": comparison.get("alignment"),
+            "session_flag_alignment": comparison.get("flag_alignment"),
+            "session_severity_alignment": comparison.get("severity_alignment"),
+            **(next_day_outcome or {}),
+        }
+
+    rows: list[dict[str, Any]] = []
+    if isinstance(current_summary, dict):
+        current_source = (current_report_dir or Path(".")) / "artifacts" / "summary.json"
+        current_entry = _build_entry(current_summary, current_source)
+        if current_entry is not None:
+            rows.append(current_entry)
+
+    if reports_root.exists():
+        for summary_path in sorted(reports_root.glob("*/*/*/artifacts/summary.json")):
+            report_dir = summary_path.parent.parent
+            if current_report_dir is not None and report_dir.resolve() == current_report_dir.resolve():
+                continue
+            try:
+                summary_data = json.loads(summary_path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            entry = _build_entry(summary_data, summary_path)
+            if entry is not None:
+                rows.append(entry)
+
+    if not rows:
+        return None
+
+    def _build_shadow_window_map(subset_rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+        dates = sorted({str(row.get("date") or "").strip() for row in subset_rows if str(row.get("date") or "").strip()})
+        if not dates:
+            return {}
+        start_date = datetime.fromisoformat(dates[0]).date()
+        end_date = datetime.fromisoformat(dates[-1]).date()
+        date_range: list[str] = []
+        current_date = start_date
+        while current_date <= end_date:
+            date_range.append(current_date.isoformat())
+            current_date += timedelta(days=1)
+
+        day_intense_by_date: dict[str, int] = {date_str: 0 for date_str in date_range}
+        for row in subset_rows:
+            date = str(row.get("date") or "").strip()
+            if not date:
+                continue
+            if _coerce_int_like(row.get("shadow_session_candidate")) == 1:
+                day_intense_by_date[date] = 1
+
+        day_values = [day_intense_by_date[date_str] for date_str in date_range]
+        window_map: dict[str, dict[str, Any]] = {}
+        for index, date_str in enumerate(date_range):
+            prev_3 = day_values[max(0, index - 3):index]
+            prev_5 = day_values[max(0, index - 5):index]
+            prev_3_count = int(sum(prev_3))
+            prev_5_count = int(sum(prev_5))
+            shadow_window_candidate = 1 if prev_5_count >= 2 else 0
+            shadow_window_severity = None
+            if shadow_window_candidate == 1:
+                shadow_window_severity = "high" if (prev_3_count >= 2 or prev_5_count >= 3) else "low"
+            window_map[date_str] = {
+                "shadow_day_intense": day_intense_by_date[date_str],
+                "shadow_intense_days_prev_3d": prev_3_count,
+                "shadow_intense_days_prev_5d": prev_5_count,
+                "shadow_window_candidate": shadow_window_candidate,
+                "shadow_window_severity": shadow_window_severity,
+                "shadow_window_basis": [
+                    f"shadow_day_intense={day_intense_by_date[date_str]}",
+                    f"shadow_intense_days_prev_3d={prev_3_count}",
+                    f"shadow_intense_days_prev_5d={prev_5_count}",
+                ],
+            }
+        return window_map
+
+    shadow_window_map = _build_shadow_window_map(rows)
+    for row in rows:
+        date = str(row.get("date") or "").strip()
+        window = shadow_window_map.get(date)
+        if not window:
+            row.setdefault("shadow_day_intense", None)
+            row.setdefault("shadow_intense_days_prev_3d", None)
+            row.setdefault("shadow_intense_days_prev_5d", None)
+            row.setdefault("shadow_window_candidate", None)
+            row.setdefault("shadow_window_severity", None)
+            row.setdefault("shadow_window_basis", None)
+            row["shadow_candidate"] = _coerce_int_like(row.get("shadow_session_candidate"))
+            row["shadow_severity"] = _coerce_text_or_none(row.get("shadow_session_severity"))
+            row["alignment"] = _coerce_text_or_none(row.get("session_alignment"))
+            row["flag_alignment"] = _coerce_text_or_none(row.get("session_flag_alignment"))
+            row["severity_alignment"] = _coerce_text_or_none(row.get("session_severity_alignment"))
+            continue
+        row.update(window)
+        row["shadow_candidate"] = window["shadow_window_candidate"]
+        row["shadow_severity"] = window["shadow_window_severity"]
+        v1_flag = _coerce_int_like(row.get("v1_flag"))
+        v1_severity = _coerce_text_or_none(row.get("v1_severity"))
+        shadow_window_candidate = _coerce_int_like(window.get("shadow_window_candidate"))
+        shadow_window_severity = _coerce_text_or_none(window.get("shadow_window_severity"))
+        flag_alignment = None
+        if v1_flag is not None and shadow_window_candidate is not None:
+            flag_alignment = "match" if v1_flag == shadow_window_candidate else "mismatch"
+        severity_alignment = None
+        if v1_severity is not None and shadow_window_severity is not None:
+            severity_alignment = "match" if v1_severity == shadow_window_severity else "mismatch"
+        if flag_alignment == "match" and (severity_alignment in {None, "match"}):
+            alignment = "aligned"
+        elif flag_alignment is None and severity_alignment is None:
+            alignment = "insufficient"
+        else:
+            alignment = "divergent"
+        row["alignment"] = alignment
+        row["flag_alignment"] = flag_alignment
+        row["severity_alignment"] = severity_alignment
+
+    def _sort_key(item: dict[str, Any]) -> tuple[str, str]:
+        return (str(item.get("date") or ""), str(item.get("session_id") or ""))
+
+    rows = sorted(rows, key=_sort_key, reverse=True)
+    if current_session_id:
+        rows = [row for row in rows if row.get("session_id") == current_session_id] + [row for row in rows if row.get("session_id") != current_session_id]
+    rows = rows[:limit]
+
+    def _summarize_subset(subset: list[dict[str, Any]]) -> dict[str, Any]:
+        aligned = sum(1 for row in subset if row.get("alignment") == "aligned")
+        divergent = sum(1 for row in subset if row.get("alignment") == "divergent")
+        insufficient = sum(1 for row in subset if row.get("alignment") == "insufficient")
+        comparable = aligned + divergent
+        aligned_rate = round(aligned / comparable, 3) if comparable else None
+        def _shadow_comparison_candidate(row: dict[str, Any]) -> int | None:
+            window_candidate = _coerce_int_like(row.get("shadow_window_candidate"))
+            if window_candidate is not None:
+                return window_candidate
+            session_candidate = _coerce_int_like(row.get("shadow_session_candidate"))
+            if session_candidate is not None:
+                return session_candidate
+            return _coerce_int_like(row.get("shadow_candidate"))
+
+        shadow_positive = sum(1 for row in subset if _shadow_comparison_candidate(row) == 1)
+        shadow_positive_rate = round(shadow_positive / len(subset), 3) if subset else None
+        v1_positive = sum(1 for row in subset if _coerce_int_like(row.get("v1_flag")) == 1)
+        return {
+            "row_count": len(subset),
+            "comparable_count": comparable,
+            "aligned_count": aligned,
+            "divergent_count": divergent,
+            "insufficient_count": insufficient,
+            "aligned_rate": aligned_rate,
+            "shadow_positive_count": shadow_positive,
+            "shadow_positive_rate": shadow_positive_rate,
+            "v1_positive_count": v1_positive,
+        }
+
+    def _summarize_by_strength_grade(subset: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+        groups: dict[str, list[dict[str, Any]]] = {}
+        for row in subset:
+            grade = _coerce_text_or_none(row.get("strength_grade")) or "n/d"
+            groups.setdefault(grade, []).append(row)
+        return {grade: _summarize_subset(group_rows) for grade, group_rows in sorted(groups.items(), key=lambda item: item[0])}
+
+    overall = _summarize_subset(rows)
+    sample_warning = None
+    if overall["row_count"] < 10:
+        sample_warning = (
+            f"N={overall['row_count']} es una muestra pequena; las tasas son orientativas y pueden cambiar mucho con un solo caso."
+        )
+    next_day_available_count = sum(
+        1
+        for row in rows
+        if any(
+            row.get(key) is not None
+            for key in ("next_day_gate", "next_day_residual_z", "next_day_action", "next_day_hrv_delta")
+        )
+    )
+    next_day_warning = None
+    if next_day_available_count == 0:
+        next_day_warning = (
+            "No hay outcomes del dia siguiente disponibles en este history; las filas mas recientes no aportan lift predictivo hasta que se procese el HRV posterior."
+        )
+    elif next_day_available_count < len(rows):
+        next_day_warning = (
+            f"Solo {next_day_available_count} de {len(rows)} filas tienen outcome del dia siguiente; la lectura de lift es parcial."
+        )
+    window_summaries = {
+        5: _summarize_subset(rows[:5]),
+        10: _summarize_subset(rows[:10]),
+    }
+    strength_grade_summaries = _summarize_by_strength_grade(rows)
+    return {
+        "version": "v1_shadow_history_v1",
+        "sport_family": "trail",
+        "v1_scope": "all_sports_daily_intensity_clustering",
+        "shadow_scope": "trail_only_session_candidates_rolling_window",
+        "scope_note": (
+            "v1 contabiliza dias intensos de cualquier deporte desde sessions_day.csv; "
+            "la sombra rolling solo cuenta sesiones trail con shadow_session_candidate=1. "
+            "La divergencia puede reflejar esa diferencia de granularidad y de alcance, no solo error de criterio."
+        ),
+        "current_session_id": current_session_id,
+        "current_date": current_date,
+        "sample_warning": sample_warning,
+        "next_day_warning": next_day_warning,
+        **overall,
+        "window_summaries": window_summaries,
+        "strength_grade_summaries": strength_grade_summaries,
+        "rows": rows,
     }
 
 
@@ -2164,6 +2929,7 @@ def build_analysis_work_block_context(session_row: dict[str, str]) -> dict[str, 
 def build_durability_thirds_context(
     stream_csv_path: Path | None,
     session_row: dict[str, str] | None = None,
+    terrain_intervals: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     stream_rows = _load_stream_rows(stream_csv_path)
     if len(stream_rows) < 30:
@@ -2214,9 +2980,12 @@ def build_durability_thirds_context(
     speed_change_pct = _pct_change(last_third.get("speed_mean_kmh"), first_third.get("speed_mean_kmh"))
     cadence_change_pct = _pct_change(last_third.get("cadence_mean"), first_third.get("cadence_mean"))
     sport = (session_row or {}).get("sport") or ""
+    elev_gain_m = parse_float((session_row or {}).get("elev_gain_m"))
+    work_n_blocks_numeric = parse_float((session_row or {}).get("work_n_blocks"))
     z2_pct = parse_float((session_row or {}).get("z2_pct"))
     z3_pct = parse_float((session_row or {}).get("z3_pct"))
     work_total_min = parse_float((session_row or {}).get("work_total_min"))
+    cardiac_drift_pct = parse_float((session_row or {}).get("cardiac_drift_pct"))
 
     is_easy_subthreshold = (
         (z2_pct or 0.0) == 0.0
@@ -2236,6 +3005,21 @@ def build_durability_thirds_context(
         durability_hint = "steady_easy"
     elif (
         sport in {"trail_run", "hike"}
+        and (
+            (elev_gain_m is not None and elev_gain_m >= 100.0)
+            or (work_n_blocks_numeric is not None and work_n_blocks_numeric >= 3)
+            or (work_total_min is not None and work_total_min >= 20.0)
+        )
+        and middle_third.get("hr_mean") is not None
+        and first_third.get("hr_mean") is not None
+        and last_third.get("hr_mean") is not None
+        and middle_third.get("hr_mean") >= first_third.get("hr_mean")
+        and middle_third.get("hr_mean") >= last_third.get("hr_mean")
+        and (cardiac_drift_pct is None or cardiac_drift_pct <= 0)
+    ):
+        durability_hint = "terrain_confounded"
+    elif (
+        sport in {"trail_run", "hike"}
         and speed_change_pct is not None
         and speed_change_pct <= -10
         and hr_change_pct is not None
@@ -2253,6 +3037,22 @@ def build_durability_thirds_context(
     else:
         durability_hint = "mixed"
 
+    if durability_hint == "terrain_confounded":
+        if (
+            middle_third.get("hr_mean") is not None
+            and first_third.get("hr_mean") is not None
+            and last_third.get("hr_mean") is not None
+            and middle_third.get("hr_mean") >= first_third.get("hr_mean")
+            and middle_third.get("hr_mean") >= last_third.get("hr_mean")
+        ):
+            durability_hint_detail = "terrain_confounded_hr_peak"
+        elif speed_change_pct is not None and speed_change_pct <= -10:
+            durability_hint_detail = "terrain_confounded_speed_drop"
+        else:
+            durability_hint_detail = "terrain_confounded_mixed"
+    else:
+        durability_hint_detail = durability_hint
+
     cadence_change_abs_pct = abs(cadence_change_pct) if cadence_change_pct is not None else None
     if (
         len(stream_rows) >= 300
@@ -2264,6 +3064,11 @@ def build_durability_thirds_context(
         confidence = "medium"
     else:
         confidence = "low"
+    notes: list[str] = []
+    if durability_hint == "terrain_confounded" and sport in {"trail_run", "hike"}:
+        notes.append("perfil de terreno puede dominar la lectura; no leer como drift lineal")
+        notes.append(f"subtipo={durability_hint_detail}")
+    rolling_only_context = _build_rolling_only_durability_context(terrain_intervals, session_row=session_row)
     return {
         "basis": "stream_elapsed_sec_equal_thirds",
         "start_sec": round(start_sec, 1),
@@ -2278,8 +3083,11 @@ def build_durability_thirds_context(
         },
         "cadence_change_abs_pct": cadence_change_abs_pct,
         "durability_hint": durability_hint,
+        "durability_hint_detail": durability_hint_detail,
         "confidence": confidence,
+        "notes": notes,
         "method": "three equal elapsed thirds from session_stream.csv; exploratory primitive, not final taxonomy",
+        "rolling_only_context": rolling_only_context,
     }
 
 
@@ -2287,6 +3095,7 @@ def build_composite_context(
     analysis_only_context: dict[str, Any] | None,
     session_row: dict[str, str],
     stream_csv_path: Path | None,
+    terrain_intervals: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     composite_context: dict[str, Any] = {}
     load_mismatch = build_load_mismatch_context(analysis_only_context, session_row)
@@ -2295,7 +3104,11 @@ def build_composite_context(
     thermal_context = build_thermal_context(session_row)
     if thermal_context:
         composite_context["thermal_context"] = thermal_context
-    durability_context = build_durability_thirds_context(stream_csv_path, session_row=session_row)
+    durability_context = build_durability_thirds_context(
+        stream_csv_path,
+        session_row=session_row,
+        terrain_intervals=terrain_intervals,
+    )
     if durability_context:
         composite_context["durability_context"] = durability_context
     return composite_context or None
@@ -2380,7 +3193,12 @@ def prepare_bundle(
     analysis_only_context = dict(analysis_only_context or {})
     analysis_only_context["durability_context"] = durability_context
     analysis_only_context["work_block_context"] = work_block_context
-    composite_context = build_composite_context(analysis_only_context, row, stream_csv)
+    composite_context = build_composite_context(
+        analysis_only_context,
+        row,
+        stream_csv,
+        terrain_intervals=terrain_intervals,
+    )
     if composite_context:
         analysis_only_context["composite_context"] = composite_context
     subjective_context = build_subjective_context(row)
@@ -2492,6 +3310,12 @@ def render_report_markdown(summary: dict[str, Any]) -> str:
         f"- coste_dominante: `{session_cost.get('coste_dominante')}`",
         f"- confidence_cardio: `{session_cost.get('confidence_cardio')}`",
         f"- confidence_mecanico: `{session_cost.get('confidence_mecanico')}`",
+    ])
+    mecanico_basis = session_cost.get("mecanico_basis") or []
+    if mecanico_basis:
+        basis_text = "; ".join(str(item) for item in mecanico_basis)
+        lines.append(f"- Base mecánica: `{basis_text}`")
+    lines.extend([
         "",
         "## RR Context",
         f"- modifier: `{rr_context.get('modifier')}`",
@@ -2522,6 +3346,7 @@ def render_report_markdown(summary: dict[str, Any]) -> str:
         if subjective_coherence:
             lines.extend([
                 "### Subjective Coherence",
+                "- capa exploratoria de coherencia subjetivo-objetiva; no equivale a diagnostico fisiologico canonico",
                 f"- state: `{subjective_coherence.get('subjective_coherence_state')}`",
                 f"- score: `{subjective_coherence.get('subjective_coherence_score')}`",
                 f"- objective_anchor: `{subjective_coherence.get('objective_anchor')}`",
@@ -2537,6 +3362,7 @@ def render_report_markdown(summary: dict[str, Any]) -> str:
         if thermal_context:
             lines.extend([
                 "### Thermal Context",
+                "- capa exploratoria de coste termico; sirve para descartar o matizar calor, no para cerrar por si sola la lectura",
                 f"- temperature_c: `{thermal_context.get('temperature_c')}`",
                 f"- duration_min: `{thermal_context.get('duration_min')}`",
                 f"- threshold_c: `{thermal_context.get('threshold_c')}`",
@@ -2553,15 +3379,35 @@ def render_report_markdown(summary: dict[str, Any]) -> str:
             )
             lines.extend([
                 "### Durability Context (tercios)",
+                "- lectura exploratoria por tercios; en trail separa terreno, sostenimiento y deriva aparente, pero no sustituye la lectura de contexto",
                 f"- basis: `{durability_thirds_context.get('basis')}`",
                 f"- confidence: `{durability_thirds_context.get('confidence')}`",
                 f"- durability_hint: `{durability_thirds_context.get('durability_hint')}`",
+                f"- durability_hint_detail: `{durability_thirds_context.get('durability_hint_detail')}`",
                 f"- span_sec: `{durability_thirds_context.get('span_sec')}`",
                 f"- n_samples: `{durability_thirds_context.get('n_samples')}`",
                 f"- delta_first_last_pct: `{delta_parts or None}`",
                 f"- method: `{durability_thirds_context.get('method')}`",
                 "",
             ])
+            rolling_only_context = durability_thirds_context.get("rolling_only_context") or {}
+            if rolling_only_context:
+                rolling_delta = rolling_only_context.get("delta_first_last_pct") or {}
+                rolling_delta_parts = ", ".join(
+                    f"{key}={value}" for key, value in rolling_delta.items() if value is not None
+                )
+                lines.extend([
+                    "### Durability Context (rolling-only)",
+                    "- variante exploratoria sobre splits `rolling`; excluye climbs para reducir la confusión por desnivel",
+                    f"- basis: `{rolling_only_context.get('basis')}`",
+                    f"- confidence: `{rolling_only_context.get('confidence')}`",
+                    f"- durability_hint: `{rolling_only_context.get('durability_hint')}`",
+                    f"- span_sec: `{rolling_only_context.get('span_sec')}`",
+                    f"- n_samples: `{rolling_only_context.get('n_samples')}`",
+                    f"- delta_first_last_pct: `{rolling_delta_parts or None}`",
+                    f"- method: `{rolling_only_context.get('method')}`",
+                    "",
+                ])
 
     if terrain_context:
         lines.extend([
@@ -2655,6 +3501,7 @@ def render_report_markdown(summary: dict[str, Any]) -> str:
             coach_lines.append(f"- {label}: `{value}`")
         coach_lines.extend([
             "- note: capa local de analysis; apoyo narrativo y tactico, no contrato canonico global",
+            "- note: si contradice `sessions.csv` o `training_audit`, explicar la discrepancia y no fusionarla por inercia",
             "",
         ])
         lines.extend(coach_lines)
@@ -3388,6 +4235,10 @@ def _build_analysis_durability_report_lines(
         )
 
     lines = [base]
+    if pattern == "steady_easy":
+        lines.append(
+            "En `steady_easy`, la ausencia de deriva visible solo dice que el esfuerzo se sostuvo con poca variacion; no significa automaticamente que la ruta fuera simple o sin coste."
+        )
     if sport_family == "trail" and pattern == "stable_output":
         if preferred == "power_ratio":
             lines.append(
@@ -3397,6 +4248,25 @@ def _build_analysis_durability_report_lines(
             lines.append(
                 "En trail simple sin potencia útil, `speed_ratio` solo acompaña y exige un perfil bastante estable para no confundir terreno con fatiga."
             )
+        lines.append(
+            "Aquí `stable_output` significa que la señal se sostuvo entre tercios; no implica por si solo un terreno llano ni ausencia de coste mecánico."
+        )
+    if pattern == "drift_like":
+        lines.append(
+            "En trail, `drift_like` debe leerse con cautela: puede ser fatiga real, pero tambien una subida o una seccion mas exigente que concentra la deriva."
+        )
+    if pattern == "fade_like":
+        lines.append(
+            "En trail, `fade_like` suele mezclar fatiga y terreno; si el cierre baja de ritmo o velocidad, no conviene asumir deterioro fisiologico puro."
+        )
+    if pattern == "negative_split_like":
+        lines.append(
+            "En `negative_split_like`, el mejor cierre no equivale por si solo a menor coste total; puede reflejar que la parte final fue mas favorable."
+        )
+    if pattern == "mixed_signal":
+        lines.append(
+            "Cuando la durabilidad sale `mixed_signal`, la lectura correcta es prudente: hay señales de sostenimiento y de cambio, pero no una forma unica de fatiga."
+        )
     if pattern == "ambiguous_due_to_terrain":
         if sport_family == "trail":
             lines.append("En trail esto obliga a no leer una caída de velocidad como fatiga periférica cerrada sin apoyo de potencia o contexto de terreno.")
@@ -4269,6 +5139,7 @@ def build_final_report_markdown(
     show_rr = rr_sections_visible(summary)
     terrain_context = payload.get("terrain_context") or {}
     terrain_fit_context = payload.get("terrain_fit_context") or {}
+    runaware_context = payload.get("runaware_context") or summary.get("runaware_context") or {}
     analysis_only_context = payload.get("analysis_only_context") or {}
     durability_context = payload.get("durability_context") or {}
     work_block_context = payload.get("work_block_context") or {}
@@ -4287,6 +5158,8 @@ def build_final_report_markdown(
 
     cost_label = _string_or_na(session_cost.get("coste_dominante"), "mixto")
     cost_label_display = _display_cost_label(cost_label)
+    mecanico_basis = session_cost.get("mecanico_basis") or []
+    mecanico_basis_text = "; ".join(str(item) for item in mecanico_basis if str(item).strip())
     work_total_min = _fmt_num(session_row.get("work_total_min"))
     work_blocks = _string_or_na(session_row.get("work_n_blocks"))
     work_block_verdict_phrase = _work_block_context_verdict_phrase(
@@ -4320,6 +5193,8 @@ def build_final_report_markdown(
             verdict += " La lectura correcta no es verde condicionado, sino gate restrictivo de partida explicado después por las cautelas tipificadas."
         else:
             verdict += " La lectura correcta es permiso condicionado, no vía libre."
+    if _coerce_int_like(session_cost.get("mecanico_score")) is not None and _coerce_int_like(session_cost.get("mecanico_score")) >= 2 and mecanico_basis_text:
+        verdict += f" Base mecánica: {mecanico_basis_text}."
 
     lines = [
         f"<!-- report_sync_token: {report_sync_token} -->",
@@ -4348,6 +5223,8 @@ def build_final_report_markdown(
         lines.append("| Cautelas HRV estructuradas | `ENDURANCE_HRV_master_FINAL_reason_items.json` |")
     if terrain_context or terrain_fit_context:
         lines.append("| Terreno y continuidad | `FIT`, `terrain_intervals.csv`, `terrain_climbs.csv` |")
+    if runaware_context:
+        lines.append("| Capa run-aware en sombra | `runaware_context` |")
     if analysis_only_context:
         lines.append("| Capa coach local de apoyo | `analysis_only_context`, `coach_metrics.json`, `coach_intervals.csv`, `coach_groups.csv` |")
 
@@ -4376,6 +5253,19 @@ def build_final_report_markdown(
             f"**La capa de terreno añade soporte específico.** `split_coverage_pct = {_fmt_pct(terrain_context.get('split_coverage_pct'))}` "
             f"y `split_count = {_fmt_num(terrain_context.get('split_count'), digits=0)}`."
         )
+    if runaware_context:
+        runaware_source = _string_or_na(runaware_context.get("source"))
+        runaware_strength = _string_or_na(runaware_context.get("strength"))
+        lines.append(
+            f"**La capa run-aware queda en sombra.** `source = {runaware_source}`, "
+            f"`strength = {runaware_strength}`, "
+            f"`strength_grade = {_string_or_na(runaware_context.get('strength_grade'))}`, "
+            f"`shadow_only = {_fmt_bool_es(runaware_context.get('shadow_only'), true_text='true', false_text='false')}`."
+        )
+        if runaware_context.get("strength_basis"):
+            lines.append(
+                "Base de `strength`: " + "; ".join(str(item) for item in runaware_context.get("strength_basis") if str(item).strip()) + "."
+            )
     session_affected = training_audit_session_affected(summary)
     if session_affected:
         lines.append(
@@ -4487,6 +5377,178 @@ def build_final_report_markdown(
             f"La capa de terreno por splits aporta `{_fmt_num(terrain_context.get('split_count'), digits=0)}` segmentos con "
             f"`split_coverage_pct = {_fmt_pct(terrain_context.get('split_coverage_pct'))}`."
         )
+    if runaware_context:
+        lines.append(
+            f"La capa run-aware en sombra para `trail_run` toma como inputs `terrain_ready = {_fmt_bool_es(runaware_context.get('terrain_ready'), true_text='true', false_text='false')}`, "
+            f"`run_power_available = {_fmt_bool_es(runaware_context.get('run_power_available'), true_text='true', false_text='false')}` y "
+            f"`power_ratio = {_fmt_num(runaware_context.get('power_ratio'))}`."
+        )
+        if runaware_context.get("runaware_candidate_basis"):
+            basis = "; ".join(str(item) for item in runaware_context.get("runaware_candidate_basis") if str(item).strip())
+            lines.append(
+                f"Candidato de sombra: `runaware_intense_candidate = {_fmt_num(runaware_context.get('runaware_intense_candidate'))}`, "
+                f"`runaware_severity_candidate = {_string_or_na(runaware_context.get('runaware_severity_candidate'), 'n/d')}`; "
+                f"basis: {basis}."
+            )
+        if runaware_context.get("runaware_severity_basis"):
+            lines.append(
+                "Base de `runaware_severity_candidate`: "
+                + "; ".join(str(item) for item in runaware_context.get("runaware_severity_basis") if str(item).strip())
+                + "."
+            )
+        v1_snapshot = summary.get("v1_snapshot")
+        if isinstance(v1_snapshot, dict):
+            lines.append(
+                f"Snapshot AP-01 v1 cacheado en `summary.json`: `intensity_clustering_flag = {_fmt_num(v1_snapshot.get('intensity_clustering_flag'))}`, "
+                f"`intensity_clustering_severity = {_string_or_na(v1_snapshot.get('intensity_clustering_severity'), 'n/d')}`."
+            )
+        if runaware_context.get("terrain_climb_count") is not None or runaware_context.get("terrain_gap_mean") is not None:
+            lines.append(
+                f"Señales de terreno para la comparación: `terrain_climb_count = {_fmt_num(runaware_context.get('terrain_climb_count'))}`, "
+                f"`terrain_gap_mean = {_fmt_num(runaware_context.get('terrain_gap_mean'))} km/h`, "
+                f"`terrain_vam_uphill_mean = {_fmt_num(runaware_context.get('terrain_vam_uphill_mean'))} m/h`."
+            )
+        if runaware_context.get("terrain_climb_hr_mean") is not None:
+            lines.append(
+                f"Peaje cardiovascular en subida para la comparación: `terrain_climb_hr_mean = {_fmt_num(runaware_context.get('terrain_climb_hr_mean'))} lpm`."
+            )
+        if runaware_context.get("terrain_climb_vam_mean") is not None:
+            lines.append(
+                f"Ritmo vertical medio en subida para la comparación: `terrain_climb_vam_mean = {_fmt_num(runaware_context.get('terrain_climb_vam_mean'))} m/h`."
+            )
+        if runaware_context.get("terrain_climb_power_mean") is not None:
+            lines.append(
+                f"Potencia media en subida para la comparación: `terrain_climb_power_mean = {_fmt_num(runaware_context.get('terrain_climb_power_mean'))} W`."
+            )
+        if runaware_context.get("terrain_climb_hr_mean") is not None:
+            vt1_used = _float_or_none(session_row.get("vt1_used"))
+            vt2_used = _float_or_none(session_row.get("vt2_used"))
+            climb_hr_mean = _float_or_none(runaware_context.get("terrain_climb_hr_mean"))
+            if climb_hr_mean is not None and (vt1_used is not None or vt2_used is not None):
+                vt_parts = []
+                if vt1_used is not None:
+                    vt_parts.append(f"VT1 = {_fmt_num(vt1_used)} lpm")
+                if vt2_used is not None:
+                    vt_parts.append(f"VT2 = {_fmt_num(vt2_used)} lpm")
+                relation_parts = []
+                if vt1_used is not None:
+                    relation_parts.append("por encima" if climb_hr_mean >= vt1_used else "por debajo")
+                if vt2_used is not None:
+                    relation_parts.append("por encima" if climb_hr_mean >= vt2_used else "por debajo")
+                lines.append(
+                    f"Comparación de FC en subida con zonas: `terrain_climb_hr_mean = {_fmt_num(climb_hr_mean)} lpm` ({'; '.join(vt_parts)}; {', '.join(relation_parts)})."
+                )
+        v1_shadow_comparison = summary.get("v1_shadow_comparison")
+        if isinstance(v1_shadow_comparison, dict):
+            lines.append(
+                f"Comparación v1 vs sombra: `{_string_or_na(v1_shadow_comparison.get('alignment'), 'n/d')}`; "
+                f"flag = `{_string_or_na(v1_shadow_comparison.get('flag_alignment'), 'n/d')}`, "
+                f"severidad = `{_string_or_na(v1_shadow_comparison.get('severity_alignment'), 'n/d')}`."
+            )
+            if v1_shadow_comparison.get("notes"):
+                lines.append(
+                    "Lectura de contraste: "
+                    + "; ".join(str(note) for note in v1_shadow_comparison.get("notes") if str(note).strip())
+                    + "."
+                )
+        v1_shadow_history = summary.get("v1_shadow_history")
+        if isinstance(v1_shadow_history, dict) and v1_shadow_history.get("rows"):
+            rows = v1_shadow_history.get("rows") or []
+            lines.append("")
+            lines.append("### Concordancia histórica")
+            if v1_shadow_history.get("scope_note"):
+                lines.append(str(v1_shadow_history.get("scope_note")))
+            lines.append(
+                "Esta tabla no mide cuan dura fue la sesion; mide si la sombra de AP-03 toma la misma decision que AP-01 v1 "
+                "en ventanas comparables de trail. La columna `Sombra sesión` muestra la activación cruda por sesión y `Sombra ventana` la version rolling que se compara con v1. "
+                "Si la sombra activa mas que v1, la utilidad exploratoria puede seguir existiendo, pero la concordancia baja y conviene revisar umbrales y criterios."
+            )
+            lines.append(
+                "Cuando existe el dia siguiente, cada fila del history añade `next_day_gate`, `next_day_residual_z`, `next_day_action` y `next_day_hrv_delta` para aproximar el impacto posterior sin inventar un outcome si no hay fecha disponible."
+            )
+            lines.append(
+                f"Se muestran `{_fmt_num(v1_shadow_history.get('row_count'), digits=0)}` sesiones comparables de trail; "
+                f"alineadas `{_fmt_num(v1_shadow_history.get('aligned_count'), digits=0)}`, "
+                f"divergentes `{_fmt_num(v1_shadow_history.get('divergent_count'), digits=0)}`."
+            )
+            lines.extend([
+                "",
+                "| Fecha | Sesión | V1 | Sombra sesión | Sombra ventana | Origen | Alineación |",
+                "|---|---|---|---|---|---|---|",
+            ])
+            for row in rows:
+                v1_cell = f"{_string_or_na(row.get('v1_flag'), 'n/d')} / {_string_or_na(row.get('v1_severity'), 'n/d')}"
+                shadow_session_cell = f"{_string_or_na(row.get('shadow_session_candidate'), 'n/d')} / {_string_or_na(row.get('shadow_session_severity'), 'n/d')}"
+                shadow_window_cell = f"{_string_or_na(row.get('shadow_candidate'), 'n/d')} / {_string_or_na(row.get('shadow_severity'), 'n/d')}"
+                shadow_source = _string_or_na(row.get("shadow_source"), "n/d")
+                lines.append(
+                    f"| `{_string_or_na(row.get('date'), 'n/d')}` | `{_string_or_na(row.get('session_id'), 'n/d')}` | "
+                    f"`{v1_cell}` | `{shadow_session_cell}` | `{shadow_window_cell}` | `{shadow_source}` | `{_string_or_na(row.get('alignment'), 'n/d')}` |"
+                )
+            lines.append(
+                f"Resumen agregado trail_run: alineadas `{_fmt_num(v1_shadow_history.get('aligned_count'), digits=0)}` / "
+                f"`{_fmt_num(v1_shadow_history.get('comparable_count'), digits=0)}` comparables "
+                f"({_fmt_num((v1_shadow_history.get('aligned_rate') or 0) * 100, digits=1)}%); "
+                f"sombra positiva `{_fmt_num(v1_shadow_history.get('shadow_positive_count'), digits=0)}` de `{_fmt_num(v1_shadow_history.get('row_count'), digits=0)}` "
+                f"({_fmt_num((v1_shadow_history.get('shadow_positive_rate') or 0) * 100, digits=1)}%)."
+            )
+            if v1_shadow_history.get("sample_warning"):
+                lines.append(str(v1_shadow_history.get("sample_warning")))
+            if v1_shadow_history.get("next_day_warning"):
+                lines.append(str(v1_shadow_history.get("next_day_warning")))
+            lines.append(
+                "La `shadow_positive_rate` mide cuantas veces la sombra activa; no mide precision, recall, ni cuan dura fue la sesion."
+            )
+            window_summaries = v1_shadow_history.get("window_summaries") or {}
+            if isinstance(window_summaries, dict):
+                lines.append(
+                    "Las ventanas de 5 y 10 sesiones muestran si la alineacion reciente mejora o empeora frente al acumulado completo; "
+                    "eso ayuda a detectar deriva, no a reclasificar una sesion aislada."
+                )
+                for window_size in (5, 10):
+                    window_summary = window_summaries.get(window_size) or window_summaries.get(str(window_size))
+                    if not isinstance(window_summary, dict):
+                        continue
+                    lines.append(
+                        f"- Últimas `{window_size}`: alineadas `{_fmt_num(window_summary.get('aligned_count'), digits=0)}` / "
+                        f"`{_fmt_num(window_summary.get('comparable_count'), digits=0)}` comparables "
+                        f"({_fmt_num((window_summary.get('aligned_rate') or 0) * 100, digits=1)}%); "
+                        f"sombra positiva `{_fmt_num(window_summary.get('shadow_positive_count'), digits=0)}` de `{_fmt_num(window_summary.get('row_count'), digits=0)}` "
+                        f"({_fmt_num((window_summary.get('shadow_positive_rate') or 0) * 100, digits=1)}%)."
+                    )
+                    if window_summary.get("row_count") is not None and int(window_summary.get("row_count") or 0) < 10:
+                        lines.append(
+                            "Esta ventana tambien es pequena; trata la tasa como orientativa, no decisoria."
+                        )
+                    lines.append(
+                        "En esta ventana, `shadow_positive_rate` sigue siendo solo tasa de activacion; no equivale a precision ni a valor predictivo."
+                    )
+            strength_grade_summaries = v1_shadow_history.get("strength_grade_summaries") or {}
+            if isinstance(strength_grade_summaries, dict) and strength_grade_summaries:
+                lines.append("")
+                lines.append("### Concordancia por strength_grade")
+                lines.append(
+                    "Este corte separa sesiones `terrain_sparse`, `terrain_moderate`, `terrain_robust` y `combined` para evitar que un trail muy pobre en terreno pese igual que uno con carga real de climbs. "
+                    "Sirve como ventana adicional de lectura, no como sustituto del agregado global."
+                )
+                lines.extend([
+                    "",
+                    "| strength_grade | filas | alineadas | divergentes | tasa alineación | sombra positiva |",
+                    "|---|---|---|---|---|---|",
+                ])
+                for grade, grade_summary in strength_grade_summaries.items():
+                    if not isinstance(grade_summary, dict):
+                        continue
+                    lines.append(
+                        f"| `{grade}` | `{_fmt_num(grade_summary.get('row_count'), digits=0)}` | "
+                        f"`{_fmt_num(grade_summary.get('aligned_count'), digits=0)}` | "
+                        f"`{_fmt_num(grade_summary.get('divergent_count'), digits=0)}` | "
+                        f"`{_fmt_num((grade_summary.get('aligned_rate') or 0) * 100, digits=1)}%` | "
+                        f"`{_fmt_num(grade_summary.get('shadow_positive_count'), digits=0)}` |"
+                    )
+                lines.append(
+                    "Lectura práctica: si la divergencia se concentra en `terrain_sparse`, la comparación global puede estar mezclando ruido de terreno con sesiones realmente robustas."
+                )
     work_blocks_note = _work_blocks_asymmetry_note(session_row.get("work_blocks_min"))
     if work_blocks_note:
         lines.append(work_blocks_note)
@@ -5041,6 +6103,10 @@ def build_final_report_markdown(
         extra_sections.append(
             "La repetición de climbs y la pérdida progresiva de capacidad encajan mejor con una sesión buena pero costosa que con un día libre para apretar."
         )
+        if _coerce_int_like(session_cost.get("mecanico_score")) is not None and _coerce_int_like(session_cost.get("mecanico_score")) >= 3:
+            extra_sections.append(
+                "Aquí el coste mecánico ya no es accesorio: el tramo dominante y el relieve concentran suficiente carga como para empatar con el coste cardiometabólico o volver la lectura claramente mixta."
+            )
     lines[insert_idx:insert_idx] = positive_lines + negative_header + negative_lines + balance_header + extra_sections
     warnings: list[str] = []
     if _coerce_bool_like(final_row.get("baseline60_degraded")):
@@ -5099,6 +6165,14 @@ def build_conversational_payload(
     subjective_context = build_subjective_context(session_row)
     terrain_context = summary.get("terrain_context")
     terrain_fit_context = summary.get("terrain_fit_context")
+    runaware_context = summary.get("runaware_context")
+    if not isinstance(runaware_context, dict):
+        runaware_context = build_runaware_context(summary, session_row)
+    v1_snapshot = summary.get("v1_snapshot")
+    v1_shadow_comparison = summary.get("v1_shadow_comparison")
+    if not isinstance(v1_shadow_comparison, dict):
+        v1_shadow_comparison = build_v1_shadow_comparison(v1_snapshot, runaware_context)
+    v1_shadow_history = summary.get("v1_shadow_history")
     terrain_climbs = summary.get("terrain_climbs") or []
     analysis_only_context = summary.get("analysis_only_context")
     if not isinstance(analysis_only_context, dict):
@@ -5115,6 +6189,8 @@ def build_conversational_payload(
         )
     if not isinstance(analysis_only_context.get("work_block_context"), dict):
         analysis_only_context["work_block_context"] = build_analysis_work_block_context(session_row)
+    if isinstance(runaware_context, dict):
+        analysis_only_context["runaware_context"] = runaware_context
     terrain_intervals_csv = None
     terrain_climbs_csv = None
     coach_metrics_json = None
@@ -5273,6 +6349,10 @@ def build_conversational_payload(
         "rr_analysis_summary": rr_summary_payload,
         "terrain_context": terrain_context,
         "terrain_fit_context": terrain_fit_context,
+        "runaware_context": runaware_context,
+        "v1_snapshot": v1_snapshot,
+        "v1_shadow_comparison": v1_shadow_comparison,
+        "v1_shadow_history": v1_shadow_history,
         "terrain_climbs": terrain_climbs if terrain_climbs else None,
         "analysis_only_context": analysis_only_context,
         "final_reason_items": final_reason_items,
@@ -5288,6 +6368,10 @@ def build_conversational_payload(
             "sleep": sleep_row,
             "final": final_row,
             "dashboard": dashboard_row,
+            "runaware_context": runaware_context,
+            "v1_snapshot": v1_snapshot,
+            "v1_shadow_comparison": v1_shadow_comparison,
+            "v1_shadow_history": v1_shadow_history,
             "sessions_metadata": {
                 "pipeline_version": sessions_metadata.get("pipeline_version") if sessions_metadata else None,
                 "build_time": sessions_metadata.get("build_time") if sessions_metadata else None,
@@ -5459,9 +6543,9 @@ def build_ai_handoff_markdown(
         lines.extend(
             [
                 "",
-                "## Sincronizacion de report.md",
-                f"- al crear o actualizar `report.md`, poner al principio la linea `<!-- report_sync_token: {report_sync_token} -->`",
-                "- si el token no coincide con el analisis actual, tratar `report.md` como obsoleto hasta reescribirlo",
+                "## Sincronizacion de report.auto.md",
+                f"- al crear o actualizar `report.auto.md`, poner al principio la linea `<!-- report_sync_token: {report_sync_token} -->`",
+                "- si el token no coincide con el analisis actual, tratar `report.auto.md` como obsoleto hasta reescribirlo",
             ]
         )
     if debug_dir and debug_dir.exists():
@@ -5538,9 +6622,9 @@ def build_analyst_prompt_markdown(
         lines.extend(
             [
                 "",
-                "## Sincronizacion de report.md",
-                f"- al principio de `report.md`, insertar exactamente `<!-- report_sync_token: {report_sync_token} -->`",
-                "- si ya existe un token distinto en `report.md`, reescribe el informe completo para alinearlo con el analisis actual",
+                "## Sincronizacion de report.ia.md",
+                f"- al principio de `report.ia.md`, insertar exactamente `<!-- report_sync_token: {report_sync_token} -->`",
+                "- si ya existe un token distinto en `report.ia.md`, reescribe el informe completo para alinearlo con el analisis actual",
             ]
         )
     if isinstance(final_reason_rendered, dict) and final_reason_rendered.get("enabled"):
@@ -5608,6 +6692,19 @@ def build_analyst_prompt_markdown(
             "- Conclusion",
             "- Interpretacion fisiologica",
             "- Implicacion practica",
+            "- Que Puede Aportar",
+            "- Que Puede Restar",
+            "- Balance Neto",
+            "- Tipo de Fatiga",
+            "- Que Senal Vigilar Ahora",
+            "- Que Ventana Abre o Cierra",
+            "- Que No Sobrerreleer",
+            "- Que Haria Cambiar la Relectura",
+            "- Mejor Comparador del Bloque",
+            "- Donde Estuvo el Error",
+            "- Que Construye vs Que Consume",
+            "- Que Repetir / Que No Repetir",
+            "- Como Habria Encajado Mejor",
             "- Confianza",
             "- Advertencias",
             "",
@@ -5631,7 +6728,7 @@ def build_analyst_prompt_markdown(
         [
             "",
             "## Output",
-            f"Guarda el informe final en `{report_dir / 'report.md'}`.",
+            f"Guarda el informe final en `{report_dir / 'report.ia.md'}`.",
         ]
     )
     return "\n".join(lines) + "\n"
@@ -5875,6 +6972,33 @@ def run_analysis(bundle_manifest: Path, reports_dir: Path, keep_debug_artifacts:
             coach_group_rows,
         )
 
+    sessions_day_row = row_by_date(ROOT / "data" / "ENDURANCE_HRV_sessions_day.csv", session_row.get("Fecha") or manifest.get("date"))
+    v1_snapshot = build_v1_snapshot(sessions_day_row)
+    if isinstance(v1_snapshot, dict):
+        summary["v1_snapshot"] = v1_snapshot
+
+    runaware_context = build_runaware_context(summary, session_row)
+    if isinstance(runaware_context, dict):
+        if isinstance(v1_snapshot, dict):
+            runaware_context["v1_snapshot"] = v1_snapshot
+        summary["runaware_context"] = runaware_context
+
+    v1_shadow_comparison = build_v1_shadow_comparison(v1_snapshot, runaware_context)
+    if isinstance(v1_shadow_comparison, dict):
+        summary["v1_shadow_comparison"] = v1_shadow_comparison
+        if isinstance(runaware_context, dict):
+            runaware_context["v1_shadow_comparison"] = v1_shadow_comparison
+
+    v1_shadow_history = build_v1_shadow_history(
+        summary,
+        session_row,
+        reports_root=reports_dir,
+        current_report_dir=report_dir,
+    )
+    if isinstance(v1_shadow_history, dict):
+        summary["v1_shadow_history"] = v1_shadow_history
+        write_json(artifacts_dir / "v1_shadow_history.json", v1_shadow_history)
+
     write_json(summary_path, summary)
     technical_report_md = report_dir / "technical_report.md"
     technical_report_md.write_text(render_report_markdown(summary), encoding="utf-8")
@@ -5898,7 +7022,7 @@ def run_analysis(bundle_manifest: Path, reports_dir: Path, keep_debug_artifacts:
         match = re.match(r"<!--\s*rules_version:\s*([0-9]+\.[0-9]+)\s*-->", first_line)
         if match:
             rules_version = match.group(1)
-    report_path = report_dir / "report.md"
+    report_path = report_dir / "report.auto.md"
     report_sync_token = build_report_sync_token(
         payload_path=payload_path,
         summary_path=summary_path,

@@ -103,6 +103,7 @@ Si existen `analysis_only_context`, `coach_metrics.json`, `coach_intervals.csv` 
 - cuando `session_rpe` se use en la narrativa final, descomponer al menos la primera mencion en formato Foster aproximado (`session_rpe ~= icu_rpe x moving_time_min`) para que la escala sea interpretable,
 - no convertir `session_rpe`, `icu_intensity`, `polarization_index` o `hr_load` en sustitutos automaticos de `load`, `trimp`, `intensity_category` o la distribucion canonica,
 - si una lectura coach contradice `sessions.csv`, `training_audit` o la capa RR, declarar la discrepancia y jerarquizar la confianza en vez de fusionarlas a la fuerza.
+- la capa coach ayuda a contar mejor la sesion, pero no crea un segundo contrato; su papel es contextual, no normativo.
 
 ### Complejidad analitica
 - **Simple**: sesion continua, terreno llano o estable, sin RR, sin discrepancias obvias.
@@ -612,8 +613,14 @@ Anclajes iniciales para `mecanico_terreno_score`:
 
 - `0`: `D+/h < 150` y `D-/h < 150`
 - `1`: `150-399` m/h de `D+` o `D-`
-- `2`: `400-799` m/h de `D+` o `D-`
+- `2`: `220-799` m/h de `D+` o `D-`
 - `3`: `>=800` m/h de `D+` o `D-`
+
+Lectura práctica:
+
+- en trail con `D+/h` por encima de `220` y bloque corrible sostenido, la huella mecanica ya no debe quedar en `1` por defecto,
+- si el tramo ademas sostiene trabajo intenso y varios climbs, el `mecanico_score` suele ser `2`; si además el bloque dominante concentra mucho tiempo en Z3, puede subir a `3` aunque el coste cardiovascular siga dominando,
+- usa `mecanico_evidence[]` en el report para ver el anclaje concreto que eleva la lectura.
 
 `mecanico_locomocion_score`:
 
@@ -817,6 +824,30 @@ Los datos de la sesion deben facilitar la lectura posterior, no competir con ell
 - si `subjective_coherence_state` sale claramente `coherent` o `mismatched`, conviene mencionarlo al menos una vez cuando ayude a contextualizar `session_rpe` frente a `load`/`trimp`/`hr_load`; si solo repite lo ya evidente, no hace falta sobrecargar el texto.
 - para `thermal_context`, una banda `low` o `marginal` sirve sobre todo para descartar que el calor explique la deriva; no merece protagonismo como hallazgo propio.
 - para `durability_context`, priorizar los deltas y la interpretacion por deporte; `terrain_confounded` o `steady_easy` suelen ser mas utiles que un `mixed` generico.
+- en `trail`, si el perfil por tercios muestra un pico intermedio de FC en la parte de subida o bloques y el cierre no deja una deriva cardiaca positiva clara, preferir `terrain_confounded` antes que `drift_like`; en terreno desigual los tercios iguales en tiempo no equivalen a fatiga lineal.
+- cuando exista `rolling_only_context`, usarlo como variante de control para trail/hike: excluye climbs clasificados como `uphill` y suele aislar mejor la durabilidad que los tercios brutos.
+- en la capa run-aware de `trail`, `terrain_climb_hr_mean` es una entrada de severidad: si supera `VT1` o `VT2`, debe aparecer en la base del candidato y no quedar solo como dato de contexto.
+- por usabilidad programatica, `runaware_context` expone `climb_hr_mean` como alias directo de `terrain_climb_hr_mean`; es la misma señal, solo con nombre mas corto para backtests y lecturas externas.
+- `strength_grade` separa la robustez de la evidencia en `terrain_only`/`power_only`/`combined`; en terreno puro, `terrain_sparse`, `terrain_moderate` y `terrain_robust` ayudan a distinguir un trail minimo de uno con mucha carga de terreno.
+- `durability_hint_detail` distingue la causa del `terrain_confounded`; por ahora separa al menos `terrain_confounded_hr_peak`, `terrain_confounded_speed_drop` y `terrain_confounded_mixed`.
+- en `analysis/session_cost_model.py`, el bonus tecnico trail solo debe aplicar si `zones_source` no es `fallback`; si lo es, la evidencia Z3 puede ser demasiado debil para sostener ese extra.
+- en `v1_shadow_history`, `shadow_positive_rate` es tasa de activacion de la sombra, no precision, recall ni valor predictivo; un valor alto puede significar sobre-señalizacion, umbral mas sensible o mayor cobertura.
+- en `v1_shadow_history`, cuando exista el dia siguiente, incorpora `next_day_gate`, `next_day_residual_z`, `next_day_action` y `next_day_hrv_delta`; este ultimo puede mapearse a `residual_ln` si no hay otra columna canonica disponible.
+- en `v1_shadow_history`, guarda tambien `shadow_source` por fila (`terrain_only`, `power_only` o `combined`) para no mezclar variantes distintas bajo la misma etiqueta de severidad.
+- en `v1_shadow_history`, `shadow_session_candidate` es la activacion cruda por sesion y `shadow_candidate` es la version rolling comparable con `intensity_clustering_flag`; no los trates como la misma granularidad.
+- en `v1_shadow_history`, la comparacion tiene un scope diferencial: `intensity_clustering_flag` de v1 cuenta dias intensos de cualquier deporte, mientras que la sombra rolling cuenta solo sesiones trail con `shadow_session_candidate=1`; una divergencia puede venir de esa diferencia de alcance y no solo de criterio.
+- en `v1_shadow_history`, usa tambien `strength_grade_summaries` como ventana adicional de lectura; separa `terrain_sparse`, `terrain_moderate`, `terrain_robust` y `combined` para no mezclar sesiones con carga de terreno muy distinta bajo la misma tasa global.
+- si `v1_shadow_history.row_count < 10`, trata la concordancia historica como orientativa y no decisoria; una sola fila puede mover la tasa de forma grande.
+- si `v1_shadow_history` no tiene `next_day_*` para una fila reciente, declaro una advertencia de lift parcial; eso significa que la sesion aun no ha pasado por el pipeline HRV del dia siguiente.
+- en `trail`, `stable_output` significa que la señal elegida se sostuvo entre tercios; no leerlo automaticamente como terreno llano ni como ausencia de coste mecanico.
+- en `trail`, `steady_easy` tampoco equivale a terreno trivial: solo indica que el esfuerzo se sostuvo con poca variacion visible en la señal elegida.
+- en `trail`, `drift_like` puede ser fatiga real o una seccion de subida; no tomarlo como deriva fisiologica cerrada sin revisar el perfil de terreno.
+- en `trail`, `fade_like` suele mezclar fatiga y terreno; no leerlo como deterioro fisiologico puro si el cierre coincide con descenso o tramo mas tecnico.
+- en `trail`, `negative_split_like` solo describe mejor cierre de la señal; no implica automaticamente menor coste total.
+- en `trail`, `mixed_signal` es una categoria prudente para señales mezcladas; no forzar una unica causalidad cuando conviven terreno, ritmo y coste mecanico.
+- en `trail`, `power_ratio` puede estar dominado por la distribucion del desnivel entre mitades; si no existe perfil de terreno por mitades, leerlo como señal ambigua y no como degradacion fisiologica cerrada.
+- en `subjective_coherence`, `thermal_context` y `durability_context`, la salida debe leerse como apoyo exploratorio y didactico; si el texto no necesita esos matices, mejor resumirlos en una sola frase que no les otorgue rango canonico.
+- si existen `v1_snapshot` y `runaware_context`, dejar claro que el primero es la decision minima observada de AP-01 v1 para ese dia y el segundo es la decision candidata de sombra; se comparan, no se sustituyen.
 
 ### Reglas de seccion Capa RR
 La Capa RR tiene varias metricas cuantitativas que se leen mejor en tabla que en prosa.
@@ -850,6 +881,7 @@ La comparacion con sesiones recientes aporta contexto que el analisis aislado no
 ### Reglas de seccion Conclusion
 La conclusion debe integrar la lectura cualitativa con sus anclajes numericos.
 - incluir la sintesis de coste (`cardio_score`, `mecanico_score`, `coste_dominante`) junto a la clasificacion cualitativa,
+- si `mecanico_score >= 3` en trail, dejar claro que el coste mecánico deja de ser accesorio y puede empatar o volver mixta la lectura,
 - no dejar la conclusion solo como texto narrativo; el lector debe poder verificar que la etiqueta esta sostenida por datos concretos.
 
 ### Reglas de seccion Interpretacion fisiologica

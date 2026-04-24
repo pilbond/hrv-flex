@@ -27,6 +27,11 @@ from analysis.session_analysis_pipeline import (
     build_conversational_payload,
     build_final_reason_rendered,
     build_final_report_markdown,
+    build_durability_thirds_context,
+    build_runaware_context,
+    build_v1_snapshot,
+    build_v1_shadow_comparison,
+    build_v1_shadow_history,
     build_report_sync_status,
     build_report_sync_token,
     extract_report_sync_token,
@@ -38,7 +43,7 @@ from analysis.session_analysis_pipeline import (
     rr_sections_visible,
     write_managed_final_report,
 )
-from analysis.session_cost_model import normalize_sport
+from analysis.session_cost_model import build_cost_model_result, normalize_sport
 from analysis.training_audit_utils import (
     session_report_evidence,
     summary_training_audit,
@@ -356,6 +361,84 @@ class AnalysisContractTests(unittest.TestCase):
         self.assertEqual(context["interpretation_confidence"], "low")
         self.assertTrue(any("speed_ratio" in note for note in context["notes"]))
 
+    def test_build_durability_thirds_context_uses_terrain_profile_in_trail(self):
+        with TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            stream_csv = tmpdir / "session_stream.csv"
+            rows = ["sec,hr,speed_kmh,cadence"]
+            for sec in range(90):
+                if sec < 30:
+                    hr = 137
+                    speed = 8.6
+                    cadence = 81
+                elif sec < 60:
+                    hr = 152
+                    speed = 7.9
+                    cadence = 79
+                else:
+                    hr = 145
+                    speed = 9.0
+                    cadence = 85
+                rows.append(f"{sec},{hr},{speed},{cadence}")
+            stream_csv.write_text("\n".join(rows), encoding="utf-8")
+
+            context = build_durability_thirds_context(
+                stream_csv,
+                session_row={
+                    "sport": "trail_run",
+                    "elev_gain_m": "245.0",
+                    "work_n_blocks": "5",
+                    "work_total_min": "34.2",
+                    "z2_pct": "35.7",
+                    "z3_pct": "15.5",
+                    "cardiac_drift_pct": "-14.0",
+                },
+            )
+
+        self.assertIsNotNone(context)
+        self.assertEqual(context["durability_hint"], "terrain_confounded")
+        self.assertEqual(context["durability_hint_detail"], "terrain_confounded_hr_peak")
+        self.assertIn("perfil de terreno", " ".join(context["notes"]))
+
+    def test_build_durability_thirds_context_tags_speed_drop_confounded_case(self):
+        with TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            stream_csv = tmpdir / "session_stream.csv"
+            rows = ["sec,hr,speed_kmh,cadence"]
+            for sec in range(90):
+                if sec < 30:
+                    hr = 140
+                    speed = 9.8
+                    cadence = 82
+                elif sec < 60:
+                    hr = 139
+                    speed = 9.2
+                    cadence = 80
+                else:
+                    hr = 136
+                    speed = 8.3
+                    cadence = 79
+                rows.append(f"{sec},{hr},{speed},{cadence}")
+            stream_csv.write_text("\n".join(rows), encoding="utf-8")
+
+            context = build_durability_thirds_context(
+                stream_csv,
+                session_row={
+                    "sport": "trail_run",
+                    "elev_gain_m": "180.0",
+                    "work_n_blocks": "4",
+                    "work_total_min": "28.0",
+                    "z2_pct": "25.0",
+                    "z3_pct": "10.0",
+                    "cardiac_drift_pct": "-1.0",
+                },
+            )
+
+        self.assertIsNotNone(context)
+        self.assertEqual(context["durability_hint"], "terrain_confounded")
+        self.assertEqual(context["durability_hint_detail"], "terrain_confounded_speed_drop")
+        self.assertIn("subtipo=terrain_confounded_speed_drop", " ".join(context["notes"]))
+
     def test_build_analysis_durability_context_treats_nan_power_ratio_as_missing_signal(self):
         session_row = _session_row(
             sport="road_run",
@@ -398,6 +481,222 @@ class AnalysisContractTests(unittest.TestCase):
         self.assertTrue(context["applicability_reason"].startswith("sessions_csv_durability_applicable=0"))
         self.assertIn("too_many_work_blocks", context["applicability_reason"])
         self.assertIn("speed_halves_unavailable", context["applicability_reason"])
+
+    def test_build_runaware_context_exposes_trail_shadow_context(self):
+        session_row = _session_row(
+            sport="trail_run",
+            run_power_available="1",
+            run_power_mean="223.7",
+            power_ratio="0.805",
+            intensity_category="work_intense",
+            vt1_used="143.0",
+            vt2_used="158.0",
+        )
+        summary = {
+            "terrain_fit_context": {
+                "climb_count": 4,
+                "climb_gain_m": 209.0,
+                "climb_time_min": 19.0,
+                "climb_hr_mean": 155.9,
+                "climb_z3_pct_mean": 47.1,
+            },
+            "terrain_context": {
+                "gap_mean": 9.5,
+                "vam_uphill_mean": 524.3,
+            },
+        }
+
+        context = build_runaware_context(summary, session_row)
+
+        self.assertIsNotNone(context)
+        self.assertEqual(context["source"], "combined")
+        self.assertEqual(context["strength"], "strong")
+        self.assertEqual(context["strength_grade"], "combined")
+        self.assertTrue(context["shadow_only"])
+        self.assertIn("terrain_ready=true", context["strength_basis"])
+        self.assertIn("power_ready=true", context["strength_basis"])
+        self.assertIn("terrain_strength_grade=terrain_moderate", context["strength_basis"])
+        self.assertIn("combined_evidence=terrain_plus_power", context["strength_basis"])
+        self.assertIn("intensity_category=work_intense", context["runaware_severity_basis"])
+        self.assertIn("threshold=climb_z3_pct_mean>=40", context["runaware_severity_basis"])
+        self.assertIn("climb_hr_mean=155.9", context["runaware_candidate_basis"])
+        self.assertIn("climb_hr_mean=155.9", context["runaware_severity_basis"])
+        self.assertIn("vt1_used=143.0", context["runaware_severity_basis"])
+        self.assertIn("threshold=climb_hr_mean>=vt1_used", context["runaware_severity_basis"])
+        self.assertEqual(context["terrain_climb_count"], 4)
+        self.assertEqual(context["runaware_intense_candidate"], 1)
+        self.assertEqual(context["runaware_severity_candidate"], "high")
+        self.assertEqual(
+            context["runaware_candidate_basis"],
+            [
+                "intensity_category=work_intense",
+                "climb_z3_pct_mean=47.1",
+                "vam_uphill=524",
+                "climb_hr_mean=155.9",
+            ],
+        )
+        self.assertEqual(context["terrain_strength_grade"], "terrain_moderate")
+        self.assertAlmostEqual(context["run_power_mean"], 223.7, places=1)
+        self.assertAlmostEqual(context["power_ratio"], 0.805, places=3)
+        self.assertIn("no alimentar reason_text", context["notes"][1])
+
+    def test_build_v1_snapshot_uses_sessions_day_clustering_fields(self):
+        snapshot = build_v1_snapshot(
+            {
+                "intensity_clustering_flag": "1",
+                "intensity_clustering_level": "high",
+            }
+        )
+
+        self.assertEqual(
+            snapshot,
+            {
+                "intensity_clustering_flag": 1,
+                "intensity_clustering_severity": "high",
+            },
+        )
+
+    def test_build_v1_shadow_comparison_reports_divergence(self):
+        comparison = build_v1_shadow_comparison(
+            {
+                "intensity_clustering_flag": 0,
+                "intensity_clustering_severity": None,
+            },
+            {
+                "runaware_intense_candidate": 1,
+                "runaware_severity_candidate": "high",
+            },
+        )
+
+        self.assertEqual(comparison["alignment"], "divergent")
+        self.assertEqual(comparison["flag_alignment"], "mismatch")
+        self.assertIsNone(comparison["severity_alignment"])
+        self.assertIn("discrepan", comparison["notes"][0])
+
+    def test_build_v1_shadow_history_orders_recent_sessions_first(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            reports_root = root / "analysis" / "reports"
+            current_report_dir = reports_root / "2026" / "04" / "2026-04-21_14-56_trail_run_i141760231"
+            other_report_dir = reports_root / "2026" / "04" / "2026-04-01_10-00_trail_run_i000000001"
+            current_report_dir.joinpath("artifacts").mkdir(parents=True, exist_ok=True)
+            other_report_dir.joinpath("artifacts").mkdir(parents=True, exist_ok=True)
+
+            current_summary = {
+                "meta": {"session_id": "i141760231", "date": "2026-04-21"},
+                "session_row": {"Fecha": "2026-04-21", "sport": "trail_run"},
+                "v1_snapshot": {"intensity_clustering_flag": 0, "intensity_clustering_severity": None},
+                "runaware_context": {
+                    "runaware_intense_candidate": 1,
+                    "runaware_severity_candidate": "high",
+                    "source": "combined",
+                },
+            }
+            other_summary = {
+                "meta": {"session_id": "i000000001", "date": "2026-04-01"},
+                "session_row": {"Fecha": "2026-04-01", "sport": "trail_run"},
+                "v1_snapshot": {"intensity_clustering_flag": 1, "intensity_clustering_severity": "high"},
+                "runaware_context": {
+                    "runaware_intense_candidate": 1,
+                    "runaware_severity_candidate": "high",
+                    "source": "terrain",
+                },
+            }
+            (current_report_dir / "artifacts" / "summary.json").write_text(json.dumps(current_summary), encoding="utf-8")
+            (other_report_dir / "artifacts" / "summary.json").write_text(json.dumps(other_summary), encoding="utf-8")
+
+            def fake_row_by_date(path, date_str):
+                path_str = str(path)
+                if path_str.endswith("ENDURANCE_HRV_sessions_day.csv"):
+                    if date_str == "2026-04-21":
+                        return {"Fecha": "2026-04-21", "intensity_clustering_flag": "0", "intensity_clustering_level": "low"}
+                    if date_str == "2026-04-01":
+                        return {"Fecha": "2026-04-01", "intensity_clustering_flag": "1", "intensity_clustering_level": "high"}
+                if path_str.endswith("ENDURANCE_HRV_master_FINAL.csv"):
+                    if date_str == "2026-04-22":
+                        return {"Fecha": "2026-04-22", "gate_badge": "VERDE--", "residual_z": "-1.3", "Action": "INTENSIDAD_OK", "residual_ln": "-0.05"}
+                    if date_str == "2026-04-02":
+                        return {"Fecha": "2026-04-02", "gate_badge": "AMBAR--", "residual_z": "0.4", "Action": "RECUPERACION", "residual_ln": "0.02"}
+                return None
+
+            with patch("analysis.session_analysis_pipeline.row_by_date", side_effect=fake_row_by_date):
+                history = build_v1_shadow_history(
+                    current_summary,
+                    current_summary["session_row"],
+                    reports_root=reports_root,
+                    current_report_dir=current_report_dir,
+                    limit=8,
+                )
+
+        self.assertIsNotNone(history)
+        self.assertEqual(history["row_count"], 2)
+        self.assertEqual(history["v1_scope"], "all_sports_daily_intensity_clustering")
+        self.assertEqual(history["shadow_scope"], "trail_only_session_candidates_rolling_window")
+        self.assertIn("alcance", history["scope_note"])
+        self.assertEqual(history["comparable_count"], 2)
+        self.assertEqual(history["aligned_count"], 1)
+        self.assertEqual(history["divergent_count"], 1)
+        self.assertAlmostEqual(history["aligned_rate"], 0.5, places=3)
+        self.assertEqual(history["shadow_positive_count"], 0)
+        self.assertEqual(history["v1_positive_count"], 1)
+        self.assertIn(5, history["window_summaries"])
+        self.assertIn(10, history["window_summaries"])
+        self.assertEqual(history["window_summaries"][5]["row_count"], 2)
+        self.assertEqual(history["current_session_id"], "i141760231")
+        self.assertEqual(history["rows"][0]["session_id"], "i141760231")
+        self.assertEqual(history["rows"][0]["alignment"], "aligned")
+        self.assertEqual(history["rows"][0]["shadow_source"], "combined")
+        self.assertEqual(history["rows"][0]["shadow_session_candidate"], 1)
+        self.assertEqual(history["rows"][0]["shadow_candidate"], 0)
+        self.assertEqual(history["rows"][0]["next_day_gate"], "VERDE--")
+        self.assertEqual(history["rows"][0]["next_day_residual_z"], -1.3)
+        self.assertEqual(history["rows"][0]["next_day_action"], "INTENSIDAD_OK")
+        self.assertEqual(history["rows"][0]["next_day_hrv_delta"], -0.05)
+        self.assertEqual(history["rows"][1]["alignment"], "divergent")
+        self.assertEqual(history["rows"][1]["shadow_source"], "terrain")
+        self.assertEqual(history["rows"][1]["shadow_session_candidate"], 1)
+        self.assertEqual(history["rows"][1]["shadow_candidate"], 0)
+        self.assertEqual(history["rows"][1]["next_day_gate"], "AMBAR--")
+        self.assertIn("muestra pequena", history["sample_warning"])
+
+    def test_build_v1_shadow_history_uses_session_row_id_when_meta_missing(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            reports_root = root / "analysis" / "reports"
+            current_report_dir = reports_root / "2026" / "04" / "2026-04-21_14-56_trail_run_i141760231"
+            current_report_dir.joinpath("artifacts").mkdir(parents=True, exist_ok=True)
+
+            current_summary = {
+                "meta": {"date": "2026-04-21"},
+                "session_row": {"session_id": "i141760231", "Fecha": "2026-04-21", "sport": "trail_run"},
+                "v1_snapshot": {"intensity_clustering_flag": 0, "intensity_clustering_severity": None},
+                "runaware_context": {"runaware_intense_candidate": 1, "runaware_severity_candidate": "high"},
+            }
+            (current_report_dir / "artifacts" / "summary.json").write_text(json.dumps(current_summary), encoding="utf-8")
+
+            history = build_v1_shadow_history(
+                current_summary,
+                current_summary["session_row"],
+                reports_root=reports_root,
+                current_report_dir=current_report_dir,
+                limit=8,
+            )
+
+        self.assertIsNotNone(history)
+        self.assertEqual(history["current_session_id"], "i141760231")
+        self.assertEqual(history["current_date"], "2026-04-21")
+        self.assertEqual(history["v1_scope"], "all_sports_daily_intensity_clustering")
+
+    def test_build_runaware_context_skips_road_run(self):
+        context = build_runaware_context(
+            {
+                "terrain_fit_context": {"climb_count": 4, "climb_gain_m": 780.0, "climb_time_min": 41.5},
+                "terrain_context": {"gap_mean": 8.6, "vam_uphill_mean": 462.0},
+            },
+            _session_row(sport="road_run", run_power_available="1", run_power_mean="312.4", power_ratio="0.964"),
+        )
+
+        self.assertIsNone(context)
 
     def test_build_analysis_work_block_context_detects_one_dominant_hard_block(self):
         session_row = _session_row(
@@ -504,6 +803,69 @@ class AnalysisContractTests(unittest.TestCase):
 
         self.assertEqual(payload["work_block_context"]["work_block_pattern"], "one_dominant_hard_block")
         self.assertEqual(payload["analysis_only_context"]["work_block_context"]["hard_work_blocks"], 1)
+
+    def test_build_conversational_payload_exposes_runaware_context(self):
+        session_row = _session_row(
+            sport="trail_run",
+            run_power_available="1",
+            run_power_mean="312.4",
+            power_ratio="0.964",
+            intensity_category="work_intense",
+        )
+        manifest = {
+            "session_id": "i1",
+            "slug": "2026-03-25_09-00_trail_run_i1",
+            "date": "2026-03-25",
+            "start_time": "09:00",
+            "sport": "trail_run",
+            "analysis_only_context": {},
+        }
+
+        def fake_row_by_date(path, date_str):
+            if path.name == "ENDURANCE_HRV_master_FINAL.csv":
+                return {"Fecha": date_str, "reason_text": "ok"}
+            if path.name == "ENDURANCE_HRV_master_DASHBOARD.csv":
+                return {"Fecha": date_str, "reason_text": "ok"}
+            return None
+
+        summary = {
+            "terrain_fit_context": {
+                "climb_count": 4,
+                "climb_gain_m": 780.0,
+                "climb_time_min": 41.5,
+            },
+            "terrain_context": {
+                "gap_mean": 8.6,
+                "vam_uphill_mean": 462.0,
+            },
+            "v1_snapshot": {
+                "intensity_clustering_flag": 1,
+                "intensity_clustering_severity": "high",
+            },
+            "v1_shadow_comparison": {
+                "alignment": "aligned",
+                "flag_alignment": "match",
+                "severity_alignment": "match",
+                "notes": ["v1 y sombra coinciden de forma consistente"],
+            },
+        }
+
+        with patch("analysis.session_analysis_pipeline.row_by_date", side_effect=fake_row_by_date), patch(
+            "analysis.session_analysis_pipeline.load_optional_json", return_value=None
+        ), patch(
+            "analysis.session_analysis_pipeline.load_final_reason_items_lookup", return_value={}
+        ), patch(
+            "analysis.session_analysis_pipeline._compute_speed_metrics", return_value=None
+        ):
+            payload = build_conversational_payload(summary, manifest, session_row)
+
+        self.assertEqual(payload["runaware_context"]["source"], "combined")
+        self.assertEqual(payload["analysis_only_context"]["runaware_context"]["strength"], "strong")
+        self.assertEqual(payload["context"]["runaware_context"]["terrain_climb_count"], 4)
+        self.assertEqual(payload["v1_snapshot"]["intensity_clustering_flag"], 1)
+        self.assertEqual(payload["context"]["v1_snapshot"]["intensity_clustering_severity"], "high")
+        self.assertEqual(payload["v1_shadow_comparison"]["alignment"], "aligned")
+        self.assertEqual(payload["context"]["v1_shadow_comparison"]["flag_alignment"], "match")
 
     def test_build_final_reason_rendered_preserves_temporal_density_and_precision_modifier(self):
         rendered = build_final_reason_rendered(
@@ -642,7 +1004,7 @@ class AnalysisContractTests(unittest.TestCase):
                 debug_dir=None,
                 report_sync_token="abc123def4567890",
             )
-            self.assertIn("## Sincronizacion de report.md", handoff)
+            self.assertIn("## Sincronizacion de report.auto.md", handoff)
             self.assertIn("<!-- report_sync_token: abc123def4567890 -->", handoff)
             self.assertIn("## RR orientativa", handoff)
 
@@ -2556,6 +2918,73 @@ class AnalysisContractTests(unittest.TestCase):
         self.assertEqual(normalize_sport("road_run"), "road")
         self.assertEqual(normalize_sport("virtual_run"), "road")
 
+    def test_build_cost_model_result_raises_trail_mechanical_score_for_steep_work_intense_session(self):
+        result = build_cost_model_result(
+            _session_row(
+                sport="trail_run",
+                moving_min="61.6",
+                elev_gain_m="245.0",
+                elev_loss_m="250.2",
+                elev_density="28.0",
+                z2_pct="35.7",
+                z3_pct="15.5",
+                hr_p95="167.0",
+                work_n_blocks="5",
+                work_total_min="34.2",
+                work_longest_min="11.4",
+                work_avg_z3_pct="28.0",
+            )
+        )
+        self.assertEqual(result["mecanico_score"], 3)
+        self.assertEqual(result["coste_dominante"], "mixto")
+        self.assertIn("D+/h = 239", result["mecanico_evidence"])
+        self.assertIn("umbral trail = D+/h>=220", result["mecanico_evidence"])
+        self.assertIn("bloque tecnico trail: work_n_blocks = 5, work_avg_z3_pct = 28.0", result["mecanico_evidence"])
+        self.assertEqual(result["mecanico_basis"], result["mecanico_evidence"])
+
+    def test_build_cost_model_result_does_not_apply_trail_bonus_on_fallback_zones(self):
+        result = build_cost_model_result(
+            _session_row(
+                sport="trail_run",
+                moving_min="61.6",
+                elev_gain_m="245.0",
+                elev_loss_m="250.2",
+                elev_density="28.0",
+                z2_pct="35.7",
+                z3_pct="15.5",
+                hr_p95="167.0",
+                work_n_blocks="5",
+                work_total_min="34.2",
+                work_longest_min="11.4",
+                work_avg_z3_pct="28.0",
+                zones_source="fallback",
+            )
+        )
+        self.assertEqual(result["mecanico_score"], 2)
+        self.assertIn("zones_source = fallback; bonus tecnico trail no aplicado", result["mecanico_evidence"])
+        self.assertNotIn("bloque tecnico trail: work_n_blocks = 5, work_avg_z3_pct = 28.0", result["mecanico_evidence"])
+
+    def test_render_report_includes_mechanical_basis_in_cost_model_section(self):
+        summary = {
+            "session_cost_model": {
+                "session_id": "i1",
+                "usable": True,
+                "cardio_score": 3,
+                "mecanico_score": 2,
+                "coste_dominante": "cardiometabolico",
+                "confidence_cardio": "high",
+                "confidence_mecanico": "high",
+                "mecanico_basis": ["D+/h = 239", "umbral trail = D+/h>=220"],
+            },
+            "session_row": {"sport": "trail_run"},
+            "rr_context": {"modifier": "available", "interpretation": "RR usable", "evidence": []},
+            "final_cost_interpretation": {"note": "Lectura base"},
+            "rr_unavailable": False,
+        }
+        report = render_report_markdown(summary)
+        self.assertIn("Base mecánica", report)
+        self.assertIn("D+/h = 239; umbral trail = D+/h>=220", report)
+
     def test_infer_sport_family_falls_back_to_session_row(self):
         summary = {
             "session_meta": {},
@@ -2830,6 +3259,127 @@ class AnalysisContractTests(unittest.TestCase):
         self.assertIn("signals_available: `hr=True, cadence=True, power=True`", report)
         self.assertIn("validation_warnings: `warn_low_climb_coverage`", report)
         self.assertIn("capa FIT paralela a V2; no recalcula GAP", report)
+
+    def test_build_final_report_markdown_includes_runaware_shadow_context(self):
+        summary = {
+            "session_cost_model": {"session_id": "i4", "usable": True},
+            "session_row": {"sport": "trail_run"},
+            "rr_context": {"modifier": "no_rr", "interpretation": "RR no disponible", "evidence": []},
+            "final_cost_interpretation": {"note": "Lectura base"},
+            "terrain_context": {
+                "split_count": 3,
+                "split_coverage_pct": 81.2,
+            },
+            "terrain_fit_context": {
+                "climb_count": 4,
+                "climb_gain_m": 780.0,
+                "climb_time_min": 41.5,
+            },
+            "runaware_context": {
+                "source": "combined",
+                "strength": "strong",
+                "strength_basis": [
+                    "terrain_ready=true",
+                    "power_ready=true",
+                    "run_power_available=1",
+                    "combined_evidence=terrain_plus_power",
+                ],
+                "shadow_only": True,
+                "terrain_ready": True,
+                "run_power_available": 1,
+                "power_ratio": 0.964,
+                "terrain_climb_count": 4,
+                "terrain_gap_mean": 8.6,
+                "terrain_vam_uphill_mean": 462.0,
+            },
+            "v1_snapshot": {
+                "intensity_clustering_flag": 0,
+                "intensity_clustering_severity": None,
+            },
+            "v1_shadow_comparison": {
+                "alignment": "divergent",
+                "flag_alignment": "mismatch",
+                "severity_alignment": None,
+                "notes": ["v1 y sombra discrepan en activacion binaria"],
+            },
+            "v1_shadow_history": {
+                "row_count": 2,
+                "comparable_count": 2,
+                "aligned_count": 1,
+                "divergent_count": 1,
+                "aligned_rate": 0.5,
+                "shadow_positive_count": 0,
+                "shadow_positive_rate": 0.0,
+                "window_summaries": {
+                    5: {
+                        "row_count": 2,
+                        "comparable_count": 2,
+                        "aligned_count": 1,
+                        "divergent_count": 1,
+                        "aligned_rate": 0.5,
+                        "shadow_positive_count": 0,
+                        "shadow_positive_rate": 0.0,
+                    }
+                },
+                "rows": [
+                    {
+                        "date": "2026-04-12",
+                        "session_id": "i4",
+                        "v1_flag": 0,
+                        "v1_severity": None,
+                        "shadow_session_candidate": 1,
+                        "shadow_session_severity": "high",
+                        "shadow_candidate": 0,
+                        "shadow_severity": None,
+                        "shadow_source": "combined",
+                        "alignment": "aligned",
+                    },
+                    {
+                        "date": "2026-04-10",
+                        "session_id": "i3",
+                        "v1_flag": 1,
+                        "v1_severity": "low",
+                        "shadow_session_candidate": 1,
+                        "shadow_session_severity": "high",
+                        "shadow_candidate": 0,
+                        "shadow_severity": None,
+                        "shadow_source": "terrain",
+                        "alignment": "divergent",
+                    },
+                ],
+            },
+        }
+        payload = {
+            "meta": {"session_id": "i4", "slug": "s", "date": "2026-04-12", "start_time": "08:00", "sport": "trail_run", "sport_family": "trail"},
+            "session_row": {"sport": "trail_run"},
+            "subjective_context": {},
+            "composite_context": {},
+            "durability_context": {},
+            "work_block_context": {},
+            "rr_analysis_summary": {},
+            "terrain_context": summary["terrain_context"],
+            "terrain_fit_context": summary["terrain_fit_context"],
+            "runaware_context": summary["runaware_context"],
+            "analysis_only_context": {"runaware_context": summary["runaware_context"]},
+            "final_reason_items": [],
+            "final_reason_flags": {},
+            "final_reason_items_contract": {"fallback_to_reason_text": True},
+            "terrain_intervals_csv": None,
+            "terrain_climbs_csv": None,
+            "coach_metrics_json": None,
+            "coach_intervals_csv": None,
+            "coach_groups_csv": None,
+            "context": {"sessions_day": {}, "sleep": {}, "final": {"gate_badge": "VERDE", "Action": "Normal", "reason_text": "ok"}, "dashboard": {}, "sessions_metadata": None, "runaware_context": summary["runaware_context"]},
+            "narrative_targets": {"final_reason_rendered": {"enabled": False}},
+        }
+        report = build_final_report_markdown(payload, summary, "abc123def4567890")
+        self.assertIn("Capa run-aware en sombra", report)
+        self.assertIn("source = combined", report)
+        self.assertIn("shadow_only = true", report)
+        self.assertIn("Base de `strength`", report)
+        self.assertIn("terrain_climb_count = 4", report)
+        self.assertIn("no mide cuan dura fue la sesion", report)
+        self.assertIn("Concordancia histórica", report)
 
     def test_enrich_summary_with_sessions_metadata_nests_training_audit_under_sessions_metadata(self):
         summary = {

@@ -50,6 +50,8 @@ El sistema genera 7 archivos CSV + 1 JSON de trazabilidad. Cada uno tiene un rol
 | `ENDURANCE_HRV_wellness_subjective.csv` | Wellness subjetivo diario desde Intervals (`fatigue`, `stress`, `mood`, `motivation`, `soreness`, `injury`, comentario) con labels y cobertura 7d. Se reserva para análisis retrospectivo o capas separadas; no alimenta `reason_text`. | `build_sessions.py` | 17 |
 | `ENDURANCE_HRV_master_BETA_AUDIT.csv` | Modelo alométrico beta/cRMSSD del sistema V3. Se conserva para comparación histórica; no afecta al decisor FINAL/DASHBOARD. | `build_hrv_core.py` | 13 |
 
+**Artefactos locales de `analysis/` (no son archivos canónicos del sistema):** `analysis/session_analysis_pipeline.py` genera por sesión `summary.json`, `session_payload.json`, `technical_report.md`, `report.auto.md` y `v1_shadow_history.json` dentro de `analysis/reports/<año>/<mes>/<slug>/artifacts/`. Ninguno de estos artefactos forma parte del contrato canónico descrito en esta tabla: no modifican los CSV anteriores, no se despliegan en Railway y no son versionados como salidas operativas del pipeline principal. Para sesiones `trail_run`, `summary.json` incluye además `runaware_context` (validación en sombra AP-03) con `runaware_intense_candidate`, `runaware_severity_candidate` y `v1_shadow_history`; esta capa es shadow-only y no alimenta el gate ni `reason_text`.
+
 ---
 
 ## 2. Reglas generales

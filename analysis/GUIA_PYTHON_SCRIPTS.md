@@ -215,7 +215,7 @@ python run_session_analysis.py \
 **Que hace:**
 - Calcula los scores de coste de sesion desde las columnas de `sessions.csv`.
 - `cardio_score` (0-3): basado en tiempo en Z2/Z3, bloques de trabajo, HR P95 vs VT2.
-- `mecanico_score` (0-3): basado en D+/h, D-/h, densidad de desnivel, locomotion blocks (trail/hike); o cadencia y bloques (bike, elliptical); o distancia y SWOLF (swim).
+- `mecanico_score` (0-3): basado en D+/h, D-/h, densidad de desnivel, locomotion blocks (trail/hike); en trail, un bloque dominante muy cargado en Z3 puede elevar un caso ya mecanicamente duro de `2` a `3`; o cadencia y bloques (bike, elliptical); o distancia y SWOLF (swim).
 - En deportes de pie puede convivir con la capa mecanica minima canonica (`run_power_*`, `speed_*`, `cadence_*`), pero no la sustituye: el score sigue siendo una sintesis local del modulo, no una salida canonica global.
 - Determina `coste_dominante` y `confidence` para cada dimension.
 - Devuelve `cardio_evidence[]` y `mecanico_evidence[]` con los valores observacionales que sostienen cada score.

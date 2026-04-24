@@ -101,11 +101,11 @@ Sistema automatizado HRV para un **único atleta**:
 |---------|----------|-----------|
 | `ENDURANCE_HRV_master_CORE.csv` | 18 | RR procesado, métricas base |
 | `ENDURANCE_HRV_master_BETA_AUDIT.csv` | 13 | Auditoría RR, diagnostics |
-| `ENDURANCE_HRV_master_FINAL.csv` | 58 | CORE + gates + contexto + reason_text |
+| `ENDURANCE_HRV_master_FINAL.csv` | 62 | CORE + gates + contexto + reason_text + RE-01 |
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | 10 | Resumen operativo para dashboard |
 | `ENDURANCE_HRV_sleep.csv` | 17 | Sueño Polar (sidecar; carga en sessions_day.csv) |
 | `ENDURANCE_HRV_sessions.csv` | - | Sesiones Intervals.icu (histórico) |
-| `ENDURANCE_HRV_sessions_day.csv` | 49 | Carga por día + rolling con cobertura + clustering reciente de intensidad (usado por v4lite) |
+| `ENDURANCE_HRV_sessions_day.csv` | 60 | Carga por día + rolling con cobertura + clustering reciente de intensidad (usado por v4lite) |
 
 ---
 

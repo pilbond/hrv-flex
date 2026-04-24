@@ -375,6 +375,28 @@ Los campos rolling son sumas o medias de los últimos N días, con un campo `_no
 | `finish_strong_7d_count` | 7 días | Conteo rolling de días con `late_intensity_day = 1` en la semana previa. |
 | `elev_loss_7d_sum` | 7 días | Suma rolling de desnivel negativo en la semana previa. Campo descriptivo; no lo usa el gate. |
 
+### AP-03 y concordancia v1 vs sombra
+
+`AP-03` es una capa local de validación sobre `trail_run`. No cambia `sessions_day.csv`, no cambia el gate y no sustituye `AP-01`.
+
+- `v1_snapshot` cachea la decisión mínima de `AP-01` v1 para ese día.
+- `runaware_context` cachea la propuesta experimental en sombra.
+- `runaware_context.strength_basis` explicita qué cobertura o combinación de señales justifica `strength = strong` o `exploratory`.
+- `runaware_context.terrain_climb_hr_mean` traslada la FC media en subida desde `terrain_fit_context` para contextualizar el peaje cardiovascular del tramo dominante.
+- `runaware_context.terrain_climb_vam_mean` traslada la VAM media en subida desde `terrain_fit_context` para contextualizar el ritmo vertical del tramo dominante.
+- `runaware_context.terrain_climb_power_mean` traslada la potencia media en subida desde `terrain_fit_context` para contextualizar el esfuerzo mecánico del tramo dominante.
+- `runaware_context.runaware_severity_basis` explicita qué umbrales o señales empujan `runaware_severity_candidate` a `high`, `low` o `n/d`.
+- `v1_shadow_comparison` resume si ambas capas coinciden o discrepan.
+- `v1_shadow_history` agrega varias sesiones comparables para ver tendencia y deriva.
+
+La concordancia aquí mide alineación de criterio, no dureza de la sesión:
+
+- `aligned` = la sombra y v1 toman la misma decisión.
+- `divergent` = la sombra propone algo distinto; no es un fallo por sí mismo, pero sí una señal para revisar umbrales.
+- `insufficient` = no había señal suficiente para comparar.
+
+Uso correcto: interpretar si la sombra está calibrada respecto a la v1. Uso incorrecto: leer esta concordancia como una métrica de carga o como una reclasificación del entrenamiento.
+
 ### Señal DO-02 — polarización rolling por familia
 
 Esta capa se calcula directamente desde `sessions.csv` sobre la ventana causal `D-7..D-1`. Primero identifica la familia dominante de la ventana y después recalcula la distribución sobre las sesiones de esa familia.

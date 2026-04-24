@@ -1,3 +1,7 @@
+Redacta un informe analitico en espanol, con tono prudente, natural y didactico. Debe sonar como un entrenador/analista humano explicando la sesion al atleta: claro, concreto y trazable, sin perder rigor ni inventar datos.
+
+--------------
+
 {{SESSION_SLUG}}: 2026-03-29_08-32_road_run_i135583336
 
 Redacta el informe final rico de la sesion `{{SESSION_SLUG}}`.
