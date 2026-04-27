@@ -2640,6 +2640,38 @@ class AnalysisContractTests(unittest.TestCase):
         self.assertIsNotNone(comparator)
         self.assertIn("No hay un comparador de la misma familia", comparator)
 
+    def test_build_best_block_comparator_prefers_foot_family_over_bike_for_trail(self):
+        current = _session_row(
+            sport="trail_run",
+            session_group="endurance_easy",
+            load="53",
+            work_total_min="0",
+        )
+        recent_rows = [
+            _session_row(
+                session_id="i_bike_easy",
+                Fecha="2026-04-24",
+                sport="bike",
+                session_group="endurance_easy",
+                load="54",
+                work_total_min="0",
+            ),
+            _session_row(
+                session_id="i_road_easy",
+                Fecha="2026-04-23",
+                sport="road_run",
+                session_group="endurance_easy",
+                load="56",
+                work_total_min="0",
+            ),
+        ]
+
+        comparator = _build_best_block_comparator("trail", current, recent_rows)
+
+        self.assertIsNotNone(comparator)
+        self.assertIn("`i_road_easy`", comparator)
+        self.assertNotIn("`i_bike_easy`", comparator)
+
     def test_build_same_day_sessions_lists_other_sessions_with_order(self):
         with TemporaryDirectory() as tmp:
             tmpdir = Path(tmp)
@@ -3260,7 +3292,7 @@ class AnalysisContractTests(unittest.TestCase):
         self.assertIn("validation_warnings: `warn_low_climb_coverage`", report)
         self.assertIn("capa FIT paralela a V2; no recalcula GAP", report)
 
-    def test_build_final_report_markdown_includes_runaware_shadow_context(self):
+    def test_build_final_report_markdown_omits_internal_shadow_context_from_human_report(self):
         summary = {
             "session_cost_model": {"session_id": "i4", "usable": True},
             "session_row": {"sport": "trail_run"},
@@ -3373,13 +3405,10 @@ class AnalysisContractTests(unittest.TestCase):
             "narrative_targets": {"final_reason_rendered": {"enabled": False}},
         }
         report = build_final_report_markdown(payload, summary, "abc123def4567890")
-        self.assertIn("Capa run-aware en sombra", report)
-        self.assertIn("source = combined", report)
-        self.assertIn("shadow_only = true", report)
-        self.assertIn("Base de `strength`", report)
-        self.assertIn("terrain_climb_count = 4", report)
-        self.assertIn("no mide cuan dura fue la sesion", report)
-        self.assertIn("Concordancia histórica", report)
+        self.assertNotIn("Capa run-aware en sombra", report)
+        self.assertNotIn("Comparación v1 vs sombra", report)
+        self.assertNotIn("Concordancia histórica", report)
+        self.assertIn("En la capa FIT aparecen `4` climbs", report)
 
     def test_enrich_summary_with_sessions_metadata_nests_training_audit_under_sessions_metadata(self):
         summary = {

@@ -3274,13 +3274,13 @@ def render_report_markdown(summary: dict[str, Any]) -> str:
     show_rr = rr_sections_visible(summary)
 
     lines = [
-        f"# Session Analysis - {summary.get('session_cost_model', {}).get('session_id') or 'unknown'}",
+        f"# Análisis técnico de sesión - {summary.get('session_cost_model', {}).get('session_id') or 'unknown'}",
         "",
         "## Sources",
         f"- rr_path: `{summary.get('rr_path')}`",
         f"- hr_source: `{summary.get('hr_source')}`",
         f"- sport_family: `{sport_family}`",
-        f"- sessions_cost_usable: `{session_cost.get('usable')}`",
+        f"- session_cost_usable: `{session_cost.get('usable')}`",
         "",
     ]
 
@@ -3307,7 +3307,7 @@ def render_report_markdown(summary: dict[str, Any]) -> str:
         "## Cost Model",
         f"- cardio_score: `{session_cost.get('cardio_score')}`",
         f"- mecanico_score: `{session_cost.get('mecanico_score')}`",
-        f"- coste_dominante: `{session_cost.get('coste_dominante')}`",
+        f"- coste_dominante: `{_display_cost_label(session_cost.get('coste_dominante'))}`",
         f"- confidence_cardio: `{session_cost.get('confidence_cardio')}`",
         f"- confidence_mecanico: `{session_cost.get('confidence_mecanico')}`",
     ])
@@ -3320,7 +3320,7 @@ def render_report_markdown(summary: dict[str, Any]) -> str:
         "## RR Context",
         f"- modifier: `{rr_context.get('modifier')}`",
         f"- interpretation: {rr_context.get('interpretation')}",
-        f"- final_note: {final_cost.get('note')}",
+        f"- final_note: {str(final_cost.get('note') or '').replace('Sessions sugiere', 'La lectura base desde sessions.csv sugiere')}",
         "",
     ])
 
@@ -3410,6 +3410,9 @@ def render_report_markdown(summary: dict[str, Any]) -> str:
                 ])
 
     if terrain_context:
+        uphill_split_count = terrain_context.get("uphill_split_count")
+        rolling_split_count = terrain_context.get("rolling_split_count")
+        downhill_split_count = terrain_context.get("downhill_split_count")
         lines.extend([
             "## Terrain Context",
             f"- source: `{terrain_context.get('source')}`",
@@ -3418,21 +3421,30 @@ def render_report_markdown(summary: dict[str, Any]) -> str:
             f"- split_source: `{terrain_context.get('split_source')}`",
             f"- split_count: `{terrain_context.get('split_count')}`",
             f"- split_coverage_pct: `{terrain_context.get('split_coverage_pct')}`",
-            f"- uphill_split_count: `{terrain_context.get('uphill_split_count')}`",
-            f"- rolling_split_count: `{terrain_context.get('rolling_split_count')}`",
-            f"- downhill_split_count: `{terrain_context.get('downhill_split_count')}`",
+            f"- uphill_split_count: `{uphill_split_count}`",
+            f"- rolling_split_count: `{rolling_split_count}`",
+            f"- downhill_split_count: `{downhill_split_count}`",
             f"- gap_uphill_mean: `{terrain_context.get('gap_uphill_mean')}`",
             f"- gap_rolling_mean: `{terrain_context.get('gap_rolling_mean')}`",
-            f"- gap_downhill_mean: `{terrain_context.get('gap_downhill_mean')}`",
             f"- power_uphill_mean: `{terrain_context.get('power_uphill_mean')}`",
             f"- power_rolling_mean: `{terrain_context.get('power_rolling_mean')}`",
-            f"- power_downhill_mean: `{terrain_context.get('power_downhill_mean')}`",
-            f"- vam_uphill_mean: `{terrain_context.get('vam_uphill_mean')}`",
-            f"- vam_uphill_max: `{terrain_context.get('vam_uphill_max')}`",
-            f"- vam_uphill_time_min: `{terrain_context.get('vam_uphill_time_min')}`",
-            f"- vam_uphill_split_count: `{terrain_context.get('vam_uphill_split_count')}`",
             f"- vam_source: `{terrain_context.get('vam_source')}`",
+        ])
+        if downhill_split_count not in (None, 0):
+            lines.append(f"- gap_downhill_mean: `{terrain_context.get('gap_downhill_mean')}`")
+            lines.append(f"- power_downhill_mean: `{terrain_context.get('power_downhill_mean')}`")
+        if terrain_context.get("vam_uphill_split_count") not in (None, 0):
+            lines.extend([
+                f"- vam_uphill_mean: `{terrain_context.get('vam_uphill_mean')}`",
+                f"- vam_uphill_max: `{terrain_context.get('vam_uphill_max')}`",
+                f"- vam_uphill_time_min: `{terrain_context.get('vam_uphill_time_min')}`",
+                f"- vam_uphill_split_count: `{terrain_context.get('vam_uphill_split_count')}`",
+            ])
+        if (uphill_split_count or 0) <= 1 and (rolling_split_count or 0) >= 1:
+            lines.append("- note: lectura de terreno compatible con recorrido llano o rodador; el desnivel no domina la sesión")
+        lines.extend([
             "- note: contexto analitico de terreno; no arbitra el gate HRV",
+            "- note: contexto analítico de terreno; no arbitra el gate HRV",
             "",
         ])
     if summary.get("terrain_intervals_error"):
@@ -3447,30 +3459,39 @@ def render_report_markdown(summary: dict[str, Any]) -> str:
         signals_available = terrain_fit_context.get("signals_available") or {}
         warnings = validation_vs_v2.get("warnings") or []
         infos = validation_vs_v2.get("infos") or []
+        climb_count = _coerce_int_like(terrain_fit_context.get("climb_count")) or 0
         lines.extend([
             "## Terrain FIT Context",
             f"- climbs_source: `{terrain_fit_context.get('climbs_source')}`",
             f"- climb_count: `{terrain_fit_context.get('climb_count')}`",
-            f"- climb_time_min: `{terrain_fit_context.get('climb_time_min')}`",
-            f"- climb_distance_km: `{terrain_fit_context.get('climb_distance_km')}`",
-            f"- climb_gain_m: `{terrain_fit_context.get('climb_gain_m')}`",
-            f"- climb_gain_coverage_pct: `{terrain_fit_context.get('climb_gain_coverage_pct')}`",
-            f"- climb_hr_mean: `{terrain_fit_context.get('climb_hr_mean')}`",
-            f"- climb_cadence_mean: `{terrain_fit_context.get('climb_cadence_mean')}`",
             f"- cadence_unit: `{terrain_fit_context.get('cadence_unit')}`",
-            f"- climb_power_mean: `{terrain_fit_context.get('climb_power_mean')}`",
-            f"- climb_power_max: `{terrain_fit_context.get('climb_power_max')}`",
-            f"- climb_power_estimated_mean: `{terrain_fit_context.get('climb_power_estimated_mean')}`",
-            f"- climb_power_estimated_max: `{terrain_fit_context.get('climb_power_estimated_max')}`",
-            f"- climb_power_source: `{terrain_fit_context.get('climb_power_source')}` (measured={terrain_fit_context.get('climb_power_measured_count', 0)}, estimated={terrain_fit_context.get('climb_power_estimated_count', 0)})",
-            f"- climb_power_estimation_model: `{terrain_fit_context.get('climb_power_estimation_model')}`",
             f"- signals_available: `hr={signals_available.get('hr')}, cadence={signals_available.get('cadence')}, power={signals_available.get('power')}`",
             f"- pause_filter_mode: `{terrain_fit_context.get('pause_filter_mode')}`",
             f"- validation_status: `{validation_vs_v2.get('status')}`",
             f"- validation_warnings: `{', '.join(warnings) if warnings else 'none'}`",
             f"- validation_infos: `{', '.join(infos) if infos else 'none'}`",
+        ])
+        if climb_count <= 0:
+            lines.append("- note: no se detectan subidas relevantes en el FIT; esta capa no añade señal específica de climbs para esta sesión")
+        else:
+            lines.extend([
+                f"- climb_time_min: `{terrain_fit_context.get('climb_time_min')}`",
+                f"- climb_distance_km: `{terrain_fit_context.get('climb_distance_km')}`",
+                f"- climb_gain_m: `{terrain_fit_context.get('climb_gain_m')}`",
+                f"- climb_gain_coverage_pct: `{terrain_fit_context.get('climb_gain_coverage_pct')}`",
+                f"- climb_hr_mean: `{terrain_fit_context.get('climb_hr_mean')}`",
+                f"- climb_cadence_mean: `{terrain_fit_context.get('climb_cadence_mean')}`",
+                f"- climb_power_mean: `{terrain_fit_context.get('climb_power_mean')}`",
+                f"- climb_power_max: `{terrain_fit_context.get('climb_power_max')}`",
+                f"- climb_power_estimated_mean: `{terrain_fit_context.get('climb_power_estimated_mean')}`",
+                f"- climb_power_estimated_max: `{terrain_fit_context.get('climb_power_estimated_max')}`",
+                f"- climb_power_source: `{terrain_fit_context.get('climb_power_source')}` (measured={terrain_fit_context.get('climb_power_measured_count', 0)}, estimated={terrain_fit_context.get('climb_power_estimated_count', 0)})",
+                f"- climb_power_estimation_model: `{terrain_fit_context.get('climb_power_estimation_model')}`",
+            ])
+        lines.extend([
             "- note: capa FIT paralela a V2; no recalcula GAP",
-            "- note: la potencia estimada de esta capa solo se genera para bike; la potencia medida puede aparecer en bike, trail o road y se presenta como medicion directa cuando la fuente la declara como measured",
+            "- note: capa FIT paralela; complementa la lectura de terreno pero no recalcula GAP",
+            "- note: la potencia estimada de esta capa solo se genera para bike; la potencia medida puede aparecer en bike, trail o road cuando la fuente la declara como measured",
             "",
         ])
 
@@ -3500,7 +3521,7 @@ def render_report_markdown(summary: dict[str, Any]) -> str:
                 continue
             coach_lines.append(f"- {label}: `{value}`")
         coach_lines.extend([
-            "- note: capa local de analysis; apoyo narrativo y tactico, no contrato canonico global",
+            "- note: capa local de analysis; apoyo narrativo y táctico, no contrato canónico global",
             "- note: si contradice `sessions.csv` o `training_audit`, explicar la discrepancia y no fusionarla por inercia",
             "",
         ])
@@ -3753,7 +3774,11 @@ def _work_block_context_verdict_phrase(
     fallback_blocks: str,
     fallback_work_total_min: str,
 ) -> str:
+    fallback_blocks_num = _coerce_int_like(fallback_blocks)
+    fallback_work_total_num = _float_or_none(fallback_work_total_min)
     if not isinstance(work_block_context, dict) or not work_block_context.get("available"):
+        if (fallback_blocks_num or 0) <= 0 and (fallback_work_total_num or 0.0) <= 0.0:
+            return "No aparecieron bloques útiles claros; la sesión fue más de continuidad que de trabajo estructurado"
         return (
             f"El estímulo útil quedó concentrado en `{fallback_blocks}` bloques y `{fallback_work_total_min} min` de trabajo relevante"
         )
@@ -3775,6 +3800,8 @@ def _work_block_context_verdict_phrase(
             f"El estímulo útil quedó repartido entre `{fallback_blocks}` bloques y `{fallback_work_total_min} min` de trabajo relevante, "
             f"con `{hard_blocks}` bloques duros reales"
         )
+    if (fallback_blocks_num or 0) <= 0 and (fallback_work_total_num or 0.0) <= 0.0:
+        return "No aparecieron bloques útiles claros; la sesión fue más de continuidad que de trabajo estructurado"
     return (
         f"El estímulo útil quedó concentrado en `{fallback_blocks}` bloques y `{fallback_work_total_min} min` de trabajo relevante"
     )
@@ -4085,9 +4112,53 @@ def _display_cost_label(value: Any) -> str:
         "cardiometabolico": "cardiometabólico",
         "mecanico": "mecánico",
         "mixto": "mixto",
+        "bajo_estimulo": "bajo estímulo",
     }
     key = str(value or "").strip().lower()
     return mapping.get(key, str(value or "mixto"))
+
+
+def _is_missing_readout(value: Any) -> bool:
+    raw = str(value or "").strip().lower()
+    return raw in {"", "n/d", "nd", "none", "null"}
+
+
+def _build_morning_context_clause(gate_badge: str, action_label: str) -> str:
+    gate_missing = _is_missing_readout(gate_badge)
+    action_missing = _is_missing_readout(action_label)
+    if gate_missing and action_missing:
+        return "sin contexto matinal disponible"
+    if not gate_missing and not action_missing:
+        return f"con contexto matinal `{gate_badge}` y `Action = {action_label}`"
+    if not gate_missing:
+        return f"con contexto matinal `{gate_badge}`"
+    return f"con `Action = {action_label}`"
+
+
+def _trail_route_profile(
+    session_row: dict[str, Any],
+    terrain_fit_context: dict[str, Any] | None,
+) -> str:
+    climb_count = _report_terrain_climb_count(session_row, terrain_fit_context) or 0
+    elev_gain_m = _float_or_none(session_row.get("elev_gain_m")) or 0.0
+    climb_time_min = _float_or_none((terrain_fit_context or {}).get("climb_time_min")) or 0.0
+    if climb_count >= 3 or elev_gain_m >= 250 or climb_time_min >= 20:
+        return "climby"
+    if climb_count >= 1 or elev_gain_m >= 80 or climb_time_min >= 8:
+        return "rolling"
+    return "flat"
+
+
+def _trail_route_narrative_label(
+    session_row: dict[str, Any],
+    terrain_fit_context: dict[str, Any] | None,
+) -> str:
+    profile = _trail_route_profile(session_row, terrain_fit_context)
+    if profile == "climby":
+        return "Sesión de trail con desnivel real"
+    if profile == "rolling":
+        return "Sesión de trail rodadora con algo de relieve"
+    return "Rodaje de trail en terreno llano o muy poco ondulado"
 
 
 def _build_tension_synthesis(
@@ -4154,15 +4225,26 @@ def _build_response_synthesis(
         if clauses:
             return " ".join(clauses)
     if sport_family == "trail":
+        trail_profile = _trail_route_profile(session_row, terrain_fit_context)
         if work_total >= 40 and z3_pct >= 25:
             text = "La sesión sí consiguió sostener trabajo de calidad repetido en subida, no solo picos aislados."
             if drift is not None and drift >= 10:
                 text += " La deriva y la pérdida de continuidad entre vueltas sugieren un coste creciente con el paso de la sesión."
             return text
         if work_total > 0:
+            if trail_profile == "climby":
+                return (
+                    "Aquí sí hubo suficiente desnivel como para leer la sesión como trail específico: "
+                    "si la durabilidad es simple, `power_ratio` manda sobre `speed_ratio` y el ritmo solo confirma el sesgo de terreno."
+                )
+            if trail_profile == "rolling":
+                return (
+                    "Aquí el relieve fue secundario: la sesión se parece más a un trail rodador que a una sesión de cuestas, "
+                    "así que el ritmo y la continuidad pesan más que el desnivel."
+                )
             return (
-                "En trail esto debe leerse como una sesión de continuidad y desnivel: "
-                "si la durabilidad es simple, `power_ratio` manda sobre `speed_ratio` y el ritmo solo confirma el sesgo de terreno."
+                "Aunque figure como `trail_run`, aquí el terreno fue casi llano: la lectura correcta es la de un rodaje continuo, "
+                "no la de una sesión de desnivel."
             )
     if work_total > 0:
         return "La respuesta interna confirma que el coste útil estuvo en los bloques relevantes y no solo en la duración bruta de la sesión."
@@ -4314,7 +4396,10 @@ def _build_practical_synthesis(
     if sport_family == "bike":
         third = f"Si se repite el formato, la mejora útil no es necesariamente apretar más, sino sostener mejor la salida sin convertir {climb_phrase} en el eje dominante del coste."
     elif sport_family == "trail":
-        third = "Si se repite el formato, la mejora útil no es subir más fuerte, sino sostener mejor la calidad entre vueltas con menos deriva y menos pérdida de capacidad."
+        if _trail_route_profile(session_row, terrain_fit_context) == "climby":
+            third = "Si se repite el formato, la mejora útil no es subir más fuerte, sino sostener mejor la calidad entre vueltas con menos deriva y menos pérdida de capacidad."
+        else:
+            third = "Si se repite el formato, la mejora útil no es forzar cuestas que no estaban en la sesión, sino usarla como rodaje de volumen o soporte aeróbico suave."
     else:
         third = "Si se repite el formato, la mejora útil no es necesariamente apretar más, sino sostener mejor la continuidad útil con menos peaje."
     lines.append(third)
@@ -4343,10 +4428,13 @@ def _build_positive_adaptations(
         if climb_sentence:
             positives.append(climb_sentence)
     elif sport_family == "trail":
+        trail_profile = _trail_route_profile(session_row, terrain_fit_context)
         if work_total >= 40 and blocks >= 4:
             positives.append("Aporta tolerancia a repetir subidas duras con fatiga acumulada, que es una de las adaptaciones más transferibles al trail con desnivel real.")
         if terrain_fit_context and (_float_or_none(terrain_fit_context.get("climb_count")) or 0.0) >= 4:
             positives.append("Suma especificidad de trail: no solo carga cardiovascular, también continuidad de climbs y economía funcional en subida.")
+        if trail_profile == "flat" and work_total <= 0 and (_float_or_none(session_row.get("moving_min")) or 0.0) >= 75:
+            positives.append("Aporta continuidad aeróbica suave y tiempo en movimiento sin cargar la sesión con intensidad ni desnivel relevantes.")
     else:
         if work_total > 0:
             positives.append("Aporta una dosis útil de trabajo específico dentro del perfil declarado de la sesión.")
@@ -4393,8 +4481,11 @@ def _build_net_adaptation_readout(
 ) -> str:
     pos = len(positive_adaptations)
     neg = len(negative_costs)
+    low_stimulus_only = pos <= 1 and neg == 0
     if reporting_mode == "gate_first" and neg >= pos:
         return "El saldo final no es neutro: la sesión puede aportar estímulo útil, pero en este caso el peaje pesa lo bastante como para recortar margen a corto plazo."
+    if low_stimulus_only:
+        return "El saldo final es ligero: suma continuidad aeróbica y algo de volumen, con poco peaje adicional si la sesión se absorbe bien."
     if sport_family == "trail" and pos >= neg:
         return "El saldo final es favorable pero no limpio: la sesión sí suma adaptación específica, aunque no sale gratis y exige releer bien la recuperación posterior."
     if pos > neg:
@@ -4436,7 +4527,10 @@ def _build_next_signal_watch(
     if sport_family == "bike":
         signals.append("Vigilar piernas vacías o falta de respuesta en la primera parte del pedaleo; sería la mejor pista de que el peaje de duración y subidas sigue activo.")
     elif sport_family == "trail":
-        signals.append("Vigilar piernas pesadas, pérdida de reactividad en subida o molestia local; sería la mejor pista de que la sesión dejó peaje funcional real.")
+        if _trail_route_profile(session_row, None) == "climby":
+            signals.append("Vigilar piernas pesadas, pérdida de reactividad en subida o molestia local; sería la mejor pista de que la sesión dejó peaje funcional real.")
+        else:
+            signals.append("Vigilar piernas pesadas, molestias locales o sensación de volumen mal absorbido; sería la mejor pista de que el rodaje dejó más peaje del esperado.")
     if str(thermal.get("thermal_band") or "") == "high":
         signals.append("Vigilar si el calor dejó una fatiga más persistente de lo esperado para el puro tiempo en Z3.")
     if str(durability.get("durability_hint") or "") == "fade_like":
@@ -4462,7 +4556,10 @@ def _build_window_effect(
     if sport_family == "bike":
         lines.append(f"Mantiene abierta una ventana razonable para rodaje suave o base aeróbica, pero no para otra sesión que concentre el coste en {climb_phrase}.")
     elif sport_family == "trail":
-        lines.append("Mantiene abierta una ventana para trabajo fácil o continuidad suave, pero no para otra sesión de climbs con el mismo peaje acumulado.")
+        if _trail_route_profile(session_row, terrain_fit_context) == "climby":
+            lines.append("Mantiene abierta una ventana para trabajo fácil o continuidad suave, pero no para otra sesión de climbs con el mismo peaje acumulado.")
+        else:
+            lines.append("Mantiene abierta una ventana razonable para continuidad suave y, si la recuperación acompaña, no cierra por sí sola la calidad futura.")
     if str(thermal.get("thermal_band") or "") == "high":
         lines.append("El componente térmico estrecha aún más la ventana útil de recuperación rápida.")
     return lines
@@ -4485,7 +4582,10 @@ def _build_do_not_overread(
     if not show_rr:
         lines.append("No usar la falta de lectura RR fina para degradar toda la sesión a incertidumbre general si el resto de capas converge.")
     if sport_family == "trail":
-        lines.append("No convertir el terreno en excusa total: explica parte de la degradación, pero no cancela el peaje.")
+        if _trail_route_profile(session_row, terrain_fit_context) == "climby":
+            lines.append("No convertir el terreno en excusa total: explica parte de la degradación, pero no cancela el peaje.")
+        else:
+            lines.append("No convertir la etiqueta `trail_run` en sinónimo de desnivel: en esta salida el relieve fue secundario y la lectura correcta es la de un rodaje rodador o casi llano.")
     if sport_family == "bike":
         lines.append(f"No resumir la sesión como 'salida larga con {climb_phrase}' sin reconocer que esos segmentos concentraron una parte desproporcionada del coste.")
     return lines
@@ -4494,13 +4594,24 @@ def _build_do_not_overread(
 def _build_reinterpretation_conditions(
     sport_family: str,
     gate_badge: str,
+    session_row: dict[str, Any] | None = None,
+    terrain_fit_context: dict[str, Any] | None = None,
 ) -> list[str]:
-    lines = [
-        f"Si el siguiente contexto matinal sale claramente peor que `{gate_badge}`, la sesión debe releerse como más costosa de lo que parecía al cierre.",
-        "Si la recuperación subjetiva y funcional sale mejor de lo esperado, la sesión gana valor como estímulo bien absorbido y no solo como sesión cara.",
-    ]
+    if _is_missing_readout(gate_badge):
+        lines = [
+            "Si el siguiente contexto matinal sale claramente peor de lo esperable, la sesión debe releerse como más costosa de lo que parecía al cierre.",
+            "Si la recuperación subjetiva y funcional sale mejor de lo esperado, la sesión gana valor como estímulo bien absorbido y no solo como sesión cara.",
+        ]
+    else:
+        lines = [
+            f"Si el siguiente contexto matinal sale claramente peor que `{gate_badge}`, la sesión debe releerse como más costosa de lo que parecía al cierre.",
+            "Si la recuperación subjetiva y funcional sale mejor de lo esperado, la sesión gana valor como estímulo bien absorbido y no solo como sesión cara.",
+        ]
     if sport_family == "trail":
-        lines.append("Si reaparece molestia local o baja pronto la capacidad en subida, la sesión debe releerse como demasiado cara para ese punto del bloque.")
+        if _trail_route_profile(session_row or {}, terrain_fit_context) == "climby":
+            lines.append("Si reaparece molestia local o baja pronto la capacidad en subida, la sesión debe releerse como demasiado cara para ese punto del bloque.")
+        else:
+            lines.append("Si reaparece molestia local o sensación de piernas demasiado cargadas para un rodaje fácil, la sesión debe releerse como más costosa de lo esperado.")
     elif sport_family == "bike":
         lines.append("Si el siguiente rodaje sale pesado desde el principio, el peaje de duración y subidas pasa a mandar sobre el valor del estímulo.")
     return lines
@@ -4525,10 +4636,28 @@ def _build_best_block_comparator(
     ]
     if not same_work_rows:
         return None
+    comparable_family_rows = [
+        row for row in same_work_rows
+        if analyzer_sport_from_session(row) in {"trail", "road", "bike", "swim", "hike", "elliptical"}
+    ]
     same_family_rows = [row for row in same_work_rows if analyzer_sport_from_session(row) == sport_family]
+    foot_families = {"trail", "road", "hike"}
+    same_foot_family_rows = [
+        row for row in same_work_rows
+        if sport_family in foot_families and analyzer_sport_from_session(row) in foot_families
+    ]
+    same_foot_any_rows = [
+        row for row in recent_rows
+        if sport_family in foot_families and analyzer_sport_from_session(row) in foot_families
+    ]
     if current_has_work and not same_family_rows:
         return "No hay un comparador de la misma familia con trabajo comparable dentro del bloque reciente; cualquier comparación alternativa sería solo orientativa."
-    candidate_rows = same_family_rows or same_work_rows
+    if not current_has_work and same_family_rows:
+        candidate_rows = same_family_rows
+    elif not current_has_work and same_foot_any_rows:
+        candidate_rows = same_foot_any_rows
+    else:
+        candidate_rows = same_family_rows or same_foot_family_rows or comparable_family_rows or same_work_rows
 
     def _score(row: dict[str, Any]) -> tuple[float, float, float, float]:
         row_family = analyzer_sport_from_session(row)
@@ -4536,18 +4665,23 @@ def _build_best_block_comparator(
         row_load = _float_or_none(row.get("load")) or 0.0
         row_work = _float_or_none(row.get("work_total_min")) or 0.0
         row_has_work = row_work >= 10.0
+        same_foot_score = 1.0 if sport_family in foot_families and row_family in foot_families else 0.0
         work_match_score = 1.0 if row_has_work == current_has_work else 0.0
         same_group_score = 1.0 if current_group and row_group == current_group else 0.0
         same_family_score = 1.0 if row_family == sport_family else 0.0
         closeness_penalty = abs(row_load - current_load) + (0.7 * abs(row_work - current_work))
         return (
-            work_match_score,
             same_group_score,
             same_family_score,
+            same_foot_score,
+            work_match_score,
             -closeness_penalty,
         )
 
     best = max(candidate_rows, key=_score)
+    best_sport = str(best.get("sport") or "").strip().lower()
+    if best_sport in {"mobility", "strength", "gym", "yoga", "pilates"}:
+        return "No hay un comparador suficientemente útil dentro del bloque reciente."
     best_family = analyzer_sport_from_session(best)
     best_group = str(best.get("session_group") or "").strip().lower()
     best_has_work = (_float_or_none(best.get("work_total_min")) or 0.0) >= 10.0
@@ -4586,13 +4720,19 @@ def _build_construct_vs_consume(
     sport_family: str,
     positive_adaptations: list[str],
     negative_costs: list[str],
+    session_row: dict[str, Any] | None = None,
+    terrain_fit_context: dict[str, Any] | None = None,
 ) -> list[str]:
     if sport_family == "bike":
         construct = "Especificidad para sostener una salida larga con tramos duros bien separados."
         consume = "Margen de recuperación y tolerancia al calor/duración para repetir ese patrón pronto."
     elif sport_family == "trail":
-        construct = "Capacidad para repetir climbs con continuidad y menos degradación vuelta a vuelta."
-        consume = "Peaje funcional de piernas y recuperación entre repeticiones si el bloque sigue cargado."
+        if _trail_route_profile(session_row or {}, terrain_fit_context) == "climby":
+            construct = "Capacidad para repetir climbs con continuidad y menos degradación vuelta a vuelta."
+            consume = "Peaje funcional de piernas y recuperación entre repeticiones si el bloque sigue cargado."
+        else:
+            construct = "Continuidad aeróbica suave, tiempo en movimiento y soporte de volumen con intensidad baja."
+            consume = "Fatiga general ligera o peaje local si el volumen ya venía acumulado."
     else:
         construct = _compress_adaptation_phrase(
             positive_adaptations[0] if positive_adaptations else "No dejó una construcción clara adicional."
@@ -4609,13 +4749,19 @@ def _build_construct_vs_consume(
 def _build_repeat_guidance(
     sport_family: str,
     reporting_mode: str | None,
+    session_row: dict[str, Any] | None = None,
+    terrain_fit_context: dict[str, Any] | None = None,
 ) -> list[str]:
     if sport_family == "bike":
         repeat = "Repetir la estructura general de salida larga con segmentos duros bien delimitados."
         avoid = "No repetir la misma agresividad si el contexto vuelve a salir restrictivo o si el bloque ya viene cargado."
     elif sport_family == "trail":
-        repeat = "Repetir la especificidad de climbs y continuidad de subida cuando el bloque pida calidad real de trail."
-        avoid = "No repetir el mismo peaje entre vueltas si la sesión previa ya dejó degradación funcional clara."
+        if _trail_route_profile(session_row or {}, terrain_fit_context) == "climby":
+            repeat = "Repetir la especificidad de climbs y continuidad de subida cuando el bloque pida calidad real de trail."
+            avoid = "No repetir el mismo peaje entre vueltas si la sesión previa ya dejó degradación funcional clara."
+        else:
+            repeat = "Repetirlo como rodaje fácil o de volumen cuando encaje sumar tiempo en movimiento sin pedir intensidad."
+            avoid = "No sobrerrepresentarlo como sesión de cuestas o trail específico si el terreno vuelve a ser casi llano."
     else:
         repeat = "Repetir el tipo de estímulo solo si el bloque y la recuperación posterior lo justifican."
         avoid = "No repetir la misma dosis si el contexto sigue estrecho."
@@ -4641,7 +4787,9 @@ def _build_better_fit_readout(
     if negative_costs and len(negative_costs) > len(positive_adaptations):
         return "Habría encajado mejor con menos peaje para el mismo estímulo: no cambiando por completo el tipo de sesión, sino ajustando mejor la dosis al bloque."
     if sport_family == "trail":
-        return "Habría encajado mejor sosteniendo la especificidad de trail, pero intentando conservar mejor la continuidad entre vueltas para que más parte del coste se convierta en trabajo útil."
+        if _trail_route_profile(session_row, terrain_fit_context) == "climby":
+            return "Habría encajado mejor sosteniendo la especificidad de trail, pero intentando conservar mejor la continuidad entre vueltas para que más parte del coste se convierta en trabajo útil."
+        return "Habría encajado mejor presentándola como lo que fue: un rodaje de volumen en trail llano o rodador, sin forzar una lectura de desnivel específico que los datos no sostienen."
     return "Habría encajado mejor manteniendo el estímulo, pero afinando la dosis para que el peaje no pese tanto como la adaptación que deja."
 
 
@@ -5169,30 +5317,32 @@ def build_final_report_markdown(
     )
     gate_badge = _string_or_na(final_row.get("gate_badge"), "n/d")
     action_label = _string_or_na(final_row.get("Action"), "n/d")
+    morning_context_clause = _build_morning_context_clause(gate_badge, action_label)
     reporting_mode = final_reason_rendered.get("reporting_mode")
     if sport_family == "bike":
         verdict = (
             f"Salida larga de {sport_label.lower()} con coste dominante **{cost_label_display}**. "
             f"{work_block_verdict_phrase}, "
-            f"sobre un contexto matinal `{gate_badge}` con `Action = {action_label}`."
+            f"{morning_context_clause}."
         )
     elif sport_family == "trail":
         verdict = (
-            f"Sesión de cuestas en {sport_label.lower()} con coste dominante **{cost_label_display}**. "
+            f"{_trail_route_narrative_label(session_row, terrain_fit_context if isinstance(terrain_fit_context, dict) else None)} "
+            f"con coste dominante **{cost_label_display}**. "
             f"{work_block_verdict_phrase}, "
-            f"sobre un contexto matinal `{gate_badge}` con `Action = {action_label}`."
+            f"{morning_context_clause}."
         )
     else:
         verdict = (
             f"Sesión de {sport_label.lower()} con coste dominante **{cost_label_display}**. "
             f"{work_block_verdict_phrase}, "
-            f"sobre un contexto matinal `{gate_badge}` con `Action = {action_label}`."
+            f"{morning_context_clause}."
         )
     if final_reason_rendered.get("enabled"):
         if reporting_mode == "gate_first":
-            verdict += " La lectura correcta no es verde condicionado, sino gate restrictivo de partida explicado después por las cautelas tipificadas."
+            verdict += " El contexto ya pedía prudencia antes de empezar."
         else:
-            verdict += " La lectura correcta es permiso condicionado, no vía libre."
+            verdict += " El contexto matinal permitía entrenar, pero con prudencia."
     if _coerce_int_like(session_cost.get("mecanico_score")) is not None and _coerce_int_like(session_cost.get("mecanico_score")) >= 2 and mecanico_basis_text:
         verdict += f" Base mecánica: {mecanico_basis_text}."
 
@@ -5223,8 +5373,6 @@ def build_final_report_markdown(
         lines.append("| Cautelas HRV estructuradas | `ENDURANCE_HRV_master_FINAL_reason_items.json` |")
     if terrain_context or terrain_fit_context:
         lines.append("| Terreno y continuidad | `FIT`, `terrain_intervals.csv`, `terrain_climbs.csv` |")
-    if runaware_context:
-        lines.append("| Capa run-aware en sombra | `runaware_context` |")
     if analysis_only_context:
         lines.append("| Capa coach local de apoyo | `analysis_only_context`, `coach_metrics.json`, `coach_intervals.csv`, `coach_groups.csv` |")
 
@@ -5253,19 +5401,6 @@ def build_final_report_markdown(
             f"**La capa de terreno añade soporte específico.** `split_coverage_pct = {_fmt_pct(terrain_context.get('split_coverage_pct'))}` "
             f"y `split_count = {_fmt_num(terrain_context.get('split_count'), digits=0)}`."
         )
-    if runaware_context:
-        runaware_source = _string_or_na(runaware_context.get("source"))
-        runaware_strength = _string_or_na(runaware_context.get("strength"))
-        lines.append(
-            f"**La capa run-aware queda en sombra.** `source = {runaware_source}`, "
-            f"`strength = {runaware_strength}`, "
-            f"`strength_grade = {_string_or_na(runaware_context.get('strength_grade'))}`, "
-            f"`shadow_only = {_fmt_bool_es(runaware_context.get('shadow_only'), true_text='true', false_text='false')}`."
-        )
-        if runaware_context.get("strength_basis"):
-            lines.append(
-                "Base de `strength`: " + "; ".join(str(item) for item in runaware_context.get("strength_basis") if str(item).strip()) + "."
-            )
     session_affected = training_audit_session_affected(summary)
     if session_affected:
         lines.append(
@@ -5338,14 +5473,33 @@ def build_final_report_markdown(
             "En ciclismo esto sugiere una salida larga con bastante tiempo controlado y un coste concentrado en pocos segmentos duros, no una sesión homogéneamente exigente de principio a fin."
         )
     elif sport_family == "trail":
-        lines.append(
-            "En trail esto debe leerse como una sesión de continuidad y desnivel: cuando la durabilidad es simple, `power_ratio` manda sobre `speed_ratio` y el ritmo solo confirma el sesgo de terreno."
-        )
+        trail_profile = _trail_route_profile(session_row, terrain_fit_context if isinstance(terrain_fit_context, dict) else None)
+        if trail_profile == "climby":
+            lines.append(
+                "Aquí sí hay desnivel suficiente como para leer la salida como trail específico; el ritmo por sí solo no resume bien el coste del terreno."
+            )
+        elif trail_profile == "rolling":
+            lines.append(
+                "Aquí el relieve fue secundario: la sesión se parece más a un trail rodador que a una sesión de cuestas."
+            )
+        else:
+            lines.append(
+                "Aunque el deporte figure como `trail_run`, aquí la ruta fue prácticamente llana o muy poco ondulada; la lectura correcta es la de un rodaje continuo."
+            )
     if terrain_fit_context:
-        climb_line = (
-            f"En la capa FIT aparecen `{_fmt_num(terrain_fit_context.get('climb_count'), digits=0)}` climbs, "
-            f"`{_fmt_gain(terrain_fit_context.get('climb_gain_m'))}` de ganancia y `{_fmt_minutes(terrain_fit_context.get('climb_time_min'))}` de subida acumulada."
-        )
+        climb_count = _coerce_int_like(terrain_fit_context.get("climb_count"))
+        climb_gain_m = _float_or_none(terrain_fit_context.get("climb_gain_m"))
+        climb_time_min = _float_or_none(terrain_fit_context.get("climb_time_min"))
+        if (climb_count or 0) <= 0:
+            climb_line = (
+                "La capa FIT no detecta subidas relevantes: "
+                f"`{_fmt_gain(climb_gain_m)}` de ganancia y `{_fmt_minutes(climb_time_min)}` de subida acumulada."
+            )
+        else:
+            climb_line = (
+                f"En la capa FIT aparecen `{_fmt_num(climb_count, digits=0)}` climbs, "
+                f"`{_fmt_gain(climb_gain_m)}` de ganancia y `{_fmt_minutes(climb_time_min)}` de subida acumulada."
+            )
         climb_hr = terrain_fit_context.get("climb_hr_mean")
         climb_power_est = terrain_fit_context.get("climb_power_estimated_mean")
         climb_power_meas = terrain_fit_context.get("climb_power_mean")
@@ -5377,178 +5531,6 @@ def build_final_report_markdown(
             f"La capa de terreno por splits aporta `{_fmt_num(terrain_context.get('split_count'), digits=0)}` segmentos con "
             f"`split_coverage_pct = {_fmt_pct(terrain_context.get('split_coverage_pct'))}`."
         )
-    if runaware_context:
-        lines.append(
-            f"La capa run-aware en sombra para `trail_run` toma como inputs `terrain_ready = {_fmt_bool_es(runaware_context.get('terrain_ready'), true_text='true', false_text='false')}`, "
-            f"`run_power_available = {_fmt_bool_es(runaware_context.get('run_power_available'), true_text='true', false_text='false')}` y "
-            f"`power_ratio = {_fmt_num(runaware_context.get('power_ratio'))}`."
-        )
-        if runaware_context.get("runaware_candidate_basis"):
-            basis = "; ".join(str(item) for item in runaware_context.get("runaware_candidate_basis") if str(item).strip())
-            lines.append(
-                f"Candidato de sombra: `runaware_intense_candidate = {_fmt_num(runaware_context.get('runaware_intense_candidate'))}`, "
-                f"`runaware_severity_candidate = {_string_or_na(runaware_context.get('runaware_severity_candidate'), 'n/d')}`; "
-                f"basis: {basis}."
-            )
-        if runaware_context.get("runaware_severity_basis"):
-            lines.append(
-                "Base de `runaware_severity_candidate`: "
-                + "; ".join(str(item) for item in runaware_context.get("runaware_severity_basis") if str(item).strip())
-                + "."
-            )
-        v1_snapshot = summary.get("v1_snapshot")
-        if isinstance(v1_snapshot, dict):
-            lines.append(
-                f"Snapshot AP-01 v1 cacheado en `summary.json`: `intensity_clustering_flag = {_fmt_num(v1_snapshot.get('intensity_clustering_flag'))}`, "
-                f"`intensity_clustering_severity = {_string_or_na(v1_snapshot.get('intensity_clustering_severity'), 'n/d')}`."
-            )
-        if runaware_context.get("terrain_climb_count") is not None or runaware_context.get("terrain_gap_mean") is not None:
-            lines.append(
-                f"Señales de terreno para la comparación: `terrain_climb_count = {_fmt_num(runaware_context.get('terrain_climb_count'))}`, "
-                f"`terrain_gap_mean = {_fmt_num(runaware_context.get('terrain_gap_mean'))} km/h`, "
-                f"`terrain_vam_uphill_mean = {_fmt_num(runaware_context.get('terrain_vam_uphill_mean'))} m/h`."
-            )
-        if runaware_context.get("terrain_climb_hr_mean") is not None:
-            lines.append(
-                f"Peaje cardiovascular en subida para la comparación: `terrain_climb_hr_mean = {_fmt_num(runaware_context.get('terrain_climb_hr_mean'))} lpm`."
-            )
-        if runaware_context.get("terrain_climb_vam_mean") is not None:
-            lines.append(
-                f"Ritmo vertical medio en subida para la comparación: `terrain_climb_vam_mean = {_fmt_num(runaware_context.get('terrain_climb_vam_mean'))} m/h`."
-            )
-        if runaware_context.get("terrain_climb_power_mean") is not None:
-            lines.append(
-                f"Potencia media en subida para la comparación: `terrain_climb_power_mean = {_fmt_num(runaware_context.get('terrain_climb_power_mean'))} W`."
-            )
-        if runaware_context.get("terrain_climb_hr_mean") is not None:
-            vt1_used = _float_or_none(session_row.get("vt1_used"))
-            vt2_used = _float_or_none(session_row.get("vt2_used"))
-            climb_hr_mean = _float_or_none(runaware_context.get("terrain_climb_hr_mean"))
-            if climb_hr_mean is not None and (vt1_used is not None or vt2_used is not None):
-                vt_parts = []
-                if vt1_used is not None:
-                    vt_parts.append(f"VT1 = {_fmt_num(vt1_used)} lpm")
-                if vt2_used is not None:
-                    vt_parts.append(f"VT2 = {_fmt_num(vt2_used)} lpm")
-                relation_parts = []
-                if vt1_used is not None:
-                    relation_parts.append("por encima" if climb_hr_mean >= vt1_used else "por debajo")
-                if vt2_used is not None:
-                    relation_parts.append("por encima" if climb_hr_mean >= vt2_used else "por debajo")
-                lines.append(
-                    f"Comparación de FC en subida con zonas: `terrain_climb_hr_mean = {_fmt_num(climb_hr_mean)} lpm` ({'; '.join(vt_parts)}; {', '.join(relation_parts)})."
-                )
-        v1_shadow_comparison = summary.get("v1_shadow_comparison")
-        if isinstance(v1_shadow_comparison, dict):
-            lines.append(
-                f"Comparación v1 vs sombra: `{_string_or_na(v1_shadow_comparison.get('alignment'), 'n/d')}`; "
-                f"flag = `{_string_or_na(v1_shadow_comparison.get('flag_alignment'), 'n/d')}`, "
-                f"severidad = `{_string_or_na(v1_shadow_comparison.get('severity_alignment'), 'n/d')}`."
-            )
-            if v1_shadow_comparison.get("notes"):
-                lines.append(
-                    "Lectura de contraste: "
-                    + "; ".join(str(note) for note in v1_shadow_comparison.get("notes") if str(note).strip())
-                    + "."
-                )
-        v1_shadow_history = summary.get("v1_shadow_history")
-        if isinstance(v1_shadow_history, dict) and v1_shadow_history.get("rows"):
-            rows = v1_shadow_history.get("rows") or []
-            lines.append("")
-            lines.append("### Concordancia histórica")
-            if v1_shadow_history.get("scope_note"):
-                lines.append(str(v1_shadow_history.get("scope_note")))
-            lines.append(
-                "Esta tabla no mide cuan dura fue la sesion; mide si la sombra de AP-03 toma la misma decision que AP-01 v1 "
-                "en ventanas comparables de trail. La columna `Sombra sesión` muestra la activación cruda por sesión y `Sombra ventana` la version rolling que se compara con v1. "
-                "Si la sombra activa mas que v1, la utilidad exploratoria puede seguir existiendo, pero la concordancia baja y conviene revisar umbrales y criterios."
-            )
-            lines.append(
-                "Cuando existe el dia siguiente, cada fila del history añade `next_day_gate`, `next_day_residual_z`, `next_day_action` y `next_day_hrv_delta` para aproximar el impacto posterior sin inventar un outcome si no hay fecha disponible."
-            )
-            lines.append(
-                f"Se muestran `{_fmt_num(v1_shadow_history.get('row_count'), digits=0)}` sesiones comparables de trail; "
-                f"alineadas `{_fmt_num(v1_shadow_history.get('aligned_count'), digits=0)}`, "
-                f"divergentes `{_fmt_num(v1_shadow_history.get('divergent_count'), digits=0)}`."
-            )
-            lines.extend([
-                "",
-                "| Fecha | Sesión | V1 | Sombra sesión | Sombra ventana | Origen | Alineación |",
-                "|---|---|---|---|---|---|---|",
-            ])
-            for row in rows:
-                v1_cell = f"{_string_or_na(row.get('v1_flag'), 'n/d')} / {_string_or_na(row.get('v1_severity'), 'n/d')}"
-                shadow_session_cell = f"{_string_or_na(row.get('shadow_session_candidate'), 'n/d')} / {_string_or_na(row.get('shadow_session_severity'), 'n/d')}"
-                shadow_window_cell = f"{_string_or_na(row.get('shadow_candidate'), 'n/d')} / {_string_or_na(row.get('shadow_severity'), 'n/d')}"
-                shadow_source = _string_or_na(row.get("shadow_source"), "n/d")
-                lines.append(
-                    f"| `{_string_or_na(row.get('date'), 'n/d')}` | `{_string_or_na(row.get('session_id'), 'n/d')}` | "
-                    f"`{v1_cell}` | `{shadow_session_cell}` | `{shadow_window_cell}` | `{shadow_source}` | `{_string_or_na(row.get('alignment'), 'n/d')}` |"
-                )
-            lines.append(
-                f"Resumen agregado trail_run: alineadas `{_fmt_num(v1_shadow_history.get('aligned_count'), digits=0)}` / "
-                f"`{_fmt_num(v1_shadow_history.get('comparable_count'), digits=0)}` comparables "
-                f"({_fmt_num((v1_shadow_history.get('aligned_rate') or 0) * 100, digits=1)}%); "
-                f"sombra positiva `{_fmt_num(v1_shadow_history.get('shadow_positive_count'), digits=0)}` de `{_fmt_num(v1_shadow_history.get('row_count'), digits=0)}` "
-                f"({_fmt_num((v1_shadow_history.get('shadow_positive_rate') or 0) * 100, digits=1)}%)."
-            )
-            if v1_shadow_history.get("sample_warning"):
-                lines.append(str(v1_shadow_history.get("sample_warning")))
-            if v1_shadow_history.get("next_day_warning"):
-                lines.append(str(v1_shadow_history.get("next_day_warning")))
-            lines.append(
-                "La `shadow_positive_rate` mide cuantas veces la sombra activa; no mide precision, recall, ni cuan dura fue la sesion."
-            )
-            window_summaries = v1_shadow_history.get("window_summaries") or {}
-            if isinstance(window_summaries, dict):
-                lines.append(
-                    "Las ventanas de 5 y 10 sesiones muestran si la alineacion reciente mejora o empeora frente al acumulado completo; "
-                    "eso ayuda a detectar deriva, no a reclasificar una sesion aislada."
-                )
-                for window_size in (5, 10):
-                    window_summary = window_summaries.get(window_size) or window_summaries.get(str(window_size))
-                    if not isinstance(window_summary, dict):
-                        continue
-                    lines.append(
-                        f"- Últimas `{window_size}`: alineadas `{_fmt_num(window_summary.get('aligned_count'), digits=0)}` / "
-                        f"`{_fmt_num(window_summary.get('comparable_count'), digits=0)}` comparables "
-                        f"({_fmt_num((window_summary.get('aligned_rate') or 0) * 100, digits=1)}%); "
-                        f"sombra positiva `{_fmt_num(window_summary.get('shadow_positive_count'), digits=0)}` de `{_fmt_num(window_summary.get('row_count'), digits=0)}` "
-                        f"({_fmt_num((window_summary.get('shadow_positive_rate') or 0) * 100, digits=1)}%)."
-                    )
-                    if window_summary.get("row_count") is not None and int(window_summary.get("row_count") or 0) < 10:
-                        lines.append(
-                            "Esta ventana tambien es pequena; trata la tasa como orientativa, no decisoria."
-                        )
-                    lines.append(
-                        "En esta ventana, `shadow_positive_rate` sigue siendo solo tasa de activacion; no equivale a precision ni a valor predictivo."
-                    )
-            strength_grade_summaries = v1_shadow_history.get("strength_grade_summaries") or {}
-            if isinstance(strength_grade_summaries, dict) and strength_grade_summaries:
-                lines.append("")
-                lines.append("### Concordancia por strength_grade")
-                lines.append(
-                    "Este corte separa sesiones `terrain_sparse`, `terrain_moderate`, `terrain_robust` y `combined` para evitar que un trail muy pobre en terreno pese igual que uno con carga real de climbs. "
-                    "Sirve como ventana adicional de lectura, no como sustituto del agregado global."
-                )
-                lines.extend([
-                    "",
-                    "| strength_grade | filas | alineadas | divergentes | tasa alineación | sombra positiva |",
-                    "|---|---|---|---|---|---|",
-                ])
-                for grade, grade_summary in strength_grade_summaries.items():
-                    if not isinstance(grade_summary, dict):
-                        continue
-                    lines.append(
-                        f"| `{grade}` | `{_fmt_num(grade_summary.get('row_count'), digits=0)}` | "
-                        f"`{_fmt_num(grade_summary.get('aligned_count'), digits=0)}` | "
-                        f"`{_fmt_num(grade_summary.get('divergent_count'), digits=0)}` | "
-                        f"`{_fmt_num((grade_summary.get('aligned_rate') or 0) * 100, digits=1)}%` | "
-                        f"`{_fmt_num(grade_summary.get('shadow_positive_count'), digits=0)}` |"
-                    )
-                lines.append(
-                    "Lectura práctica: si la divergencia se concentra en `terrain_sparse`, la comparación global puede estar mezclando ruido de terreno con sesiones realmente robustas."
-                )
     work_blocks_note = _work_blocks_asymmetry_note(session_row.get("work_blocks_min"))
     if work_blocks_note:
         lines.append(work_blocks_note)
@@ -5856,6 +5838,8 @@ def build_final_report_markdown(
     reinterpretation_conditions = _build_reinterpretation_conditions(
         sport_family=sport_family,
         gate_badge=gate_badge,
+        session_row=session_row,
+        terrain_fit_context=terrain_fit_context if isinstance(terrain_fit_context, dict) else None,
     )
     best_block_comparator = _build_best_block_comparator(
         sport_family=sport_family,
@@ -5871,10 +5855,14 @@ def build_final_report_markdown(
         sport_family=sport_family,
         positive_adaptations=positive_adaptations,
         negative_costs=negative_costs,
+        session_row=session_row,
+        terrain_fit_context=terrain_fit_context if isinstance(terrain_fit_context, dict) else None,
     )
     repeat_guidance = _build_repeat_guidance(
         sport_family=sport_family,
         reporting_mode=reporting_mode,
+        session_row=session_row,
+        terrain_fit_context=terrain_fit_context if isinstance(terrain_fit_context, dict) else None,
     )
     better_fit_readout = _build_better_fit_readout(
         sport_family=sport_family,
@@ -5915,9 +5903,14 @@ def build_final_report_markdown(
             "En bici eso suele significar que el peaje aparece más por la combinación de duración, calor y segmentos de subida que por una deriva continua de toda la salida."
         )
     elif sport_family == "trail":
-        lines.append(
-            "En trail eso obliga a separar mejor coste central y peaje mecánico, porque el terreno puede degradar la continuidad sin que la FC por sí sola capture toda la historia."
-        )
+        if _trail_route_profile(session_row, terrain_fit_context if isinstance(terrain_fit_context, dict) else None) == "climby":
+            lines.append(
+                "En trail eso obliga a separar mejor coste central y peaje mecánico, porque el terreno puede degradar la continuidad sin que la FC por sí sola capture toda la historia."
+            )
+        else:
+            lines.append(
+                "Aquí el terreno no fue el protagonista; la lectura fisiológica depende más de continuidad, volumen y absorción del rodaje que de un peaje claro de montaña."
+            )
         speed_first = _float_or_none(session_row.get("speed_first_half"))
         speed_second = _float_or_none(session_row.get("speed_second_half"))
         if speed_first is not None and speed_second is not None:
@@ -6100,10 +6093,16 @@ def build_final_report_markdown(
             "La combinación de duración, calor y segmentos duros hace que el peaje total pese más que el tiempo fácil intermedio."
         )
     elif sport_family == "trail":
-        extra_sections.append(
-            "La repetición de climbs y la pérdida progresiva de capacidad encajan mejor con una sesión buena pero costosa que con un día libre para apretar."
-        )
-        if _coerce_int_like(session_cost.get("mecanico_score")) is not None and _coerce_int_like(session_cost.get("mecanico_score")) >= 3:
+        trail_profile = _trail_route_profile(session_row, terrain_fit_context if isinstance(terrain_fit_context, dict) else None)
+        if trail_profile == "climby":
+            extra_sections.append(
+                "La repetición de climbs y la pérdida progresiva de capacidad encajan mejor con una sesión buena pero costosa que con un día libre para apretar."
+            )
+        else:
+            extra_sections.append(
+                "Aquí pesa más la continuidad aeróbica y el volumen suave que la especificidad de montaña; no conviene venderla como una sesión de cuestas que los datos no muestran."
+            )
+        if trail_profile == "climby" and _coerce_int_like(session_cost.get("mecanico_score")) is not None and _coerce_int_like(session_cost.get("mecanico_score")) >= 3:
             extra_sections.append(
                 "Aquí el coste mecánico ya no es accesorio: el tramo dominante y el relieve concentran suficiente carga como para empatar con el coste cardiometabólico o volver la lectura claramente mixta."
             )
@@ -6748,7 +6747,7 @@ def analyzer_sport_from_session(row: dict[str, str]) -> str:
         return "swim"
     if sport == "elliptical":
         return "elliptical"
-    return "trail"
+    return sport or "unknown"
 
 
 def session_family_notes(sport_family: str) -> list[str]:
