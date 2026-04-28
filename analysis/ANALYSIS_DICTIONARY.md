@@ -13,6 +13,7 @@
 1. [Artefactos de sesión](#1-artefactos-de-sesión)
 2. [Contextos JSON de sesión](#2-contextos-json-de-sesión)
    - [analysis_only_context](#analysis_only_context)
+   - [narrative_targets](#narrative_targets)
    - [composite_context](#composite_context)
    - [composite_context.subjective_coherence](#composite_contextsubjective_coherence)
    - [composite_context.thermal_context](#composite_contextthermal_context)
@@ -111,6 +112,28 @@ Los archivos de contexto viven en `artifacts/`; los informes y prompts en la ra�
 **Cuándo aplica:** Siempre que exista la clave en `session_payload.json`. Si no existe, declararlo como limitación.
 
 **Qué NO significa:** No es contrato canónico. `coach_metrics` no reemplaza ni contradice `sessions.csv`, `training_audit` ni la capa RR. `session_rpe` e `icu_rpe` son capas subjetivas/coach locales, no equivalentes directos de `load` o `trimp`.
+
+**Canon:** ❌ Local de `analysis/`.
+
+---
+
+### `narrative_targets`
+
+**Aparece en:** `session_payload.json.narrative_targets`, generado por `session_analysis_pipeline.py`.
+
+**Qué es:** Contenedor de anclajes narrativos para el informe de sesión. Separa la capa de render final de `reason_text` de los anclajes estructurados que explican el error, el encaje en el bloque y la lectura operativa final. No es un contrato canónico global; su función es estabilizar la narrativa local de `analysis/`.
+
+**Subobjetos:**
+
+| Clave | Descripción |
+|---|---|
+| `final_reason_rendered` | Render estructurado de `reason_text` y de las cautelas tipificadas. Incluye `gate_readout`, `reason_items`, `action_readout`, `baseline_readout` e `instructions`. |
+| `error_context` | Ancla para `Donde Estuvo el Error`: resume `gate_mode`, `gate_badge`, `gate_vs_execution_delta`, `execution_coherence`, `cost_vs_gate_mismatch`, `positive_count`, `negative_cost_count`, `thermal_penalty` y `durability_hint`. Se usa para distinguir error de decisión, de dosificación o de encaje. |
+| `exit_context` | Ancla para `Como Habria Encajado Mejor`, `Que Construye vs Que Consume` y `Que Repetir / Que No Repetir`: resume `execution_quality`, `block_role_signals` y `adaptation_signals`. `load_rank_in_sport_7d` se calcula sobre una ventana real de 7 días por deporte, no sobre un recorte visual de sesiones recientes. |
+
+**Cuándo aplica:** Siempre que exista `session_payload.json`. Los anclajes pueden construirse aunque `rr_unavailable = true`, porque dependen de la sesión, del bloque y del contexto local de `analysis/`, no de la capa RR fina.
+
+**Qué NO significa:** No es contrato canónico. No debe leerse como sustituto de `analysis_only_context`, `composite_context` ni `final_reason_items`; es una capa de orquestación narrativa sobre esas señales.
 
 **Canon:** ❌ Local de `analysis/`.
 

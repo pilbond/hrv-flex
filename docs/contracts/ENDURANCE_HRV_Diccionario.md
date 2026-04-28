@@ -446,7 +446,7 @@ Las 5 primeras columnas se copian tal cual de CORE. Ver §2 para el detalle comp
 
 ## 5bis. CONTEXT (sidecar externo) — 17 columnas
 
-Actualizado en el flujo diario coordinado por `polar_hrv_automation.py`, con persistencia en `hrv_app.sleep_store`. Contiene datos de sueño y recuperación nocturna de Polar. Alimenta el `reason_text` pero **NO afecta al gate ni a la acción**.
+Actualizado en el flujo diario coordinado por `polar_hrv_automation.py`, con persistencia en `hrv_app.sleep_store`. Contiene datos de sueño y recuperación nocturna de Polar. Alimenta el `reason_text` pero **NO afecta al gate ni a la acción**. La ingestión prueba primero la fecha exacta y, si Polar no devuelve datos para ese día, consulta el día anterior como fallback operativo para no perder cobertura por desplazamientos de medianoche o latencia de sincronización.
 
 **La carga de entrenamiento ya NO está en sleep.csv.** Está en `sessions_day.csv` (generado por `build_sessions.py`), que tiene datos más ricos: work blocks, zonas con moving mask, rolling con cobertura real (_nobs). El `reason_text` lee carga de sessions_day.csv y sueño de sleep.csv.
 
@@ -480,7 +480,7 @@ El gate 2D solo ve HRV y pulso. Pero a menudo quieres saber *por qué* tu HRV ba
 | `sleep_dur_p90` | Encima = noche excepcionalmente larga |
 | `sleep_int_p90` | Encima = noche fragmentada para TI |
 
-**Si el sleep.csv no existe o Polar API falla:** El gate y la acción no se ven afectados. Solo se pierden los avisos de sueño en reason_text. Los avisos de carga (de sessions_day.csv) siguen funcionando independientemente.
+**Si el sleep.csv no existe o Polar API falla:** El gate y la acción no se ven afectados. Solo se pierden los avisos de sueño en reason_text. Los avisos de carga (de sessions_day.csv) siguen funcionando independientemente. Si la fecha exacta no devuelve datos, `sleep_store` intenta el día anterior antes de rendirse; si tampoco hay datos, entonces el sidecar queda vacío.
 
 ---
 

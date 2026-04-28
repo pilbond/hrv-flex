@@ -95,6 +95,13 @@ REASON_ITEM_FIELDS = {
 # Heuristica local de analysis/: si drift y decoupling difieren <=2.5 pp,
 # se consideran aproximadamente alineados para narrativa, no equivalentes.
 DRIFT_DECOUPLING_ALIGNMENT_DELTA_PCT = 2.5
+# Umbral de work_total_min para considerar una sesión como "de calidad" en rankings de bloque (SYA-11).
+# Elegido en 10 min por ser el mínimo operativo de trabajo útil que diferencia sesiones activas
+# de rodajes fáciles o sesiones sin bloque; revisable si cambia el criterio en sessions.csv.
+QUALITY_SESSION_WORK_MIN_THRESHOLD = 10.0
+# Versión de contrato de error_context y exit_context (SYA-11).
+# Incrementar cuando cambie el esquema de campos para que el analista pueda adaptarse.
+ERROR_EXIT_CONTEXT_VERSION = "1.0"
 
 def style_reference_paths(limit: int = 3) -> list[str]:
     candidates = [
@@ -4750,12 +4757,169 @@ def _build_best_block_comparator(
     return comparator_text
 
 
+def _build_error_context(
+    reporting_mode: str | None,
+    gate_badge: str | None,
+    positive_adaptations: list[str],
+    negative_costs: list[str],
+    session_row: dict[str, Any],
+    composite_context: dict[str, Any] | None,
+    terrain_fit_context: dict[str, Any] | None,
+) -> dict[str, Any]:
+    cc = composite_context or {}
+    thermal = cc.get("thermal_context") or {}
+    durability = cc.get("durability_context") or {}
+    subjective = cc.get("subjective_coherence") or {}
+
+    gate_mode = reporting_mode if reporting_mode in {"gate_first", "caution_first"} else "caution_first"
+    z3_pct = _float_or_none(session_row.get("z3_pct")) or 0.0
+    gate_vs_execution_delta = "exceeded" if (gate_mode == "gate_first" and z3_pct > 50.0) else "aligned"
+
+    coherence_score = _float_or_none(subjective.get("subjective_coherence_score"))
+    execution_coherence = ("high" if coherence_score >= 85.0 else "low") if coherence_score is not None else None
+    thermal_penalty = str(thermal.get("thermal_band") or "").strip() or None
+    durability_hint = str(durability.get("durability_hint") or "").strip() or None
+    cost_vs_gate_mismatch = gate_mode == "gate_first" and gate_vs_execution_delta == "exceeded"
+
+    ctx: dict[str, Any] = {
+        "version": ERROR_EXIT_CONTEXT_VERSION,
+        "gate_mode": gate_mode,
+        "gate_badge": str(gate_badge or "").strip() or None,
+        "gate_vs_execution_delta": gate_vs_execution_delta,
+        "negative_cost_count": len(negative_costs),
+        "positive_count": len(positive_adaptations),
+        "cost_vs_gate_mismatch": cost_vs_gate_mismatch,
+    }
+    if execution_coherence is not None:
+        ctx["execution_coherence"] = execution_coherence
+    if thermal_penalty:
+        ctx["thermal_penalty"] = thermal_penalty
+    if durability_hint:
+        ctx["durability_hint"] = durability_hint
+    return ctx
+
+
+def _build_exit_context(
+    sport_family: str,
+    reporting_mode: str | None,
+    session_row: dict[str, Any],
+    composite_context: dict[str, Any] | None,
+    terrain_fit_context: dict[str, Any] | None,
+    recent_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    cc = composite_context or {}
+    thermal = cc.get("thermal_context") or {}
+    durability = cc.get("durability_context") or {}
+    subjective = cc.get("subjective_coherence") or {}
+
+    work_total_min = _float_or_none(session_row.get("work_total_min"))
+    target_hit = work_total_min is not None and work_total_min >= QUALITY_SESSION_WORK_MIN_THRESHOLD
+    cardiac_drift_pct = _float_or_none(session_row.get("cardiac_drift_pct"))
+    durability_hint = str(durability.get("durability_hint") or "").strip() or None
+    gate_mode = reporting_mode if reporting_mode in {"gate_first", "caution_first"} else "caution_first"
+    cost_within_expected = not (
+        (cardiac_drift_pct is not None and cardiac_drift_pct >= 10.0)
+        or (durability_hint == "fade_like" and gate_mode != "gate_first")
+    )
+    execution_quality: dict[str, Any] = {
+        "target_hit": target_hit,
+        "work_total_min": round(work_total_min, 1) if work_total_min is not None else None,
+        "cost_within_expected": cost_within_expected,
+    }
+
+    current_load = _float_or_none(session_row.get("load")) or 0.0
+    current_date_str = str(session_row.get("Fecha") or "").strip()
+    try:
+        current_date = datetime.strptime(current_date_str, "%Y-%m-%d").date()
+    except Exception:
+        current_date = None
+
+    same_sport_7d: list[dict[str, Any]] = []
+    for row in recent_rows:
+        if analyzer_sport_from_session(row) != sport_family:
+            continue
+        if current_date is not None:
+            try:
+                row_date = datetime.strptime(str(row.get("Fecha") or ""), "%Y-%m-%d").date()
+                if (current_date - row_date).days > 7:
+                    continue
+            except Exception:
+                pass
+        same_sport_7d.append(row)
+
+    loads_7d = [_float_or_none(r.get("load")) or 0.0 for r in same_sport_7d]
+    higher_count = sum(1 for load in loads_7d if load > current_load)
+    load_rank_in_sport_7d = higher_count + 1
+
+    all_recent_loads = [_float_or_none(r.get("load")) or 0.0 for r in recent_rows]
+    is_peak_load_in_block = not all_recent_loads or current_load > max(all_recent_loads)
+
+    sessions_since_last_quality = 0
+    for row in recent_rows:
+        if analyzer_sport_from_session(row) != sport_family:
+            continue
+        if (_float_or_none(row.get("work_total_min")) or 0.0) >= QUALITY_SESSION_WORK_MIN_THRESHOLD:
+            break
+        sessions_since_last_quality += 1
+
+    effort_vs_recent = str(session_row.get("effort_vs_recent") or "").strip() or None
+    effort_vs_anchor = str(session_row.get("effort_vs_anchor") or "").strip() or None
+
+    block_role_signals: dict[str, Any] = {
+        "load_rank_in_sport_7d": load_rank_in_sport_7d,
+        "is_peak_load_in_block": is_peak_load_in_block,
+        "sessions_since_last_quality": sessions_since_last_quality,
+    }
+    if effort_vs_recent:
+        block_role_signals["effort_vs_recent"] = effort_vs_recent
+    if effort_vs_anchor:
+        block_role_signals["effort_vs_anchor"] = effort_vs_anchor
+
+    z3_pct = _float_or_none(session_row.get("z3_pct")) or 0.0
+    gate_vs_execution_delta = "exceeded" if (gate_mode == "gate_first" and z3_pct > 50.0) else "aligned"
+    coherence_score = _float_or_none(subjective.get("subjective_coherence_score"))
+    execution_coherence = ("high" if coherence_score >= 85.0 else "low") if coherence_score is not None else None
+    moving_min = _float_or_none(session_row.get("moving_min")) or _float_or_none(session_row.get("duration_min")) or 0.0
+    long_duration_threshold = 180.0 if sport_family == "bike" else 90.0
+    long_duration = moving_min >= long_duration_threshold
+    thermal_band = str(thermal.get("thermal_band") or "").strip() or None
+    climb_count = _report_terrain_climb_count(session_row, terrain_fit_context)
+
+    adaptation_signals: dict[str, Any] = {
+        "sport_family": sport_family,
+        "z3_pct": round(z3_pct, 1),
+        "long_duration": long_duration,
+        "gate_vs_execution_delta": gate_vs_execution_delta,
+    }
+    if climb_count is not None:
+        adaptation_signals["climb_count"] = climb_count
+    if thermal_band:
+        adaptation_signals["thermal_load"] = thermal_band
+    if execution_coherence is not None:
+        adaptation_signals["execution_coherence"] = execution_coherence
+    if durability_hint:
+        adaptation_signals["durability_hint"] = durability_hint
+
+    return {
+        "version": ERROR_EXIT_CONTEXT_VERSION,
+        "execution_quality": execution_quality,
+        "block_role_signals": block_role_signals,
+        "adaptation_signals": adaptation_signals,
+    }
+
+
 def _build_error_location(
     reporting_mode: str | None,
     positive_adaptations: list[str],
     negative_costs: list[str],
+    error_context: dict[str, Any] | None = None,
 ) -> str:
+    ec = error_context or {}
+    gate_vs_delta = str(ec.get("gate_vs_execution_delta") or "").strip()
+    coherence = str(ec.get("execution_coherence") or "").strip()
     if reporting_mode == "gate_first":
+        if gate_vs_delta == "exceeded" and coherence == "high":
+            return "Si hubo un error, estuvo en la decisión, no en la ejecución. El atleta ejecutó bien lo que se propuso, pero lo que se propuso excedió lo que el contexto matinal autorizaba."
         return "Si hubo un error, estuvo más en la dosificación o en la agresividad de la decisión que en el tipo general de sesión."
     if negative_costs and len(negative_costs) > len(positive_adaptations):
         return "Si hubo un error, estuvo más en el ajuste de la sesión al contexto del bloque que en la ejecución interna de los bloques."
@@ -4823,19 +4987,45 @@ def _build_better_fit_readout(
     negative_costs: list[str],
     terrain_fit_context: dict[str, Any] | None,
     session_row: dict[str, Any],
+    exit_context: dict[str, Any] | None = None,
 ) -> str:
     climb_count = _report_terrain_climb_count(session_row, terrain_fit_context)
     climb_phrase = _climb_phrase(climb_count, fallback="los tramos duros")
+    ec = exit_context or {}
+    exec_quality = ec.get("execution_quality") or {}
+    block_signals = ec.get("block_role_signals") or {}
+    adapt_signals = ec.get("adaptation_signals") or {}
+    cost_within_expected = exec_quality.get("cost_within_expected")
+    thermal_load = str(adapt_signals.get("thermal_load") or "").strip()
+    is_peak = bool(block_signals.get("is_peak_load_in_block"))
+    sessions_since_quality = block_signals.get("sessions_since_last_quality")
+
     if reporting_mode == "gate_first":
         if sport_family == "bike":
-            return f"Habría encajado mejor manteniendo el tipo de salida, pero rebajando la agresividad de {climb_phrase} o desplazando esa carga dura a un día con más margen contextual."
+            parts = [f"Habría encajado mejor manteniendo el tipo de salida, pero rebajando la agresividad de {climb_phrase}"]
+            if thermal_load == "high":
+                parts.append("o buscando una ventana más fresca para la misma carga")
+            else:
+                parts.append("o desplazando esa carga dura a un día con más margen contextual")
+            return ", ".join(parts) + "."
+        if thermal_load == "high":
+            return "Habría encajado mejor manteniendo el tipo general de sesión con la misma estructura, pero en una ventana menos cálida o con la dosis dura recortada para compensar el peaje térmico."
         return "Habría encajado mejor manteniendo el tipo general de sesión, pero con una dosis más compatible con el contexto restrictivo de partida."
+
     if negative_costs and len(negative_costs) > len(positive_adaptations):
+        if cost_within_expected is False and is_peak and sessions_since_quality is not None and sessions_since_quality >= 3:
+            return "Habría encajado mejor desplazando la sesión a un día con gate más claro: el bloque la necesitaba, pero el momento no era el óptimo para absorberla."
+        if cost_within_expected is False:
+            return "Habría encajado mejor con menos peaje para el mismo estímulo: no cambiando el tipo de sesión, sino ajustando la dosis para que el coste quedara dentro de lo esperable."
         return "Habría encajado mejor con menos peaje para el mismo estímulo: no cambiando por completo el tipo de sesión, sino ajustando mejor la dosis al bloque."
+
     if sport_family == "trail":
         if _trail_route_profile(session_row, terrain_fit_context) == "climby":
             return "Habría encajado mejor sosteniendo la especificidad de trail, pero intentando conservar mejor la continuidad entre vueltas para que más parte del coste se convierta en trabajo útil."
         return "Habría encajado mejor presentándola como lo que fue: un rodaje de volumen en trail llano o rodador, sin forzar una lectura de desnivel específico que los datos no sostienen."
+
+    if cost_within_expected is True:
+        return "La sesión ya encajó dentro de sus parámetros esperados; si se repite, mantener la misma estructura y dosis."
     return "Habría encajado mejor manteniendo el estímulo, pero afinando la dosis para que el peaje no pese tanto como la adaptación que deja."
 
 
@@ -4888,6 +5078,40 @@ def _build_recent_block_rows(session_row: dict[str, Any], limit: int = 4) -> lis
             prior_rows.append(row)
     prior_rows.sort(key=row_key, reverse=True)
     return prior_rows[:limit]
+
+
+def _build_recent_block_rows_7d(session_row: dict[str, Any], days: int = 7) -> list[dict[str, Any]]:
+    session_id = str(session_row.get("session_id") or "").strip()
+    rows = load_optional_rows(DEFAULT_SESSIONS_CSV)
+    if not rows:
+        return []
+
+    try:
+        current_dt = _target_session_datetime(session_row)
+    except Exception:
+        return []
+
+    lower_bound = current_dt - timedelta(days=days)
+
+    def row_key(row: dict[str, str]) -> tuple[datetime, str]:
+        return (_target_session_datetime(row), str(row.get("session_id") or ""))
+
+    prior_rows: list[dict[str, str]] = []
+    for row in rows:
+        if str(row.get("session_id") or "").strip() == session_id:
+            continue
+        try:
+            row_dt = _target_session_datetime(row)
+        except Exception:
+            continue
+        if row_dt >= current_dt:
+            continue
+        if row_dt < lower_bound:
+            continue
+        prior_rows.append(row)
+
+    prior_rows.sort(key=row_key, reverse=True)
+    return prior_rows
 
 
 def _build_same_day_sessions(session_row: dict[str, Any]) -> list[dict[str, Any]]:
@@ -5892,10 +6116,28 @@ def build_final_report_markdown(
         session_row=session_row,
         recent_rows=recent_rows,
     )
+    error_context = _build_error_context(
+        reporting_mode=reporting_mode,
+        gate_badge=gate_badge,
+        positive_adaptations=positive_adaptations,
+        negative_costs=negative_costs,
+        session_row=session_row,
+        composite_context=composite_context if isinstance(composite_context, dict) else None,
+        terrain_fit_context=terrain_fit_context if isinstance(terrain_fit_context, dict) else None,
+    )
+    exit_context = _build_exit_context(
+        sport_family=sport_family,
+        reporting_mode=reporting_mode,
+        session_row=session_row,
+        composite_context=composite_context if isinstance(composite_context, dict) else None,
+        terrain_fit_context=terrain_fit_context if isinstance(terrain_fit_context, dict) else None,
+        recent_rows=_build_recent_block_rows_7d(session_row),
+    )
     error_location = _build_error_location(
         reporting_mode=reporting_mode,
         positive_adaptations=positive_adaptations,
         negative_costs=negative_costs,
+        error_context=error_context,
     )
     construct_vs_consume = _build_construct_vs_consume(
         sport_family=sport_family,
@@ -5917,6 +6159,7 @@ def build_final_report_markdown(
         negative_costs=negative_costs,
         terrain_fit_context=terrain_fit_context if isinstance(terrain_fit_context, dict) else None,
         session_row=session_row,
+        exit_context=exit_context,
     )
 
     confidence_global = "Alta" if session_cost.get("usable") else "Media"
@@ -6344,6 +6587,47 @@ def build_conversational_payload(
         final_row,
     )
 
+    # --- error_context y exit_context (SYA-11) ---
+    _gate_badge_payload = str((final_row or {}).get("gate_badge") or "").strip()
+    _badge_upper_payload = _gate_badge_payload.upper()
+    _reporting_mode_payload = "gate_first" if (
+        _badge_upper_payload.startswith("ÁMBAR")
+        or _badge_upper_payload.startswith("AMBAR")
+        or _badge_upper_payload.startswith("ROJO")
+    ) else "caution_first"
+    _composite_ctx_payload = composite_context if isinstance(composite_context, dict) else None
+    _terrain_fit_payload = terrain_fit_context if isinstance(terrain_fit_context, dict) else None
+    _recent_rows_payload = _build_recent_block_rows_7d(session_row)
+    _pos_adaptations_payload = _build_positive_adaptations(
+        sport_family=sport_family,
+        session_row=session_row,
+        terrain_fit_context=_terrain_fit_payload,
+    )
+    _neg_costs_payload = _build_negative_costs(
+        sport_family=sport_family,
+        session_row=session_row,
+        final_reason_rendered=final_reason_rendered,
+        composite_context=_composite_ctx_payload,
+        terrain_fit_context=_terrain_fit_payload,
+    )
+    error_context_payload = _build_error_context(
+        reporting_mode=_reporting_mode_payload,
+        gate_badge=_gate_badge_payload,
+        positive_adaptations=_pos_adaptations_payload,
+        negative_costs=_neg_costs_payload,
+        session_row=session_row,
+        composite_context=_composite_ctx_payload,
+        terrain_fit_context=_terrain_fit_payload,
+    )
+    exit_context_payload = _build_exit_context(
+        sport_family=sport_family,
+        reporting_mode=_reporting_mode_payload,
+        session_row=session_row,
+        composite_context=_composite_ctx_payload,
+        terrain_fit_context=_terrain_fit_payload,
+        recent_rows=_recent_rows_payload,
+    )
+
     # --- Vector velocidad desde FIT artifact ---
     speed_metrics: dict | None = None
     if artifacts_dir is not None:
@@ -6455,6 +6739,8 @@ def build_conversational_payload(
             "durability_context": durability_context,
             "work_block_context": work_block_context,
             "final_reason_rendered": final_reason_rendered,
+            "error_context": error_context_payload,
+            "exit_context": exit_context_payload,
             "coach_usage_notes": coach_usage_notes,
             "coach_narrative_hints": coach_narrative_hints,
             "coach_report_examples": coach_report_examples,
@@ -6618,10 +6904,10 @@ def build_analyst_prompt_markdown(
     blocks_path: Path | None,
     terrain_intervals_path: Path | None,
     terrain_climbs_path: Path | None,
-    matched_climbs_path: Path | None,
-    coach_metrics_path: Path | None,
-    coach_intervals_path: Path | None,
-    coach_groups_path: Path | None,
+    matched_climbs_path: Path | None = None,
+    coach_metrics_path: Path | None = None,
+    coach_intervals_path: Path | None = None,
+    coach_groups_path: Path | None = None,
     final_reason_rendered: dict[str, Any] | None = None,
     report_sync_token: str | None = None,
 ) -> str:

@@ -379,10 +379,15 @@ def upsert_sleep_row(sleep_row: Dict[str, Any]) -> bool:
 
 
 def _polar_sleep_date_candidates(date_str: str) -> List[str]:
-    # Sleep must be stored only for the exact requested date.
-    # Falling back to the previous day makes the pipeline invent a row
-    # for "today" using yesterday's sleep, which is not acceptable.
-    return [date_str]
+    # Try the exact requested date first, then fall back to the previous day.
+    # Polar sleep can be late or shifted around midnight, so the fallback
+    # preserves coverage when the exact day is not available.
+    try:
+        requested = _parse_yyyy_mm_dd(date_str)
+        previous_day = (requested - timedelta(days=1)).isoformat()
+        return [date_str, previous_day]
+    except Exception:
+        return [date_str]
 
 
 def fetch_and_upsert_sleep(token: str, user_id: Optional[str], processed_date) -> bool:
