@@ -8,6 +8,8 @@
 - usa lenguaje modal cuando el dato no cierre la conclusion: `compatible con`, `sugiere`, `orienta`, `no confirma`
 - no uses autoridad retorica o informes previos como sustituto de evidencia del caso
 - trata `analysis_only_context.coach_metrics`, `composite_context.subjective_coherence`, `composite_context.thermal_context` y `composite_context.durability_context` como capas exploratorias de apoyo; no las eleves a contrato canonico ni las uses para contradecir `sessions.csv`, `training_audit` o la capa RR sin declarar la discrepancia de forma explicita
+- antes de redactar `report.ia.md`, leer y respetar `analysis/AGENTS.md`, `analyst_prompt.md` de la sesion, `ai_handoff.md` de la sesion, `SESSION_ANALYSIS_METHOD.md`, `ENDURANCE_AGENT_DOMAIN.md` y `WEEKLY_ANALYSIS_METHOD.md` si la tarea es semanal
+- tratar `analyst_prompt.md` y `ai_handoff.md` como contrato operativo de la sesion, no como evidencia del caso; si faltan, declararlo como limitacion de procedimiento y no improvisar la jerarquia de lectura
 
 ## Tono narrativo
 - escribe como analista humano, no como plantilla automatica

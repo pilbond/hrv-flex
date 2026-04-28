@@ -30,7 +30,7 @@ _ANALYSIS_DIR = Path(__file__).resolve().parent
 if str(_ANALYSIS_DIR) not in sys.path:
     sys.path.insert(0, str(_ANALYSIS_DIR))
 from fit_speed_utils import compute_speed_metrics as _compute_speed_metrics
-from fit_terrain_utils import analyze_fit_climbs, parse_fit_terrain_data
+from fit_terrain_utils import analyze_fit_climbs, compute_matched_climbs_context, parse_fit_terrain_data
 
 from hrv_app.config import ATHLETE_WEIGHT_KG, SYSTEM_BIKE_WEIGHT_KG
 from hrv_app.hrv_sync_flow import extract_rr_ms, write_rr_csv
@@ -116,8 +116,8 @@ def infer_sport_family(summary: dict[str, Any]) -> str | None:
     direct = summary.get("session_meta", {}).get("sport_family") or summary.get("session_row", {}).get("sport_family")
     if direct:
         return str(direct)
-    session_row = summary.get("session_row") or {}
-    if isinstance(session_row, dict) and session_row.get("sport"):
+    session_row = _coerce_nonempty_dict(summary.get("session_row"))
+    if session_row and session_row.get("sport"):
         return analyzer_sport_from_session(session_row)
     return None
 
@@ -218,6 +218,19 @@ def build_session_slug(row: dict[str, str]) -> str:
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _resolve_optional_artifact_path(
+    artifacts_dir: Path | None,
+    filename: str,
+    override_path: Path | None = None,
+) -> Path | None:
+    if override_path is not None:
+        return override_path if override_path.exists() else None
+    if artifacts_dir is None:
+        return None
+    candidate = artifacts_dir / filename
+    return candidate if candidate.exists() else None
 
 
 def read_text_or_empty(path: Path | None) -> str:
@@ -368,6 +381,33 @@ def write_terrain_climbs_csv(path: Path, rows: list[dict[str, Any]]) -> Path | N
     return path
 
 
+def write_matched_climbs_csv(path: Path, matched_groups: list[dict[str, Any]]) -> Path | None:
+    if not matched_groups:
+        return None
+    fieldnames = [
+        "grade_bin",
+        "early_count",
+        "late_count",
+        "early_hr_mean",
+        "late_hr_mean",
+        "early_vam_mean",
+        "late_vam_mean",
+        "early_power_mean",
+        "late_power_mean",
+        "hr_drift_bpm",
+        "vam_ratio",
+        "hr_per_vam_ratio",
+        "power_per_hr_ratio",
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in matched_groups:
+            writer.writerow({field: row.get(field) for field in fieldnames})
+    return path
+
+
 def load_optional_rows(path: Path) -> list[dict[str, str]]:
     if not path.exists():
         return []
@@ -419,6 +459,12 @@ def load_optional_json(path: Path) -> dict[str, Any] | None:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return None
+
+
+def _coerce_nonempty_dict(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, dict) and value:
+        return value
+    return None
 
 
 def _normalize_reason_item_value(value: Any) -> Any:
@@ -5961,8 +6007,8 @@ def build_final_report_markdown(
                     f"La velocidad sostuvo o mejoró de {_fmt_num(speed_first, digits=2)} km/h a {_fmt_num(speed_second, digits=2)} km/h, "
                     "así que no hubo un fade de marcha claro."
                 )
-    durability_fp01_context = payload.get("durability_context") or {}
-    if isinstance(durability_fp01_context, dict) and durability_fp01_context:
+    durability_fp01_context = _coerce_nonempty_dict(payload.get("durability_context"))
+    if durability_fp01_context:
         pattern = str(durability_fp01_context.get("durability_pattern") or "").strip()
         if pattern == "mechanical_drop_with_drift":
             lines.append("La lectura conjunta de decoupling y ratio mecánico encaja mejor con un peaje periférico real que con una simple deriva cardiovascular aislada.")
@@ -6158,14 +6204,15 @@ def build_conversational_payload(
     manifest: dict[str, Any],
     session_row: dict[str, str],
     artifacts_dir: Path | None = None,
+    matched_climbs_csv_path: Path | None = None,
 ) -> dict[str, Any]:
     sport_family = analyzer_sport_from_session(session_row)
     session_date = session_row.get("Fecha") or manifest.get("date")
     subjective_context = build_subjective_context(session_row)
     terrain_context = summary.get("terrain_context")
     terrain_fit_context = summary.get("terrain_fit_context")
-    runaware_context = summary.get("runaware_context")
-    if not isinstance(runaware_context, dict):
+    runaware_context = _coerce_nonempty_dict(summary.get("runaware_context"))
+    if runaware_context is None:
         runaware_context = build_runaware_context(summary, session_row)
     v1_snapshot = summary.get("v1_snapshot")
     v1_shadow_comparison = summary.get("v1_shadow_comparison")
@@ -6173,13 +6220,10 @@ def build_conversational_payload(
         v1_shadow_comparison = build_v1_shadow_comparison(v1_snapshot, runaware_context)
     v1_shadow_history = summary.get("v1_shadow_history")
     terrain_climbs = summary.get("terrain_climbs") or []
-    analysis_only_context = summary.get("analysis_only_context")
-    if not isinstance(analysis_only_context, dict):
-        manifest_analysis_only = manifest.get("analysis_only_context")
-        analysis_only_context = manifest_analysis_only if isinstance(manifest_analysis_only, dict) else None
-    composite_context = None
-    if isinstance(analysis_only_context, dict):
-        composite_context = analysis_only_context.get("composite_context")
+    analysis_only_context = _coerce_nonempty_dict(summary.get("analysis_only_context"))
+    if analysis_only_context is None:
+        analysis_only_context = _coerce_nonempty_dict(manifest.get("analysis_only_context"))
+    composite_context = analysis_only_context.get("composite_context") if analysis_only_context else None
     analysis_only_context = dict(analysis_only_context or {})
     if not isinstance(analysis_only_context.get("durability_context"), dict):
         analysis_only_context["durability_context"] = build_analysis_durability_context(
@@ -6192,25 +6236,27 @@ def build_conversational_payload(
         analysis_only_context["runaware_context"] = runaware_context
     terrain_intervals_csv = None
     terrain_climbs_csv = None
+    matched_climbs_csv = None
     coach_metrics_json = None
     coach_intervals_csv = None
     coach_groups_csv = None
     if artifacts_dir is not None:
-        terrain_intervals_path = artifacts_dir / "terrain_intervals.csv"
-        if terrain_intervals_path.exists():
-            terrain_intervals_csv = str(terrain_intervals_path)
-        terrain_climbs_path = artifacts_dir / "terrain_climbs.csv"
-        if terrain_climbs_path.exists():
-            terrain_climbs_csv = str(terrain_climbs_path)
-        coach_metrics_path = artifacts_dir / "coach_metrics.json"
-        if coach_metrics_path.exists():
-            coach_metrics_json = str(coach_metrics_path)
-        coach_intervals_path = artifacts_dir / "coach_intervals.csv"
-        if coach_intervals_path.exists():
-            coach_intervals_csv = str(coach_intervals_path)
-        coach_groups_path = artifacts_dir / "coach_groups.csv"
-        if coach_groups_path.exists():
-            coach_groups_csv = str(coach_groups_path)
+        terrain_intervals_path = _resolve_optional_artifact_path(artifacts_dir, "terrain_intervals.csv")
+        terrain_climbs_path = _resolve_optional_artifact_path(artifacts_dir, "terrain_climbs.csv")
+        matched_climbs_path = _resolve_optional_artifact_path(
+            artifacts_dir,
+            "matched_climbs.csv",
+            override_path=matched_climbs_csv_path,
+        )
+        coach_metrics_path = _resolve_optional_artifact_path(artifacts_dir, "coach_metrics.json")
+        coach_intervals_path = _resolve_optional_artifact_path(artifacts_dir, "coach_intervals.csv")
+        coach_groups_path = _resolve_optional_artifact_path(artifacts_dir, "coach_groups.csv")
+        terrain_intervals_csv = str(terrain_intervals_path) if terrain_intervals_path else None
+        terrain_climbs_csv = str(terrain_climbs_path) if terrain_climbs_path else None
+        matched_climbs_csv = str(matched_climbs_path) if matched_climbs_path else None
+        coach_metrics_json = str(coach_metrics_path) if coach_metrics_path else None
+        coach_intervals_csv = str(coach_intervals_path) if coach_intervals_path else None
+        coach_groups_csv = str(coach_groups_path) if coach_groups_path else None
     final_reason_lookup = load_final_reason_items_lookup()
     sessions_day = compact_row(
         row_by_date(ROOT / "data" / "ENDURANCE_HRV_sessions_day.csv", session_date),
@@ -6353,12 +6399,14 @@ def build_conversational_payload(
         "v1_shadow_comparison": v1_shadow_comparison,
         "v1_shadow_history": v1_shadow_history,
         "terrain_climbs": terrain_climbs if terrain_climbs else None,
+        "efficiency_context": summary.get("efficiency_context"),
         "analysis_only_context": analysis_only_context,
         "final_reason_items": final_reason_items,
         "final_reason_flags": final_reason_flags,
         "final_reason_items_contract": final_reason_items_contract,
         "terrain_intervals_csv": terrain_intervals_csv,
         "terrain_climbs_csv": terrain_climbs_csv,
+        "matched_climbs_csv": matched_climbs_csv,
         "coach_metrics_json": coach_metrics_json,
         "coach_intervals_csv": coach_intervals_csv,
         "coach_groups_csv": coach_groups_csv,
@@ -6452,17 +6500,17 @@ def enrich_summary_with_manifest_context(summary: dict[str, Any], manifest: dict
         enriched["session_row"] = merged_row
     elif isinstance(manifest_row, dict):
         enriched["session_row"] = manifest_row
-    terrain_context = manifest.get("terrain_context")
-    if isinstance(terrain_context, dict) and terrain_context:
+    terrain_context = _coerce_nonempty_dict(manifest.get("terrain_context"))
+    if terrain_context:
         enriched["terrain_context"] = terrain_context
-    analysis_only_context = manifest.get("analysis_only_context")
-    if isinstance(analysis_only_context, dict) and analysis_only_context:
+    analysis_only_context = _coerce_nonempty_dict(manifest.get("analysis_only_context"))
+    if analysis_only_context:
         enriched["analysis_only_context"] = analysis_only_context
-        composite_context = analysis_only_context.get("composite_context")
-        if isinstance(composite_context, dict) and composite_context:
+        composite_context = _coerce_nonempty_dict(analysis_only_context.get("composite_context"))
+        if composite_context:
             enriched["composite_context"] = composite_context
-    subjective_context = manifest.get("subjective_context")
-    if isinstance(subjective_context, dict) and subjective_context:
+    subjective_context = _coerce_nonempty_dict(manifest.get("subjective_context"))
+    if subjective_context:
         enriched["subjective_context"] = subjective_context
     return enriched
 
@@ -6475,6 +6523,7 @@ def build_ai_handoff_markdown(
     blocks_path: Path | None,
     terrain_intervals_path: Path | None,
     terrain_climbs_path: Path | None,
+    matched_climbs_path: Path | None,
     coach_metrics_path: Path | None,
     coach_intervals_path: Path | None,
     coach_groups_path: Path | None,
@@ -6495,26 +6544,30 @@ def build_ai_handoff_markdown(
     lines.extend(
         [
             "## Archivos principales a pasar a la IA",
-            f"1. `{payload_path}`",
-            f"2. `{ANALYSIS_DIR / 'SESSION_ANALYSIS_METHOD.md'}`",
-            f"3. `{ANALYSIS_DIR / 'ENDURANCE_AGENT_DOMAIN.md'}`",
+            f"1. `{report_dir / 'analyst_prompt.md'}`",
+            f"2. `{payload_path}`",
+            f"3. `{summary_path}`",
+            f"4. `{ANALYSIS_DIR / 'AGENTS.md'}`",
+            f"5. `{ANALYSIS_DIR / 'analyst_prompt_rules.md'}`",
+            f"6. `{ANALYSIS_DIR / 'SESSION_ANALYSIS_METHOD.md'}`",
+            f"7. `{ANALYSIS_DIR / 'ENDURANCE_AGENT_DOMAIN.md'}`",
             "",
             "## Archivos de apoyo recomendados",
-            f"- `{summary_path}`",
+            f"- `{report_dir / 'report.auto.md'}` si existe como borrador sincronizado",
+            f"- `{report_dir / 'technical_report.md'}`",
         ]
     )
-    if blocks_path:
-        lines.append(f"- `{blocks_path}`")
-    if terrain_intervals_path:
-        lines.append(f"- `{terrain_intervals_path}`")
-    if terrain_climbs_path:
-        lines.append(f"- `{terrain_climbs_path}`")
-    if coach_metrics_path:
-        lines.append(f"- `{coach_metrics_path}`")
-    if coach_intervals_path:
-        lines.append(f"- `{coach_intervals_path}`")
-    if coach_groups_path:
-        lines.append(f"- `{coach_groups_path}`")
+    for path in (
+        blocks_path,
+        terrain_intervals_path,
+        terrain_climbs_path,
+        coach_metrics_path,
+        coach_intervals_path,
+        coach_groups_path,
+        matched_climbs_path,
+    ):
+        if path:
+            lines.append(f"- `{path}`")
     if style_refs:
         lines.extend(["", "## Referencias de estilo opcionales"])
         lines.extend([f"- `{path}`" for path in style_refs])
@@ -6565,6 +6618,7 @@ def build_analyst_prompt_markdown(
     blocks_path: Path | None,
     terrain_intervals_path: Path | None,
     terrain_climbs_path: Path | None,
+    matched_climbs_path: Path | None,
     coach_metrics_path: Path | None,
     coach_intervals_path: Path | None,
     coach_groups_path: Path | None,
@@ -6595,25 +6649,46 @@ def build_analyst_prompt_markdown(
         lines.append("")
     lines.extend(
         [
-            "## Archivos a usar",
-            f"- payload principal: `{payload_path}`",
-            f"- resumen tecnico: `{summary_path}`",
-            f"- metodo: `{ANALYSIS_DIR / 'SESSION_ANALYSIS_METHOD.md'}`",
-            f"- dominio: `{ANALYSIS_DIR / 'ENDURANCE_AGENT_DOMAIN.md'}`",
+            "## Carga obligatoria",
+            "Antes de redactar `report.ia.md`, leer en este orden y no saltarse ningun paso:",
+            f"1. `{report_dir / 'analyst_prompt.md'}`",
+            f"2. `{report_dir / 'ai_handoff.md'}`",
+            f"3. `{ANALYSIS_DIR / 'AGENTS.md'}`",
+            f"4. `{ANALYSIS_DIR / 'analyst_prompt_rules.md'}`",
+            f"5. `{ANALYSIS_DIR / 'SESSION_ANALYSIS_METHOD.md'}`",
+            f"6. `{ANALYSIS_DIR / 'ENDURANCE_AGENT_DOMAIN.md'}`",
+            f"7. `{ANALYSIS_DIR / 'WEEKLY_ANALYSIS_METHOD.md'}` si la tarea es semanal",
+            f"8. `{payload_path}`",
+            f"9. `{summary_path}`",
         ]
     )
-    if blocks_path:
-        lines.append(f"- bloques: `{blocks_path}`")
-    if terrain_intervals_path:
-        lines.append(f"- terreno por split: `{terrain_intervals_path}`")
-    if terrain_climbs_path:
-        lines.append(f"- climbs FIT: `{terrain_climbs_path}`")
-    if coach_metrics_path:
-        lines.append(f"- coach metrics no canonicos: `{coach_metrics_path}`")
-    if coach_intervals_path:
-        lines.append(f"- estructura ICU por intervalo: `{coach_intervals_path}`")
-    if coach_groups_path:
-        lines.append(f"- estructura ICU por grupo: `{coach_groups_path}`")
+    for index, path in enumerate(
+        (
+            p
+            for p in (
+                blocks_path,
+                terrain_intervals_path,
+                terrain_climbs_path,
+                matched_climbs_path,
+                coach_metrics_path,
+                coach_intervals_path,
+                coach_groups_path,
+            )
+            if p
+        ),
+        start=10,
+    ):
+        lines.append(f"{index}. `{path}`")
+    lines.extend(
+        [
+            "",
+            "## Archivos a usar",
+            "- usa `session_payload.json` como fuente humana principal y `summary.json` como fuente tecnica reproducible",
+            "- usa `AGENTS.md`, `analyst_prompt_rules.md`, `SESSION_ANALYSIS_METHOD.md` y `ENDURANCE_AGENT_DOMAIN.md` como contrato operativo de lectura; no los trates como evidencia del caso",
+            "- si existe, usa `matched_climbs.csv` como apoyo local de FP-06; no lo trates como contrato canonico global",
+            "- si existe, usa `ai_handoff.md` como verificacion de cobertura de archivos y no como sustituto de la lectura directa",
+        ]
+    )
     if style_refs:
         lines.extend(["", "## Referencias de estilo opcionales"])
         lines.extend([f"- `{path}`" for path in style_refs])
@@ -6626,7 +6701,8 @@ def build_analyst_prompt_markdown(
                 "- si ya existe un token distinto en `report.ia.md`, reescribe el informe completo para alinearlo con el analisis actual",
             ]
         )
-    if isinstance(final_reason_rendered, dict) and final_reason_rendered.get("enabled"):
+    final_reason_rendered = _coerce_nonempty_dict(final_reason_rendered)
+    if final_reason_rendered and final_reason_rendered.get("enabled"):
         lines.extend(
             [
                 "",
@@ -6802,7 +6878,8 @@ def _build_no_rr_summary(session_row: dict[str, str], manifest: dict[str, Any]) 
         "evidence": [rr_error],
     }
     final_cost = None
-    if isinstance(cost, dict) and cost.get("usable", False):
+    cost = _coerce_nonempty_dict(cost)
+    if cost and cost.get("usable", False):
         final_cost = {
             "label": str(cost.get("coste_dominante")),
             "rr_modifier": "no_rr",
@@ -6925,22 +7002,24 @@ def run_analysis(bundle_manifest: Path, reports_dir: Path, keep_debug_artifacts:
             shutil.copy2(fit_src, fit_artifact_path)
 
     terrain_climbs_csv_path = None
+    matched_climbs_csv = None
     coach_metrics_path = None
     coach_intervals_csv_path = None
     coach_groups_csv_path = None
     if _supports_terrain_context(session_row):
         if fit_artifact_path and fit_artifact_path.exists():
             try:
+                _sport_family = analyzer_sport_from_session(session_row)
                 fit_terrain = analyze_fit_climbs(
                     fit_artifact_path,
                     session_row=session_row,
                     terrain_context=summary.get("terrain_context"),
                     terrain_intervals=manifest.get("terrain_intervals") or [],
                     cadence_unit=_terrain_fit_cadence_unit(session_row),
-                    system_bike_weight_kg=SYSTEM_BIKE_WEIGHT_KG if analyzer_sport_from_session(session_row) == "bike" else None,
+                    system_bike_weight_kg=SYSTEM_BIKE_WEIGHT_KG if _sport_family == "bike" else None,
                     vt1=_float_or_none(session_row.get("vt1_used")),
                     vt2=_float_or_none(session_row.get("vt2_used")),
-                    sport_family=analyzer_sport_from_session(session_row),
+                    sport_family=_sport_family,
                 )
                 summary["terrain_fit_context"] = fit_terrain.get("terrain_fit_context")
                 summary["terrain_climbs"] = fit_terrain.get("terrain_climbs") or []
@@ -6948,13 +7027,23 @@ def run_analysis(bundle_manifest: Path, reports_dir: Path, keep_debug_artifacts:
                     artifacts_dir / "terrain_climbs.csv",
                     fit_terrain.get("terrain_climbs") or [],
                 )
+                efficiency_context = compute_matched_climbs_context(
+                    fit_terrain.get("terrain_climbs") or [],
+                    sport_family=_sport_family,
+                )
+                summary["efficiency_context"] = efficiency_context
+                if efficiency_context.get("applicable"):
+                    matched_climbs_csv = write_matched_climbs_csv(
+                        artifacts_dir / "matched_climbs.csv",
+                        efficiency_context.get("matched_groups") or [],
+                    )
             except Exception as exc:
                 summary["terrain_fit_error"] = str(exc)
         else:
             summary["terrain_fit_error"] = "fit artifact unavailable"
 
-    analysis_only_context = manifest.get("analysis_only_context")
-    if isinstance(analysis_only_context, dict) and analysis_only_context:
+    analysis_only_context = _coerce_nonempty_dict(manifest.get("analysis_only_context"))
+    if analysis_only_context:
         summary["analysis_only_context"] = analysis_only_context
         coach_metrics_path = artifacts_dir / "coach_metrics.json"
         write_json(coach_metrics_path, analysis_only_context)
@@ -7006,13 +7095,18 @@ def run_analysis(bundle_manifest: Path, reports_dir: Path, keep_debug_artifacts:
         artifacts_dir / "terrain_intervals.csv",
         manifest.get("terrain_intervals") or [],
     )
-
     generated_blocks_path = artifacts_dir / f"{slug}_blocks.csv"
     blocks_path = artifacts_dir / "blocks.csv"
     if generated_blocks_path.exists():
         generated_blocks_path.replace(blocks_path)
 
-    payload = build_conversational_payload(summary, manifest, session_row, artifacts_dir=artifacts_dir)
+    payload = build_conversational_payload(
+        summary,
+        manifest,
+        session_row,
+        artifacts_dir=artifacts_dir,
+        matched_climbs_csv_path=matched_climbs_csv,
+    )
     payload_path = artifacts_dir / "session_payload.json"
     write_json(payload_path, payload)
     rules_version: str | None = None
@@ -7038,6 +7132,7 @@ def run_analysis(bundle_manifest: Path, reports_dir: Path, keep_debug_artifacts:
             blocks_path=blocks_path if blocks_path.exists() else None,
             terrain_intervals_path=terrain_intervals_csv_path,
             terrain_climbs_path=terrain_climbs_csv_path,
+            matched_climbs_path=matched_climbs_csv,
             coach_metrics_path=coach_metrics_path,
             coach_intervals_path=coach_intervals_csv_path,
             coach_groups_path=coach_groups_csv_path,
@@ -7087,6 +7182,7 @@ def run_analysis(bundle_manifest: Path, reports_dir: Path, keep_debug_artifacts:
             blocks_path=blocks_path if blocks_path.exists() else None,
             terrain_intervals_path=terrain_intervals_csv_path,
             terrain_climbs_path=terrain_climbs_csv_path,
+            matched_climbs_path=matched_climbs_csv,
             coach_metrics_path=coach_metrics_path,
             coach_intervals_path=coach_intervals_csv_path,
             coach_groups_path=coach_groups_csv_path,
@@ -7122,6 +7218,7 @@ def run_analysis(bundle_manifest: Path, reports_dir: Path, keep_debug_artifacts:
         "blocks_csv": str(blocks_path) if blocks_path.exists() else None,
         "terrain_intervals_csv": str(terrain_intervals_csv_path) if terrain_intervals_csv_path else None,
         "terrain_climbs_csv": str(terrain_climbs_csv_path) if terrain_climbs_csv_path else None,
+        "matched_climbs_csv": str(matched_climbs_csv) if matched_climbs_csv else None,
         "coach_metrics_json": str(coach_metrics_path) if coach_metrics_path else None,
         "coach_intervals_csv": str(coach_intervals_csv_path) if coach_intervals_csv_path else None,
         "coach_groups_csv": str(coach_groups_csv_path) if coach_groups_csv_path else None,

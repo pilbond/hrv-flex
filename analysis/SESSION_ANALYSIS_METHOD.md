@@ -212,6 +212,7 @@ Si se usan otros, deben declararse.
 - `cadence` debe declararse en `strides_per_min` cuando se exponga como media de carrera y en `rpm` cuando la sesion sea `bike`,
 - la potencia estimada por climb solo aplica a `bike`; debe leerse como proxy local de subida en carretera y no como sustituto de potencia medida ni como validacion directa de FTP.
 - la potencia medida por climb puede aparecer en `bike`, `trail` y `road` cuando la fuente FIT la declara como `measured`; en ese caso se presenta como medicion directa y no como proxy.
+- `matched_climbs.csv` y `efficiency_context` son una derivada local de `analysis/` para FP-06; solo deben leerse como apoyo exploratorio de comparacion early vs late entre climbs comparables y no como contrato canonico global ni como sustituto de `terrain_climbs.csv`.
 
 ### 7.3 Reglas de fuente
 - en cinta, priorizar `FIT` sobre `TCX` para continuidad real si ambos discrepan,

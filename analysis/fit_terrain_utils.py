@@ -696,3 +696,183 @@ def analyze_fit_climbs(
         vt2=vt2,
         sport_family=sport_family,
     )
+
+
+# ---------------------------------------------------------------------------
+# FP-06 — Eficiencia contextual: matched_climbs early vs late
+# ---------------------------------------------------------------------------
+
+_GRADE_BINS: list[tuple[str, float, float]] = [
+    ("low_grade",  3.0,  7.0),
+    ("mid_grade",  7.0, 12.0),
+    ("high_grade", 12.0, 100.0),
+]
+
+_RUN_SPORTS: frozenset[str] = frozenset({"trail_run", "road_run", "run", "trail", "road"})
+
+
+def _classify_efficiency_pattern(
+    vam_ratio: float | None,
+    hr_drift_bpm: float | None,
+    hr_per_vam_ratio: float | None,
+) -> tuple[str, str]:
+    if vam_ratio is None:
+        return "mixed_signal", "low"
+
+    vam_ok = vam_ratio >= 0.93
+    vam_drop = vam_ratio < 0.90
+    hr_stable = hr_drift_bpm is None or abs(hr_drift_bpm) <= 5.0
+    hr_elevated = hr_drift_bpm is not None and hr_drift_bpm > 8.0
+    cost_ok = hr_per_vam_ratio is None or hr_per_vam_ratio <= 1.04
+    cost_elevated = hr_per_vam_ratio is not None and hr_per_vam_ratio > 1.07
+
+    available = sum(x is not None for x in [vam_ratio, hr_drift_bpm, hr_per_vam_ratio])
+    confidence = "moderate" if available >= 3 else "low"
+
+    if vam_ok and hr_stable and cost_ok:
+        return "stable_contextual_efficiency", confidence
+    if vam_drop and hr_elevated and cost_elevated:
+        return "repeatability_loss_in_climbs", confidence
+    if cost_elevated and not vam_drop:
+        return "cardiovascular_efficiency_drop", confidence
+    if vam_drop and hr_stable and not cost_elevated:
+        return "mechanical_efficiency_drop", confidence
+    return "mixed_signal", "low"
+
+
+def compute_matched_climbs_context(
+    terrain_climbs: list[dict[str, Any]],
+    sport_family: str | None = None,
+) -> dict[str, Any]:
+    """
+    FP-06: compare early vs late climbs of similar grade to detect contextual efficiency drop.
+    Only applicable for run sports with ≥2 climbs and at least one matched grade-bin pair.
+    """
+
+    def _not_applicable(reason: str, **extra: Any) -> dict[str, Any]:
+        return {"applicable": False, "applicability_reason": reason, "comparison_mode": "matched_climbs", **extra}
+
+    if len(terrain_climbs) < 2:
+        return _not_applicable("fewer_than_2_climbs")
+
+    if sport_family and sport_family not in _RUN_SPORTS:
+        return _not_applicable("sport_not_applicable")
+
+    start_secs = [s for c in terrain_climbs if (s := parse_float(c.get("start_sec"))) is not None]
+    end_secs   = [s for c in terrain_climbs if (s := parse_float(c.get("end_sec")))   is not None]
+
+    if not start_secs:
+        return _not_applicable("no_timing_data")
+
+    midpoint_sec = (min(start_secs) + (max(end_secs) if end_secs else max(start_secs))) / 2.0
+
+    def _mean(climbs: list[dict[str, Any]], field: str) -> float | None:
+        vals = [v for c in climbs if (v := parse_float(c.get(field))) is not None]
+        return round(sum(vals) / len(vals), 2) if vals else None
+
+    matched_groups: list[dict[str, Any]] = []
+
+    for bin_name, grade_lo, grade_hi in _GRADE_BINS:
+        bin_climbs = [
+            c for c in terrain_climbs
+            if c.get("hr_available")
+            and parse_float(c.get("grade_mean_pct")) is not None
+            and grade_lo <= float(c["grade_mean_pct"]) < grade_hi
+        ]
+        if len(bin_climbs) < 2:
+            continue
+
+        early = [c for c in bin_climbs if (parse_float(c.get("start_sec")) or 0.0) < midpoint_sec]
+        late  = [c for c in bin_climbs if (parse_float(c.get("start_sec")) or 0.0) >= midpoint_sec]
+
+        if not early or not late:
+            continue
+
+        early_hr    = _mean(early, "hr_mean")
+        late_hr     = _mean(late,  "hr_mean")
+        early_vam   = _mean(early, "vam_mh")
+        late_vam    = _mean(late,  "vam_mh")
+        early_power = _mean(early, "power_mean")
+        late_power  = _mean(late,  "power_mean")
+
+        hr_drift_bpm = (
+            round(late_hr - early_hr, 1)
+            if late_hr is not None and early_hr is not None else None
+        )
+        vam_ratio = (
+            round(late_vam / early_vam, 3)
+            if late_vam and early_vam else None
+        )
+
+        hr_per_vam_ratio = None
+        if early_hr and early_vam and late_hr and late_vam:
+            early_cost = early_hr / early_vam
+            hr_per_vam_ratio = round((late_hr / late_vam) / early_cost, 3)
+
+        power_per_hr_ratio = None
+        if early_power and early_hr and late_power and late_hr:
+            power_per_hr_ratio = round(
+                (late_power / late_hr) / (early_power / early_hr), 3
+            )
+
+        matched_groups.append({
+            "grade_bin": bin_name,
+            "grade_range_pct": [grade_lo, grade_hi],
+            "early_count": len(early),
+            "late_count": len(late),
+            "early_hr_mean": early_hr,
+            "late_hr_mean": late_hr,
+            "early_vam_mean": early_vam,
+            "late_vam_mean": late_vam,
+            "early_power_mean": early_power,
+            "late_power_mean": late_power,
+            "hr_drift_bpm": hr_drift_bpm,
+            "vam_ratio": vam_ratio,
+            "hr_per_vam_ratio": hr_per_vam_ratio,
+            "power_per_hr_ratio": power_per_hr_ratio,
+        })
+
+    if not matched_groups:
+        return _not_applicable("no_comparable_climb_pairs", climb_count=len(terrain_climbs))
+
+    def _weighted_agg(key: str) -> float | None:
+        weighted_total = 0.0
+        weight_total = 0.0
+        for g in matched_groups:
+            value = g.get(key)
+            if value is None:
+                continue
+            weight = float((g.get("early_count") or 0) + (g.get("late_count") or 0))
+            if weight <= 0:
+                continue
+            weighted_total += float(value) * weight
+            weight_total += weight
+        return round(weighted_total / weight_total, 3) if weight_total else None
+
+    agg_vam_ratio    = _weighted_agg("vam_ratio")
+    agg_hr_drift     = _weighted_agg("hr_drift_bpm")
+    agg_hr_per_vam   = _weighted_agg("hr_per_vam_ratio")
+    agg_power_per_hr = _weighted_agg("power_per_hr_ratio")
+
+    efficiency_pattern, interpretation_confidence = _classify_efficiency_pattern(
+        agg_vam_ratio, agg_hr_drift, agg_hr_per_vam
+    )
+
+    return {
+        "applicable": True,
+        "applicability_reason": "matched_climb_pairs_found",
+        "comparison_mode": "matched_climbs",
+        "sport_family": sport_family,
+        "climb_count": len(terrain_climbs),
+        "matched_groups_count": len(matched_groups),
+        "midpoint_sec": round(midpoint_sec, 1),
+        "aggregate": {
+            "vam_ratio": agg_vam_ratio,
+            "hr_drift_bpm": round(agg_hr_drift, 1) if agg_hr_drift is not None else None,
+            "hr_per_vam_ratio": agg_hr_per_vam,
+            "power_per_hr_ratio": agg_power_per_hr,
+        },
+        "efficiency_pattern": efficiency_pattern,
+        "interpretation_confidence": interpretation_confidence,
+        "matched_groups": matched_groups,
+    }

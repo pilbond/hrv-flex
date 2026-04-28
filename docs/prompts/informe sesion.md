@@ -1,22 +1,22 @@
-Redacta un informe analitico en espanol, con tono prudente, natural y didactico. Debe sonar como un entrenador/analista humano explicando la sesion al atleta: claro, concreto y trazable, sin perder rigor ni inventar datos.
-
---------------
-
-{{SESSION_SLUG}}: 2026-03-29_08-32_road_run_i135583336
+# Prompt sesion: {{SESSION_SLUG}}
 
 Redacta el informe final rico de la sesion `{{SESSION_SLUG}}`.
 Antes de responder, revisa y respeta los contratos del repo y del modulo `analysis` si aplica.
 
 ## Contratos que debes cargar y respetar
 1. `analysis/AGENTS.md`
-2. `analysis/ENDURANCE_AGENT_DOMAIN.md`
-3. `analysis/SESSION_ANALYSIS_METHOD.md`
+2. `analysis/analyst_prompt_rules.md`
+3. `analysis/ENDURANCE_AGENT_DOMAIN.md`
+4. `analysis/SESSION_ANALYSIS_METHOD.md`
+5. `analysis/WEEKLY_ANALYSIS_METHOD.md` si la tarea es semanal
 
 ## Fuentes
 - Usa `artifacts/session_payload.json` como fuente compacta principal.
 - Usa `artifacts/summary.json` como apoyo tecnico y de QA.
 - Usa `artifacts/report_sync_status.json` para comprobar si el `report.md` humano esta alineado con la regeneracion tecnica mas reciente.
 - Abre `artifacts/blocks.csv` solo si hace falta granularidad adicional.
+- Si existe `artifacts/terrain_climbs.csv`, usalo como apoyo de terreno.
+- Si existe `artifacts/matched_climbs.csv`, usalo solo como apoyo local de FP-06.
 - Si existe `technical_report.md`, usalo como apoyo tecnico, pero no lo sobrescribas.
 - El resultado final humano debe guardarse en `report.md`.
 - Si `session_payload.json.narrative_targets.final_reason_rendered.enabled = true`, trata esa capa como la traduccion narrativa primaria de las cautelas HRV.

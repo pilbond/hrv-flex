@@ -867,6 +867,45 @@ class AnalysisContractTests(unittest.TestCase):
         self.assertEqual(payload["v1_shadow_comparison"]["alignment"], "aligned")
         self.assertEqual(payload["context"]["v1_shadow_comparison"]["flag_alignment"], "match")
 
+    def test_build_conversational_payload_exposes_matched_climbs_csv(self):
+        session_row = _session_row(sport="road_run")
+        manifest = {
+            "session_id": "i1",
+            "slug": "2026-03-25_09-00_road_run_i1",
+            "date": "2026-03-25",
+            "start_time": "09:00",
+            "sport": "road_run",
+            "analysis_only_context": {},
+        }
+
+        def fake_row_by_date(path, date_str):
+            if path.name == "ENDURANCE_HRV_master_FINAL.csv":
+                return {"Fecha": date_str, "reason_text": "ok"}
+            if path.name == "ENDURANCE_HRV_master_DASHBOARD.csv":
+                return {"Fecha": date_str, "reason_text": "ok"}
+            return None
+
+        with TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            matched_climbs_path = tmpdir / "matched_climbs.csv"
+            matched_climbs_path.write_text("grade_bin,early_count\nlow_grade,1\n", encoding="utf-8")
+            with patch("analysis.session_analysis_pipeline.row_by_date", side_effect=fake_row_by_date), patch(
+                "analysis.session_analysis_pipeline.load_optional_json", return_value=None
+            ), patch(
+                "analysis.session_analysis_pipeline.load_final_reason_items_lookup", return_value={}
+            ), patch(
+                "analysis.session_analysis_pipeline._compute_speed_metrics", return_value=None
+            ):
+                payload = build_conversational_payload(
+                    {},
+                    manifest,
+                    session_row,
+                    artifacts_dir=tmpdir,
+                    matched_climbs_csv_path=matched_climbs_path,
+                )
+
+        self.assertEqual(payload["matched_climbs_csv"], str(matched_climbs_path))
+
     def test_build_final_reason_rendered_preserves_temporal_density_and_precision_modifier(self):
         rendered = build_final_reason_rendered(
             final_reason_items=[
@@ -982,6 +1021,23 @@ class AnalysisContractTests(unittest.TestCase):
         self.assertIn("`durability_context` por tercios", prompt)
         self.assertIn("si existe `session_payload.json.durability_context`, priorizalo", prompt)
 
+    def test_build_analyst_prompt_markdown_mentions_matched_climbs_csv(self):
+        prompt = build_analyst_prompt_markdown(
+            report_dir=Path("analysis/reports/example"),
+            payload_path=Path("analysis/reports/example/artifacts/session_payload.json"),
+            summary_path=Path("analysis/reports/example/artifacts/summary.json"),
+            blocks_path=None,
+            terrain_intervals_path=Path("analysis/reports/example/artifacts/terrain_intervals.csv"),
+            terrain_climbs_path=Path("analysis/reports/example/artifacts/terrain_climbs.csv"),
+            matched_climbs_path=Path("analysis/reports/example/artifacts/matched_climbs.csv"),
+            coach_metrics_path=None,
+            coach_intervals_path=None,
+            coach_groups_path=None,
+            report_sync_token="abc123def4567890",
+        )
+        self.assertIn("matched_climbs.csv", prompt)
+        self.assertIn("FP-06", prompt)
+
     def test_build_ai_handoff_markdown_includes_report_sync_token_instruction(self):
         with TemporaryDirectory() as tmp:
             tmpdir = Path(tmp)
@@ -998,6 +1054,7 @@ class AnalysisContractTests(unittest.TestCase):
                 blocks_path=None,
                 terrain_intervals_path=None,
                 terrain_climbs_path=None,
+                matched_climbs_path=Path("analysis/reports/example/artifacts/matched_climbs.csv"),
                 coach_metrics_path=None,
                 coach_intervals_path=None,
                 coach_groups_path=None,
@@ -1007,6 +1064,7 @@ class AnalysisContractTests(unittest.TestCase):
             self.assertIn("## Sincronizacion de report.auto.md", handoff)
             self.assertIn("<!-- report_sync_token: abc123def4567890 -->", handoff)
             self.assertIn("## RR orientativa", handoff)
+            self.assertIn("matched_climbs.csv", handoff)
 
     def test_build_report_sync_status_detects_missing_legacy_stale_and_up_to_date(self):
         with TemporaryDirectory() as tmp:
@@ -4137,6 +4195,102 @@ class TestBikePowerEstimation(unittest.TestCase):
                 row = next(csv_mod.DictReader(f))
             self.assertEqual(row["z1_pct"], "20.0")
             self.assertEqual(row["z3_pct"], "35.0")
+
+    def test_compute_matched_climbs_context_requires_vam_ratio(self):
+        from analysis.fit_terrain_utils import compute_matched_climbs_context
+
+        terrain_climbs = [
+            {
+                "grade_mean_pct": 5.8,
+                "start_sec": 10.0,
+                "end_sec": 40.0,
+                "hr_available": True,
+                "hr_mean": 150.0,
+                "vam_mh": None,
+                "power_mean": 220.0,
+            },
+            {
+                "grade_mean_pct": 5.9,
+                "start_sec": 60.0,
+                "end_sec": 90.0,
+                "hr_available": True,
+                "hr_mean": 151.0,
+                "vam_mh": None,
+                "power_mean": 222.0,
+            },
+        ]
+
+        result = compute_matched_climbs_context(terrain_climbs, sport_family="road")
+        self.assertTrue(result["applicable"])
+        self.assertEqual(result["efficiency_pattern"], "mixed_signal")
+        self.assertEqual(result["interpretation_confidence"], "low")
+        self.assertIsNone(result["aggregate"]["vam_ratio"])
+
+    def test_compute_matched_climbs_context_weights_larger_bins_more_heavily(self):
+        from analysis.fit_terrain_utils import compute_matched_climbs_context
+
+        terrain_climbs = [
+            {
+                "grade_mean_pct": 5.5,
+                "start_sec": 10.0,
+                "end_sec": 40.0,
+                "hr_available": True,
+                "hr_mean": 150.0,
+                "vam_mh": 100.0,
+                "power_mean": 220.0,
+            },
+            {
+                "grade_mean_pct": 5.6,
+                "start_sec": 60.0,
+                "end_sec": 90.0,
+                "hr_available": True,
+                "hr_mean": 150.0,
+                "vam_mh": 100.0,
+                "power_mean": 220.0,
+            },
+            {
+                "grade_mean_pct": 8.5,
+                "start_sec": 12.0,
+                "end_sec": 42.0,
+                "hr_available": True,
+                "hr_mean": 150.0,
+                "vam_mh": 100.0,
+                "power_mean": 220.0,
+            },
+            {
+                "grade_mean_pct": 8.6,
+                "start_sec": 18.0,
+                "end_sec": 48.0,
+                "hr_available": True,
+                "hr_mean": 150.0,
+                "vam_mh": 100.0,
+                "power_mean": 220.0,
+            },
+            {
+                "grade_mean_pct": 8.7,
+                "start_sec": 62.0,
+                "end_sec": 92.0,
+                "hr_available": True,
+                "hr_mean": 150.0,
+                "vam_mh": 50.0,
+                "power_mean": 220.0,
+            },
+            {
+                "grade_mean_pct": 8.8,
+                "start_sec": 70.0,
+                "end_sec": 100.0,
+                "hr_available": True,
+                "hr_mean": 150.0,
+                "vam_mh": 50.0,
+                "power_mean": 220.0,
+            },
+        ]
+
+        result = compute_matched_climbs_context(terrain_climbs, sport_family="road")
+        self.assertTrue(result["applicable"])
+        self.assertEqual(result["matched_groups_count"], 2)
+        self.assertAlmostEqual(result["aggregate"]["vam_ratio"], 0.667, places=3)
+        self.assertEqual(result["efficiency_pattern"], "mixed_signal")
 
     def test_bike_climb_dilation_sentence_includes_estimated_power(self):
         from analysis.session_analysis_pipeline import _bike_climb_dilation_sentence, _terrain_climb_dilation_sentence

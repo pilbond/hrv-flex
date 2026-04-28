@@ -172,6 +172,29 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
         self.assertNotIn("severity", item)
         self.assertNotIn("metric", item)
 
+    def test_parasympathetic_reason_uses_local_base_language(self):
+        reason_items = [[]]
+        reason_parts = [[]]
+
+        final_builder._emit_reason(
+            reason_items,
+            reason_parts,
+            0,
+            type="parasympathetic_saturation",
+            layer="inference",
+            source="hrv_pipeline",
+            metric="d_ln",
+            value=0.08,
+            threshold=0.04,
+            message="RMSSD suavizado de 3 días por encima de tu base reciente: posible saturación parasimpática relativa al rango local",
+        )
+
+        self.assertEqual(
+            reason_parts[0],
+            ["RMSSD suavizado de 3 días por encima de tu base reciente: posible saturación parasimpática relativa al rango local"],
+        )
+        self.assertEqual(reason_items[0][0]["type"], "parasympathetic_saturation")
+
     def test_reason_parts_append_is_only_used_inside_helper(self):
         source = inspect.getsource(final_builder)
         append_lines = [
@@ -365,7 +388,7 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
         self.assertTrue(row["recovery_discordance_flag"])
         self.assertIn("sleep_basic_poor", row["recovery_discordance_reason"])
         self.assertIn(
-            "VERDE pero con 2 días intensos en los últimos 3 (y 3 en los últimos 5): prudencia con la intensidad",
+            "VERDE pero con 2 días intensos en los últimos 3 (y 3 en los últimos 5): conviene prudencia con la intensidad",
             row["reason_text"],
         )
         self.assertIn("VERDE, pero sueño y carga reciente piden prudencia", row["reason_text"])

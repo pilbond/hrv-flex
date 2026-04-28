@@ -349,14 +349,14 @@ Este bloque cubre el warning de baseline degradado y los flags sistémicos que l
 
 | Familia | Origen de datos | Ejemplos de mensaje |
 |---------|------------------|----------------------|
-| Caída aguda | `veto_agudo = True` | `Caída brusca de HRV: superó el umbral de caída aguda respecto a tu variación habitual` |
-| HRV inusualmente alta | `lnRMSSD_today` fuera del rango habitual (P90) | `HRV inusualmente alta respecto a tu rango habitual: vigilar antes que celebrar` |
-| Sueño (duración) | `sleep.csv` (percentiles personales `sleep_dur_p10/p90`) | `Noche corta (5h45 vs tu umbral habitual bajo de 6h02)` · `Noche larga atípica` |
-| Sueño (fragmentación) | `sleep.csv` (`sleep_int_p90`) | `Noche fragmentada (8 interrupciones largas sobre tu P90)` |
-| Carga aguda | `sessions_day.csv` (`load_3d`) | `Carga acumulada alta (load_3d=237)` |
+| Caída aguda | `veto_agudo = True` | `RMSSD de hoy cayó bruscamente respecto a tu base reciente: superó el umbral de caída aguda` |
+| HRV inusualmente alta | `lnRMSSD_used` fuera del rango habitual de la media móvil 3d | `RMSSD suavizado de 3 días por encima de tu base reciente: posible saturación parasimpática relativa al rango local` |
+| Sueño (duración) | `sleep.csv` (percentiles personales `sleep_dur_p10/p90`) | `Sueño más corto de lo habitual (5h45 vs tu umbral habitual bajo de 6h02)` · `Noche larga atípica` |
+| Sueño (fragmentación) | `sleep.csv` (`sleep_int_p90`) | `Sueño más fragmentado de lo habitual (8 interrupciones largas sobre tu P90)` |
+| Carga aguda | `sessions_day.csv` (`load_3d`) | `Carga acumulada reciente alta (load_3d=237)` |
 | Carga canónica | `sessions_day.csv` (`acwr_simple_prev`, `monotony_7d_prev`, `strain_7d_prev`) | `ACWR muy alto: carga aguda muy por encima de la base crónica (1.69)` · `Monotonía alta` · `Strain semanal elevado` |
-| Convergencia de carga | Convergencia `load_3d` + al menos una canónica | `VERDE con convergencia de carga (load_3d + ACWR/monotonía/strain): precaución con la intensidad reforzada` |
-| Clustering de intensidad (AP-01) | `sessions_day.csv` (`intensity_clustering_*`) | `VERDE pero con 2 días intensos en los últimos 3: prudencia con la intensidad` · `Clustering alto de intensidad reciente: vigilar recuperación` |
+| Convergencia de carga | Convergencia `load_3d` + al menos una canónica | `VERDE con convergencia de carga (load_3d + ACWR/monotonía/strain): conviene prudencia con la intensidad reforzada` |
+| Clustering de intensidad (AP-01) | `sessions_day.csv` (`intensity_clustering_*`) | `VERDE pero con 2 días intensos en los últimos 3: conviene prudencia con la intensidad` · `Intensidad reciente muy agrupada: vigilar recuperación` |
 | Cierre semántico RE-01 | `recovery_support_class` | `VERDE con recuperación frágil...` · `ÁMBAR con soporte nocturno aceptable...` · `ROJO con discordancia objetiva...` |
 | Nightly RMSSD discordante | `polar_night_rmssd` vs gate matinal | `Nightly RMSSD bajo pese a gate verde: vigilar` |
 
@@ -476,7 +476,7 @@ El gate 2D solo ve HRV y pulso. Pero a menudo quieres saber *por qué* tu HRV ba
 
 | Columna | Qué es |
 |---------|--------|
-| `sleep_dur_p10` | Debajo de este valor = noche corta para TI. Se calibra con todo tu histórico |
+| `sleep_dur_p10` | Debajo de este valor = sueño más corto de lo habitual para ti. Se calibra con todo tu histórico |
 | `sleep_dur_p90` | Encima = noche excepcionalmente larga |
 | `sleep_int_p90` | Encima = noche fragmentada para TI |
 
@@ -544,10 +544,10 @@ AP-03 no sustituye la v1 de `AP-01`; la valida. Por eso la salida analítica loc
 
 Cuando el clustering está activo, `reason_text` puede mostrar mensajes como:
 
-- `VERDE pero con 2 días intensos en los últimos 3: prudencia con la intensidad`
-- `VERDE pero con 3 días intensos en los últimos 5: prudencia con la intensidad`
-- `Clustering reciente de intensidad: vigilar recuperación`
-- `Clustering alto de intensidad reciente: vigilar recuperación`
+- `VERDE pero con 2 días intensos en los últimos 3: conviene prudencia con la intensidad`
+- `VERDE pero con 3 días intensos en los últimos 5: conviene prudencia con la intensidad`
+- `Intensidad reciente agrupada: vigilar recuperación`
+- `Intensidad reciente muy agrupada: vigilar recuperación`
 
 La formulación exacta depende de:
 
@@ -1016,7 +1016,7 @@ Mecanismo de seguridad que detecta cuando ROLL3 está **enmascarando una caída 
 Mínimo garantizado para SWC_ln: `ln(1.05) ≈ 0.04879`. ¿Por qué? En periodos de variabilidad muy estable (todos los días casi iguales), SWC puede ser minúsculo, lo que haría que cualquier fluctuación trivial active gates o vetos. El floor asegura que el "cambio mínimo significativo" nunca sea menor que un ~5% de variación en RMSSD.
 
 ### Reason_text
-Texto explicativo que combina información del gate con datos contextuales (sueño, carga). No modifica el gate — es un "comentario" que acompaña a la decisión automática. Puede decir cosas como "noche corta", "carga acumulada alta", o "VERDE con fatiga acumulada: precaución". Si el sleep.csv no existe, solo se generan avisos basados en datos HRV (caída brusca de HRV, HRV inusualmente alto fuera de tu rango habitual).
+Texto explicativo que combina información del gate con datos contextuales (sueño, carga). No modifica el gate — es un "comentario" que acompaña a la decisión automática. Puede decir cosas como "sueño más corto de lo habitual", "carga acumulada reciente alta", o "VERDE con fatiga acumulada: conviene prudencia". Si el sleep.csv no existe, solo se generan avisos basados en datos HRV (caída brusca de RMSSD de hoy respecto a la base reciente o RMSSD suavizado de 3 días por encima de la base reciente).
 
 Desde SS-01, `reason_text` debe leerse como un render humano compacto, no como el origen semántico primario del builder. Internamente se construye desde `reason_items` que separan:
 
@@ -1181,10 +1181,10 @@ Action_detail: SUAVE
 gate_razon_base60: 2D_AMBOS
 decision_path: BASE60_ONLY
 veto_agudo: True
-reason_text: Caída brusca de HRV: superó el umbral de caída aguda respecto a tu variación habitual | Noche corta (5h45 vs tu umbral habitual bajo de 6h02) | Carga acumulada alta (load_3d=237)
+reason_text: RMSSD de hoy cayó bruscamente respecto a tu base reciente: superó el umbral de caída aguda | Sueño más corto de lo habitual (5h45 vs tu umbral habitual bajo de 6h02) | Carga acumulada reciente alta (load_3d=237)
 ```
 
-**Interpretación:** El veto agudo detectó una caída brusca que ROLL3 habría enmascarado. El reason_text explica tres factores convergentes: la caída fue real, dormiste poco, y acumulaste mucha carga. Alta confianza de que el ROJO es legítimo.
+**Interpretación:** El veto agudo detectó una caída brusca que ROLL3 habría suavizado. El `reason_text` explica tres factores convergentes: la caída fue real, dormiste poco, y acumulaste mucha carga. Alta confianza de que el ROJO es legítimo.
 
 ### Caso 6: VERDE con convergencia de carga
 

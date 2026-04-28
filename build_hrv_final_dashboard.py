@@ -843,7 +843,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                     metric="lnRMSSD",
                     value=float(ln_today[i]),
                     threshold=float(b_ln - VETO_MULT * swc_v4),
-                    message="Caída brusca de HRV: superó el umbral de caída aguda respecto a tu variación habitual",
+                    message="RMSSD de hoy cayó bruscamente respecto a tu base reciente: superó el umbral de caída aguda",
                 )
 
             dln = float(ln_used[i] - b_ln)
@@ -1087,7 +1087,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                     metric="d_ln",
                     value=float(d_ln[i]),
                     threshold=float(2 * swc_ln_floor_arr[i]),
-                    message="HRV inusualmente alto: posible predominio parasimpático fuera de tu rango habitual",
+                    message="RMSSD suavizado de 3 días por encima de tu base reciente: posible saturación parasimpática relativa al rango local",
                 )
 
         # Quality override
@@ -1139,7 +1139,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                     value=float(sleep_dur),
                     threshold=float(sleep_dur_p10),
                     message=(
-                        f"Noche corta ({_format_minutes_human(sleep_dur)} "
+                        f"Sueño más corto de lo habitual ({_format_minutes_human(sleep_dur)} "
                         f"vs tu umbral habitual bajo de {_format_minutes_human(sleep_dur_p10)})"
                     ),
                 )
@@ -1157,7 +1157,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                     value=float(sleep_int),
                     threshold=float(sleep_int_p90),
                     message=(
-                        f"Sueño fragmentado ({sleep_int:.0f} interrupciones; "
+                        f"Sueño más fragmentado de lo habitual ({sleep_int:.0f} interrupciones; "
                         f"habitualmente no pasas de {sleep_int_p90:.0f})"
                     ),
                 )
@@ -1234,7 +1234,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         metric="load_3d",
                         value=float(load_3d),
                         threshold=float(LOAD_3D_HIGH),
-                        message=f"Carga acumulada alta (load_3d={load_3d:.0f})",
+                        message=f"Carga acumulada reciente alta (load_3d={load_3d:.0f})",
                     )
                 if load_3d > LOAD_3D_CAUTION:
                     _append_unique(caution_codes, "load_3d_high")
@@ -1251,7 +1251,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                     metric="work_7d_sum",
                     value=float(work_7d),
                     threshold=float(WORK_7D_HIGH),
-                    message=f"Volumen semanal alto (work_7d={work_7d:.0f}min)",
+                    message=f"Volumen de trabajo semanal alto (work_7d={work_7d:.0f}min)",
                 )
             if z3_7d is not None and z3_7d > Z3_7D_HIGH:
                 _emit_reason(
@@ -1265,7 +1265,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                     metric="z3_7d_sum",
                     value=float(z3_7d),
                     threshold=float(Z3_7D_HIGH),
-                    message=f"Tiempo en alta intensidad acumulado esta semana ({z3_7d:.0f}min en Z3)",
+                    message=f"Tiempo acumulado en Z3 esta semana ({z3_7d:.0f}min en Z3)",
                 )
 
             # ROJO sin carga previa
@@ -1329,24 +1329,24 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         and intense_days_prev_3d >= 2
                     ):
                         clustering_msg = (
-                            f"VERDE pero con {clustering_window_clause}: prudencia con la intensidad"
+                            f"VERDE pero con {clustering_window_clause}: conviene prudencia con la intensidad"
                         )
                     elif (
                         intense_days_prev_5d is not None
                         and intense_days_prev_5d >= 2
                     ):
                         clustering_msg = (
-                            f"VERDE pero con {clustering_window_clause}: prudencia con la intensidad"
+                            f"VERDE pero con {clustering_window_clause}: conviene prudencia con la intensidad"
                         )
                     elif clustering_level == "high":
-                        clustering_msg = "VERDE pero con intensidad reciente agrupada: prudencia con la intensidad"
+                        clustering_msg = "VERDE pero con intensidad reciente muy agrupada: conviene prudencia con la intensidad"
                     else:
-                        clustering_msg = "VERDE pero con intensidad reciente acumulada: prudencia con la intensidad"
+                        clustering_msg = "VERDE pero con intensidad reciente acumulada: conviene prudencia con la intensidad"
                 else:
                     if clustering_level == "high":
-                        clustering_msg = "Clustering alto de intensidad reciente: vigilar recuperación"
+                        clustering_msg = "Intensidad reciente muy agrupada: vigilar recuperación"
                     else:
-                        clustering_msg = "Clustering reciente de intensidad: vigilar recuperación"
+                        clustering_msg = "Intensidad reciente agrupada: vigilar recuperación"
 
                 if gate_final[i] != VERDE and clustering_window_suffix:
                     clustering_msg = f"{clustering_msg} ({clustering_window_suffix})"
@@ -1564,11 +1564,11 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         source="sessions_day",
                         gate_scope="green",
                         codes=load_ctx_caution_sources,
-                        message=(
-                            "VERDE con contexto de carga exigente "
-                            f"({' + '.join(load_ctx_caution_sources)}): precaución con la intensidad"
-                        ),
-                    )
+                    message=(
+                        "VERDE con contexto de carga exigente "
+                        f"({' + '.join(load_ctx_caution_sources)}): conviene prudencia con la intensidad"
+                    ),
+                )
         elif gate_final[i] == VERDE and verde_load_3d_caution:
             _emit_reason(
                 reason_items,

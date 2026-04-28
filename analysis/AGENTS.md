@@ -22,7 +22,9 @@ Para cualquier tarea analitica del modulo, cargar y respetar este orden:
 3. `ENDURANCE_AGENT_DOMAIN.md`
 4. `SESSION_ANALYSIS_METHOD.md` para analisis de sesion individual
 5. `WEEKLY_ANALYSIS_METHOD.md` para analisis semanal
-6. documentos HRV canonicos en `../docs/contracts/` solo cuando aplique integracion HRV normativa:
+6. `analyst_prompt_rules.md`
+7. cuando exista una carpeta de sesion en `analysis/reports/<slug>/`, cargar tambien `analyst_prompt.md` y `ai_handoff.md` de esa sesion antes de redactar `report.ia.md`
+8. documentos HRV canonicos en `../docs/contracts/` solo cuando aplique integracion HRV normativa:
    - `ENDURANCE_HRV_Spec_Tecnica.md`
    - `ENDURANCE_HRV_Estructura.md`
    - `ENDURANCE_HRV_Diccionario.md`
