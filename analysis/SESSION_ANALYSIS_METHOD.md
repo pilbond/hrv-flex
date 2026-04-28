@@ -17,6 +17,8 @@ No gobierna:
 - infraestructura, que vive en `../AGENTS.md`,
 - logica HRV canonica del proyecto fuera del analisis de sesion.
 
+Para el significado de artefactos, contextos JSON y labels locales (p.ej. `analysis_only_context`, `runaware_context`, `durability_pattern`, `efficiency_pattern`), ver `ANALYSIS_DICTIONARY.md`.
+
 ## 2. Principios normativos
 ### MUST
 - priorizar datos crudos medidos y trazables sobre inferencias,

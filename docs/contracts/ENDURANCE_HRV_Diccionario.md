@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Diccionario de Columnas (FINAL/DASHBOARD)
 
-**Revisión:** r2026-04-18 v4.11 (SS-02 sidecar reason_items público para analysis)
+**Revisión:** r2026-04-28 v4.12 (jargon fixes + coverage: intensity_category, effort_vs_*, session_group, late_intensity, decoupling, load_ctx_ready, zones_source fallback, DFA α1, reason_items layers)
 **Estado:** Producción
 
 **Documentos relacionados:**
@@ -12,7 +12,7 @@
 - documenta `CORE`, `FINAL`, `DASHBOARD`, `BETA_AUDIT`, `sleep`, `sessions_day`, `intensity_distribution_weekly`, `wellness_subjective` y la metadata de sesiones,
 - para el detalle columna-a-columna de `sessions.csv` (73 cols), la fuente canónica es `ENDURANCE_HRV_Sessions_Schema.md`; aquí sólo se ofrece el mapa,
 - no documenta artefactos locales de `analysis/` como `terrain_context`, `terrain_fit_context`, `terrain_intervals.csv` o `terrain_climbs.csv`,
-- cuando haga falta esa capa, la fuente correcta es `analysis/SESSION_ANALYSIS_METHOD.md` y la nota funcional `docs/HRV/FP-02 ...`.
+- cuando haga falta esa capa de análisis de terreno, la fuente correcta es `analysis/SESSION_ANALYSIS_METHOD.md` y `analysis/ANALYSIS_DICTIONARY.md`.
 
 ---
 
@@ -174,16 +174,16 @@ Generado por `build_hrv_core.py`. Contiene la señal fisiológica **sin decision
 
 Generado por `build_hrv_final_dashboard.py`. Contiene:
 
-- suavizado ROLL3 (solo días clean)
-- baseline BASE60 + SWC
-- **veto agudo** (bypass ROLL3 ante caídas bruscas)
+- suavizado ROLL3 (solo días clean; → §10)
+- baseline BASE60 + SWC (→ §10)
+- **veto agudo** (bypass ROLL3 ante caídas bruscas; → §10)
 - gate BASE60 (decisor)
-- sombras BASE42 y BASE28 (informativas)
+- sombras BASE42 y BASE28 (informativas; → §10)
 - override opcional (modo O3)
 - residual (BASE60) + sufijo (`+/-`)
 - acción + acumulación + warnings
 - **reason_text** (contexto de sueño + carga)
-- **recovery_context_quality / recovery_support_class** (capa RE-01 de soporte o discordancia objetiva)
+- **recovery_context_quality / recovery_support_class** (capa de análisis de recuperación: soporte sueño/carga vs gate)
 
 ### Lo mínimo que debes mirar a diario
 
@@ -249,7 +249,7 @@ Estas columnas son de auditoría, no de decisión: ayudan a interpretar los `Uns
 | `ln_base60` | Tu "normal" de lnRMSSD: la mediana de los últimos 60 días (solo clean, sin contar hoy). Es la referencia contra la que se compara tu valor suavizado de hoy. Se usa mediana (no media) para que días atípicos puntuales no desplacen tu referencia. |
 | `HR_base60` | Tu "normal" de pulso en reposo: la mediana de HR en los últimos 60 días clean. Funciona igual que ln_base60 pero para el eje de frecuencia cardíaca. |
 | `n_base60` | Cuántos días clean hay en la ventana de 60 días. Necesitas al menos 30 para que el baseline sea fiable. Si no llegas, el gate queda NO con razón BASE60_INSUF. |
-| `SWC_ln` | El cambio mínimo significativo para lnRMSSD: `0.5 × SD robusta`. Si tu delta (d_ln) no supera este umbral, se considera ruido y el gate no se enciende por esa vía. Cuanto más estable hayas sido históricamente, más estrecho es este umbral (más sensible). |
+| `SWC_ln` | El cambio mínimo significativo para lnRMSSD: `0.5 × SD robusta` (→ §10). Si tu delta (d_ln) no supera este umbral, se considera ruido y el gate no se enciende por esa vía. Cuanto más estable hayas sido históricamente, más estrecho es este umbral (más sensible). |
 | `SWC_HR` | Igual que SWC_ln pero para el pulso. Define cuánto tiene que subir tu HR respecto a tu normal para que cuente como señal real y no como fluctuación aleatoria. |
 
 Deltas (la distancia entre tu valor suavizado de hoy y tu baseline):
@@ -282,7 +282,7 @@ Deltas (la distancia entre tu valor suavizado de hoy y tu baseline):
 | Columna | Qué es | Valores |
 |---------|--------|---------|
 | `residual_ln` | La diferencia entre tu lnRMSSD real y el que predice un modelo lineal basado en tu pulso (RR). Si es positivo, tu HRV es más alta de lo que "debería" dado tu pulso — buena señal parasimpática. Si es negativo, tu HRV es más baja de lo esperable — posible fatiga o estrés que no se explica solo por el pulso. El modelo se entrena con tus últimos 60 días clean. | adimensional (float, típicamente -0.3 a +0.3) |
-| `residual_z` | El residual normalizado: cuántas "unidades SWC del residual" te has alejado de lo esperable. Permite interpretar la magnitud: un residual_z de -1.5 es más preocupante que -0.3. Se calcula con escala robusta (MAD) para no distorsionarse por días atípicos. | z-score robusto (float, típicamente -3 a +3) |
+| `residual_z` | El residual normalizado: cuántas "unidades SWC del residual" te has alejado de lo esperable. Permite interpretar la magnitud: un residual_z de -1.5 es más preocupante que -0.3. Se calcula con escala robusta (MAD; → §10) para no distorsionarse por días atípicos. | z-score robusto (float, típicamente -3 a +3) |
 | `residual_tag` | Sufijo visual que resume residual_z en categorías. `+` (≥0.5), `++` (≥1.0), `+++` (≥2.0) para residual positivo. `-` (≤-0.5), `--` (≤-1.0), `---` (≤-2.0) para negativo. Sin sufijo si está entre -0.5 y +0.5. | `+` / `++` / `+++` / `-` / `--` / `---` / vacío |
 | `gate_badge` | El semáforo final con el matiz del residual pegado. Ejemplo: `VERDE+` (todo bien y además tu HRV es mejor de lo esperable), `ÁMBAR--` (gate ámbar y además el residual es bastante negativo). Es la columna más informativa para echar un vistazo rápido al estado completo del día. | `<COLOR><TAG>` (ej. `VERDE+`, `ÁMBAR--`, `ROJO`, `NO`) |
 
@@ -339,11 +339,11 @@ Este bloque cubre el warning de baseline degradado y los flags sistémicos que l
 | `veto_agudo` | ¿Se activó el bypass de ROLL3 por caída aguda? True si tu lnRMSSD crudo de hoy cayó más de 2×SWC por debajo de tu baseline (una caída demasiado brusca para que ROLL3 la suavice sin peligro). Cuando se activa, `lnRMSSD_used` y `HR_used` se fuerzan al dato crudo del día en vez del promedio de 3 días. Esto hace que el gate refleje la caída inmediatamente. |
 | `ln_pre_veto` | El valor de lnRMSSD_used (ROLL3) que tenías antes de que el veto lo sobrescribiera. Permite auditar cuánto habría enmascarado el suavizado: la diferencia `ln_pre_veto - lnRMSSD_used` muestra lo que ROLL3 estaba "ocultando". NaN si no hubo veto. |
 | `swc_ln_floor` | El SWC efectivo que se usó para evaluar el veto: `max(SWC_ln, 0.04879)`. El floor de 0.04879 (= ln(1.05)) garantiza que el umbral del veto nunca sea trivialmente pequeño, evitando falsos positivos en periodos de variabilidad muy baja. NaN si no se calculó BASE60. |
-| `recovery_context_quality` | Cobertura objetiva de la capa RE-01. `none` = solo gate, sin soporte externo usable; `basic` = hay sueño básico y/o carga reciente; `rich` = además existe señal nocturna rica (`polar_sleep_score` y/o `polar_night_rmssd`). Sirve para no vender precisión falsa en días sin sueño rico. |
+| `recovery_context_quality` | Disponibilidad de datos de recuperación (sueño + carga). `none` = solo gate, sin contexto externo; `basic` = hay sueño básico y/o carga reciente; `rich` = además hay señal nocturna rich (`polar_sleep_score` y/o `polar_night_rmssd`). Sirve para no exagerar la precisión de interpretaciones sin soporte externo. |
 | `recovery_support_class` | Lectura resumida de cómo encajan gate, sueño Polar y carga reciente. `supported` = el contexto externo acompaña la lectura; `neutral` = no añade gran cosa o está mezclado; `fragile` = el gate sale razonable pero sueño/carga meten cautela; `conflicted` = el gate sale mal pero sueño/carga no lo explican bien. No cambia la acción por sí mismo. |
-| `recovery_discordance_flag` | True cuando RE-01 detecta una tensión operativa material entre el gate y el soporte objetivo externo. Hoy se activa en clases `fragile` y `conflicted`. |
-| `recovery_discordance_reason` | Códigos transparentes que explican la discordancia detectada por RE-01. Ejemplos: `sleep_basic_poor`, `nightly_rmssd_low`, `load_context_high`, `sleep_score_good`, `recent_load_low`. Pensado para auditoría o análisis posterior; no es texto para consumo diario. |
-| `reason_text` | Texto explicativo contextual que combina información del gate con datos de sueño y carga. Múltiples razones separadas por ` \| `. Ver tabla de familias de mensajes a continuación. Desde SS-01 el texto se renderiza internamente a partir de `reason_items` estructurados en memoria; no existe columna pública `reason_items_json` en `FINAL` ni en `DASHBOARD` (sidecar en §Sidecar estructurado). El wellness subjetivo de Intervals queda fuera de `reason_text` y se reserva para capas retrospectivas. **No recolorea** el gate — es contexto para tu decisión. |
+| `recovery_discordance_flag` | True cuando el análisis de recuperación detecta una tensión entre el gate y el soporte externo (sueño/carga). Se activa en clases `fragile` (contexto débil) y `conflicted` (contexto contradictorio). |
+| `recovery_discordance_reason` | Códigos estructurados que explican la discordancia. Ejemplos: `sleep_basic_poor`, `nightly_rmssd_low`, `load_context_high`, `sleep_score_good`, `recent_load_low`. Pensado para auditoría o análisis posterior. |
+| `reason_text` | Texto explicativo contextual que combina información del gate con datos de sueño y carga. Múltiples razones separadas por ` \| `. Ver tabla de familias de mensajes a continuación. Internamente se renderiza a partir de `reason_items` estructurados (dato medido, proxy, inferencia, acción); no existe columna pública `reason_items_json` en `FINAL` ni en `DASHBOARD`, pero hay un sidecar estructurado `ENDURANCE_HRV_master_FINAL_reason_items.json` (descrito más abajo). El wellness subjetivo de Intervals queda fuera de `reason_text` y se reserva para capas retrospectivas. **No recolorea** el gate — es contexto para tu decisión. |
 
 ##### Familias de mensajes que pueden aparecer en `reason_text`
 
@@ -356,13 +356,13 @@ Este bloque cubre el warning de baseline degradado y los flags sistémicos que l
 | Carga aguda | `sessions_day.csv` (`load_3d`) | `Carga acumulada reciente alta (load_3d=237)` |
 | Carga canónica | `sessions_day.csv` (`acwr_simple_prev`, `monotony_7d_prev`, `strain_7d_prev`) | `ACWR muy alto: carga aguda muy por encima de la base crónica (1.69)` · `Monotonía alta` · `Strain semanal elevado` |
 | Convergencia de carga | Convergencia `load_3d` + al menos una canónica | `VERDE con convergencia de carga (load_3d + ACWR/monotonía/strain): conviene prudencia con la intensidad reforzada` |
-| Clustering de intensidad (AP-01) | `sessions_day.csv` (`intensity_clustering_*`) | `VERDE pero con 2 días intensos en los últimos 3: conviene prudencia con la intensidad` · `Intensidad reciente muy agrupada: vigilar recuperación` |
-| Cierre semántico RE-01 | `recovery_support_class` | `VERDE con recuperación frágil...` · `ÁMBAR con soporte nocturno aceptable...` · `ROJO con discordancia objetiva...` |
+| Clustering de intensidad | `sessions_day.csv` (`intensity_clustering_*`) | `VERDE pero con 2 días intensos en los últimos 3: conviene prudencia con la intensidad` · `Intensidad reciente muy agrupada: vigilar recuperación` |
+| Resumen de recuperación | `recovery_support_class` | `VERDE con recuperación frágil...` · `ÁMBAR con soporte nocturno aceptable...` · `ROJO con discordancia objetiva...` |
 | Nightly RMSSD discordante | `polar_night_rmssd` vs gate matinal | `Nightly RMSSD bajo pese a gate verde: vigilar` |
 
 ### Sidecar estructurado para analysis
 
-Desde SS-02 existe el sidecar `ENDURANCE_HRV_master_FINAL_reason_items.json`, que serializa por fecha los `reason_items` usados para construir `reason_text`.
+Existe el sidecar `ENDURANCE_HRV_master_FINAL_reason_items.json`, que serializa por fecha los `reason_items` usados internamente para construir `reason_text`.
 
 `analysis/` consume ese sidecar y deriva:
 - `final_reason_items`: items normalizados listos para lectura semántica,
@@ -434,10 +434,10 @@ Las 5 primeras columnas se copian tal cual de CORE. Ver §2 para el detalle comp
 | # | Columna | Qué es |
 |---|---------|--------|
 | 6 | `cRMSSD` | RMSSD "corregido" por la relación natural entre pulso y variabilidad. Descuenta el efecto de que si tu pulso sube, tu RMSSD baja naturalmente (sin que haya fatiga). En V3 era el indicador principal; en el decisor FINAL/DASHBOARD lo sustituye el Gate 2D, que compara ambas señales simultáneamente en lugar de corregir una por la otra. |
-| 7 | `beta_mode` | Estado del modelo alométrico que calcula la corrección. `active` = funcionando normal. `clipped` = el coeficiente beta salió fuera del rango plausible [0.1, 3.0] y se recortó. `frozen` = el modelo era inestable (R² bajo o salto grande), se usó el valor del día anterior. `none` = no había suficiente historial para estimar beta. |
+| 7 | `beta_mode` | Estado del modelo alométrico (→ §10) que calcula la corrección. `active` = funcionando normal. `clipped` = el coeficiente beta salió fuera del rango plausible [0.1, 3.0] y se recortó. `frozen` = el modelo era inestable (R² bajo o salto grande), se usó el valor del día anterior. `none` = no había suficiente historial para estimar beta. |
 | 8 | `beta_est_90d` | El coeficiente beta estimado con los últimos 90 días. Indica cuánto cambia tu HRV por cada cambio unitario en tu pulso (en escala logarítmica). Típicamente entre 0.5 y 2.0. |
 | 9 | `beta_use_90d` | El beta realmente usado para la corrección. Puede diferir de beta_est si hubo clipping o freezing. |
-| 10 | `R2_winsor_90d` | Calidad del ajuste del modelo alométrico (R² de la regresión winsorizada). Valores >0.30 indican buena relación lineal entre ln(RR) y ln(RMSSD). Valores bajos sugieren que el modelo beta no captura bien tu fisiología en ese periodo. |
+| 10 | `R2_winsor_90d` | Calidad del ajuste del modelo alométrico (R² de la regresión winsorizada; → §10). Valores >0.30 indican buena relación lineal entre ln(RR) y ln(RMSSD). Valores bajos sugieren que el modelo beta no captura bien tu fisiología en ese periodo. |
 | 11 | `Color_Agudo_Diario` | El color del sistema V3 para el día (equivalente al gate diario, pero basado en cRMSSD en vez de gate 2D). Solo para comparación histórica. |
 | 12 | `Color_Tendencia` | El color de tendencia del V3 (basado en media móvil de cRMSSD). Indicaba si la dirección a medio plazo era buena o mala. |
 | 13 | `Color_Tiebreak` | El color de desempate del V3: cuando agudo y tendencia discrepaban, este decidía. |
@@ -463,7 +463,7 @@ El gate 2D solo ve HRV y pulso. Pero a menudo quieres saber *por qué* tu HRV ba
 | `polar_deep_pct` | % de sueño profundo (N3). Solo con Sleep Plus Stages (~18% cobertura) | 15-25% |
 | `polar_rem_pct` | % de sueño REM. Solo con Sleep Plus Stages (~18% cobertura) | 18-25% |
 | `polar_efficiency_pct` | Eficiencia: tiempo dormido / tiempo en cama × 100 | 85-95% |
-| `polar_continuity` | Clase cualitativa de continuidad Polar (1–5). Categoría textual del tramo nocturno. | 1-5 |
+| `polar_continuity` | Clase cualitativa de continuidad del sueño Polar (1 = más fragmentado/discontinuo, 5 = más continuo). Categoría textual que Polar asigna al tramo nocturno. | 1-5 |
 | `polar_continuity_index` | Índice numérico de continuidad del sueño Polar. Equivalente numérico de `polar_continuity`. | 1-5 |
 | `polar_interruptions_long` | **Conteo** de interrupciones largas (⚠️ NO es duración). P90 personal ≈ 8 | 0-15 |
 | `polar_interruptions_total` | Conteo total de interrupciones (largas + cortas) | 10-40 |
@@ -497,9 +497,9 @@ Generado por `build_sessions.py` como `ENDURANCE_HRV_sessions_day.csv`. No decid
 - ¿vienes de una semana monótona o muy exigente?
 - ¿el verde de hoy llega con contexto de prudencia?
 
-### Capa de clustering de intensidad (AP-01)
+### Capa de clustering de intensidad
 
-Estas columnas viven en `sessions_day.csv` y alimentan directamente el aviso proactivo de clustering:
+Estas columnas viven en `sessions_day.csv` y alimentan directamente el aviso proactivo de concentración temporal de sesiones intensas:
 
 | Columna | Qué es | Cómo leerla |
 |---------|--------|-------------|
@@ -509,35 +509,35 @@ Estas columnas viven en `sessions_day.csv` y alimentan directamente el aviso pro
 | `intensity_clustering_flag` | Flag binario de clustering reciente. Vale `1` si `intense_days_prev_5d >= 2`. | Señala que la intensidad reciente ya está lo bastante concentrada como para merecer contexto preventivo. |
 | `intensity_clustering_level` | Severidad del clustering. `high` si `intense_days_prev_3d >= 2` o `intense_days_prev_5d >= 3`; `low` si solo activa el flag suave; vacío si no hay clustering. | `low` = aviso suave; `high` = apilamiento claro de intensidad. |
 
-### Validación en sombra de AP-03
+### Análisis enriquecido local (capas opcionales de `analysis/`)
 
-AP-03 no sustituye la v1 de `AP-01`; la valida. Por eso la salida analítica local puede cachear tres capas auxiliares en `summary.json` y en `session_payload.json`:
+Además del clustering básico, cuando el módulo `analysis/` procesa una sesión puede enriquecer el análisis con datos adicionales (terreno, potencia de carrera) y generar capas paralelas. Estos campos viven en `summary.json` (para auditoría) y en `session_payload.json` (para informes de sesión). **Para el significado semántico completo de estas capas experimentales, ver `analysis/ANALYSIS_DICTIONARY.md`:**
 
 | Campo | Qué es | Cómo leerlo |
 |-------|--------|-------------|
-| `v1_snapshot` | Instantánea mínima de lo que diría `AP-01` v1 para ese día, derivada de `sessions_day.csv`. | Sirve como referencia canónica para comparar la sombra con la regla histórica. |
-| `runaware_context` | Capa paralela de validación en sombra para `trail_run`, enriquecida con terreno y running power cuando existen. | Es el candidato experimental. No gobierna el gate ni reemplaza la v1. |
-| `v1_shadow_comparison` | Comparación local entre `v1_snapshot` y `runaware_context`. | Resume si ambas capas coinciden, discrepan o no tienen señal suficiente para compararse. |
-| `v1_shadow_history` | Tabla histórica de concordancia v1 vs sombra sobre sesiones comparables. | No mide dureza; mide acuerdo. Si la sombra dispara más que v1, la concordancia baja aunque la señal tenga valor exploratorio. |
-| `terrain_climb_hr_mean` | FC media agregada en subida, trasladada desde `terrain_fit_context` al shadow para leer el peaje cardiovascular real del tramo dominante. | Útil para contextualizar `runaware_context` con VT1/VT2 sin convertirla en una métrica canónica nueva. |
-| `terrain_climb_vam_mean` | VAM media agregada en subida, trasladada desde `terrain_fit_context` al shadow para contextualizar el ritmo vertical del tramo dominante. | Útil para leer el coste de subida junto a `terrain_climb_hr_mean` sin convertirla en contrato canónico nuevo. |
-| `terrain_climb_power_mean` | Potencia media agregada en subida, trasladada desde `terrain_fit_context` al shadow para contextualizar el esfuerzo mecánico del tramo dominante. | Útil para completar la lectura conjunta de FC, VAM y potencia sin elevarla a contrato canónico nuevo. |
-| `strength_basis` | Lista corta de condiciones observadas que explican por qué `runaware_context.strength` es `strong` o `exploratory`. | Sirve para auditar la decisión sin inferirla a mano. En `strong` suele incluir cobertura combinada de terreno y potencia. |
-| `runaware_severity_basis` | Lista corta de umbrales y señales observadas que explican por qué `runaware_context.runaware_severity_candidate` es `high`, `low` o `n/d`. | Sirve para auditar por qué la sombra sube o baja de severidad. |
+| `v1_snapshot` | Resumen del análisis de clustering básico para ese día, derivado de `sessions_day.csv`. | Sirve como línea base estable. Ver `analysis/ANALYSIS_DICTIONARY.md` para el detalle semántico. |
+| `runaware_context` | Análisis enriquecido cuando hay datos de terreno/potencia (principalmente en trail run). | Experimental: no cambia el gate HRV ni reemplaza el clustering. Ver `analysis/ANALYSIS_DICTIONARY.md`. |
+| `v1_shadow_comparison` | Comparación entre el clustering básico y el análisis enriquecido (si existe). | Resume convergencia, divergencia o falta de señal. Ver `analysis/ANALYSIS_DICTIONARY.md`. |
+| `v1_shadow_history` | Histórico de concordancia entre análisis básico y enriquecido en sesiones previas del mismo tipo. | Herramienta de calibración, no de puntuación. Ver `analysis/ANALYSIS_DICTIONARY.md`. |
+| `terrain_climb_hr_mean` | FC media en tramos de subida (cuando hay análisis de terreno). | Contexto cardiovascular del tramo dominante. Ver `analysis/ANALYSIS_DICTIONARY.md`. |
+| `terrain_climb_vam_mean` | VAM (velocidad ascensional media) en subidas, cuando hay datos de terreno. | Contexto de ritmo vertical. Ver `analysis/ANALYSIS_DICTIONARY.md`. |
+| `terrain_climb_power_mean` | Potencia media en subidas (cuando hay potencia de carrera disponible). | Contexto mecánico del tramo dominante. Ver `analysis/ANALYSIS_DICTIONARY.md`. |
+| `strength_basis` | Condiciones observadas que justifican la confianza del análisis enriquecido. | Auditoría de por qué el análisis se marcó como "strong" o "exploratory". Ver `analysis/ANALYSIS_DICTIONARY.md`. |
+| `runaware_severity_basis` | Umbrales y señales que explican la severidad del análisis enriquecido. | Auditoría de severidad: por qué es `high`, `low`, o `n/d`. Ver `analysis/ANALYSIS_DICTIONARY.md`. |
 
-### Cómo leer la concordancia
+### Cómo leer la concordancia en `v1_shadow_comparison`
 
-- `aligned` significa que v1 y la sombra convergen en la misma decisión.
-- `divergent` significa que la sombra propone algo distinto a v1; no implica automáticamente error, pero sí exige revisión.
+- `aligned` significa que el análisis básico y el enriquecido convergen en la misma conclusión.
+- `divergent` significa que el análisis enriquecido propone algo distinto al básico; no implica automáticamente error, pero sí merece revisión si el contexto lo justifica.
 - `insufficient` significa que no había señal comparable suficiente para cerrar la comparación.
-- La concordancia histórica es una herramienta de calibración, no una medida de intensidad ni de carga.
+- El histórico de concordancia es una herramienta de calibración, no una medida de intensidad ni de carga. Ver `analysis/ANALYSIS_DICTIONARY.md`.
 
 ### Semántica operativa de esta capa
 
-- Es un **proxy estructural**, no un NDLI power-based.
+- Es una **aproximación basada en el calendario de sesiones** (días intensos y su espaciado temporal), no un índice de carga basado en potencia.
 - Usa calendario continuo: los días sin sesión cuentan como `0` para esta capa concreta.
 - Siempre mira **días previos**, nunca incluye el día actual.
-- En `FINAL`, el clustering se propaga con `ffill(limit=2)` para poder avisar en días HRV sin sesión si el apilamiento ocurrió ayer o anteayer.
+- En `FINAL`, el clustering se propaga con `ffill(limit=2)` (relleno hacia adelante de máximo 2 días sin sesión) para poder avisar en días HRV sin sesión si el apilamiento ocurrió ayer o anteayer.
 - No recolorea el gate: solo añade contexto textual.
 
 ### Relación con `reason_text`
@@ -564,21 +564,21 @@ Además del clustering, `sessions_day.csv` sigue siendo la fuente de:
 - `acwr_simple_prev`
 - `monotony_7d_prev`
 - `strain_7d_prev`
-- `load_ctx_ready`
+- `load_ctx_ready` — `True` si hay ≥14 días con datos de carga en la ventana de 28 días; indica que `acwr_simple_prev`, `monotony_7d_prev` y `strain_7d_prev` tienen historial suficiente para ser interpretables y entrar en `reason_text`.
 
 Estas métricas explican *cuánta* carga hay. La capa de clustering explica si la intensidad reciente está **mal espaciada**.
 
-### Capa DO-02 de distribución rolling por familia
+### Capa de distribución rolling por familia (DO-02)
 
-Estas columnas viven también en `sessions_day.csv` y describen **cómo** se repartió la intensidad en los `7` días previos, no cuánta carga hubo:
+Estas columnas viven también en `sessions_day.csv` y describen **cómo** se repartió la intensidad en los `7` días previos (qué tan polarizada, qué tan concentrada en Z2), no cuánta carga hubo:
 
 | Columna | Qué es | Cómo leerla |
 |---------|--------|-------------|
 | `dominant_family_prev_7d` | Familia deportiva dominante de la ventana `D-7..D-1` (`run_family`, `bike_family`, `hike_family`, `elliptical_family`). | Vacío si la ventana no tiene una dominancia clara. |
-| `dominant_family_share_prev_7d` | Fracción de `moving_min` que aporta la familia dominante sobre el total elegible de la ventana. | Umbral v1 `>= 0.60`. Si queda por debajo, la señal no se considera interpretable. |
+| `dominant_family_share_prev_7d` | Fracción de `moving_min` que aporta la familia dominante sobre el total elegible de la ventana. | Umbral operativo `>= 0.60` (≥60% del volumen). Si queda por debajo, la señal no se considera interpretable. |
 | `n_sessions_usable_prev_7d` | Número de sesiones de esa familia con cobertura válida de zonas. | `0` significa que no hay señal utilizable aunque haya habido entrenamiento. |
 | `distribution_signal_confidence_prev_7d` | Confianza de la señal rolling: `low`, `moderate`, `high`. | `low` = no usar para flag; `moderate/high` = la estructura ya es interpretable. |
-| `polarisation_index_prev_7d` | Índice v1 de polarización: `(Z1 + Z3) / max(Z2, 1.0)` usando porcentajes ponderados de la familia dominante. | Cuanto más bajo, más peso relativo de Z2. Es una señal contextual, no un gate. |
+| `polarisation_index_prev_7d` | Índice de polarización: `(Z1 + Z3) / max(Z2, 1.0)` usando porcentajes ponderados de la familia dominante. Cuanto más bajo, más concentración en Z2 (agujero negro de intensidad). | Es una señal contextual informativa, no afecta el gate. Alto = polarizada; bajo = dominada por Z2. |
 | `intensity_blackhole_flag` | Flag operativo que marca una ventana con Z2 excesiva y poco soporte de Z1/Z3. | Solo puede ser `True` con confianza suficiente, al menos `2` sesiones usables, `dominant_family_share >= 0.60`, `dominant_family_duration >= 90` y `polarisation_index_prev_7d < 2.2`. |
 | `intensity_blackhole_episode_id` | Identificador del episodio actual del flag. | Sirve para no contar cada día repetido como un evento nuevo. |
 | `intensity_blackhole_episode_len` | Longitud total del episodio actual. | Cuenta filas consecutivas emitidas en `sessions_day.csv`, no días calendario consecutivos. |
@@ -755,7 +755,7 @@ Responde preguntas que ni el gate HRV ni `sessions_day.csv` pueden responder por
 
 ## 5sexies. WELLNESS_SUBJECTIVE (sidecar retrospectivo) — 17 columnas
 
-Generado como `ENDURANCE_HRV_wellness_subjective.csv` a partir del wellness de Intervals.icu (RE-02). **NO alimenta `reason_text`** ni modifica el gate: es una capa de análisis retrospectivo reservada para revisiones semanales o estudios offline.
+Generado como `ENDURANCE_HRV_wellness_subjective.csv` a partir del wellness subjetivo reportado en Intervals.icu (capa retrospectiva de análisis). **NO alimenta `reason_text`** ni modifica el gate: es información complementaria reservada para revisiones semanales u offline.
 
 ### ¿Para qué sirve?
 
@@ -870,7 +870,60 @@ Cuando `durability_hint = terrain_confounded`, el campo `durability_hint_detail`
 | Categorización e identidad de sesión | 65–68 | `intensity_category`, `effort_vs_recent`, `effort_vs_anchor`, `session_group` |
 | Notas y contrato | 69–73 | `notes_raw`, `rpe_present`, `notes_present`, `pipeline_version`, `stream_dt_est` |
 
-Para interpretación, reglas de cobertura (`zones_source=fallback`, `stream_dt_est` no ~1 Hz, etc.) y el contrato de cada columna, consultar `ENDURANCE_HRV_Sessions_Schema.md`.
+### `late_intensity` y `cardiac_drift_pct` — cols 36–37
+
+| Campo | Qué es |
+|-------|--------|
+| `late_intensity` | `1` si la FC media de la segunda mitad de la sesión supera en ≥8 lpm a la primera mitad, solo en sesiones ≥40 min. Detecta sesiones donde el esfuerzo escala hacia el final (finish strong). `0` en el resto. No aplica a sesiones demasiado cortas. |
+| `cardiac_drift_pct` | Porcentaje de deriva cardíaca calculada desde el stream HR: cuánto sube la FC media en la segunda mitad respecto a la primera, con la velocidad controlada. Requiere sesión ≥30 min. `None` si no hay suficientes datos. |
+
+### `intensity_category` — col 65
+
+Clasifica la sesión por la **estructura del trabajo sostenido** (bloques >VT1), no por la exposición bruta a Z3:
+
+| Valor | Cuándo se asigna |
+|-------|-----------------|
+| `work_intense` | Hay ≥10 min de bloques de trabajo Y ≥15% de esos minutos en Z3. Indica sesión con esfuerzo estructurado de alta intensidad. |
+| `work_steady` | Hay ≥20 min de bloques de trabajo Y <15% Z3. Trabajo aeróbico sostenido sin picos de alta intensidad. |
+| `work_moderate` | Hay ≥5 min de bloques de trabajo, pero sin alcanzar los umbrales anteriores. Trabajo suave o corto. |
+| `finish_strong` | No hay bloques de trabajo pero `late_intensity = 1`: la FC subió al final. Sesión que escala al cierre. |
+| `easy` | Ninguna de las anteriores. Sesión aeróbica suave sin estructura de trabajo detectable. |
+| `NA` | Deporte no aeróbico (fuerza, movilidad, etc.). |
+
+### `effort_vs_recent` y `effort_vs_anchor` — cols 66–67
+
+Comparan la carga (`load`) de esta sesión con el historial del mismo `session_group`:
+
+| Campo | Valores | Qué mide |
+|-------|---------|----------|
+| `effort_vs_recent` | `above` / `typical` / `below` / `unknown` | Carga vs percentiles 25–75 de las sesiones del mismo grupo en los últimos 60 días (causal, shift-1). `unknown` si hay <5 sesiones previas. |
+| `effort_vs_anchor` | `above` / `typical` / `below` / `unknown` | Carga vs percentiles 25–75 del **período de referencia fijo** (verano entrenamiento base). Permite comparar siempre con el mismo punto de referencia histórico. |
+
+### `session_group` — col 68
+
+Agrupa sesiones en familias funcionales para los cálculos de `effort_vs_recent` y `effort_vs_anchor`:
+
+| Valor | Quién cae aquí |
+|-------|----------------|
+| `endurance_hard` | Sesiones aeróbicas con `intensity_category = work_intense`. |
+| `endurance_moderate` | Sesiones aeróbicas con `work_steady` o `work_moderate`. |
+| `endurance_easy` | Sesiones aeróbicas `finish_strong` o `easy`. |
+| `strength_unknown` | Fuerza (sin clasificación de intensidad aeróbica). |
+| `mobility` | Movilidad. |
+| `other` | Otros deportes no clasificables. |
+
+### `decoupling` — col 64
+
+Valor de desacoplamiento aeróbico tomado directamente de Intervals.icu. Solo está presente cuando hay datos de potencia del dispositivo (`device_watts`); en el resto de sesiones queda `None`. Mide la divergencia progresiva entre esfuerzo (potencia/ritmo) y FC a lo largo de la sesión: valores altos indican que el sistema cardiovascular trabajó cada vez más para mantener el mismo output mecánico.
+
+### `zones_source`
+
+| Valor | Qué significa |
+|-------|---------------|
+| `icu` | Zonas configuradas en Intervals.icu para ese deporte. Son las zonas de referencia preferidas. |
+| `fallback` | Intervals.icu no devolvió zonas configuradas para ese deporte o sesión. Se usaron los umbrales VT1/VT2 de algún deporte alternativo disponible, o valores por defecto. Las métricas de zona (z1/z2/z3, work blocks) existen pero son menos precisas. Señal de que conviene configurar las zonas en Intervals.icu para ese deporte. |
+
+Para interpretación, reglas de cobertura y el contrato de cada columna, consultar `ENDURANCE_HRV_Sessions_Schema.md`.
 
 ---
 
@@ -1018,14 +1071,14 @@ Mínimo garantizado para SWC_ln: `ln(1.05) ≈ 0.04879`. ¿Por qué? En periodos
 ### Reason_text
 Texto explicativo que combina información del gate con datos contextuales (sueño, carga). No modifica el gate — es un "comentario" que acompaña a la decisión automática. Puede decir cosas como "sueño más corto de lo habitual", "carga acumulada reciente alta", o "VERDE con fatiga acumulada: conviene prudencia". Si el sleep.csv no existe, solo se generan avisos basados en datos HRV (caída brusca de RMSSD de hoy respecto a la base reciente o RMSSD suavizado de 3 días por encima de la base reciente).
 
-Desde SS-01, `reason_text` debe leerse como un render humano compacto, no como el origen semántico primario del builder. Internamente se construye desde `reason_items` que separan:
+`reason_text` debe leerse como un render humano compacto del contexto operativo, no como el origen semántico primario. Internamente se construye desde `reason_items` que separan cuatro capas epistémicas:
 
-- dato medido,
-- proxy,
-- inferencia,
-- acción.
+- **dato medido**: valor directo de un sensor o CSV (ej. `sleep_dur_min`, `load_3d`).
+- **proxy**: valor derivado que aproxima algo no medido directamente (ej. `acwr_simple_prev` como proxy de carga crónica).
+- **inferencia**: conclusión obtenida combinando uno o más datos/proxies (ej. "carga convergente" cuando coinciden `load_3d` y `acwr`).
+- **acción**: recomendación operativa que emerge de la inferencia (ej. "conviene prudencia con la intensidad").
 
-Esa mejora es interna y de trazabilidad. Desde SS-02, además, el builder publica un sidecar `ENDURANCE_HRV_master_FINAL_reason_items.json` con los `reason_items` por fecha para consumo de `analysis/`. El contrato público del CSV no cambia:
+Esa mejora es interna y de trazabilidad. El builder también publica un sidecar `ENDURANCE_HRV_master_FINAL_reason_items.json` con los `reason_items` estructurados por fecha para consumo de `analysis/`. El contrato público del CSV no cambia:
 
 - `FINAL` sigue teniendo 62 columnas,
 - `DASHBOARD` sigue teniendo 10 columnas,
@@ -1061,6 +1114,12 @@ Coeficiente que captura la relación natural entre tu pulso y tu HRV: cuando tu 
 
 ### cRMSSD ("c" = corrected)
 RMSSD "limpio" de la influencia del pulso: si tu pulso de hoy está más alto de lo normal, tu RMSSD bajará naturalmente (sin que haya fatiga real). cRMSSD usa beta para descontar ese efecto y quedarse solo con la variabilidad "genuina". **Usado solo en BETA_AUDIT** — el decisor FINAL/DASHBOARD usa el Gate 2D (que compara ambas señales simultáneamente) en lugar de corregir una por la otra.
+
+### DFA α1 (análisis de fluctuaciones sin tendencia)
+Métrica no lineal de la señal RR. Mide las correlaciones de escala corta en la serie de latidos: si α1 ≈ 1.0, la señal tiene correlaciones de largo alcance típicas de reposo; si α1 < 0.75, sugiere pérdida de complejidad asociada a estrés o fatiga; si α1 > 1.5, la señal tiende a comportarse como ruido browniano. DFA α1 no forma parte de los CSV canónicos (`CORE`, `FINAL`, `DASHBOARD`) pero aparece en `summary.json` de `analysis/` como métrica complementaria cuando hay suficientes latidos en la sesión.
+
+### `zones_source = fallback`
+Ver la sección "SESSIONS — `zones_source`" en §5septies. En resumen: indica que para esa sesión o deporte no había zonas VT1/VT2 configuradas en Intervals.icu y se usaron valores de respaldo. Las distribuciones z1/z2/z3 y los bloques de trabajo siguen existiendo pero son menos precisos. Visible también en `zones_source_dist` del metadata JSON (§5quater) y en `zones_source_mix` del sidecar semanal (§5quinquies).
 
 ---
 
