@@ -95,6 +95,14 @@ REASON_ITEM_FIELDS = {
 # Heuristica local de analysis/: si drift y decoupling difieren <=2.5 pp,
 # se consideran aproximadamente alineados para narrativa, no equivalentes.
 DRIFT_DECOUPLING_ALIGNMENT_DELTA_PCT = 2.5
+# Umbrales de estado cronico subjetivo para consolidacion longitudinal (SYA-08).
+CHRONIC_STATE_COHERENT_MEAN_MIN = 80.0
+CHRONIC_STATE_COHERENT_MISMATCH_MAX = 0.25
+CHRONIC_STATE_WATCH_MEAN_MIN = 65.0
+CHRONIC_STATE_WATCH_MISMATCH_MAX = 0.5
+# Umbrales de confianza longitudinal (SYA-08).
+LONGITUDINAL_CONFIDENCE_HIGH_HISTORY_MIN = 12
+LONGITUDINAL_CONFIDENCE_MODERATE_HISTORY_MIN = 6
 # Umbral de work_total_min para considerar una sesión como "de calidad" en rankings de bloque (SYA-11).
 # Elegido en 10 min por ser el mínimo operativo de trabajo útil que diferencia sesiones activas
 # de rodajes fáciles o sesiones sin bloque; revisable si cambia el criterio en sessions.csv.
@@ -1169,6 +1177,37 @@ def build_coach_narrative_hints(
             + ", ".join(route_parts)
             + "; usarlo para reencuadrar terreno o repetibilidad, no como prueba central de intensidad interna"
         )
+
+    longitudinal_context = analysis_only_context.get("longitudinal_context") or {}
+    if longitudinal_context:
+        route_benchmark = longitudinal_context.get("route_benchmark") or {}
+        subjective_chronic = longitudinal_context.get("subjective_chronic_context") or {}
+        thermal_sensitivity = longitudinal_context.get("thermal_sensitivity_context") or {}
+        if route_benchmark.get("available"):
+            route_note_parts: list[str] = []
+            if route_benchmark.get("same_route_count") is not None:
+                route_note_parts.append(f"muestras={route_benchmark.get('same_route_count')}")
+            if route_benchmark.get("climb_economy_trend"):
+                route_note_parts.append(f"economia={route_benchmark.get('climb_economy_trend')}")
+            hints["estructura_externa"].append(
+                "benchmark longitudinal de ruta disponible: "
+                + ", ".join(route_note_parts)
+                + "; usarlo como comparador propio cuando la repetición sea suficiente"
+            )
+        if subjective_chronic.get("available"):
+            hints["respuesta_interna"].append(
+                "coherencia subjetiva crónica disponible: "
+                + f"estado={subjective_chronic.get('chronic_state')}, "
+                + f"muestra={subjective_chronic.get('history_count')}; "
+                "leerlo como tendencia acumulada, no como veto de una sola sesión"
+            )
+        if thermal_sensitivity.get("available"):
+            hints["respuesta_interna"].append(
+                "sensibilidad térmica longitudinal disponible: "
+                + f"estado={thermal_sensitivity.get('thermal_state')}, "
+                + f"muestra={thermal_sensitivity.get('history_count')}; "
+                "usar la comparación contra el baseline propio, no contra un umbral genérico"
+            )
 
     if isinstance(zone_context.get("power_zone_times"), list):
         hints["advertencias"].append(
@@ -5336,6 +5375,7 @@ def _build_route_history_comparator(
     session_row: dict[str, Any],
     analysis_only_context: dict[str, Any] | None,
     report_root: Path | None = None,
+    preloaded_payloads: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     if not isinstance(analysis_only_context, dict):
         return None
@@ -5352,7 +5392,8 @@ def _build_route_history_comparator(
         return None
 
     candidates: list[dict[str, Any]] = []
-    for payload in _load_historical_session_payloads(report_root):
+    payloads = preloaded_payloads if preloaded_payloads is not None else _load_historical_session_payloads(report_root)
+    for payload in payloads:
         if not isinstance(payload, dict):
             continue
         candidate_meta = payload.get("meta") or {}
@@ -5429,6 +5470,345 @@ def _build_route_history_comparator(
         "current_vam_uphill_mean": current_vam,
         "previous_vam_uphill_mean": previous_vam,
         "vam_delta_pct": _format_signed_pct_change(current_vam, previous_vam),
+    }
+
+
+def build_longitudinal_context(
+    session_row: dict[str, Any],
+    summary: dict[str, Any] | None,
+    analysis_only_context: dict[str, Any] | None,
+    *,
+    report_root: Path | None = None,
+    limit: int = 12,
+) -> dict[str, Any] | None:
+    if not isinstance(session_row, dict):
+        return None
+
+    sport_family = analyzer_sport_from_session(session_row)
+    if not sport_family:
+        return None
+
+    try:
+        current_dt = _target_session_datetime(session_row)
+    except Exception:
+        return None
+
+    current_session_id = str(session_row.get("session_id") or "").strip()
+    analysis_only_context = analysis_only_context if isinstance(analysis_only_context, dict) else {}
+    summary = summary if isinstance(summary, dict) else {}
+    current_composite = analysis_only_context.get("composite_context") or summary.get("composite_context") or {}
+    current_route_context = analysis_only_context.get("route_context") or {}
+    current_terrain_fit = summary.get("terrain_fit_context") or {}
+    current_route_id = _coerce_int_like(current_route_context.get("route_id")) or _coerce_int_like(session_row.get("route_id"))
+    current_climb_gain = _float_or_none(current_terrain_fit.get("climb_gain_m"))
+    current_climb_time = _float_or_none(current_terrain_fit.get("climb_time_min"))
+    current_climb_vam = None
+    if current_climb_gain is not None and current_climb_time not in (None, 0):
+        current_climb_vam = round(current_climb_gain / current_climb_time, 1)
+
+    current_subjective = current_composite.get("subjective_coherence") or {}
+    current_thermal = current_composite.get("thermal_context") or {}
+
+    all_payloads = _load_historical_session_payloads(report_root)
+    historical_rows: list[dict[str, Any]] = []
+    for payload in all_payloads:
+        if not isinstance(payload, dict):
+            continue
+        candidate_meta = payload.get("meta") or {}
+        candidate_session = payload.get("session_row") or {}
+        if analyzer_sport_from_session(candidate_session) != sport_family:
+            continue
+        candidate_session_id = str(candidate_meta.get("session_id") or candidate_session.get("session_id") or "").strip()
+        if candidate_session_id == current_session_id:
+            continue
+        try:
+            candidate_dt = _target_session_datetime(candidate_session)
+        except Exception:
+            continue
+        if candidate_dt >= current_dt:
+            continue
+
+        candidate_analysis = payload.get("analysis_only_context") or {}
+        candidate_composite = candidate_analysis.get("composite_context") or payload.get("composite_context") or {}
+        candidate_route_context = candidate_analysis.get("route_context") or {}
+        candidate_terrain_fit = payload.get("terrain_fit_context") or {}
+        candidate_route_id = _coerce_int_like(candidate_route_context.get("route_id")) or _coerce_int_like(candidate_session.get("route_id"))
+        candidate_climb_gain = _float_or_none(candidate_terrain_fit.get("climb_gain_m"))
+        candidate_climb_time = _float_or_none(candidate_terrain_fit.get("climb_time_min"))
+        candidate_climb_vam = None
+        if candidate_climb_gain is not None and candidate_climb_time not in (None, 0):
+            candidate_climb_vam = round(candidate_climb_gain / candidate_climb_time, 1)
+
+        historical_rows.append(
+            {
+                "dt": candidate_dt,
+                "date": candidate_session.get("Fecha") or candidate_meta.get("date"),
+                "session_id": candidate_session_id,
+                "route_id": candidate_route_id,
+                "load": _float_or_none(candidate_session.get("load")),
+                "work_total_min": _float_or_none(candidate_session.get("work_total_min")),
+                "cardiac_drift_pct": _float_or_none(candidate_session.get("cardiac_drift_pct")),
+                "session_rpe": _coerce_int_like((candidate_composite.get("coach_metrics") or {}).get("session_rpe")),
+                "subjective_coherence_score": _float_or_none((candidate_composite.get("subjective_coherence") or {}).get("subjective_coherence_score")),
+                "subjective_coherence_state": _coerce_text_or_none((candidate_composite.get("subjective_coherence") or {}).get("subjective_coherence_state")),
+                "thermal_cost_score": _float_or_none((candidate_composite.get("thermal_context") or {}).get("thermal_cost_score")),
+                "climb_gain_m": candidate_climb_gain,
+                "climb_time_min": candidate_climb_time,
+                "climb_vam_uphill_mean": candidate_climb_vam,
+                "climb_hr_mean": _float_or_none(candidate_terrain_fit.get("climb_hr_mean")),
+            }
+        )
+
+    if not historical_rows:
+        return None
+
+    historical_rows.sort(key=lambda row: row["dt"], reverse=True)
+    recent_rows = historical_rows[:limit]
+    history_span_days = (
+        (historical_rows[0]["dt"].date() - historical_rows[-1]["dt"].date()).days
+        if len(historical_rows) > 1
+        else 0
+    )
+
+    def _series(field: str, rows: list[dict[str, Any]] | None = None) -> list[float]:
+        series_rows = rows if rows is not None else historical_rows
+        values = [_float_or_none(row.get(field)) for row in series_rows]
+        return sorted(value for value in values if value is not None)
+
+    def _metric_entry(
+        field: str,
+        current_value: float | int | None,
+        *,
+        label: str | None = None,
+        priority: int = 0,
+        rows: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any] | None:
+        historical_values = _series(field, rows)
+        if current_value is None or not historical_values:
+            return None
+        percentile = _percentile_rank(historical_values, float(current_value))
+        return {
+            "field": field,
+            "label": label or field,
+            "value": round(float(current_value), 1),
+            "median": round(float(statistics.median(historical_values)), 1),
+            "percentile": percentile,
+            "count": len(historical_values),
+            "priority": priority,
+        }
+
+    sport_percentiles = _compute_sport_percentiles(session_row)
+    sport_baseline = None
+    if sport_percentiles:
+        sport_baseline = {
+            "available": True,
+            "source": "sessions_csv_percentiles",
+            "highlight": sport_percentiles.get("highlight"),
+            "metrics": sport_percentiles.get("metrics") or [],
+        }
+
+    current_load = _float_or_none(session_row.get("load"))
+    current_work = _float_or_none(session_row.get("work_total_min"))
+    current_drift = _float_or_none(session_row.get("cardiac_drift_pct"))
+    current_session_rpe = _coerce_int_like((current_composite.get("coach_metrics") or {}).get("session_rpe"))
+    current_subjective_score = _float_or_none(current_subjective.get("subjective_coherence_score"))
+    current_thermal_score = _float_or_none(current_thermal.get("thermal_cost_score"))
+
+    same_sport_metrics = [
+        _metric_entry("load", current_load, label="load", priority=0),
+        _metric_entry("work_total_min", current_work, label="work_total_min", priority=1),
+        _metric_entry("cardiac_drift_pct", current_drift, label="cardiac_drift_pct", priority=2),
+        _metric_entry("session_rpe", current_session_rpe, label="session_rpe", priority=3),
+        _metric_entry("subjective_coherence_score", current_subjective_score, label="subjective_coherence_score", priority=4),
+        _metric_entry("thermal_cost_score", current_thermal_score, label="thermal_cost_score", priority=5),
+        _metric_entry("climb_vam_uphill_mean", current_climb_vam, label="climb_vam_uphill_mean", priority=6),
+    ]
+    same_sport_metrics = [item for item in same_sport_metrics if item is not None]
+    same_sport_metrics.sort(key=lambda item: (-abs(item["percentile"] - 50.0), item["priority"]))
+    sport_highlight = None
+    if same_sport_metrics:
+        sport_highlight = same_sport_metrics[0]
+
+    route_rows = [row for row in historical_rows if current_route_id is not None and row.get("route_id") == current_route_id]
+    route_history = _build_route_history_comparator(
+        session_row,
+        analysis_only_context,
+        report_root=report_root,
+        preloaded_payloads=all_payloads,
+    )
+    route_benchmark = None
+    if current_route_id is not None and len(route_rows) >= 3:
+        route_climb_rows = [row for row in route_rows if row.get("climb_vam_uphill_mean") is not None]
+        route_loads = [row.get("load") for row in route_rows if row.get("load") is not None]
+        route_work = [row.get("work_total_min") for row in route_rows if row.get("work_total_min") is not None]
+        route_drifts = [row.get("cardiac_drift_pct") for row in route_rows if row.get("cardiac_drift_pct") is not None]
+        route_vams = [row.get("climb_vam_uphill_mean") for row in route_climb_rows if row.get("climb_vam_uphill_mean") is not None]
+        route_current_vam = current_climb_vam
+        route_vam_median = round(float(statistics.median(route_vams)), 1) if route_vams else None
+        route_vam_percentile = _percentile_rank(sorted(route_vams), route_current_vam) if route_current_vam is not None and route_vams else None
+        route_vam_delta_value = None
+        if route_current_vam is not None and route_vam_median is not None and route_vam_median != 0:
+            route_vam_delta_value = round(((route_current_vam - route_vam_median) / route_vam_median) * 100.0, 1)
+        route_vam_delta_pct = None
+        if route_vam_delta_value is not None:
+            sign = "+" if route_vam_delta_value > 0 else ""
+            route_vam_delta_pct = f"{sign}{route_vam_delta_value}%"
+        climb_trend = None
+        if route_vam_delta_value is not None:
+            if abs(route_vam_delta_value) <= 5.0:
+                climb_trend = "stable"
+            elif route_vam_delta_value > 0:
+                climb_trend = "better_economy"
+            else:
+                climb_trend = "weaker_economy"
+        route_benchmark = {
+            "available": True,
+            "same_route_count": len(route_rows),
+            "same_route_climb_count": len(route_climb_rows),
+            "current_route_id": current_route_id,
+            "current_climb_vam_uphill_mean": route_current_vam,
+            "route_climb_vam_median": route_vam_median,
+            "route_climb_vam_percentile": route_vam_percentile,
+            "route_climb_vam_delta_pct": route_vam_delta_pct,
+            "route_load_median": round(float(statistics.median(route_loads)), 1) if route_loads else None,
+            "route_work_total_min_median": round(float(statistics.median(route_work)), 1) if route_work else None,
+            "route_cardiac_drift_pct_median": round(float(statistics.median(route_drifts)), 1) if route_drifts else None,
+            "climb_economy_trend": climb_trend,
+            "climb_economy_basis": [
+                "route_count>=3",
+                "climb_rows_with_vam=" + str(len(route_climb_rows)),
+                "route_vam_median=" + (str(route_vam_median) if route_vam_median is not None else "n/d"),
+                "route_vam_delta_pct=" + (route_vam_delta_pct if route_vam_delta_pct is not None else "n/d"),
+            ],
+        }
+
+    subjective_rows = [row for row in historical_rows if row.get("subjective_coherence_score") is not None]
+    subjective_scores = [float(row["subjective_coherence_score"]) for row in subjective_rows if row.get("subjective_coherence_score") is not None]
+    subjective_recent_scores = [
+        float(row["subjective_coherence_score"])
+        for row in recent_rows
+        if row.get("subjective_coherence_score") is not None
+    ]
+    subjective_mismatch_count = sum(1 for row in subjective_rows if row.get("subjective_coherence_state") == "mismatched")
+    subjective_recent_mismatch_count = sum(1 for row in recent_rows if row.get("subjective_coherence_state") == "mismatched")
+    subjective_chronic_context = None
+    if subjective_scores:
+        current_subjective_percentile = (
+            _percentile_rank(sorted(subjective_scores), current_subjective_score)
+            if current_subjective_score is not None
+            else None
+        )
+        historical_mean = round(float(statistics.mean(subjective_scores)), 1)
+        historical_median = round(float(statistics.median(subjective_scores)), 1)
+        recent_mean = round(float(statistics.mean(subjective_recent_scores)), 1) if subjective_recent_scores else None
+        mismatch_rate = round(subjective_mismatch_count / len(subjective_rows), 3)
+        recent_mismatch_rate = (
+            round(subjective_recent_mismatch_count / len(recent_rows), 3) if recent_rows else None
+        )
+        if historical_mean >= CHRONIC_STATE_COHERENT_MEAN_MIN and mismatch_rate < CHRONIC_STATE_COHERENT_MISMATCH_MAX:
+            chronic_state = "coherent"
+        elif historical_mean >= CHRONIC_STATE_WATCH_MEAN_MIN and mismatch_rate < CHRONIC_STATE_WATCH_MISMATCH_MAX:
+            chronic_state = "watch"
+        else:
+            chronic_state = "divergent"
+        subjective_chronic_context = {
+            "available": True,
+            "history_count": len(subjective_rows),
+            "recent_count": len(subjective_recent_scores),
+            "current_score": current_subjective_score,
+            "current_state": _coerce_text_or_none(current_subjective.get("subjective_coherence_state")),
+            "current_percentile": current_subjective_percentile,
+            "historical_mean": historical_mean,
+            "historical_median": historical_median,
+            "recent_mean": recent_mean,
+            "mismatch_rate": mismatch_rate,
+            "recent_mismatch_rate": recent_mismatch_rate,
+            "chronic_state": chronic_state,
+            "basis": [
+                "history_count=" + str(len(subjective_rows)),
+                "recent_count=" + str(len(subjective_recent_scores)),
+                "mismatch_rate=" + str(mismatch_rate),
+                "chronic_state_thresholds: coherent>=80 & mismatch<0.25",
+                "chronic_state_thresholds: watch>=65 & mismatch<0.5",
+            ],
+        }
+
+    thermal_rows = [row for row in historical_rows if row.get("thermal_cost_score") is not None]
+    thermal_scores = [float(row["thermal_cost_score"]) for row in thermal_rows if row.get("thermal_cost_score") is not None]
+    thermal_recent_scores = [
+        float(row["thermal_cost_score"])
+        for row in recent_rows
+        if row.get("thermal_cost_score") is not None
+    ]
+    thermal_sensitivity_context = None
+    if thermal_scores:
+        current_thermal_percentile = (
+            _percentile_rank(sorted(thermal_scores), current_thermal_score)
+            if current_thermal_score is not None
+            else None
+        )
+        thermal_mean = round(float(statistics.mean(thermal_scores)), 2)
+        thermal_median = round(float(statistics.median(thermal_scores)), 2)
+        thermal_recent_mean = round(float(statistics.mean(thermal_recent_scores)), 2) if thermal_recent_scores else None
+        if current_thermal_score is None:
+            thermal_state = "insufficient"
+        elif current_thermal_percentile is not None and current_thermal_percentile >= 75.0:
+            thermal_state = "elevated"
+        elif current_thermal_percentile is not None and current_thermal_percentile <= 25.0:
+            thermal_state = "low"
+        else:
+            thermal_state = "typical"
+        thermal_sensitivity_context = {
+            "available": True,
+            "history_count": len(thermal_rows),
+            "recent_count": len(thermal_recent_scores),
+            "current_score": current_thermal_score,
+            "current_percentile": current_thermal_percentile,
+            "historical_mean": thermal_mean,
+            "historical_median": thermal_median,
+            "recent_mean": thermal_recent_mean,
+            "thermal_state": thermal_state,
+            "basis": [
+                "history_count=" + str(len(thermal_rows)),
+                "recent_count=" + str(len(thermal_recent_scores)),
+                "current_percentile=" + str(current_thermal_percentile) if current_thermal_percentile is not None else "current_percentile=n/d",
+            ],
+        }
+
+    duration_rows = [row for row in historical_rows if row.get("session_rpe") is not None or row.get("load") is not None]
+    longitudinal_confidence = "low"
+    if len(historical_rows) >= LONGITUDINAL_CONFIDENCE_HIGH_HISTORY_MIN and (
+        route_benchmark or subjective_chronic_context or thermal_sensitivity_context or len(duration_rows) >= 8
+    ):
+        longitudinal_confidence = "high"
+    elif len(historical_rows) >= LONGITUDINAL_CONFIDENCE_MODERATE_HISTORY_MIN or route_benchmark is not None:
+        longitudinal_confidence = "moderate"
+
+    return {
+        "version": "sya08_longitudinal_v1",
+        "available": True,
+        "sport_family": sport_family,
+        "history_count": len(historical_rows),
+        "history_span_days": history_span_days,
+        "support": {
+            "recent_count": len(recent_rows),
+            "subjective_context_count": len(subjective_rows),
+            "thermal_context_count": len(thermal_rows),
+            "route_context_count": len(route_rows),
+            "route_benchmark_ready": bool(route_benchmark and route_benchmark.get("available")),
+        },
+        "confidence": longitudinal_confidence,
+        "sport_baseline": sport_baseline,
+        "route_history": route_history,
+        "route_benchmark": route_benchmark,
+        "subjective_chronic_context": subjective_chronic_context,
+        "thermal_sensitivity_context": thermal_sensitivity_context,
+        "notes": [
+            "benchmark de ruta solo cuando haya repetición suficiente",
+            "la lectura crónica subjetiva sigue siendo exploratoria y local a analysis/",
+            "el coste térmico usa una heurística simple basada en temperatura media y duración",
+            "confidence: high exige >=12 sesiones historicas; route_benchmark puede aparecer antes con repeticion de ruta",
+        ],
     }
 
 
@@ -6044,6 +6424,41 @@ def build_final_report_markdown(
             )
         if route_parts:
             lines.append("Señales comparadas: " + "; ".join(route_parts) + ".")
+    longitudinal_context = summary.get("longitudinal_context") or {}
+    if not isinstance(longitudinal_context, dict):
+        longitudinal_context = {}
+    if longitudinal_context:
+        sport_baseline = longitudinal_context.get("sport_baseline") or {}
+        route_benchmark = longitudinal_context.get("route_benchmark") or {}
+        subjective_chronic = longitudinal_context.get("subjective_chronic_context") or {}
+        thermal_sensitivity = longitudinal_context.get("thermal_sensitivity_context") or {}
+        lines.append("")
+        lines.append("### Consolidación longitudinal")
+        lines.append(
+            f"La muestra acumulada del mismo deporte suma `{_fmt_num(longitudinal_context.get('history_count'), digits=0)}` sesiones previas "
+            f"en un rango de `{_fmt_num(longitudinal_context.get('history_span_days'), digits=0)}` días."
+        )
+        if sport_baseline and sport_baseline.get("highlight"):
+            highlight = sport_baseline.get("highlight") or {}
+            lines.append(
+                f"El mejor anclaje del baseline propio queda en `{highlight.get('label')}` p{_fmt_num(highlight.get('percentile'), digits=0)} "
+                f"(n={_fmt_num(highlight.get('count'), digits=0)})."
+            )
+        if route_benchmark and route_benchmark.get("available"):
+            lines.append(
+                f"El benchmark de ruta ya es usable con `{_fmt_num(route_benchmark.get('same_route_count'), digits=0)}` repeticiones; "
+                f"la economía de subida sale `{_string_or_na(route_benchmark.get('climb_economy_trend'))}`."
+            )
+        if subjective_chronic and subjective_chronic.get("available"):
+            lines.append(
+                f"La coherencia subjetiva crónica queda `{_string_or_na(subjective_chronic.get('chronic_state'))}` "
+                f"con media `{_fmt_num(subjective_chronic.get('historical_mean'))}` y tasa de mismatch `{_fmt_pct(subjective_chronic.get('mismatch_rate'))}`."
+            )
+        if thermal_sensitivity and thermal_sensitivity.get("available"):
+            lines.append(
+                f"La sensibilidad térmica longitudinal queda `{_string_or_na(thermal_sensitivity.get('thermal_state'))}` "
+                f"con media `{_fmt_num(thermal_sensitivity.get('historical_mean'))}` y percentil actual `{_fmt_pct(thermal_sensitivity.get('current_percentile'))}`."
+            )
     lines.append("")
     lines.append(
         f"Dentro del bloque reciente, esta sesión encaja como una pieza `{_string_or_na(session_row.get('session_group'))}` con "
@@ -6477,6 +6892,17 @@ def build_conversational_payload(
         analysis_only_context["work_block_context"] = build_analysis_work_block_context(session_row)
     if isinstance(runaware_context, dict):
         analysis_only_context["runaware_context"] = runaware_context
+    longitudinal_context = summary.get("longitudinal_context")
+    if not isinstance(longitudinal_context, dict):
+        longitudinal_context = build_longitudinal_context(
+            session_row,
+            summary,
+            analysis_only_context,
+            report_root=DEFAULT_REPORTS_DIR,
+        )
+    if isinstance(longitudinal_context, dict):
+        summary["longitudinal_context"] = longitudinal_context
+        analysis_only_context["longitudinal_context"] = longitudinal_context
     terrain_intervals_csv = None
     terrain_climbs_csv = None
     matched_climbs_csv = None
@@ -6685,6 +7111,7 @@ def build_conversational_payload(
         "terrain_climbs": terrain_climbs if terrain_climbs else None,
         "efficiency_context": summary.get("efficiency_context"),
         "analysis_only_context": analysis_only_context,
+        "longitudinal_context": longitudinal_context,
         "final_reason_items": final_reason_items,
         "final_reason_flags": final_reason_flags,
         "final_reason_items_contract": final_reason_items_contract,
@@ -6738,6 +7165,7 @@ def build_conversational_payload(
             "composite_context": composite_context,
             "durability_context": durability_context,
             "work_block_context": work_block_context,
+            "longitudinal_context": longitudinal_context,
             "final_reason_rendered": final_reason_rendered,
             "error_context": error_context_payload,
             "exit_context": exit_context_payload,
@@ -7372,6 +7800,19 @@ def run_analysis(bundle_manifest: Path, reports_dir: Path, keep_debug_artifacts:
     if isinstance(v1_shadow_history, dict):
         summary["v1_shadow_history"] = v1_shadow_history
         write_json(artifacts_dir / "v1_shadow_history.json", v1_shadow_history)
+
+    longitudinal_context = build_longitudinal_context(
+        session_row,
+        summary,
+        analysis_only_context,
+        report_root=reports_dir,
+    )
+    if isinstance(longitudinal_context, dict):
+        summary["longitudinal_context"] = longitudinal_context
+        if isinstance(analysis_only_context, dict):
+            analysis_only_context["longitudinal_context"] = longitudinal_context
+            summary["analysis_only_context"] = analysis_only_context
+        write_json(artifacts_dir / "longitudinal_context.json", longitudinal_context)
 
     write_json(summary_path, summary)
     technical_report_md = report_dir / "technical_report.md"

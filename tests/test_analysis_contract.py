@@ -28,6 +28,7 @@ from analysis.session_analysis_pipeline import (
     build_final_reason_rendered,
     build_final_report_markdown,
     build_durability_thirds_context,
+    build_longitudinal_context,
     build_runaware_context,
     build_v1_snapshot,
     build_v1_shadow_comparison,
@@ -78,6 +79,76 @@ def _session_row(**overrides):
     }
     row.update(overrides)
     return row
+
+
+def _write_longitudinal_payload(
+    reports_root: Path,
+    *,
+    sport: str,
+    session_id: str,
+    date: str,
+    start_time: str,
+    route_id: int,
+    load: float,
+    work_total_min: float,
+    cardiac_drift_pct: float,
+    subjective_score: float,
+    subjective_state: str,
+    thermal_score: float,
+    climb_gain_m: float | None = None,
+    climb_time_min: float | None = None,
+) -> None:
+    payload_dir = reports_root / date[:4] / date[5:7] / f"{date}_{start_time.replace(':', '-')}_{sport}_{session_id}" / "artifacts"
+    payload_dir.mkdir(parents=True, exist_ok=True)
+    analysis_only_context = {
+        "route_context": {"route_id": route_id},
+        "composite_context": {
+            "subjective_coherence": {
+                "subjective_coherence_score": subjective_score,
+                "subjective_coherence_state": subjective_state,
+                "subjective_objective_gap_pct": 14.0,
+            },
+            "thermal_context": {
+                "thermal_cost_score": thermal_score,
+                "thermal_band": "moderate",
+            },
+            "coach_metrics": {
+                "session_rpe": 6,
+            },
+        },
+    }
+    if climb_gain_m is not None and climb_time_min is not None:
+        terrain_fit = {
+            "climb_gain_m": climb_gain_m,
+            "climb_time_min": climb_time_min,
+            "climb_hr_mean": 158.0,
+        }
+        analysis_only_context["terrain_fit_context"] = terrain_fit
+    payload = {
+        "meta": {
+            "session_id": session_id,
+            "date": date,
+            "start_time": start_time,
+        },
+        "session_row": {
+            "session_id": session_id,
+            "Fecha": date,
+            "start_time": start_time,
+            "sport": sport,
+            "route_id": str(route_id),
+            "load": str(load),
+            "work_total_min": str(work_total_min),
+            "cardiac_drift_pct": str(cardiac_drift_pct),
+        },
+        "analysis_only_context": analysis_only_context,
+    }
+    if climb_gain_m is not None and climb_time_min is not None:
+        payload["terrain_fit_context"] = {
+            "climb_gain_m": climb_gain_m,
+            "climb_time_min": climb_time_min,
+            "climb_hr_mean": 158.0,
+        }
+    (payload_dir / "session_payload.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
 class AnalysisContractTests(unittest.TestCase):
@@ -867,6 +938,862 @@ class AnalysisContractTests(unittest.TestCase):
         self.assertEqual(payload["v1_shadow_comparison"]["alignment"], "aligned")
         self.assertEqual(payload["context"]["v1_shadow_comparison"]["flag_alignment"], "match")
 
+    def test_build_conversational_payload_exposes_longitudinal_context(self):
+        session_row = _session_row(
+            session_id="current-session",
+            Fecha="2026-04-14",
+            start_time="14:08",
+            sport="trail_run",
+            route_id="42",
+            moving_min="47.0",
+            duration_min="47.0",
+            load="90.0",
+            work_total_min="47.0",
+            work_n_blocks="2",
+            work_longest_min="16.0",
+            cardiac_drift_pct="6.0",
+            z3_total_min="9.5",
+            z3_pct="20.0",
+        )
+        manifest = {
+            "session_id": "current-session",
+            "slug": "2026-04-14_14-08_trail_run_current-session",
+            "date": "2026-04-14",
+            "start_time": "14:08",
+            "sport": "trail_run",
+            "analysis_only_context": {},
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            reports_root = root / "analysis" / "reports"
+            sessions_csv = root / "data" / "ENDURANCE_HRV_sessions.csv"
+            sessions_csv.parent.mkdir(parents=True, exist_ok=True)
+            sessions_csv.write_text(
+                "\n".join(
+                    [
+                        "session_id,sport,work_total_min,load,z3_total_min,z3_pct",
+                        "h1,trail_run,38.0,74.0,7.0,18.0",
+                        "h2,trail_run,41.0,81.0,8.0,19.0",
+                        "h3,trail_run,44.0,88.0,9.0,21.0",
+                        "h4,trail_run,46.0,92.0,10.0,23.0",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            def write_historical_payload(
+                session_id: str,
+                date: str,
+                start_time: str,
+                load: float,
+                work_total_min: float,
+                cardiac_drift_pct: float,
+                subjective_score: float,
+                subjective_state: str,
+                thermal_score: float,
+                climb_gain_m: float,
+                climb_time_min: float,
+            ) -> None:
+                payload_dir = reports_root / date[:4] / date[5:7] / f"{date}_{start_time.replace(':', '-')}_trail_run_{session_id}" / "artifacts"
+                payload_dir.mkdir(parents=True, exist_ok=True)
+                payload = {
+                    "meta": {
+                        "session_id": session_id,
+                        "date": date,
+                        "start_time": start_time,
+                    },
+                    "session_row": {
+                        "session_id": session_id,
+                        "Fecha": date,
+                        "start_time": start_time,
+                        "sport": "trail_run",
+                        "route_id": "42",
+                        "load": str(load),
+                        "work_total_min": str(work_total_min),
+                        "cardiac_drift_pct": str(cardiac_drift_pct),
+                    },
+                    "analysis_only_context": {
+                        "route_context": {"route_id": 42},
+                        "composite_context": {
+                            "subjective_coherence": {
+                                "subjective_coherence_score": subjective_score,
+                                "subjective_coherence_state": subjective_state,
+                                "subjective_objective_gap_pct": 14.0,
+                            },
+                            "thermal_context": {
+                                "thermal_cost_score": thermal_score,
+                                "thermal_band": "moderate",
+                            },
+                            "coach_metrics": {
+                                "session_rpe": 6,
+                            },
+                        },
+                        "terrain_fit_context": {
+                            "climb_gain_m": climb_gain_m,
+                            "climb_time_min": climb_time_min,
+                            "climb_hr_mean": 158.0,
+                        },
+                    },
+                    "terrain_fit_context": {
+                        "climb_gain_m": climb_gain_m,
+                        "climb_time_min": climb_time_min,
+                        "climb_hr_mean": 158.0,
+                    },
+                }
+                (payload_dir / "session_payload.json").write_text(json.dumps(payload), encoding="utf-8")
+
+            write_historical_payload("h1", "2026-04-01", "08:10", 74.0, 38.0, 4.4, 68.0, "mismatched", 7.8, 820.0, 41.0)
+            write_historical_payload("h2", "2026-04-07", "08:20", 81.0, 41.0, 5.1, 71.0, "aligned", 8.2, 835.0, 41.5)
+            write_historical_payload("h3", "2026-04-10", "08:30", 88.0, 44.0, 5.8, 66.0, "mismatched", 8.6, 845.0, 42.0)
+
+            summary = {
+                "session_cost_model": {"usable": True, "coste_dominante": "mixto"},
+                "terrain_fit_context": {
+                    "climb_gain_m": 870.0,
+                    "climb_time_min": 42.0,
+                    "climb_hr_mean": 160.0,
+                },
+                "composite_context": {
+                    "subjective_coherence": {
+                        "subjective_coherence_score": 64.0,
+                        "subjective_coherence_state": "mismatched",
+                        "subjective_objective_gap_pct": 18.0,
+                    },
+                    "thermal_context": {
+                        "thermal_cost_score": 8.0,
+                        "thermal_band": "moderate",
+                    },
+                    "durability_context": {
+                        "durability_hint": "fade_like",
+                        "confidence": "medium",
+                    },
+                    "coach_metrics": {
+                        "session_rpe": 6,
+                    },
+                },
+                "analysis_only_context": {
+                    "route_context": {"route_id": 42},
+                    "composite_context": {
+                        "subjective_coherence": {
+                            "subjective_coherence_score": 64.0,
+                            "subjective_coherence_state": "mismatched",
+                            "subjective_objective_gap_pct": 18.0,
+                        },
+                        "thermal_context": {
+                            "thermal_cost_score": 8.0,
+                            "thermal_band": "moderate",
+                        },
+                        "durability_context": {
+                            "durability_hint": "fade_like",
+                            "confidence": "medium",
+                        },
+                        "coach_metrics": {
+                            "session_rpe": 6,
+                        },
+                    },
+                    "terrain_fit_context": {
+                        "climb_gain_m": 870.0,
+                        "climb_time_min": 42.0,
+                        "climb_hr_mean": 160.0,
+                    },
+                    "durability_context": {
+                        "durability_hint": "fade_like",
+                        "confidence": "medium",
+                    },
+                },
+            }
+
+            def fake_row_by_date(path, date_str):
+                if path.name == "ENDURANCE_HRV_master_FINAL.csv":
+                    return {
+                        "Fecha": date_str,
+                        "Calidad": "OK",
+                        "RMSSD_stable": "40.2",
+                        "lnRMSSD_used": "3.69",
+                        "HR_used": "49.8",
+                        "gate_badge": "VERDE",
+                        "Action": "Normal con prudencia",
+                        "baseline60_degraded": "False",
+                        "reason_text": "VERDE, pero carga y contexto longitudinal piden prudencia",
+                    }
+                if path.name == "ENDURANCE_HRV_master_DASHBOARD.csv":
+                    return {
+                        "Fecha": date_str,
+                        "Calidad": "OK",
+                        "HR_today": "50.0",
+                        "RMSSD_stable": "40.2",
+                        "gate_badge": "VERDE",
+                        "Action": "Normal con prudencia",
+                        "baseline60_degraded": "False",
+                        "reason_text": "VERDE, pero carga y contexto longitudinal piden prudencia",
+                    }
+                return None
+
+            with patch("analysis.session_analysis_pipeline.DEFAULT_REPORTS_DIR", reports_root), patch(
+                "analysis.session_analysis_pipeline.DEFAULT_SESSIONS_CSV", sessions_csv
+            ), patch(
+                "analysis.session_analysis_pipeline.DEFAULT_INTENSITY_DISTRIBUTION_WEEKLY_CSV", root / "data" / "missing_weekly.csv"
+            ), patch(
+                "analysis.session_analysis_pipeline.row_by_date", side_effect=fake_row_by_date
+            ), patch(
+                "analysis.session_analysis_pipeline.load_optional_json", return_value=None
+            ), patch(
+                "analysis.session_analysis_pipeline.load_final_reason_items_lookup", return_value={}
+            ), patch(
+                "analysis.session_analysis_pipeline._compute_speed_metrics", return_value=None
+            ):
+                payload = build_conversational_payload(summary, manifest, session_row)
+                markdown = build_final_report_markdown(payload, summary, "sync-token-123")
+
+        longitudinal_context = payload["longitudinal_context"]
+        self.assertTrue(longitudinal_context["available"])
+        self.assertEqual(longitudinal_context["version"], "sya08_longitudinal_v1")
+        self.assertEqual(longitudinal_context["confidence"], "moderate")
+        self.assertEqual(longitudinal_context["route_benchmark"]["same_route_count"], 3)
+        self.assertTrue(longitudinal_context["route_benchmark"]["available"])
+        self.assertIn("route_vam_delta_pct=", longitudinal_context["route_benchmark"]["climb_economy_basis"][-1])
+        self.assertTrue(longitudinal_context["subjective_chronic_context"]["available"])
+        self.assertIn(
+            "chronic_state_thresholds: coherent>=80 & mismatch<0.25",
+            longitudinal_context["subjective_chronic_context"]["basis"],
+        )
+        self.assertTrue(longitudinal_context["thermal_sensitivity_context"]["available"])
+        self.assertIn("longitudinal_context", payload["narrative_targets"])
+        self.assertIn("Consolidación longitudinal", markdown)
+        self.assertIn("benchmark de ruta", markdown)
+        self.assertIn("sensibilidad térmica longitudinal", markdown)
+
+    def test_build_longitudinal_context_loads_history_once(self):
+        session_row = _session_row(
+            session_id="current-session",
+            Fecha="2026-04-14",
+            start_time="14:08",
+            sport="trail_run",
+            route_id="42",
+            moving_min="47.0",
+            duration_min="47.0",
+            load="90.0",
+            work_total_min="47.0",
+            cardiac_drift_pct="6.0",
+        )
+        summary = {
+            "terrain_fit_context": {
+                "climb_gain_m": 870.0,
+                "climb_time_min": 42.0,
+                "climb_hr_mean": 160.0,
+            },
+            "composite_context": {
+                "subjective_coherence": {
+                    "subjective_coherence_score": 64.0,
+                    "subjective_coherence_state": "mismatched",
+                    "subjective_objective_gap_pct": 18.0,
+                },
+                "thermal_context": {
+                    "thermal_cost_score": 8.0,
+                    "thermal_band": "moderate",
+                },
+                "coach_metrics": {
+                    "session_rpe": 6,
+                },
+            },
+            "analysis_only_context": {
+                "route_context": {"route_id": 42},
+                "composite_context": {
+                    "subjective_coherence": {
+                        "subjective_coherence_score": 64.0,
+                        "subjective_coherence_state": "mismatched",
+                        "subjective_objective_gap_pct": 18.0,
+                    },
+                    "thermal_context": {
+                        "thermal_cost_score": 8.0,
+                        "thermal_band": "moderate",
+                    },
+                    "coach_metrics": {
+                        "session_rpe": 6,
+                    },
+                },
+                "terrain_fit_context": {
+                    "climb_gain_m": 870.0,
+                    "climb_time_min": 42.0,
+                    "climb_hr_mean": 160.0,
+                },
+            },
+        }
+        payload = {
+            "meta": {
+                "session_id": "h1",
+                "date": "2026-04-01",
+                "start_time": "08:10",
+            },
+            "session_row": {
+                "session_id": "h1",
+                "Fecha": "2026-04-01",
+                "start_time": "08:10",
+                "sport": "trail_run",
+                "route_id": "42",
+                "load": "74.0",
+                "work_total_min": "38.0",
+                "cardiac_drift_pct": "4.4",
+            },
+            "analysis_only_context": {
+                "route_context": {"route_id": 42},
+                "composite_context": {
+                    "subjective_coherence": {
+                        "subjective_coherence_score": 68.0,
+                        "subjective_coherence_state": "mismatched",
+                        "subjective_objective_gap_pct": 14.0,
+                    },
+                    "thermal_context": {
+                        "thermal_cost_score": 7.8,
+                        "thermal_band": "moderate",
+                    },
+                    "coach_metrics": {
+                        "session_rpe": 6,
+                    },
+                },
+                "terrain_fit_context": {
+                    "climb_gain_m": 820.0,
+                    "climb_time_min": 41.0,
+                    "climb_hr_mean": 158.0,
+                },
+            },
+            "terrain_fit_context": {
+                "climb_gain_m": 820.0,
+                "climb_time_min": 41.0,
+                "climb_hr_mean": 158.0,
+            },
+        }
+        with patch(
+            "analysis.session_analysis_pipeline._load_historical_session_payloads",
+            return_value=[payload],
+        ) as load_mock:
+            result = build_longitudinal_context(
+                session_row,
+                summary,
+                summary["analysis_only_context"],
+                report_root=Path("/tmp"),
+        )
+
+        self.assertEqual(load_mock.call_count, 1)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["history_count"], 1)
+        self.assertEqual(result["version"], "sya08_longitudinal_v1")
+
+    def test_build_longitudinal_context_reaches_high_confidence(self):
+        session_row = _session_row(
+            session_id="current-session",
+            Fecha="2026-04-14",
+            start_time="14:08",
+            sport="trail_run",
+            route_id="42",
+            moving_min="47.0",
+            duration_min="47.0",
+            load="90.0",
+            work_total_min="47.0",
+            cardiac_drift_pct="6.0",
+        )
+        summary = {
+            "terrain_fit_context": {
+                "climb_gain_m": 845.0,
+                "climb_time_min": 42.0,
+                "climb_hr_mean": 157.0,
+            },
+            "composite_context": {
+                "subjective_coherence": {
+                    "subjective_coherence_score": 62.0,
+                    "subjective_coherence_state": "mismatched",
+                    "subjective_objective_gap_pct": 17.0,
+                },
+                "thermal_context": {
+                    "thermal_cost_score": 8.0,
+                    "thermal_band": "moderate",
+                },
+                "coach_metrics": {
+                    "session_rpe": 6,
+                },
+            },
+            "analysis_only_context": {
+                "route_context": {"route_id": 42},
+                "composite_context": {
+                    "subjective_coherence": {
+                        "subjective_coherence_score": 62.0,
+                        "subjective_coherence_state": "mismatched",
+                        "subjective_objective_gap_pct": 17.0,
+                    },
+                    "thermal_context": {
+                        "thermal_cost_score": 8.0,
+                        "thermal_band": "moderate",
+                    },
+                    "coach_metrics": {
+                        "session_rpe": 6,
+                    },
+                },
+                "terrain_fit_context": {
+                    "climb_gain_m": 845.0,
+                    "climb_time_min": 42.0,
+                    "climb_hr_mean": 157.0,
+                },
+            },
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            reports_root = root / "analysis" / "reports"
+            sessions_csv = root / "data" / "ENDURANCE_HRV_sessions.csv"
+            sessions_csv.parent.mkdir(parents=True, exist_ok=True)
+            sessions_csv.write_text(
+                "\n".join(
+                    [
+                        "session_id,sport,work_total_min,load,z3_total_min,z3_pct",
+                        *[
+                            f"h{i},trail_run,{40.0 + i:.1f},{74.0 + i:.1f},{7.0 + (i / 10):.1f},{18.0 + (i / 10):.1f}"
+                            for i in range(1, 14)
+                        ],
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            for i in range(1, 13):
+                _write_longitudinal_payload(
+                    reports_root,
+                    sport="trail_run",
+                    session_id=f"h{i}",
+                    date=f"2026-04-{i:02d}",
+                    start_time="08:00",
+                    route_id=42,
+                    load=74.0 + i,
+                    work_total_min=40.0 + i,
+                    cardiac_drift_pct=4.0 + (i / 10.0),
+                    subjective_score=70.0 + i,
+                    subjective_state="mismatched" if i % 2 else "aligned",
+                    thermal_score=7.0 + (i / 10.0),
+                    climb_gain_m=820.0 + i,
+                    climb_time_min=41.0,
+                )
+
+            with patch("analysis.session_analysis_pipeline.DEFAULT_REPORTS_DIR", reports_root), patch(
+                "analysis.session_analysis_pipeline.DEFAULT_SESSIONS_CSV", sessions_csv
+            ):
+                result = build_longitudinal_context(
+                    session_row,
+                    summary,
+                    summary["analysis_only_context"],
+                    report_root=reports_root,
+                )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["version"], "sya08_longitudinal_v1")
+        self.assertEqual(result["confidence"], "high")
+        self.assertEqual(result["history_count"], 12)
+        self.assertTrue(result["route_benchmark"]["available"])
+        self.assertTrue(result["support"]["route_benchmark_ready"])
+
+    def test_build_longitudinal_context_ignores_cross_sport_history(self):
+        session_row = _session_row(
+            session_id="road-current",
+            Fecha="2026-04-14",
+            start_time="14:08",
+            sport="road_run",
+            route_id="42",
+            moving_min="56.0",
+            duration_min="56.0",
+            load="84.0",
+            work_total_min="56.0",
+            cardiac_drift_pct="4.2",
+        )
+        summary = {
+            "terrain_fit_context": {
+                "climb_gain_m": 830.0,
+                "climb_time_min": 41.0,
+                "climb_hr_mean": 156.0,
+            },
+            "composite_context": {
+                "subjective_coherence": {
+                    "subjective_coherence_score": 63.0,
+                    "subjective_coherence_state": "mismatched",
+                    "subjective_objective_gap_pct": 16.0,
+                },
+                "thermal_context": {
+                    "thermal_cost_score": 7.8,
+                    "thermal_band": "moderate",
+                },
+                "coach_metrics": {
+                    "session_rpe": 6,
+                },
+            },
+            "analysis_only_context": {
+                "route_context": {"route_id": 42},
+                "composite_context": {
+                    "subjective_coherence": {
+                        "subjective_coherence_score": 63.0,
+                        "subjective_coherence_state": "mismatched",
+                        "subjective_objective_gap_pct": 16.0,
+                    },
+                    "thermal_context": {
+                        "thermal_cost_score": 7.8,
+                        "thermal_band": "moderate",
+                    },
+                    "coach_metrics": {
+                        "session_rpe": 6,
+                    },
+                },
+                "terrain_fit_context": {
+                    "climb_gain_m": 830.0,
+                    "climb_time_min": 41.0,
+                    "climb_hr_mean": 156.0,
+                },
+            },
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            reports_root = root / "analysis" / "reports"
+            sessions_csv = root / "data" / "ENDURANCE_HRV_sessions.csv"
+            sessions_csv.parent.mkdir(parents=True, exist_ok=True)
+            sessions_csv.write_text(
+                "\n".join(
+                    [
+                        "session_id,sport,work_total_min,load,z3_total_min,z3_pct",
+                        "road-h1,road_run,44.0,78.0,8.0,18.0",
+                        "road-h2,road_run,46.0,81.0,8.5,19.0",
+                        "road-h3,road_run,48.0,84.0,9.0,20.0",
+                        "trail-h1,trail_run,50.0,90.0,10.0,22.0",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            _write_longitudinal_payload(
+                reports_root,
+                sport="road_run",
+                session_id="road-h1",
+                date="2026-04-01",
+                start_time="08:10",
+                route_id=42,
+                load=78.0,
+                work_total_min=44.0,
+                cardiac_drift_pct=3.8,
+                subjective_score=68.0,
+                subjective_state="coherent",
+                thermal_score=7.3,
+                climb_gain_m=810.0,
+                climb_time_min=41.0,
+            )
+            _write_longitudinal_payload(
+                reports_root,
+                sport="road_run",
+                session_id="road-h2",
+                date="2026-04-07",
+                start_time="08:20",
+                route_id=42,
+                load=81.0,
+                work_total_min=46.0,
+                cardiac_drift_pct=4.0,
+                subjective_score=66.0,
+                subjective_state="mismatched",
+                thermal_score=7.6,
+                climb_gain_m=815.0,
+                climb_time_min=41.5,
+            )
+            _write_longitudinal_payload(
+                reports_root,
+                sport="road_run",
+                session_id="road-h3",
+                date="2026-04-10",
+                start_time="08:30",
+                route_id=42,
+                load=84.0,
+                work_total_min=48.0,
+                cardiac_drift_pct=4.3,
+                subjective_score=64.0,
+                subjective_state="mismatched",
+                thermal_score=7.9,
+                climb_gain_m=820.0,
+                climb_time_min=42.0,
+            )
+            _write_longitudinal_payload(
+                reports_root,
+                sport="trail_run",
+                session_id="trail-h1",
+                date="2026-04-08",
+                start_time="08:30",
+                route_id=42,
+                load=90.0,
+                work_total_min=50.0,
+                cardiac_drift_pct=5.3,
+                subjective_score=72.0,
+                subjective_state="coherent",
+                thermal_score=8.1,
+                climb_gain_m=900.0,
+                climb_time_min=44.0,
+            )
+
+            ctx = build_longitudinal_context(
+                session_row,
+                summary,
+                summary["analysis_only_context"],
+                report_root=reports_root,
+            )
+
+        self.assertIsNotNone(ctx)
+        self.assertEqual(ctx["sport_family"], "road")
+        self.assertEqual(ctx["history_count"], 3)
+        self.assertEqual(ctx["route_benchmark"]["same_route_count"], 3)
+        self.assertEqual(ctx["route_history"]["previous_session_id"], "road-h3")
+        self.assertEqual(ctx["support"]["route_context_count"], 3)
+
+    def test_build_longitudinal_context_allows_route_benchmark_without_climb_data(self):
+        session_row = _session_row(
+            session_id="bike-current",
+            Fecha="2026-04-14",
+            start_time="10:08",
+            sport="bike",
+            route_id="77",
+            moving_min="94.0",
+            duration_min="94.0",
+            load="115.0",
+            work_total_min="94.0",
+            cardiac_drift_pct="2.7",
+        )
+        summary = {
+            "composite_context": {
+                "subjective_coherence": {
+                    "subjective_coherence_score": 71.0,
+                    "subjective_coherence_state": "coherent",
+                    "subjective_objective_gap_pct": 8.0,
+                },
+                "thermal_context": {
+                    "thermal_cost_score": 6.9,
+                    "thermal_band": "moderate",
+                },
+                "coach_metrics": {
+                    "session_rpe": 6,
+                },
+            },
+            "analysis_only_context": {
+                "route_context": {"route_id": 77},
+                "composite_context": {
+                    "subjective_coherence": {
+                        "subjective_coherence_score": 71.0,
+                        "subjective_coherence_state": "coherent",
+                        "subjective_objective_gap_pct": 8.0,
+                    },
+                    "thermal_context": {
+                        "thermal_cost_score": 6.9,
+                        "thermal_band": "moderate",
+                    },
+                    "coach_metrics": {
+                        "session_rpe": 6,
+                    },
+                },
+            },
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            reports_root = root / "analysis" / "reports"
+            sessions_csv = root / "data" / "ENDURANCE_HRV_sessions.csv"
+            sessions_csv.parent.mkdir(parents=True, exist_ok=True)
+            sessions_csv.write_text(
+                "\n".join(
+                    [
+                        "session_id,sport,work_total_min,load,z3_total_min,z3_pct",
+                        "bike-h1,bike,88.0,109.0,12.0,18.0",
+                        "bike-h2,bike,90.0,112.0,13.0,19.0",
+                        "bike-h3,bike,92.0,114.0,14.0,20.0",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            _write_longitudinal_payload(
+                reports_root,
+                sport="bike",
+                session_id="bike-h1",
+                date="2026-04-01",
+                start_time="07:10",
+                route_id=77,
+                load=109.0,
+                work_total_min=88.0,
+                cardiac_drift_pct=2.4,
+                subjective_score=69.0,
+                subjective_state="coherent",
+                thermal_score=6.7,
+            )
+            _write_longitudinal_payload(
+                reports_root,
+                sport="bike",
+                session_id="bike-h2",
+                date="2026-04-05",
+                start_time="07:20",
+                route_id=77,
+                load=112.0,
+                work_total_min=90.0,
+                cardiac_drift_pct=2.5,
+                subjective_score=70.0,
+                subjective_state="coherent",
+                thermal_score=6.8,
+            )
+            _write_longitudinal_payload(
+                reports_root,
+                sport="bike",
+                session_id="bike-h3",
+                date="2026-04-10",
+                start_time="07:30",
+                route_id=77,
+                load=114.0,
+                work_total_min=92.0,
+                cardiac_drift_pct=2.6,
+                subjective_score=72.0,
+                subjective_state="mismatched",
+                thermal_score=7.0,
+            )
+
+            ctx = build_longitudinal_context(
+                session_row,
+                summary,
+                summary["analysis_only_context"],
+                report_root=reports_root,
+            )
+
+        self.assertIsNotNone(ctx)
+        self.assertTrue(ctx["route_benchmark"]["available"])
+        self.assertEqual(ctx["route_benchmark"]["same_route_count"], 3)
+        self.assertEqual(ctx["route_benchmark"]["same_route_climb_count"], 0)
+        self.assertIsNone(ctx["route_benchmark"]["climb_economy_trend"])
+
+    def test_build_final_report_markdown_uses_longitudinal_baseline_highlight_only_when_present(self):
+        base_summary = {
+            "session_cost_model": {"session_id": "i1", "usable": True, "coste_dominante": "mixto"},
+            "session_row": {
+                "session_id": "i1",
+                "Fecha": "2026-04-14",
+                "start_time": "14:08",
+                "sport": "trail_run",
+                "session_group": "endurance_hard",
+                "moving_min": "47.0",
+                "work_total_min": "47.0",
+                "load": "90.0",
+                "cardiac_drift_pct": "6.0",
+                "vt1_used": "140",
+                "vt2_used": "158",
+                "zones_source": "icu",
+                "z1_pct": "25.0",
+                "z2_pct": "50.0",
+                "z3_pct": "25.0",
+                "hr_p95": "168",
+                "trimp": "118.0",
+                "work_n_blocks": "2",
+                "work_longest_min": "16.0",
+                "work_blocks_min": "16.0;14.0",
+                "work_blocks_z3pct": "20;30",
+                "work_avg_z3_pct": "24.0",
+            },
+            "subjective_context": {"rpe": 6, "feel": 3, "notes_raw": "trail"},
+            "analysis_only_context": {"coach_metrics": {"session_rpe": 6}},
+            "terrain_fit_context": {"climb_count": 2, "climb_gain_m": 420.0, "climb_time_min": 31.2},
+            "rr_context": {"modifier": "no_rr", "interpretation": "RR no disponible", "evidence": []},
+            "final_cost_interpretation": {"note": "Lectura base"},
+            "rr_unavailable": False,
+        }
+        base_payload = {
+            "meta": {
+                "session_id": "i1",
+                "date": "2026-04-14",
+                "start_time": "14:08",
+                "sport": "trail_run",
+            },
+            "session_row": base_summary["session_row"],
+            "subjective_context": base_summary["subjective_context"],
+            "analysis_only_context": base_summary["analysis_only_context"],
+            "terrain_fit_context": base_summary["terrain_fit_context"],
+            "context": {
+                "final": {
+                    "gate_badge": "VERDE",
+                    "Action": "NORMAL",
+                    "baseline60_degraded": "False",
+                },
+                "sleep": {},
+                "sessions_day": {},
+                "sessions_metadata": {},
+            },
+            "narrative_targets": {
+                "final_reason_rendered": {
+                    "enabled": False,
+                    "reporting_mode": "caution_first",
+                    "reason_items": [],
+                    "action_readout": "",
+                    "baseline_readout": "",
+                }
+            },
+        }
+
+        with_highlight = dict(base_summary)
+        with_highlight["longitudinal_context"] = {
+            "available": True,
+            "history_count": 3,
+            "history_span_days": 9,
+            "sport_baseline": {
+                "available": True,
+                "highlight": {
+                    "label": "work_total_min",
+                    "percentile": 88.0,
+                    "count": 4,
+                },
+            },
+            "route_benchmark": {"available": True, "same_route_count": 3, "climb_economy_trend": "stable"},
+            "subjective_chronic_context": {
+                "available": True,
+                "chronic_state": "watch",
+                "historical_mean": 70.0,
+                "mismatch_rate": 0.25,
+            },
+            "thermal_sensitivity_context": {
+                "available": True,
+                "thermal_state": "typical",
+                "historical_mean": 8.2,
+                "current_percentile": 55.0,
+            },
+        }
+        payload_with_highlight = dict(base_payload)
+        payload_with_highlight["longitudinal_context"] = with_highlight["longitudinal_context"]
+
+        without_highlight = dict(base_summary)
+        without_highlight["longitudinal_context"] = {
+            "available": True,
+            "history_count": 3,
+            "history_span_days": 9,
+            "sport_baseline": {
+                "available": True,
+                "highlight": None,
+            },
+            "route_benchmark": {"available": True, "same_route_count": 3, "climb_economy_trend": "stable"},
+            "subjective_chronic_context": {
+                "available": True,
+                "chronic_state": "watch",
+                "historical_mean": 70.0,
+                "mismatch_rate": 0.25,
+            },
+            "thermal_sensitivity_context": {
+                "available": True,
+                "thermal_state": "typical",
+                "historical_mean": 8.2,
+                "current_percentile": 55.0,
+            },
+        }
+        payload_without_highlight = dict(base_payload)
+        payload_without_highlight["longitudinal_context"] = without_highlight["longitudinal_context"]
+
+        report_with = build_final_report_markdown(payload_with_highlight, with_highlight, "sync-token-123")
+        report_without = build_final_report_markdown(payload_without_highlight, without_highlight, "sync-token-123")
+
+        self.assertIn("### Consolidación longitudinal", report_with)
+        self.assertEqual(report_with.count("El mejor anclaje del baseline propio"), 1)
+        self.assertNotIn("El mejor anclaje del baseline propio", report_without)
+        self.assertIn("La muestra acumulada del mismo deporte suma `3` sesiones previas", report_with)
+
     def test_build_conversational_payload_exposes_matched_climbs_csv(self):
         session_row = _session_row(sport="road_run")
         manifest = {
@@ -1175,7 +2102,7 @@ class AnalysisContractTests(unittest.TestCase):
                 "thermal_context": {"thermal_band": "high", "temperature_c": 22.5},
             },
             "terrain_fit_context": {"climb_count": 2, "climb_gain_m": 420, "climb_time_min": 31.2},
-            "analysis_only_context": {"coach_metrics": {"session_rpe": 1173, "icu_intensity_pct": 67.3}},
+            "analysis_only_context": {"coach_metrics": {"session_rpe": 6, "icu_intensity_pct": 67.3}},
             "context": {
                 "sleep": {
                     "polar_sleep_duration_min": "425",
@@ -1305,7 +2232,7 @@ class AnalysisContractTests(unittest.TestCase):
                 "climb_power_estimated_count": 9,
                 "climb_power_measured_count": 0,
             },
-            "analysis_only_context": {"coach_metrics": {"session_rpe": 1173, "icu_intensity_pct": 67.3}},
+            "analysis_only_context": {"coach_metrics": {"session_rpe": 6, "icu_intensity_pct": 67.3}},
             "context": {
                 "sleep": {
                     "polar_sleep_duration_min": "425",
@@ -1494,7 +2421,7 @@ class AnalysisContractTests(unittest.TestCase):
                 "climb_power_measured_count": 6,
                 "climb_power_estimated_count": 0,
             },
-            "analysis_only_context": {"coach_metrics": {"session_rpe": 920, "icu_intensity_pct": 58.1}},
+            "analysis_only_context": {"coach_metrics": {"session_rpe": 6, "icu_intensity_pct": 58.1}},
             "context": {
                 "sleep": {
                     "polar_sleep_duration_min": "402",
@@ -1613,7 +2540,7 @@ class AnalysisContractTests(unittest.TestCase):
             "subjective_context": {"rpe": 7, "feel": 3, "notes_raw": "Trail con movilidad previa"},
             "composite_context": {},
             "terrain_fit_context": {"climb_count": 3, "climb_gain_m": 800, "climb_time_min": 45.0},
-            "analysis_only_context": {"coach_metrics": {"session_rpe": 655, "icu_intensity_pct": 54.2}},
+            "analysis_only_context": {"coach_metrics": {"session_rpe": 6, "icu_intensity_pct": 54.2}},
             "context": {
                 "sleep": {
                     "polar_sleep_duration_min": "425",
@@ -1824,7 +2751,7 @@ class AnalysisContractTests(unittest.TestCase):
             "subjective_context": {"rpe": 7, "feel": 3, "notes_raw": "Trail con movilidad previa"},
             "composite_context": {},
             "terrain_fit_context": {"climb_count": 3, "climb_gain_m": 800, "climb_time_min": 45.0},
-            "analysis_only_context": {"coach_metrics": {"session_rpe": 655, "icu_intensity_pct": 54.2}},
+            "analysis_only_context": {"coach_metrics": {"session_rpe": 6, "icu_intensity_pct": 54.2}},
             "context": {
                 "sleep": {
                     "polar_sleep_duration_min": "425",
@@ -2532,7 +3459,7 @@ class AnalysisContractTests(unittest.TestCase):
             "composite_context": {},
             "terrain_fit_context": {"climb_count": 3, "climb_gain_m": 800, "climb_time_min": 45.0},
             "analysis_only_context": {
-                "coach_metrics": {"session_rpe": 655, "icu_intensity_pct": 54.2},
+                "coach_metrics": {"session_rpe": 6, "icu_intensity_pct": 54.2},
                 "route_context": {"route_id": 42},
                 "terrain_fit_context": {"climb_gain_m": 800, "climb_time_min": 45.0},
             },
@@ -2989,6 +3916,212 @@ class AnalysisContractTests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result["route_id"], 42)
         self.assertEqual(result["previous_session_id"], "i_route_prev")
+
+    def test_build_conversational_payload_exposes_longitudinal_context_minimal(self):
+        with TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            reports_root = tmpdir / "reports"
+            sessions_csv = tmpdir / "ENDURANCE_HRV_sessions.csv"
+            sessions_csv.write_text(
+                "\n".join(
+                    [
+                        "session_id,Fecha,start_time,sport,work_total_min,load,z3_total_min,z3_pct",
+                        "s_prev_1,2026-04-10,14:00,trail_run,40.0,80,10.0,25.0",
+                        "s_prev_2,2026-04-11,14:00,trail_run,42.0,82,11.0,26.0",
+                        "s_prev_3,2026-04-12,14:00,trail_run,44.0,84,12.0,27.0",
+                        "s_current,2026-04-14,14:08,trail_run,47.0,90,13.0,28.0",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            def _write_payload(
+                session_id: str,
+                date: str,
+                start_time: str,
+                load: float,
+                work_total_min: float,
+                cardiac_drift_pct: float,
+                subjective_score: float,
+                thermal_cost_score: float,
+                route_id: int,
+                climb_gain_m: float,
+                climb_time_min: float,
+                climb_hr_mean: float,
+            ) -> None:
+                payload_path = (
+                    reports_root
+                    / date[:4]
+                    / date[5:7]
+                    / f"{date}_{start_time.replace(':', '-')}_trail_run_{session_id}"
+                    / "artifacts"
+                    / "session_payload.json"
+                )
+                payload_path.parent.mkdir(parents=True, exist_ok=True)
+                payload_path.write_text(
+                    json.dumps(
+                        {
+                            "meta": {
+                                "session_id": session_id,
+                                "date": date,
+                                "start_time": start_time,
+                                "sport": "trail_run",
+                            },
+                            "session_row": {
+                                "session_id": session_id,
+                                "Fecha": date,
+                                "start_time": start_time,
+                                "sport": "trail_run",
+                                "route_id": route_id,
+                                "load": load,
+                                "work_total_min": work_total_min,
+                                "cardiac_drift_pct": cardiac_drift_pct,
+                            },
+                            "analysis_only_context": {
+                                "route_context": {"route_id": route_id},
+                                "composite_context": {
+                                    "subjective_coherence": {
+                                        "subjective_coherence_state": "mixed",
+                                        "subjective_coherence_score": subjective_score,
+                                        "objective_anchor": 72.0,
+                                        "objective_spread_pct": 8.0,
+                                        "subjective_objective_gap_pct": 14.0,
+                                    },
+                                    "thermal_context": {
+                                        "thermal_cost_score": thermal_cost_score,
+                                        "thermal_band": "moderate",
+                                    },
+                                    "durability_context": {
+                                        "durability_hint": "stable",
+                                        "confidence": "medium",
+                                    },
+                                    "coach_metrics": {
+                                        "session_rpe": 6,
+                                    },
+                                },
+                            },
+                            "terrain_fit_context": {
+                                "climb_gain_m": climb_gain_m,
+                                "climb_time_min": climb_time_min,
+                                "climb_hr_mean": climb_hr_mean,
+                            },
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+            _write_payload("s_prev_1", "2026-04-10", "14:00", 80.0, 40.0, 4.0, 78.0, 4.0, 42, 780.0, 39.0, 154.0)
+            _write_payload("s_prev_2", "2026-04-11", "14:00", 82.0, 42.0, 5.0, 74.0, 5.5, 42, 790.0, 40.0, 155.0)
+            _write_payload("s_prev_3", "2026-04-12", "14:00", 84.0, 44.0, 6.0, 70.0, 6.5, 42, 800.0, 41.0, 156.0)
+
+            summary = {
+                "session_cost_model": {"usable": True, "coste_dominante": "cardio"},
+                "terrain_fit_context": {"climb_gain_m": 845.0, "climb_time_min": 42.0, "climb_hr_mean": 157.0},
+                "composite_context": {
+                    "subjective_coherence": {
+                        "subjective_coherence_state": "mismatched",
+                        "subjective_coherence_score": 62.0,
+                        "objective_anchor": 75.0,
+                        "objective_spread_pct": 10.0,
+                        "subjective_objective_gap_pct": 17.0,
+                    },
+                    "thermal_context": {
+                        "thermal_cost_score": 8.0,
+                        "thermal_band": "moderate",
+                    },
+                    "durability_context": {
+                        "durability_hint": "fade_like",
+                        "confidence": "medium",
+                    },
+                    "coach_metrics": {
+                        "session_rpe": 6,
+                    },
+                },
+                "analysis_only_context": {
+                    "route_context": {"route_id": 42},
+                    "composite_context": {
+                        "subjective_coherence": {
+                            "subjective_coherence_state": "mismatched",
+                            "subjective_coherence_score": 62.0,
+                            "objective_anchor": 75.0,
+                            "objective_spread_pct": 10.0,
+                            "subjective_objective_gap_pct": 17.0,
+                        },
+                        "thermal_context": {
+                            "thermal_cost_score": 8.0,
+                            "thermal_band": "moderate",
+                        },
+                        "durability_context": {
+                            "durability_hint": "fade_like",
+                            "confidence": "medium",
+                        },
+                        "coach_metrics": {
+                            "session_rpe": 6,
+                        },
+                    },
+                },
+                "subjective_context": {
+                    "rpe": 6,
+                    "feel": 3,
+                    "notes_present": True,
+                    "notes_raw": "test",
+                },
+                "rr_context": {},
+                "final_cost_interpretation": {},
+                "rr_analysis_summary": {},
+            }
+            manifest = {
+                "session_id": "s_current",
+                "slug": "2026-04-14_14-08_trail_run_s_current",
+                "date": "2026-04-14",
+                "start_time": "14:08",
+                "sport": "trail_run",
+                "fit_path": None,
+                "fit_info": None,
+                "fit_error": None,
+                "hr_stream_csv": None,
+                "rr_csv": None,
+                "terrain_error": None,
+                "terrain_intervals_error": None,
+                "analysis_only_context": summary["analysis_only_context"],
+                "terrain_intervals": [],
+            }
+            session_row = _session_row(
+                session_id="s_current",
+                Fecha="2026-04-14",
+                start_time="14:08",
+                sport="trail_run",
+                route_id="42",
+                moving_min="47.0",
+                duration_min="47.0",
+                load="90.0",
+                trimp="102.0",
+                cardiac_drift_pct="6.0",
+                work_total_min="47.0",
+                work_longest_min="16.0",
+                work_n_blocks="3",
+                work_avg_z3_pct="22.0",
+                z2_pct="20.0",
+                z3_pct="28.0",
+                z2_total_min="10.0",
+                z3_total_min="13.0",
+                session_group="endurance",
+            )
+
+            with patch("analysis.session_analysis_pipeline.DEFAULT_REPORTS_DIR", reports_root), patch(
+                "analysis.session_analysis_pipeline.DEFAULT_SESSIONS_CSV", sessions_csv
+            ), patch("analysis.session_analysis_pipeline.ROOT", tmpdir):
+                payload = build_conversational_payload(summary, manifest, session_row, artifacts_dir=tmpdir / "artifacts")
+                longitudinal = payload.get("longitudinal_context") or {}
+                self.assertTrue(longitudinal)
+                self.assertTrue(longitudinal.get("route_benchmark", {}).get("available"))
+                self.assertEqual(longitudinal.get("route_benchmark", {}).get("same_route_count"), 3)
+                self.assertEqual(longitudinal.get("subjective_chronic_context", {}).get("available"), True)
+                self.assertEqual(longitudinal.get("thermal_sensitivity_context", {}).get("available"), True)
+                report = build_final_report_markdown(payload, summary, "sync-token")
+                self.assertIn("Consolidación longitudinal", report)
+                self.assertIn("benchmark de ruta", report)
+                self.assertIn("sensibilidad térmica longitudinal", report)
 
     def test_write_managed_final_report_preserves_legacy_once(self):
         with TemporaryDirectory() as tmp:
