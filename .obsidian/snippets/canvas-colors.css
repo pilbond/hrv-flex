@@ -1,0 +1,164 @@
+/* Canvas card colors in Obsidian
+   Ajusta estos colores a tu gusto.
+   Los selectores pueden variar un poco según versión/tema. */
+/*
+.canvas-node[data-color="0"] .canvas-node-content {
+  background-color: #7a7a7a !important;
+}
+
+.canvas-node[data-color="1"] .canvas-node-content {
+  background-color: #fc0000 !important;
+}
+
+.canvas-node[data-color="2"] .canvas-node-content {
+  background-color: #d98a2b !important;
+}
+
+.canvas-node[data-color="3"] .canvas-node-content {
+  background-color: #c9b458 !important;
+}
+
+.canvas-node[data-color="4"] .canvas-node-content {
+  background-color: #00ff55 !important;
+}
+
+.canvas-node[data-color="5"] .canvas-node-content {
+  background-color: #0099ff !important;
+}
+
+.canvas-node[data-color="6"] .canvas-node-content {
+  background-color: #8b62c9 !important;
+}*/
+
+
+/* Canvas card colors in Obsidian
+   Ajusta estos colores a tu gusto.
+   Los selectores pueden variar un poco según versión/tema. */
+
+   /*
+.canvas-node[data-color="0"] {
+  --canvas-color: #7a7a7a;
+}
+
+.canvas-node[data-color="1"] {
+  --canvas-color: rgb(197, 14, 14);
+}
+
+.canvas-node[data-color="2"] {
+  --canvas-color: rgb(217, 138, 43);
+}
+
+.canvas-node[data-color="3"] {
+  --canvas-color: #c9b458;
+}
+
+.canvas-node[data-color="4"] {
+  --canvas-color: rgb(0, 255, 85);
+}
+
+.canvas-node[data-color="5"] {
+  --canvas-color: rgb(0, 53, 89);
+}
+
+.canvas-node[data-color="6"] {
+  --canvas-color: rgb(241, 9, 225);
+}*/
+
+
+/*
+0 -> gray    -> blocked
+1 -> red     -> ready
+2 -> orange  -> doing
+3 -> yellow  -> review / validation
+4 -> green   -> done
+5 -> blue    -> technical prep
+6 -> purple  -> proposed
+/*
+purple propuesta: rgb(154, 102, 204)
+blue bloque técnico / en preparación: rgb(72, 124, 219)
+orange en curso: rgb(232, 132, 58)
+amber revisión o validación: rgb(223, 173, 58)
+green hecho: rgb(74, 161, 103)
+gray bloqueado: rgb(120, 126, 136)
+red listo para hacer: rgb(214, 84, 84)*/
+
+/*
+.mod-canvas-color-0 {
+  --canvas-color: 140, 140, 143; 
+}
+.mod-canvas-color-1 {
+  --canvas-color: 197, 14, 14; 
+}
+.mod-canvas-color-2 {
+  --canvas-color: 217, 138, 43; 
+}
+.mod-canvas-color-3 {
+  --canvas-color: 224, 1, 23; 
+}
+.mod-canvas-color-4 {
+  --canvas-color: 0, 255, 85; 
+}
+.mod-canvas-color-5 {
+  --canvas-color: 0, 53, 89; 
+}
+.mod-canvas-color-6 {
+  --canvas-color: 241, 9, 225; 
+}*/
+
+.mod-canvas-color-0 {
+  --canvas-color: 120, 126, 136; /* r, g, b */
+}
+.mod-canvas-color-1 {
+  --canvas-color: 214, 84, 84; /* r, g, b */
+}
+.mod-canvas-color-2 {
+  --canvas-color: 248, 111, 6; /* r, g, b */
+  border-width: 3px !important;
+}
+.mod-canvas-color-3 {
+  --canvas-color: 223, 173, 58; /* r, g, b */
+}
+.mod-canvas-color-4 {
+  --canvas-color: 74, 161, 103; /* r, g, b */
+}
+.mod-canvas-color-5 {
+  --canvas-color: 72, 124, 219; /* r, g, b */
+}
+.mod-canvas-color-6 {
+  --canvas-color: 154, 102, 204; /* r, g, b */
+}
+
+
+.canvas-node-container {
+  /*background-color: white !important;*/
+  /*border: 2px solid black !important;*/
+  border-radius: 8px;
+  border-width: 0px;
+  /*min-width: 200px;*/
+  color: black !important;
+  display: flex;
+  align-items: center;
+}
+
+.canvas-node-content {
+  border-width: 4px !important;
+ /* background-color: rgba(var(--canvas-color), .5) !important;*/
+}
+
+.canvas-node.is-themed .canvas-node-container {
+  /*background-color: rgba(var(--canvas-color), .5) !important;*/
+  border-color: rgb(var(--canvas-color)) !important;
+}
+
+.mod-canvas-color-2 {
+  display: flex !important;
+  flex-direction: row !important;
+        /*.canvas-node-container {filter: brightness(30%);}*/
+
+        .canvas-node-container {
+          max-height; 200px;
+        }
+
+}
+
+
