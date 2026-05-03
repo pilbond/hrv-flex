@@ -30,7 +30,7 @@ _ANALYSIS_DIR = Path(__file__).resolve().parent
 if str(_ANALYSIS_DIR) not in sys.path:
     sys.path.insert(0, str(_ANALYSIS_DIR))
 from fit_speed_utils import compute_speed_metrics as _compute_speed_metrics
-from fit_terrain_utils import analyze_fit_climbs, compute_matched_climbs_context, parse_fit_terrain_data
+from fit_terrain_utils import analyze_fit_climbs, compute_matched_climbs_context, group_terrain_climbs, parse_fit_terrain_data
 
 from hrv_app.config import ATHLETE_WEIGHT_KG, SYSTEM_BIKE_WEIGHT_KG
 from hrv_app.hrv_sync_flow import extract_rr_ms, write_rr_csv
@@ -393,6 +393,46 @@ def write_terrain_climbs_csv(path: Path, rows: list[dict[str, Any]]) -> Path | N
         writer.writeheader()
         for row in rows:
             writer.writerow({field: row.get(field) for field in fieldnames})
+    return path
+
+
+def write_terrain_climb_groups_csv(path: Path, rows: list[dict[str, Any]]) -> Path | None:
+    if not rows:
+        return None
+    fieldnames = [
+        "group_index",
+        "climb_count",
+        "member_climb_indices",
+        "start_sec",
+        "end_sec",
+        "duration_s",
+        "distance_km",
+        "elev_gain_m",
+        "grade_mean_pct",
+        "vam_mh",
+        "hr_mean",
+        "hr_max",
+        "cadence_mean",
+        "power_mean",
+        "power_max",
+        "power_estimated_mean",
+        "power_source",
+        "z1_pct",
+        "z2_pct",
+        "z3_pct",
+        "sport_family",
+        "merge_gap_s",
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            output = dict(row)
+            indices = output.get("member_climb_indices")
+            if isinstance(indices, list):
+                output["member_climb_indices"] = ";".join(str(item) for item in indices)
+            writer.writerow({field: output.get(field) for field in fieldnames})
     return path
 
 
@@ -4002,6 +4042,10 @@ def _terrain_climb_metrics(
     climb_power_measured_count = terrain_fit_context.get("climb_power_measured_count") or 0
     climb_power_estimated_count = terrain_fit_context.get("climb_power_estimated_count") or 0
     climb_z3_pct_mean = _float_or_none(terrain_fit_context.get("climb_z3_pct_mean"))
+    climb_group_count = _float_or_none(terrain_fit_context.get("climb_group_count"))
+    climb_group_hr_mean = _float_or_none(terrain_fit_context.get("climb_group_hr_mean"))
+    climb_group_gain_m = _float_or_none(terrain_fit_context.get("climb_group_gain_m"))
+    climb_group_time_min = _float_or_none(terrain_fit_context.get("climb_group_time_min"))
     z1_pct = _float_or_none(session_row.get("z1_pct"))
     z3_pct = _float_or_none(session_row.get("z3_pct"))
     vt1_used = _float_or_none(session_row.get("vt1_used"))
@@ -4018,6 +4062,10 @@ def _terrain_climb_metrics(
         "climb_power_measured_count": climb_power_measured_count,
         "climb_power_estimated_count": climb_power_estimated_count,
         "climb_z3_pct_mean": climb_z3_pct_mean,
+        "climb_group_count": climb_group_count,
+        "climb_group_hr_mean": climb_group_hr_mean,
+        "climb_group_gain_m": climb_group_gain_m,
+        "climb_group_time_min": climb_group_time_min,
         "z1_pct": z1_pct,
         "z3_pct": z3_pct,
         "vt1_used": vt1_used,
@@ -4079,6 +4127,9 @@ def _terrain_climb_dilation_sentence(
         and z3_pct_global < 20
     ):
         detail += f"; las subidas concentraron `{_fmt_pct(climb_z3_pct_mean)}` en Z3 pese a media global `{_fmt_pct(z3_pct_global)}` en Z3"
+    climb_group_count = metrics.get("climb_group_count")
+    if climb_group_count is not None and climb_group_count > 0 and climb_group_count < climb_count:
+        detail += f"; al reagrupar continuidad salen `{_fmt_num(climb_group_count, digits=0)}` bloques macro"
 
     return f"{' '.join(parts)}, {detail}."
 
@@ -4112,10 +4163,23 @@ def _terrain_climb_summary_sentence(
     if climb_count is None or climb_count <= 0 or climb_hr_mean is None:
         return None
     z1_pct = metrics["z1_pct"]
+    climb_group_count = metrics.get("climb_group_count")
     if z1_pct is not None:
+        if climb_group_count is not None and climb_group_count > 0 and climb_group_count < climb_count:
+            return (
+                f"La señal de montaña quedó concentrada en `{_fmt_num(climb_group_count, digits=0)}` bloques macro "
+                f"(frente a `{_fmt_num(climb_count, digits=0)}` climbs finos) con "
+                f"`{_fmt_num(climb_hr_mean)} lpm` de media en subida; la media global de Z1 no recoge todo el coste."
+            )
         return (
             f"La señal de montaña quedó concentrada en `{_fmt_num(climb_count, digits=0)}` climbs con "
             f"`{_fmt_num(climb_hr_mean)} lpm` de media en subida; la media global de Z1 no recoge todo el coste."
+        )
+    if climb_group_count is not None and climb_group_count > 0 and climb_group_count < climb_count:
+        return (
+            f"La señal de montaña quedó concentrada en `{_fmt_num(climb_group_count, digits=0)}` bloques macro "
+            f"(frente a `{_fmt_num(climb_count, digits=0)}` climbs finos) con "
+            f"`{_fmt_num(climb_hr_mean)} lpm` de media en subida."
         )
     return (
         f"La señal de montaña quedó concentrada en `{_fmt_num(climb_count, digits=0)}` climbs con "
@@ -5117,6 +5181,46 @@ def _build_recent_block_rows(session_row: dict[str, Any], limit: int = 4) -> lis
             prior_rows.append(row)
     prior_rows.sort(key=row_key, reverse=True)
     return prior_rows[:limit]
+
+
+def _build_recent_block_rows_with_rest_days(session_row: dict[str, Any], limit: int = 4) -> tuple[list[dict[str, Any]], bool]:
+    recent_rows = _build_recent_block_rows(session_row, limit=limit)
+    if not recent_rows:
+        return [], False
+
+    def _parse_day(row: dict[str, Any]) -> datetime | None:
+        raw = str(row.get("Fecha") or "").strip()
+        if not raw:
+            return None
+        try:
+            return datetime.fromisoformat(raw)
+        except Exception:
+            return None
+
+    enriched: list[dict[str, Any]] = [dict(recent_rows[0])]
+    had_rest_day = False
+    for prev_row, next_row in zip(recent_rows, recent_rows[1:]):
+        prev_day = _parse_day(prev_row)
+        next_day = _parse_day(next_row)
+        if prev_day is not None and next_day is not None:
+            gap_days = (prev_day.date() - next_day.date()).days - 1
+            if gap_days > 0:
+                had_rest_day = True
+                for offset in range(1, gap_days + 1):
+                    rest_day = prev_day.date() - timedelta(days=offset)
+                    enriched.append(
+                        {
+                            "Fecha": rest_day.isoformat(),
+                            "sport": "descanso",
+                            "moving_min": 0.0,
+                            "elev_gain_m": 0.0,
+                            "work_total_min": 0.0,
+                            "load": 0.0,
+                            "_is_rest_day": True,
+                        }
+                    )
+        enriched.append(dict(next_row))
+    return enriched, had_rest_day
 
 
 def _build_recent_block_rows_7d(session_row: dict[str, Any], days: int = 7) -> list[dict[str, Any]]:
@@ -6359,7 +6463,9 @@ def build_final_report_markdown(
             "|---|---|---:|---:|---:|---:|",
         ]
     )
-    recent_rows = _build_recent_block_rows(session_row)
+    recent_rows, had_rest_day = _build_recent_block_rows_with_rest_days(session_row)
+    if had_rest_day:
+        lines.append("Los huecos de calendario entre sesiones recientes se muestran como `descanso` con `load=0` y `work_total_min=0`.")
     for row in recent_rows:
         lines.append(
             f"| {row.get('Fecha') or 'n/d'} | {row.get('sport') or 'n/d'} | "
@@ -6905,6 +7011,7 @@ def build_conversational_payload(
         analysis_only_context["longitudinal_context"] = longitudinal_context
     terrain_intervals_csv = None
     terrain_climbs_csv = None
+    terrain_climb_groups_csv = None
     matched_climbs_csv = None
     coach_metrics_json = None
     coach_intervals_csv = None
@@ -6912,6 +7019,7 @@ def build_conversational_payload(
     if artifacts_dir is not None:
         terrain_intervals_path = _resolve_optional_artifact_path(artifacts_dir, "terrain_intervals.csv")
         terrain_climbs_path = _resolve_optional_artifact_path(artifacts_dir, "terrain_climbs.csv")
+        terrain_climb_groups_path = _resolve_optional_artifact_path(artifacts_dir, "terrain_climb_groups.csv")
         matched_climbs_path = _resolve_optional_artifact_path(
             artifacts_dir,
             "matched_climbs.csv",
@@ -6922,6 +7030,7 @@ def build_conversational_payload(
         coach_groups_path = _resolve_optional_artifact_path(artifacts_dir, "coach_groups.csv")
         terrain_intervals_csv = str(terrain_intervals_path) if terrain_intervals_path else None
         terrain_climbs_csv = str(terrain_climbs_path) if terrain_climbs_path else None
+        terrain_climb_groups_csv = str(terrain_climb_groups_path) if terrain_climb_groups_path else None
         matched_climbs_csv = str(matched_climbs_path) if matched_climbs_path else None
         coach_metrics_json = str(coach_metrics_path) if coach_metrics_path else None
         coach_intervals_csv = str(coach_intervals_path) if coach_intervals_path else None
@@ -7117,6 +7226,7 @@ def build_conversational_payload(
         "final_reason_items_contract": final_reason_items_contract,
         "terrain_intervals_csv": terrain_intervals_csv,
         "terrain_climbs_csv": terrain_climbs_csv,
+        "terrain_climb_groups_csv": terrain_climb_groups_csv,
         "matched_climbs_csv": matched_climbs_csv,
         "coach_metrics_json": coach_metrics_json,
         "coach_intervals_csv": coach_intervals_csv,
@@ -7716,6 +7826,7 @@ def run_analysis(bundle_manifest: Path, reports_dir: Path, keep_debug_artifacts:
             shutil.copy2(fit_src, fit_artifact_path)
 
     terrain_climbs_csv_path = None
+    terrain_climb_groups_csv_path = None
     matched_climbs_csv = None
     coach_metrics_path = None
     coach_intervals_csv_path = None
@@ -7737,9 +7848,29 @@ def run_analysis(bundle_manifest: Path, reports_dir: Path, keep_debug_artifacts:
                 )
                 summary["terrain_fit_context"] = fit_terrain.get("terrain_fit_context")
                 summary["terrain_climbs"] = fit_terrain.get("terrain_climbs") or []
+                terrain_climb_groups = group_terrain_climbs(fit_terrain.get("terrain_climbs") or [], sport_family=_sport_family)
+                summary["terrain_climb_groups"] = terrain_climb_groups
+                if isinstance(summary.get("terrain_fit_context"), dict):
+                    summary["terrain_fit_context"]["climb_group_count"] = len(terrain_climb_groups)
+                    summary["terrain_fit_context"]["climb_group_time_min"] = round(
+                        sum(_float_or_none(row.get("duration_s")) or 0.0 for row in terrain_climb_groups) / 60.0,
+                        1,
+                    )
+                    summary["terrain_fit_context"]["climb_group_gain_m"] = round(
+                        sum(_float_or_none(row.get("elev_gain_m")) or 0.0 for row in terrain_climb_groups),
+                        1,
+                    )
+                    group_hr_mean = _weighted_mean(terrain_climb_groups, "hr_mean", "duration_s")
+                    summary["terrain_fit_context"]["climb_group_hr_mean"] = (
+                        round(group_hr_mean, 1) if group_hr_mean is not None else None
+                    )
                 terrain_climbs_csv_path = write_terrain_climbs_csv(
                     artifacts_dir / "terrain_climbs.csv",
                     fit_terrain.get("terrain_climbs") or [],
+                )
+                terrain_climb_groups_csv_path = write_terrain_climb_groups_csv(
+                    artifacts_dir / "terrain_climb_groups.csv",
+                    terrain_climb_groups,
                 )
                 efficiency_context = compute_matched_climbs_context(
                     fit_terrain.get("terrain_climbs") or [],

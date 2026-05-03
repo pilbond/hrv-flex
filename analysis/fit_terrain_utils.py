@@ -76,9 +76,34 @@ _CLIMB_THRESHOLDS: dict[str, dict[str, float]] = {
 _CLIMB_THRESHOLDS["road"] = _CLIMB_THRESHOLDS["run"].copy()
 _CLIMB_THRESHOLDS_DEFAULT = _CLIMB_THRESHOLDS["bike"]
 
+_CLIMB_GROUP_THRESHOLDS: dict[str, dict[str, float]] = {
+    "bike": {
+        "merge_gap_s": 75.0,
+    },
+    "trail": {
+        "merge_gap_s": 120.0,
+    },
+    "run": {
+        "merge_gap_s": 120.0,
+    },
+    "road": {
+        "merge_gap_s": 120.0,
+    },
+    "hike": {
+        "merge_gap_s": 150.0,
+    },
+}
+_CLIMB_GROUP_THRESHOLDS_DEFAULT = _CLIMB_GROUP_THRESHOLDS["bike"]
+
 
 def _climb_thresholds(sport_family: str | None) -> dict[str, float]:
     return _CLIMB_THRESHOLDS.get(sport_family or "", _CLIMB_THRESHOLDS_DEFAULT)
+
+
+def _climb_group_thresholds(sport_family: str | None) -> dict[str, float]:
+    return _CLIMB_GROUP_THRESHOLDS.get(sport_family or "", _CLIMB_GROUP_THRESHOLDS_DEFAULT)
+
+
 PAUSE_SPEED_THRESHOLD_MPS = 0.2
 PAUSE_DISTANCE_STALL_M = 0.5
 LOW_SESSION_GAIN_NOT_APPLICABLE_M = 50.0
@@ -401,6 +426,144 @@ def _detect_climb_rows(
         ):
             climbs.append(climb)
     return climbs
+
+
+def _climb_power_value(row: dict[str, Any]) -> float | None:
+    measured = parse_float(row.get("power_mean"))
+    if measured is not None:
+        return measured
+    return parse_float(row.get("power_estimated_mean"))
+
+
+def _summarize_climb_group(
+    group_index: int,
+    climbs: list[dict[str, Any]],
+    sport_family: str | None = None,
+) -> dict[str, Any]:
+    start = climbs[0]
+    end = climbs[-1]
+    duration_s = sum(parse_float(row.get("duration_s")) or 0.0 for row in climbs)
+    distance_km = sum(parse_float(row.get("distance_km")) or 0.0 for row in climbs)
+    elev_gain_m = sum(parse_float(row.get("elev_gain_m")) or 0.0 for row in climbs)
+    grade_mean_pct = (elev_gain_m / distance_km * 100.0) if distance_km > 0 else None
+    vam_mh = (elev_gain_m / (duration_s / 3600.0)) if duration_s > 0 and elev_gain_m > 0 else None
+
+    hr_mean = _weighted_mean(climbs, "hr_mean", "duration_s")
+    cadence_mean = _weighted_mean(climbs, "cadence_mean", "duration_s")
+    z1_pct = _weighted_mean(climbs, "z1_pct", "duration_s")
+    z2_pct = _weighted_mean(climbs, "z2_pct", "duration_s")
+    z3_pct = _weighted_mean(climbs, "z3_pct", "duration_s")
+    hr_max_values = [
+        parse_float(row.get("hr_max"))
+        for row in climbs
+        if parse_float(row.get("hr_max")) is not None
+    ]
+
+    power_rows = []
+    measured_count = 0
+    estimated_count = 0
+    for row in climbs:
+        power_value = _climb_power_value(row)
+        if power_value is None:
+            continue
+        power_rows.append({**row, "_group_power_value": power_value})
+        if row.get("power_source") == "measured":
+            measured_count += 1
+        elif row.get("power_source") == "estimated":
+            estimated_count += 1
+
+    power_mean = _weighted_mean(power_rows, "_group_power_value", "duration_s")
+    power_max_values = [
+        parse_float(row.get("power_max"))
+        for row in climbs
+        if parse_float(row.get("power_max")) is not None
+    ]
+    power_max = max(power_max_values) if power_max_values else None
+    power_estimated_mean_values = [
+        parse_float(row.get("power_estimated_mean"))
+        for row in climbs
+        if parse_float(row.get("power_estimated_mean")) is not None
+    ]
+    power_estimated_mean = (
+        round(sum(power_estimated_mean_values) / len(power_estimated_mean_values), 1)
+        if power_estimated_mean_values
+        else None
+    )
+    if measured_count > 0 and estimated_count > 0:
+        power_source = "mixed"
+    elif measured_count > 0:
+        power_source = "measured"
+    elif estimated_count > 0:
+        power_source = "estimated"
+    else:
+        power_source = None
+
+    member_indices = [
+        int(parse_float(row.get("climb_index")) or idx + 1)
+        for idx, row in enumerate(climbs)
+    ]
+
+    return {
+        "group_index": group_index,
+        "climb_count": len(climbs),
+        "member_climb_indices": member_indices,
+        "start_sec": round(float(start["start_sec"]), 1) if start.get("start_sec") is not None else None,
+        "end_sec": round(float(end["end_sec"]), 1) if end.get("end_sec") is not None else None,
+        "duration_s": round(duration_s, 1),
+        "distance_km": round(distance_km, 3),
+        "elev_gain_m": round(elev_gain_m, 1),
+        "grade_mean_pct": round(grade_mean_pct, 1) if grade_mean_pct is not None else None,
+        "vam_mh": round(vam_mh, 1) if vam_mh is not None else None,
+        "hr_mean": round(hr_mean, 1) if hr_mean is not None else None,
+        "hr_max": max(hr_max_values) if hr_max_values else None,
+        "cadence_mean": round(cadence_mean, 1) if cadence_mean is not None else None,
+        "power_mean": round(power_mean, 1) if power_mean is not None else None,
+        "power_max": round(power_max, 1) if power_max is not None else None,
+        "power_estimated_mean": power_estimated_mean,
+        "power_source": power_source,
+        "z1_pct": round(z1_pct, 1) if z1_pct is not None else None,
+        "z2_pct": round(z2_pct, 1) if z2_pct is not None else None,
+        "z3_pct": round(z3_pct, 1) if z3_pct is not None else None,
+        "sport_family": sport_family,
+        "merge_gap_s": _climb_group_thresholds(sport_family)["merge_gap_s"],
+    }
+
+
+def group_terrain_climbs(
+    terrain_climbs: list[dict[str, Any]],
+    sport_family: str | None = None,
+) -> list[dict[str, Any]]:
+    if len(terrain_climbs) < 2:
+        return [
+            _summarize_climb_group(1, terrain_climbs, sport_family=sport_family)
+        ] if terrain_climbs else []
+
+    thresholds = _climb_group_thresholds(sport_family)
+    sorted_climbs = sorted(
+        terrain_climbs,
+        key=lambda row: (
+            parse_float(row.get("start_sec")) if parse_float(row.get("start_sec")) is not None else float("inf"),
+            parse_float(row.get("end_sec")) if parse_float(row.get("end_sec")) is not None else float("inf"),
+        ),
+    )
+
+    groups: list[list[dict[str, Any]]] = [[sorted_climbs[0]]]
+    for climb in sorted_climbs[1:]:
+        prev = groups[-1][-1]
+        prev_end = parse_float(prev.get("end_sec"))
+        cur_start = parse_float(climb.get("start_sec"))
+        gap_s = None
+        if prev_end is not None and cur_start is not None:
+            gap_s = cur_start - prev_end
+        if gap_s is not None and gap_s <= thresholds["merge_gap_s"]:
+            groups[-1].append(climb)
+        else:
+            groups.append([climb])
+
+    return [
+        _summarize_climb_group(idx + 1, climbs, sport_family=sport_family)
+        for idx, climbs in enumerate(groups)
+    ]
 
 
 def _signals_available(rows: list[dict[str, Any]]) -> dict[str, bool]:

@@ -8,6 +8,7 @@ from analysis.fit_terrain_utils import (
     _build_validation_vs_v2,
     _select_altitude_value,
     analyze_terrain_records,
+    group_terrain_climbs,
 )
 from analysis.session_analysis_pipeline import (
     _build_best_block_comparator,
@@ -2616,6 +2617,30 @@ class AnalysisContractTests(unittest.TestCase):
         self.assertIn("## Sesiones del mismo dia", report)
         self.assertIn("| 09:33 | mobility | 53.2 min | antes | mobility |", report)
         self.assertIn("| 17:40 | walk | 25.0 min | despues | recovery |", report)
+
+    def test_recent_block_rows_inserts_rest_day_for_calendar_gap(self):
+        from analysis.session_analysis_pipeline import _build_recent_block_rows_with_rest_days
+
+        session_row = {
+            "session_id": "i144733291",
+            "Fecha": "2026-05-02",
+            "start_time": "08:01",
+        }
+        rows = [
+            {"Fecha": "2026-05-01", "session_id": "i1", "start_time": "08:05", "sport": "bike", "moving_min": "148.8", "elev_gain_m": "1169", "work_total_min": "29.3", "load": "93"},
+            {"Fecha": "2026-04-29", "session_id": "i2", "start_time": "07:10", "sport": "bike", "moving_min": "119.7", "elev_gain_m": "835", "work_total_min": "5.5", "load": "68"},
+            {"Fecha": "2026-04-29", "session_id": "i3", "start_time": "18:30", "sport": "strength", "moving_min": "56.3", "elev_gain_m": "", "work_total_min": "0", "load": "7"},
+            {"Fecha": "2026-04-28", "session_id": "i4", "start_time": "07:45", "sport": "elliptical", "moving_min": "79.9", "elev_gain_m": "", "work_total_min": "0", "load": "44"},
+        ]
+
+        with patch("analysis.session_analysis_pipeline.load_optional_rows", return_value=rows):
+            enriched, had_rest_day = _build_recent_block_rows_with_rest_days(session_row)
+
+        self.assertTrue(had_rest_day)
+        self.assertEqual(enriched[1]["sport"], "descanso")
+        self.assertEqual(enriched[1]["Fecha"], "2026-04-30")
+        self.assertEqual(enriched[1]["load"], 0.0)
+        self.assertEqual(enriched[1]["work_total_min"], 0.0)
 
     def test_build_final_report_markdown_omits_same_day_header_when_empty(self):
         payload = {
@@ -5277,6 +5302,28 @@ class TestBikePowerEstimation(unittest.TestCase):
         self.assertIsNone(result["z2_pct"])
         self.assertIsNone(result["z3_pct"])
 
+    def test_group_terrain_climbs_merges_short_gaps_for_trail(self):
+        climbs = [
+            {"climb_index": 1, "start_sec": 10.0, "end_sec": 110.0, "duration_s": 100.0, "distance_km": 0.30,
+             "elev_gain_m": 18.0, "grade_mean_pct": 6.0, "vam_mh": 648.0, "hr_mean": 138.0, "hr_max": 145.0,
+             "cadence_mean": 80.0, "power_mean": 210.0, "power_max": 225.0, "power_source": "measured",
+             "z1_pct": 100.0, "z2_pct": 0.0, "z3_pct": 0.0},
+            {"climb_index": 2, "start_sec": 160.0, "end_sec": 260.0, "duration_s": 100.0, "distance_km": 0.34,
+             "elev_gain_m": 22.0, "grade_mean_pct": 6.5, "vam_mh": 792.0, "hr_mean": 142.0, "hr_max": 148.0,
+             "cadence_mean": 79.0, "power_mean": 220.0, "power_max": 235.0, "power_source": "measured",
+             "z1_pct": 60.0, "z2_pct": 40.0, "z3_pct": 0.0},
+            {"climb_index": 3, "start_sec": 420.0, "end_sec": 520.0, "duration_s": 100.0, "distance_km": 0.28,
+             "elev_gain_m": 20.0, "grade_mean_pct": 7.1, "vam_mh": 720.0, "hr_mean": 145.0, "hr_max": 150.0,
+             "cadence_mean": 78.0, "power_mean": 225.0, "power_max": 238.0, "power_source": "measured",
+             "z1_pct": 20.0, "z2_pct": 80.0, "z3_pct": 0.0},
+        ]
+
+        groups = group_terrain_climbs(climbs, sport_family="trail")
+        self.assertEqual(len(groups), 2)
+        self.assertEqual(groups[0]["climb_count"], 2)
+        self.assertEqual(groups[0]["member_climb_indices"], [1, 2])
+        self.assertEqual(groups[1]["climb_count"], 1)
+
     def test_analyze_terrain_records_propagates_zones(self):
         records = self._make_climb_records(n_seconds=300, speed_mps=4.0, grade_pct=6.0)
         for r in records:
@@ -5290,6 +5337,22 @@ class TestBikePowerEstimation(unittest.TestCase):
         )
         climbs = result["terrain_climbs"]
         self.assertTrue(all(c.get("z1_pct") is not None for c in climbs))
+
+    def test_terrain_climb_summary_sentence_mentions_macro_groups(self):
+        from analysis.session_analysis_pipeline import _terrain_climb_summary_sentence
+
+        session_row = {"z1_pct": "70.8"}
+        terrain_fit_context = {
+            "climb_count": 13,
+            "climb_group_count": 6,
+            "climb_hr_mean": 144.8,
+        }
+
+        sentence = _terrain_climb_summary_sentence(session_row, terrain_fit_context)
+        self.assertIsNotNone(sentence)
+        self.assertIn("bloques macro", sentence)
+        self.assertIn("climbs finos", sentence)
+        self.assertIn("13", sentence)
 
     def test_build_bike_climbs_table_shows_zone_columns_when_available(self):
         from analysis.session_analysis_pipeline import _build_bike_climbs_table
