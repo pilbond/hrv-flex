@@ -20,6 +20,7 @@ Esto hace:
 - Trata Dropbox como fuente principal esperada de RR matinales.
 - Solo para faltantes restantes, usa Polar como fallback.
 - Actualiza `ENDURANCE_HRV_sleep.csv`.
+- Para el sueño Polar, el flujo prueba primero la fecha exacta y, si no hay datos, el dia anterior; el fallback existe para cubrir retrasos o desplazamientos alrededor de medianoche, no para inventar filas.
 - Genera ENDURANCE_HRV_master_CORE.csv y ENDURANCE_HRV_master_BETA_AUDIT.csv.
 - Genera ENDURANCE_HRV_master_FINAL.csv y ENDURANCE_HRV_master_DASHBOARD.csv.
 

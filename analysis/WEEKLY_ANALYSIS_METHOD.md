@@ -1,4 +1,4 @@
-<!-- contract_version: 0.2-draft -->
+<!-- contract_version: 0.3 -->
 # WEEKLY_ANALYSIS_METHOD.md - Weekly analysis method
 
 ## 1. Alcance
@@ -102,11 +102,49 @@ El usuario MAY anadir:
   concreto,
 - contexto verbal del usuario.
 
+### Auxiliares citable
+- `analysis_only_context` y sidecars locales de una sesion individual
+  cuando ayuden a ilustrar un patron semanal concreto,
+- `ENDURANCE_HRV_wellness_subjective.csv` cuando aporte contexto
+  retrospectivo util.
+
 ### Regla de jerarquia
 - las fuentes canonicas del pipeline mandan sobre los informes de
   sesion previos,
+- las fuentes auxiliares citables nunca mandan sobre las primarias ni
+  sustituyen evidencia estructural del periodo,
 - un informe semanal MUST NOT depender de textos previos del analista
   como base primaria de evidencia.
+
+### Exclusiones explicitas del contrato semanal
+Las siguientes fuentes quedan fuera del contrato semanal canonico:
+
+- `analysis_only_context`: artefactos de sesion individual generados
+  por `analysis/reports/<slug>/artifacts/`. Pueden citarse como
+  contexto verbal de una sesion ejemplar, pero MUST NOT actuar como
+  fuente primaria del informe semanal.
+- `ENDURANCE_HRV_wellness_subjective.csv` (RE-02): sidecar
+  retrospectivo sin validacion longitudinal suficiente para ser
+  insumo primario semanal. Permanece como contexto opcional citable,
+  no como fuente estructural del informe.
+
+### Auditoria de columnas de sessions.csv para el informe semanal
+Columnas canonizadas en SYA-04/05/06, evaluadas contra el contrato
+semanal:
+
+| Columna | Decision | Motivo |
+|---|---|---|
+| `trimp` | EXCLUIR | Correlacion 0.996 con `load`; ruido contractual sin valor incremental. Usar `load` como senal canonica de carga semanal. |
+| `decoupling` | REFERENCIAR opcional | Deriva cardiaca por sesion. Puede citarse en `Seccion 4 - Recuperacion y absorcion` como soporte de lectura de drift semanal; no entra en tabla del microciclo ni en metricas base de carga. |
+| `icu_weighted_avg_watts` | REFERENCIAR opcional (bike) | Intensidad normalizada, solo ciclismo. Puede citarse en `Seccion 3 - Distribucion observada por deporte` como contexto de calidad de intensidad cuando las sesiones de ciclismo dominen. No es metrica semanal universal. |
+| `icu_joules_above_ftp` | EXCLUIR | Metrica nicho de ciclismo; no aporta valor diferencial al nivel semanal frente a `work_*` y `z3_*`. |
+| `icu_max_wbal_depletion` | EXCLUIR | W' depletion interpretable solo a nivel de sesion individual; acumulacion semanal sin semantica clara. |
+
+Nota: `durability_applicable` existe como flag por sesion en
+`sessions.csv` pero no tiene agregado diario canonizado en
+`sessions_day.csv`; no entra al esqueleto semanal en esta version.
+Esta auditoria aplica al contrato semanal y no modifica el uso local
+de estas senales en el analisis de sesion.
 
 ## 6. Ventanas y cobertura
 ### Ventanas por defecto
@@ -557,7 +595,12 @@ Reglas de decision:
 - usar una sola etiqueta semanal si el patron es mixto o ambiguo,
 - convertir monotony/strain en arbitro central del informe,
 - presentar una inferencia longitudinal como hecho fuerte si la
-  cobertura no la sostiene.
+  cobertura no la sostiene,
+- consumir artefactos de `analysis_only_context` como insumo primario
+  del informe semanal; solo pueden citarse como contexto de sesion
+  ejemplar,
+- usar `trimp` como segunda lectura de carga semanal; `load` es la
+  senal canonica.
 
 ## 11. Exclusion explicita de esta v1
 Esta version corta no obliga a incluir como secciones fijas:

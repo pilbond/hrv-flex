@@ -22,6 +22,10 @@ Importante:
 - `build_hrv_final_dashboard.py` usa `ENDURANCE_HRV_sessions_day.csv` solo si ya existe.
 - Si `sessions_day.csv` y `sessions_metadata.json` estan al dia, `FINAL` puede incorporar contexto de carga canonico (`ACWR`, `monotony`, `strain`, clustering de intensidad) y capas de recuperacion multisenal sin tocar el gate.
 - La capa de terreno `FP-02` no nace aqui: se genera despues dentro de `analysis/` al correr `analysis\\run_session_analysis.py` o `analysis\\analyze_session.py`.
+- Esa capa sigue siendo local a `analysis/`: hoy puede exponer `terrain_fit_context` tambien en `bike`, y en sesiones `trail`/`road` puede mostrar `climb_power_mean` cuando la fuente FIT lo declara como potencia medida; `terrain_climbs.csv` sigue siendo el detalle reproducible por climb y no cambia ningun contrato canonico global.
+- Esa misma capa local de `analysis/` ya puede enriquecer el bundle de sesion con `composite_context` (`subjective_coherence`, `thermal_context`, `durability_context`) sin tocar `sessions.csv`, `sessions_day.csv` ni otros contratos canonicos.
+- Desde `SYA-01`, `analysis/` deja tambien `artifacts/report_sync_status.json` para explicitar si el `report.md` humano esta alineado con `session_payload.json`, `summary.json` y `technical_report.md`. El prompt/handoff incluyen un `report_sync_token` que debe copiarse al inicio del `report.md`.
+- Desde esta misma fase, `analysis/run_analysis()` genera `report.md` directamente como artefacto final gobernado por pipeline. Si encuentra un `report.md` legacy sin token, crea antes un backup `report.legacy.md` y luego toma posesion del informe principal.
 
 ## 2) Script por script
 
@@ -180,6 +184,7 @@ Importante:
 - Aplica la logica del decisor FINAL/DASHBOARD (decision operativa diaria).
   - Enriquce `reason_text` con contexto de sueno y carga.
   - Desde SS-01, construye internamente `reason_items` estructurados y despues renderiza `reason_text` desde esa capa.
+  - Desde SS-02, publica ademas `ENDURANCE_HRV_master_FINAL_reason_items.json` como sidecar estable para consumo de `analysis/`.
   - Valida semanticamente cada motivo con enums cerrados de `layer` (`measured/proxy/inference/action`) y `severity` (`low/medium/high/very_high`).
   - Consume la capa CDC-01 de contexto canonico de carga desde `ENDURANCE_HRV_sessions_day.csv`:
     - `acwr_simple_prev`
@@ -209,10 +214,11 @@ Importante:
   - Opcional: `ENDURANCE_HRV_sessions_day.csv`
 - Salidas:
   - FINAL y DASHBOARD.
-  - `reason_items` queda en memoria como detalle interno del builder; no se expone en `FINAL` ni en `DASHBOARD`.
+  - `reason_items` sigue sin exponerse como columna en `FINAL` ni en `DASHBOARD`, pero ahora tambien se serializa en `ENDURANCE_HRV_master_FINAL_reason_items.json`.
   - `FINAL` mantiene `gate_final`, `Action` y `Action_detail` como arbitros operativos.
   - RE-01 solo aporta soporte o discordancia objetiva via columnas y `reason_text`.
   - CDC-01 y AP-01 solo aportan contexto de carga/clustering en `reason_text`; no recolorean el gate.
+  - `analysis/` puede tratar el sidecar como fuente estructurada primaria cuando `fallback_to_reason_text = false`, pero eso no cambia el contrato público de los CSV.
 - Automatico o manual:
   - Automatico dentro de `polar_hrv_automation.py --process`.
   - Tambien se puede correr manual.
@@ -231,6 +237,13 @@ Importante:
     - `run_power_*`
     - `speed_first_half`, `speed_second_half`
     - `cadence_first_half`, `cadence_second_half`
+  - Canoniza la extracción mínima de `SYA-04` en `sessions.csv`:
+    - `calories`
+    - `average_cadence`
+    - `average_weather_temp`
+    - `hrr_drop_bpm`
+    - `trimp`
+    - y, si `device_watts=true`, `icu_weighted_avg_watts`, `icu_joules_above_ftp`, `icu_max_wbal_depletion`, `decoupling`
   - Canoniza la capa CDC-01 de contexto de carga en `sessions_day.csv`:
     - `acwr_simple_prev`
     - `monotony_7d_prev`
@@ -264,7 +277,7 @@ Importante:
   - `--no-notes`: omite notas/wellness textual cuando quieres minimizar dependencias de contenido libre.
 - Salidas:
   - CSVs de sesiones, distribucion semanal, wellness subjetivo y metadata.
-  - `sessions.csv` pasa a ser la fuente canonica de detalle por sesion, incluidos coste, zonas, drift y mecanica minima.
+  - `sessions.csv` pasa a ser la fuente canonica de detalle por sesion, incluidos coste, zonas, drift, mecanica minima y la extracción mínima cerrada de coach metrics por sesión.
   - `sessions_day.csv` pasa a ser la fuente canonica de rolling de carga y clustering para `reason_text`.
   - `intensity_distribution_weekly.csv` pasa a ser la salida canonica de distribucion observada por `sport x week`.
   - `sessions_metadata.json` pasa a ser la fuente canonica de `training_audit` para rebajar confianza de coaching/carga sin bloquear pipeline.
@@ -348,5 +361,9 @@ Si tu pregunta es "que scripts importan para operar dia a dia":
 Y aparte, opcional recomendado:
 
 1. `build_sessions.py` para mantener al dia `sessions.csv`, `sessions_day.csv`, `sessions_metadata.json` y `wellness_subjective.csv`, y asi habilitar AP-01, AP-02, CDC-01, ADC-01 y RE-02 en el contexto del sistema.
-2. `analysis\\analyze_session.py` o `analysis\\run_session_analysis.py` cuando quieras explotar la capa analitica local de terreno (`GAP`, `VAM`, potencia por split y climbs FIT) sin tocar contratos canonicos.
+2. `analysis\\analyze_session.py` o `analysis\\run_session_analysis.py` cuando quieras explotar la capa analitica local sin tocar contratos canonicos:
+   - terreno (`GAP`, `VAM`, potencia por split y climbs FIT`; en `bike`, la capa FIT puede anadir potencia estimada local por subida)
+   - `composite_context` de `SYA-07` (`subjective_coherence`, `thermal_context`, `durability_context`)
+   - `narrative_targets` de `SYA-11` (`error_context`, `exit_context`, `final_reason_rendered`); `exit_context.block_role_signals.load_rank_in_sport_7d` usa una ventana real de 7 dias por deporte, no un recorte visual de sesiones recientes
+   - para sesiones `trail_run`: capa shadow AP-03 (`runaware_context`, `v1_shadow_history`) — validacion paralela del clustering AP-01 v1 con senal de terreno y potencia de carrera; shadow-only, no modifica ningun contrato canonico
 

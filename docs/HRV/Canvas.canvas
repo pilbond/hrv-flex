@@ -1,0 +1,15 @@
+{
+	"nodes":[
+		{"id":"674571dfe3e07d5f","type":"file","file":"Baseline adaptativo a largo plazo..md","x":-1520,"y":-1080,"width":400,"height":540},
+		{"id":"4b30d4ec6d767fa9","type":"file","file":"El umbral SWC puede ser demasiado estrecho.md","x":-1080,"y":-1080,"width":400,"height":400},
+		{"id":"48336691d600901e","type":"file","file":"FLAG_mecánico.md","x":-640,"y":-1080,"width":400,"height":340},
+		{"id":"6b85281d052956c2","type":"file","file":"Carga acumulada (load_3d).md","x":-200,"y":-1080,"width":400,"height":400},
+		{"id":"b16a34725f9c92b0","x":-1520,"y":-480,"width":400,"height":400,"type":"file","file":"Rehacer la capa de carga como contexto útil.md"},
+		{"id":"86c9ac6002fddf25","x":-1040,"y":-480,"width":680,"height":400,"type":"file","file":"Mejoras Carga.md"},
+		{"id":"ee673d674aae1c0a","x":-1311,"y":220,"width":383,"height":490,"type":"text","text":"Conclusión práctica: context ya no existe como output real actual, pero todavía no está muerto en código. Si quieres eliminarlo de verdad, antes hay que limpiar:\n\n- fallback en [polar_hrv_automation.py](app://-/index.html?hostId=local)\n- fallback en [build_hrv_final_dashboard.py](app://-/index.html?hostId=local)\n- referencias documentales en [AGENTS.MD](app://-/index.html?hostId=local) y [GUIA_PYTHON_SCRIPTS.md](app://-/index.html?hostId=local)\n\nY sí: build_sessions.py sí construye sessions_day, en [build_sessions.py:681](app://-/index.html?hostId=local), [build_sessions.py:1000](app://-/index.html?hostId=local) y [build_sessions.py:1001](app://-/index.html?hostId=local).\n\nNombre alternativo para build_hrv_final_dashboard.py: mi recomendación sigue siendo build_final_outputs.py. Alternativas razonables: compose_final_dashboard.py o build_daily_readiness.py.\n\nSi quieres, el siguiente paso lo puedo hacer ya sobre el repo real: limpiar context del código y de la documentación, y dejar además el rename propuesto de build_hrv_final_dashboard.py."}
+	],
+	"edges":[
+		{"id":"d3e317f3626dc95e","fromNode":"b16a34725f9c92b0","fromSide":"right","toNode":"86c9ac6002fddf25","toSide":"left"},
+		{"id":"bbc94e73b58ba3f2","fromNode":"6b85281d052956c2","fromSide":"bottom","toNode":"86c9ac6002fddf25","toSide":"right"}
+	]
+}

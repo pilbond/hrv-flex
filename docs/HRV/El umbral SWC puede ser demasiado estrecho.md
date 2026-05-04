@@ -1,0 +1,4 @@
+
+Los ROJO aparecen con caídas de lnRMSSD de -0.2 a -0.3, que en este atleta representan diferencias de RMSSD de apenas ~5-8 ms. Para un sistema nervioso tan reactivo, esto puede ser ruido normal de un día a otro. Revisando los datos, hay VERDE un día, ROJO al siguiente, y VERDE otra vez — esto sugiere que el SWC (0.5 × robust_sd) puede ser **demasiado sensible** para este atleta.
+
+**Mejora propuesta:** Hacer el `swc_mult` configurable por atleta o calcularlo dinámicamente. Para un atleta con CV de lnRMSSD >5%, usar `swc_mult=0.75` en vez de `0.5` reduciría falsos ROJO sin perder sensibilidad ante caídas reales.

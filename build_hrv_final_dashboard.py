@@ -6,7 +6,7 @@ ENDURANCE HRV — Decisor FINAL/DASHBOARD
 
 Revisión de módulo: r2026-04-08
 Contrato esperado: FINAL 62 cols, DASHBOARD 10 cols
-Sistema vigente: ENDURANCE HRV V4.6
+Sistema vigente: ENDURANCE HRV V4.10
 
 Lee:
   - ENDURANCE_HRV_master_CORE.csv
@@ -28,6 +28,7 @@ Notas clave:
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import logging
@@ -61,6 +62,7 @@ DATA_DIR = CONFIG_DATA_DIR
 IN_CORE = DATA_DIR / "ENDURANCE_HRV_master_CORE.csv"
 OUT_FINAL = DATA_DIR / "ENDURANCE_HRV_master_FINAL.csv"
 OUT_DASHBOARD = DATA_DIR / "ENDURANCE_HRV_master_DASHBOARD.csv"
+OUT_FINAL_REASON_ITEMS = DATA_DIR / "ENDURANCE_HRV_master_FINAL_reason_items.json"
 
 
 @dataclass(frozen=True)
@@ -478,6 +480,39 @@ def _emit_reason(
     reason_parts[idx].append(message)
 
 
+def _normalize_reason_json_value(value: object) -> object:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, (np.integer, np.floating, np.bool_)):
+        return value.item()
+    if isinstance(value, dict):
+        return {
+            str(key): _normalize_reason_json_value(subvalue)
+            for key, subvalue in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_normalize_reason_json_value(item) for item in value]
+    return str(value)
+
+
+def _build_reason_items_sidecar(
+    fechas: List[str],
+    reason_items: List[List[dict]],
+) -> Dict[str, object]:
+    items_by_date: Dict[str, List[dict]] = {}
+    for fecha, raw_items in zip(fechas, reason_items):
+        items_by_date[str(fecha)] = [
+            _normalize_reason_json_value(item)
+            for item in raw_items
+            if isinstance(item, dict)
+        ]
+    return {
+        "schema_version": "1.0",
+        "source": "build_hrv_final_dashboard.py",
+        "items_by_date": items_by_date,
+    }
+
+
 def _split_recovery_codes(codes: List[str]) -> Tuple[List[str], List[str]]:
     sleep_codes = [
         code
@@ -591,6 +626,12 @@ def _recovery_action_message(gate: str, recovery_class: str, support_codes: List
     if gate == ROJO and recovery_class == "supported":
         return "Acción: suave o descanso"
     return ""
+
+
+def _recovery_discordance_message(gate: str, recovery_class: str, coverage: str, fallback: str) -> str:
+    if fallback:
+        return fallback
+    return f"Discordancia de recuperación ({gate}, {recovery_class}, cobertura={coverage})"
 
 
 def parse_args(argv: List[str]) -> Dict[str, str]:
@@ -802,7 +843,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                     metric="lnRMSSD",
                     value=float(ln_today[i]),
                     threshold=float(b_ln - VETO_MULT * swc_v4),
-                    message="Caída brusca de HRV: superó el umbral de caída aguda respecto a tu variación habitual",
+                    message="RMSSD de hoy cayó bruscamente respecto a tu base reciente: superó el umbral de caída aguda",
                 )
 
             dln = float(ln_used[i] - b_ln)
@@ -1046,7 +1087,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                     metric="d_ln",
                     value=float(d_ln[i]),
                     threshold=float(2 * swc_ln_floor_arr[i]),
-                    message="HRV inusualmente alto: posible predominio parasimpático fuera de tu rango habitual",
+                    message="RMSSD suavizado de 3 días por encima de tu base reciente: posible saturación parasimpática relativa al rango local",
                 )
 
         # Quality override
@@ -1098,7 +1139,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                     value=float(sleep_dur),
                     threshold=float(sleep_dur_p10),
                     message=(
-                        f"Noche corta ({_format_minutes_human(sleep_dur)} "
+                        f"Sueño más corto de lo habitual ({_format_minutes_human(sleep_dur)} "
                         f"vs tu umbral habitual bajo de {_format_minutes_human(sleep_dur_p10)})"
                     ),
                 )
@@ -1116,7 +1157,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                     value=float(sleep_int),
                     threshold=float(sleep_int_p90),
                     message=(
-                        f"Sueño fragmentado ({sleep_int:.0f} interrupciones; "
+                        f"Sueño más fragmentado de lo habitual ({sleep_int:.0f} interrupciones; "
                         f"habitualmente no pasas de {sleep_int_p90:.0f})"
                     ),
                 )
@@ -1193,7 +1234,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         metric="load_3d",
                         value=float(load_3d),
                         threshold=float(LOAD_3D_HIGH),
-                        message=f"Carga acumulada alta (load_3d={load_3d:.0f})",
+                        message=f"Carga acumulada reciente alta (load_3d={load_3d:.0f})",
                     )
                 if load_3d > LOAD_3D_CAUTION:
                     _append_unique(caution_codes, "load_3d_high")
@@ -1210,7 +1251,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                     metric="work_7d_sum",
                     value=float(work_7d),
                     threshold=float(WORK_7D_HIGH),
-                    message=f"Volumen semanal alto (work_7d={work_7d:.0f}min)",
+                    message=f"Volumen de trabajo semanal alto (work_7d={work_7d:.0f}min)",
                 )
             if z3_7d is not None and z3_7d > Z3_7D_HIGH:
                 _emit_reason(
@@ -1224,7 +1265,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                     metric="z3_7d_sum",
                     value=float(z3_7d),
                     threshold=float(Z3_7D_HIGH),
-                    message=f"Tiempo en alta intensidad acumulado esta semana ({z3_7d:.0f}min en Z3)",
+                    message=f"Tiempo acumulado en Z3 esta semana ({z3_7d:.0f}min en Z3)",
                 )
 
             # ROJO sin carga previa
@@ -1288,24 +1329,24 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         and intense_days_prev_3d >= 2
                     ):
                         clustering_msg = (
-                            f"VERDE pero con {clustering_window_clause}: prudencia con la intensidad"
+                            f"VERDE pero con {clustering_window_clause}: conviene prudencia con la intensidad"
                         )
                     elif (
                         intense_days_prev_5d is not None
                         and intense_days_prev_5d >= 2
                     ):
                         clustering_msg = (
-                            f"VERDE pero con {clustering_window_clause}: prudencia con la intensidad"
+                            f"VERDE pero con {clustering_window_clause}: conviene prudencia con la intensidad"
                         )
                     elif clustering_level == "high":
-                        clustering_msg = "VERDE pero con intensidad reciente agrupada: prudencia con la intensidad"
+                        clustering_msg = "VERDE pero con intensidad reciente muy agrupada: conviene prudencia con la intensidad"
                     else:
-                        clustering_msg = "VERDE pero con intensidad reciente acumulada: prudencia con la intensidad"
+                        clustering_msg = "VERDE pero con intensidad reciente acumulada: conviene prudencia con la intensidad"
                 else:
                     if clustering_level == "high":
-                        clustering_msg = "Clustering alto de intensidad reciente: vigilar recuperación"
+                        clustering_msg = "Intensidad reciente muy agrupada: vigilar recuperación"
                     else:
-                        clustering_msg = "Clustering reciente de intensidad: vigilar recuperación"
+                        clustering_msg = "Intensidad reciente agrupada: vigilar recuperación"
 
                 if gate_final[i] != VERDE and clustering_window_suffix:
                     clustering_msg = f"{clustering_msg} ({clustering_window_suffix})"
@@ -1523,11 +1564,11 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         source="sessions_day",
                         gate_scope="green",
                         codes=load_ctx_caution_sources,
-                        message=(
-                            "VERDE con contexto de carga exigente "
-                            f"({' + '.join(load_ctx_caution_sources)}): precaución con la intensidad"
-                        ),
-                    )
+                    message=(
+                        "VERDE con contexto de carga exigente "
+                        f"({' + '.join(load_ctx_caution_sources)}): conviene prudencia con la intensidad"
+                    ),
+                )
         elif gate_final[i] == VERDE and verde_load_3d_caution:
             _emit_reason(
                 reason_items,
@@ -1625,6 +1666,25 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                 gate_scope=str(gate_final[i]).lower(),
                 codes=caution_codes if recovery_is_discordant else support_codes,
                 message=recovery_action,
+            )
+        if recovery_is_discordant:
+            discordance_codes = caution_codes if recovery_class == "fragile" else support_codes
+            discordance_message = _recovery_discordance_message(
+                str(gate_final[i]),
+                recovery_class,
+                coverage,
+                recovery_summary,
+            )
+            _emit_reason(
+                reason_items,
+                reason_parts,
+                i,
+                type="recovery_discordance",
+                layer="inference",
+                source="sleep+sessions_day",
+                variant=recovery_class,
+                codes=discordance_codes,
+                message=discordance_message,
             )
 
         discordance_codes = caution_codes if recovery_class == "fragile" else support_codes
@@ -1753,6 +1813,10 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
 
     # Reordenar (contrato)
     final = final.reindex(columns=COLS_FINAL)
+    final.attrs["reason_items_sidecar"] = _build_reason_items_sidecar(
+        [str(fecha) for fecha in df["Fecha"].astype(str).tolist()],
+        reason_items,
+    )
 
     dashboard = final[COLS_DASHBOARD].copy()
     return final, dashboard
@@ -1790,15 +1854,51 @@ def write_csv_atomic(df: pd.DataFrame, path: Path) -> None:
                 pass
 
 
+def write_json_atomic(payload: object, path: Path) -> None:
+    """Write a JSON file atomically via same-directory temp file + replace."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        dir=path.parent,
+        prefix=f"{path.name}.",
+        suffix=".tmp",
+    )
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        tmp_path.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        last_exc = None
+        for attempt in range(5):
+            try:
+                os.replace(tmp_path, path)
+                return
+            except PermissionError as exc:
+                last_exc = exc
+                if attempt == 4:
+                    raise
+                time.sleep(0.2 * (attempt + 1))
+        if last_exc is not None:
+            raise last_exc
+    finally:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+
+
 def main(argv: List[str]) -> int:
     args = parse_args(argv)
 
-    global DATA_DIR, IN_CORE, OUT_FINAL, OUT_DASHBOARD
+    global DATA_DIR, IN_CORE, OUT_FINAL, OUT_DASHBOARD, OUT_FINAL_REASON_ITEMS
     if "data_dir" in args:
         DATA_DIR = resolve_writable_dir(Path(args["data_dir"]), CONFIG_DATA_DIR)
         IN_CORE = DATA_DIR / "ENDURANCE_HRV_master_CORE.csv"
         OUT_FINAL = DATA_DIR / "ENDURANCE_HRV_master_FINAL.csv"
         OUT_DASHBOARD = DATA_DIR / "ENDURANCE_HRV_master_DASHBOARD.csv"
+        OUT_FINAL_REASON_ITEMS = DATA_DIR / "ENDURANCE_HRV_master_FINAL_reason_items.json"
 
     cfg = CFG
     if "decision_mode" in args:
@@ -1817,6 +1917,7 @@ def main(argv: List[str]) -> int:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     write_csv_atomic(final, OUT_FINAL)
     write_csv_atomic(dashboard, OUT_DASHBOARD)
+    write_json_atomic(final.attrs.get("reason_items_sidecar", {}), OUT_FINAL_REASON_ITEMS)
 
     last_fecha = "N/A"
     if not final.empty and "Fecha" in final.columns:

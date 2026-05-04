@@ -151,12 +151,14 @@ def _percentile(values: list[float], q: float) -> float | None:
 
 
 def _split_halves(values: list[float], predicate) -> tuple[list[float], list[float]]:
-    if len(values) < 2:
+    # Split by moving time: filter valid samples first, then split at midpoint.
+    # Pauses (samples failing predicate) are excluded before the split so they
+    # don't shift the boundary — relevant for hike sessions with >20% pause time.
+    valid = [v for v in values if predicate(v)]
+    if len(valid) < 2:
         return [], []
-    mid = len(values) // 2
-    first = [v for v in values[:mid] if predicate(v)]
-    second = [v for v in values[mid:] if predicate(v)]
-    return first, second
+    mid = len(valid) // 2
+    return valid[:mid], valid[mid:]
 
 
 def _mechanics_defaults() -> dict[str, Any]:
@@ -169,6 +171,8 @@ def _mechanics_defaults() -> dict[str, Any]:
         "run_power_mean": None,
         "run_power_max": None,
         "run_power_p95": None,
+        "run_power_first_half": None,
+        "run_power_second_half": None,
         "speed_first_half": None,
         "speed_second_half": None,
         "cadence_first_half": None,
@@ -215,6 +219,8 @@ def _build_mechanical_metrics(
             "run_power_mean": round(_mean(power_valid), 1) if power_valid else None,
             "run_power_max": round(max(power_valid), 1) if power_valid else None,
             "run_power_p95": round(_percentile(power_valid, 0.95), 1) if power_valid else None,
+            "run_power_first_half": round(_mean(power_first), 1) if power_first and power_available else None,
+            "run_power_second_half": round(_mean(power_second), 1) if power_second and power_available else None,
             "speed_first_half": round(_mean(speed_first), 2) if speed_first else None,
             "speed_second_half": round(_mean(speed_second), 2) if speed_second else None,
             "cadence_first_half": round(_mean(cadence_first), 1) if cadence_first else None,

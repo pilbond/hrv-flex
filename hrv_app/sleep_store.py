@@ -379,11 +379,15 @@ def upsert_sleep_row(sleep_row: Dict[str, Any]) -> bool:
 
 
 def _polar_sleep_date_candidates(date_str: str) -> List[str]:
-    d = _parse_yyyy_mm_dd(date_str)
-    if d is None:
+    # Try the exact requested date first, then fall back to the previous day.
+    # Polar sleep can be late or shifted around midnight, so the fallback
+    # preserves coverage when the exact day is not available.
+    try:
+        requested = _parse_yyyy_mm_dd(date_str)
+        previous_day = (requested - timedelta(days=1)).isoformat()
+        return [date_str, previous_day]
+    except Exception:
         return [date_str]
-    prev = (d - timedelta(days=1)).isoformat()
-    return [date_str, prev]
 
 
 def fetch_and_upsert_sleep(token: str, user_id: Optional[str], processed_date) -> bool:
@@ -426,6 +430,10 @@ def fetch_and_upsert_sleep(token: str, user_id: Optional[str], processed_date) -
                 print(f"ℹ️  Nightly tomado desde {nightly_used_date} para fecha {date_str}")
     else:
         print("⚠️  x_user_id ausente: se omite fetch Polar sleep/nightly")
+
+    if not any(pd.notna(sleep_row.get(col)) for col in SLEEP_COLUMNS if col != "Fecha"):
+        print(f"ℹ️  Sin datos de sueño para {date_str}; no se escribe fila")
+        return False
 
     saved = upsert_sleep_row(sleep_row)
     return saved

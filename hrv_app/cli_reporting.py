@@ -80,6 +80,146 @@ def _format_recovery_class(value):
     return mapping.get(str(value or "").strip().lower(), str(value or "N/A"))
 
 
+def _row_value(row, key):
+    if row is None:
+        return None
+    if hasattr(row, "get"):
+        return row.get(key)
+    try:
+        return row[key]
+    except (KeyError, TypeError, IndexError):
+        return None
+
+
+def _maybe_float(value):
+    if value is None or (PANDAS_AVAILABLE and pd.isna(value)):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _format_gate_reason(value, row=None):
+    """Traduce el código interno del gate a un mensaje más humano."""
+    raw = str(value or "").strip()
+    if not raw or raw == "N/A":
+        return "N/A"
+
+    mapping = {
+        "CAL/STAB/ART/NaN": (
+            "La toma de hoy no fue lo bastante fiable para usarla. "
+            "Suele pasar por artefactos, señal inestable o una medición "
+            "incompleta."
+        ),
+        "ROLL3_INSUF": (
+            "Aún faltan días limpios seguidos para construir una referencia "
+            "fiable."
+        ),
+        "BASE60_INSUF": (
+            "Todavía no hay suficientes datos limpios en la ventana de 60 días "
+            "para comparar con confianza."
+        ),
+        "SWC_NAN/0": (
+            "La referencia estadística de hoy salió vacía o demasiado plana, "
+            "así que no conviene sacar conclusiones."
+        ),
+        "RAW_NAN/0": (
+            "La señal bruta llegó vacía o inválida, por eso hoy no se pudo "
+            "evaluar."
+        ),
+        "2D_OK": (
+            "La medición de hoy quedó dentro de tu rango reciente, sin "
+            "alertas relevantes."
+        ),
+        "2D_LN": (
+            "La variabilidad de hoy bajó respecto a tu base reciente; suele "
+            "apuntar a más carga o menos recuperación."
+        ),
+        "2D_HR": (
+            "La frecuencia cardiaca de hoy subió respecto a tu base reciente; "
+            "suele apuntar a más estrés o menor recuperación."
+        ),
+        "2D_AMBOS": (
+            "La variabilidad bajó y la frecuencia cardiaca subió respecto a tu "
+            "base reciente; es la combinación más desfavorable."
+        ),
+    }
+    if raw in mapping:
+        text = mapping[raw]
+        if raw == "CAL/STAB/ART/NaN":
+            clues: list[str] = []
+            artifact_pct = _maybe_float(_row_value(row, "Artifact_pct"))
+            if artifact_pct is not None:
+                if artifact_pct >= 15:
+                    clues.append(f"artefactos altos ({artifact_pct:.1f}%)")
+                else:
+                    clues.append(f"artefactos presentes ({artifact_pct:.1f}%)")
+
+            stability = str(_row_value(row, "HRV_Stability") or "").strip()
+            if stability and stability.upper() not in {"OK", "ALTA", "HIGH", "GOOD"}:
+                clues.append(f"estabilidad de señal {stability}")
+
+            subtype = str(_row_value(row, "Stability_Subtype") or "").strip()
+            if subtype and subtype.upper() not in {"OK", "N/A", "NONE", "NAN"}:
+                clues.append(f"subtipo de estabilidad {subtype}")
+
+            tiemp_est = _maybe_float(_row_value(row, "Tiempo_Estabilizacion"))
+            if tiemp_est is not None:
+                clues.append(f"estabilización de {tiemp_est:.0f}s")
+
+            if clues:
+                return text + " Pistas del registro: " + "; ".join(clues) + "."
+            return text + " Causas típicas: artefactos, estabilidad insuficiente o medición incompleta."
+        return text
+
+    if raw.startswith("CAL/"):
+        return (
+            "La toma de hoy no fue lo bastante fiable para usarla (calidad, "
+            "estabilidad o artefactos)."
+        )
+    if raw.endswith("_INSUF"):
+        return (
+            "Aún no hay suficientes datos limpios para hacer una comparación "
+            "fiable."
+        )
+    if raw.endswith("/0") or "NAN" in raw:
+        return (
+            "La referencia o la señal no tienen suficiente información válida "
+            "para comparar hoy."
+        )
+
+    return f"{raw} (motivo interno no traducido)"
+
+
+def _format_gate_next_step(value):
+    """Sugerencia práctica breve asociada al motivo del gate."""
+    raw = str(value or "").strip()
+    if not raw or raw == "N/A":
+        return "N/A"
+
+    mapping = {
+        "CAL/STAB/ART/NaN": "Repite la toma en un momento más tranquilo, sin moverte y con el sensor bien colocado.",
+        "ROLL3_INSUF": "Sigue midiendo de forma constante hasta reunir más días limpios.",
+        "BASE60_INSUF": "Mantén la rutina: aún falta base para comparar con seguridad.",
+        "SWC_NAN/0": "No tomes decisiones fuertes solo con este dato; espera una lectura con referencia estable.",
+        "RAW_NAN/0": "Repite la medición o revisa si la señal llegó bien al sistema.",
+        "2D_OK": "Puedes seguir con el plan previsto si el resto del contexto también acompaña.",
+        "2D_LN": "Conviene no apretar más de la cuenta y vigilar recuperación y carga.",
+        "2D_HR": "Mejor mantener prudencia hoy y evitar subir demasiado la intensidad.",
+        "2D_AMBOS": "Trata hoy como un día más delicado: baja un punto la exigencia.",
+    }
+    if raw in mapping:
+        return mapping[raw]
+    if raw.startswith("CAL/"):
+        return "Repite la toma en un momento más tranquilo y con el sensor bien colocado."
+    if raw.endswith("_INSUF"):
+        return "Sigue midiendo de forma constante hasta reunir más datos limpios."
+    if raw.endswith("/0") or "NAN" in raw:
+        return "No tomes decisiones fuertes con este dato; primero necesitas una lectura más fiable."
+    return "Consulta el motivo interno si quieres más detalle técnico."
+
+
 def _print_header(title: str, width: int = 25, leading_blank: bool = True, trailing_blank: bool = False):
     if QUIET:
         return
@@ -182,7 +322,8 @@ def show_last_daily_summary():
             print(f"📊 RMSSD:           {_format_metric(rmssd)} ms")
             print(f"🚦 Gate:            {gate_emoji} {gate}")
             print(f"🧭 Acción:          {action} / {action_detail}")
-            print(f"🧾 Razón gate:      {reason}")
+            print(f"🧾 Qué pasó:        {_format_gate_reason(reason, last_row)}")
+            print(f"🧾 Qué hacer:       {_format_gate_next_step(reason)}")
             if _has_value(decision_path) and str(decision_path).strip() != "BASE60_ONLY":
                 print(f"🧩 Decision path:   {decision_path}")
             print(

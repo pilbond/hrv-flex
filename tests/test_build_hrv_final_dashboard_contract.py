@@ -1,4 +1,5 @@
 import inspect
+import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -170,6 +171,29 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
         self.assertNotIn("variant", item)
         self.assertNotIn("severity", item)
         self.assertNotIn("metric", item)
+
+    def test_parasympathetic_reason_uses_local_base_language(self):
+        reason_items = [[]]
+        reason_parts = [[]]
+
+        final_builder._emit_reason(
+            reason_items,
+            reason_parts,
+            0,
+            type="parasympathetic_saturation",
+            layer="inference",
+            source="hrv_pipeline",
+            metric="d_ln",
+            value=0.08,
+            threshold=0.04,
+            message="RMSSD suavizado de 3 días por encima de tu base reciente: posible saturación parasimpática relativa al rango local",
+        )
+
+        self.assertEqual(
+            reason_parts[0],
+            ["RMSSD suavizado de 3 días por encima de tu base reciente: posible saturación parasimpática relativa al rango local"],
+        )
+        self.assertEqual(reason_items[0][0]["type"], "parasympathetic_saturation")
 
     def test_reason_parts_append_is_only_used_inside_helper(self):
         source = inspect.getsource(final_builder)
@@ -364,10 +388,53 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
         self.assertTrue(row["recovery_discordance_flag"])
         self.assertIn("sleep_basic_poor", row["recovery_discordance_reason"])
         self.assertIn(
-            "VERDE pero con 2 días intensos en los últimos 3 (y 3 en los últimos 5): prudencia con la intensidad",
+            "VERDE pero con 2 días intensos en los últimos 3 (y 3 en los últimos 5): conviene prudencia con la intensidad",
             row["reason_text"],
         )
         self.assertIn("VERDE, pero sueño y carga reciente piden prudencia", row["reason_text"])
+        sidecar = final.attrs["reason_items_sidecar"]
+        reason_items = sidecar["items_by_date"]["2026-02-08"]
+        reason_types = {item["type"] for item in reason_items}
+        self.assertEqual(sidecar["schema_version"], "1.0")
+        self.assertEqual(sidecar["source"], "build_hrv_final_dashboard.py")
+        self.assertIn("recovery_discordance", reason_types)
+        self.assertIn("action_constraint", reason_types)
+
+    def test_recovery_discordance_message_falls_back_with_context_when_summary_is_empty(self):
+        message = final_builder._recovery_discordance_message("VERDE", "fragile", "basic", "")
+        self.assertIn("Discordancia de recuperación", message)
+        self.assertIn("VERDE", message)
+        self.assertIn("fragile", message)
+        self.assertIn("cobertura=basic", message)
+
+    def test_main_writes_reason_items_sidecar_json(self):
+        core = _core_frame()
+
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            core.to_csv(data_dir / "ENDURANCE_HRV_master_CORE.csv", index=False)
+            _write_sessions_day(
+                data_dir,
+                [
+                    {
+                        "Fecha": "2026-02-08",
+                        "load_day": 70,
+                        "load_3d": 210,
+                        "load_3d_nobs": 3,
+                    }
+                ],
+            )
+
+            exit_code = final_builder.main(["--data-dir", str(data_dir)])
+
+            self.assertEqual(exit_code, 0)
+            sidecar_path = data_dir / "ENDURANCE_HRV_master_FINAL_reason_items.json"
+            self.assertTrue(sidecar_path.exists())
+            payload = json.loads(sidecar_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["schema_version"], "1.0")
+            self.assertEqual(payload["source"], "build_hrv_final_dashboard.py")
+            self.assertIn("2026-02-08", payload["items_by_date"])
+            self.assertTrue(payload["items_by_date"]["2026-02-08"])
 
     def test_recovery_context_marks_amber_as_supported_when_night_and_load_are_favorable(self):
         core = _core_frame()

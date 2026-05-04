@@ -67,7 +67,7 @@ Elementos estructurales estables del repo:
 - modulo analitico local en `analysis/`,
 - implementacion interna del pipeline en `hrv_app/` (paquete Python interno; ARQ-02).
 
-## 6. Snapshot actual (2026-04-09)
+## 6. Snapshot actual (2026-04-16)
 Estado actual de implementacion observado:
 
 - la UI expone `/api/sync`, `/api/sync-sessions`, `/api/status` y endpoints OAuth,
@@ -77,6 +77,9 @@ Estado actual de implementacion observado:
 - `ENDURANCE_HRV_sessions_metadata.json` ya incluye `training_audit` por capas (`dataset_level`, `signal_level`, `metric_level`) para gobernar confianza de coaching/carga sin tocar el gate HRV,
 - `sessions.csv` ya incluye una capa mecanica minima opcional para deportes de pie con `run_power_*`, `speed_first_half`, `speed_second_half`, `cadence_first_half` y `cadence_second_half`,
 - `sessions.csv` ya persiste `z1_total_min` junto a `z2_total_min` y `z3_total_min` para soportar agregacion canonica por deporte sin medias simples de porcentajes,
+- `sessions.csv` ya persiste la extraccion minima canonica de `SYA-04` desde Intervals activity payload:
+  - fijos: `calories`, `average_cadence`, `average_weather_temp`, `hrr_drop_bpm`, `trimp`
+  - condicionales si `device_watts=true`: `icu_weighted_avg_watts`, `icu_joules_above_ftp`, `icu_max_wbal_depletion`, `decoupling`
 - el flujo recomendado de cobertura RR es Dropbox primero y Polar como fallback,
 - `ENDURANCE_HRV_sleep.csv` es el unico archivo canonico de sueno,
 - la UI no debe permitir ejecutar `sync` HRV y `sync-sessions` al mismo tiempo,
@@ -85,6 +88,11 @@ Estado actual de implementacion observado:
   - `terrain_context` desde Intervals activity + intervals (`GAP`, `VAM`, potencia por split y `terrain_intervals.csv`)
   - `terrain_fit_context` desde `FIT` record-level (`terrain_climbs.csv`, HR/cadencia/potencia por climb)
   - estas salidas viven solo en `analysis` y no modifican `sessions.csv` ni el gate HRV.
+- `analysis/` ya expone `composite_context` dentro de `session_payload.json` y `summary.json` para señales compuestas exploratorias (`subjective_coherence/load_mismatch`, `thermal_context`, `durability_context`) calculadas sobre `sessions.csv` y `session_stream.csv`; siguen siendo capa local de `analysis/` y no modifican `sessions.csv`.
+- `analysis/` ya puede exponer una capa no canonica de coach/Intervals dentro de `analysis/reports/<slug>/artifacts/`:
+  - `analysis_only_context` en `summary.json` y `session_payload.json`
+  - `coach_metrics.json`, `coach_intervals.csv` y `coach_groups.csv` como sidecars locales reproducibles
+  - esta capa no modifica `sessions.csv`, `sessions_day.csv`, `FINAL` ni `DASHBOARD`.
 
 Si este bloque queda desactualizado, debe actualizarse o reducirse.
 
@@ -336,3 +344,42 @@ Integracion con este repositorio:
 - Kanvas solo organiza planificacion, dependencias y estado del trabajo
 - Si hay conflicto entre Kanvas y las reglas del dominio HRV, manda `AGENTS.MD` del proyecto y la documentacion de `docs/contracts/`
 
+
+<!-- code-review-graph MCP tools -->
+## MCP Tools: code-review-graph
+
+**IMPORTANT: This project has a knowledge graph. ALWAYS use the
+code-review-graph MCP tools BEFORE using Grep/Glob/Read to explore
+the codebase.** The graph is faster, cheaper (fewer tokens), and gives
+you structural context (callers, dependents, test coverage) that file
+scanning cannot.
+
+### When to use graph tools FIRST
+
+- **Exploring code**: `semantic_search_nodes` or `query_graph` instead of Grep
+- **Understanding impact**: `get_impact_radius` instead of manually tracing imports
+- **Code review**: `detect_changes` + `get_review_context` instead of reading entire files
+- **Finding relationships**: `query_graph` with callers_of/callees_of/imports_of/tests_for
+- **Architecture questions**: `get_architecture_overview` + `list_communities`
+
+Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
+
+### Key Tools
+
+| Tool | Use when |
+|------|----------|
+| `detect_changes` | Reviewing code changes — gives risk-scored analysis |
+| `get_review_context` | Need source snippets for review — token-efficient |
+| `get_impact_radius` | Understanding blast radius of a change |
+| `get_affected_flows` | Finding which execution paths are impacted |
+| `query_graph` | Tracing callers, callees, imports, tests, dependencies |
+| `semantic_search_nodes` | Finding functions/classes by name or keyword |
+| `get_architecture_overview` | Understanding high-level codebase structure |
+| `refactor_tool` | Planning renames, finding dead code |
+
+### Workflow
+
+1. The graph auto-updates on file changes (via hooks).
+2. Use `detect_changes` for code review.
+3. Use `get_affected_flows` to understand impact.
+4. Use `query_graph` pattern="tests_for" to check coverage.
