@@ -348,6 +348,17 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
         self.assertIn("VERDE con carga acumulada (load_3d=210): precaución con la intensidad", row["reason_text"])
         self.assertNotIn("VERDE con recuperación frágil", row["reason_text"])
 
+    def test_reason_text_uses_explicit_fallback_when_no_context_is_emitted(self):
+        core = _core_frame()
+
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            with patch.object(final_builder, "DATA_DIR", data_dir):
+                final, _ = final_builder.build_final_and_dashboard(core, final_builder.Config())
+
+        row = final.iloc[-1]
+        self.assertEqual(row["reason_text"], "nada que añadir")
+
     def test_reason_text_adds_fragile_recovery_warning_on_ffill_clustering_window(self):
         core = _core_frame()
 

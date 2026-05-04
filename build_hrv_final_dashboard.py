@@ -1693,7 +1693,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
         recovery_discordance_flag[i] = recovery_is_discordant
         recovery_discordance_reason[i] = "|".join(discordance_codes if recovery_is_discordant else [])
 
-    reason_text = np.array([" | ".join(p) if p else "" for p in reason_parts], dtype=object)
+    reason_text = np.array([" | ".join(p) if p else "nada que añadir" for p in reason_parts], dtype=object)
 
     # =============================================================================
     # Warning baseline60_degraded (informativo)
