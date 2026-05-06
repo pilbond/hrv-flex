@@ -5009,6 +5009,9 @@ class TestBikePowerEstimation(unittest.TestCase):
         self.assertIsNotNone(ctx.get("climb_power_estimated_mean"))
         self.assertIsNotNone(ctx.get("climb_power_estimated_max"))
         self.assertEqual(ctx.get("climb_power_source"), "estimated")
+        self.assertIsNotNone(ctx.get("session_altitude_m"))
+        self.assertEqual(ctx.get("session_altitude_samples"), len(records))
+        self.assertGreater(ctx.get("session_altitude_m"), ctx.get("session_altitude_start_m"))
         climbs = result["terrain_climbs"]
         self.assertTrue(all(c.get("power_source") == "estimated" for c in climbs))
         self.assertTrue(all(c.get("power_estimated_mean") is not None for c in climbs))

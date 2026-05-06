@@ -1,8 +1,25 @@
-## SYA-10 SYA-03G Backlog diferido de senales retrospectivas y HRV longitudinal
 
 Agrupar propuestas valiosas que han quedado fuera del alcance inmediato de SYA-07/08/09: HRV rebound profile D+1/D+3 como lectura retrospectiva, baseline drift 60v180 o baseline adaptativo de largo plazo, continuidad aeróbica Z1 alta si se redefine bien en el marco de 3 zonas, y otras ideas que no encajan hoy ni como senal compuesta de sesion ni como weekly operativo. Esta subtarea SI puede: clasificar, reformular y decidir destino natural (weekly, HRV global, investigacion local) de cada idea diferida. Esta subtarea NO puede: colar estas ideas en analysis_only_context, sessions_day, FINAL o reason_text sin validacion y sin actualizar antes el marco maestro en SYA-03. Cierre obligatorio: dejar backlog diferido limpio y trazable en SYA-03 con criterio de reactivacion.
 
 Documento maestro: [[docs/HRV/SYA-03 Inventario y analisis ampliado de intervalsicugptcoach.md]]
+
+## Tareas derivadas abiertas
+
+- [HG-01 Propuesta baseline drift 60v180.md](HG-01%20Propuesta%20baseline%20drift%2060v180.md)
+- [SYA-14 Z3 budget semanal.md](SYA-14%20Z3%20budget%20semanal.md)
+- [SYA-15 Continuidad aerobica Z1 alta.md](SYA-15%20Continuidad%20aer%C3%B3bica%20Z1%20alta.md)
+- [SYA-16 HRV rebound profile D+1 D+3.md](SYA-16%20HRV%20rebound%20profile%20D%2B1%20D%2B3.md)
+
+## Estado de cierre 2026-05-05
+
+`SYA-10` ya ha cumplido su funcion de gobernanza:
+
+- el backlog diferido quedo consolidado en `SYA-03`
+- cada idea principal salio a una tarjeta hija propia
+- `TSB / form score clasico` queda explicitamente como linea descartada por redundancia
+
+Por tanto, `SYA-10` ya no debe reabrirse para seguir discutiendo ideas concretas.
+Desde ahora, cualquier trabajo nuevo debe ocurrir en una de sus tarjetas derivadas.
 
 ## Análisis técnico 2026-04-23
 
