@@ -1,15 +1,15 @@
 # ENDURANCE HRV — Diccionario de Columnas (FINAL/DASHBOARD)
 
-**Revisión:** r2026-04-28 v4.12 (jargon fixes + coverage: intensity_category, effort_vs_*, session_group, late_intensity, decoupling, load_ctx_ready, zones_source fallback, DFA α1, reason_items layers)
+**Revisión:** r2026-05-13 v4.13 (PCV-04 weekly coach sidecar + jargon fixes)
 **Estado:** Producción
 
 **Documentos relacionados:**
 - `ENDURANCE_HRV_Spec_Tecnica.md` — especificación técnica (fórmulas y reglas)
 - `ENDURANCE_HRV_Estructura.md` — contrato de datos (columnas y orden exacto)
-- `ENDURANCE_HRV_Sessions_Schema.md` — contrato del pipeline de sesiones (`sessions.csv`, `sessions_day.csv`, `ENDURANCE_HRV_sessions_metadata.json`), revisión `r2026-04-20 v3.12`
+- `ENDURANCE_HRV_Sessions_Schema.md` — contrato del pipeline de sesiones (`sessions.csv`, `sessions_day.csv`, `ENDURANCE_HRV_weekly_coach.json`, `ENDURANCE_HRV_sessions_metadata.json`), revisión `r2026-05-13 v3.13`
 
 **Límite de alcance de este diccionario:**
-- documenta `CORE`, `FINAL`, `DASHBOARD`, `BETA_AUDIT`, `sleep`, `sessions_day`, `intensity_distribution_weekly`, `wellness_subjective` y la metadata de sesiones,
+- documenta `CORE`, `FINAL`, `DASHBOARD`, `BETA_AUDIT`, `sleep`, `sessions_day`, `intensity_distribution_weekly`, `weekly_coach`, `wellness_subjective` y la metadata de sesiones,
 - para el detalle columna-a-columna de `sessions.csv` (73 cols), la fuente canónica es `ENDURANCE_HRV_Sessions_Schema.md`; aquí sólo se ofrece el mapa,
 - no documenta artefactos locales de `analysis/` como `terrain_context`, `terrain_fit_context`, `terrain_intervals.csv` o `terrain_climbs.csv`,
 - cuando haga falta esa capa de análisis de terreno, la fuente correcta es `analysis/SESSION_ANALYSIS_METHOD.md` y `analysis/ANALYSIS_DICTIONARY.md`.
@@ -28,8 +28,9 @@
 - §5ter. SESSIONS_DAY (carga diaria y clustering) — sidecar CSV
 - §5quater. SESSIONS METADATA / TRAINING_AUDIT (sidecar JSON)
 - §5quinquies. INTENSITY_DISTRIBUTION_WEEKLY (sidecar CSV) — 21 columnas
-- §5sexies. WELLNESS_SUBJECTIVE (sidecar retrospectivo) — 17 columnas
-- §5septies. SESSIONS (histórico de sesiones) — 73 columnas (mapa)
+- §5sexies. WEEKLY_COACH (sidecar JSON)
+- §5septies. WELLNESS_SUBJECTIVE (sidecar retrospectivo) — 17 columnas
+- §5octies. SESSIONS (histórico de sesiones) — 73 columnas (mapa)
 - §6. Valores de gate_razon_base60 (y sombras)
 - §7. Valores de Flags (CORE)
 - §8. decision_path (auditoría de "quién mandó")
@@ -758,7 +759,39 @@ Responde preguntas que ni el gate HRV ni `sessions_day.csv` pueden responder por
 
 ---
 
-## 5sexies. WELLNESS_SUBJECTIVE (sidecar retrospectivo) — 17 columnas
+## 5sexies. WEEKLY_COACH (sidecar JSON)
+
+Generado por `build_sessions.py` como `ENDURANCE_HRV_weekly_coach.json`. Resume la semana de referencia con marcas explícitas de corte y cobertura. No afecta al gate HRV ni a `Action`: es un sidecar estructurado para consumo semanal o automatismos posteriores.
+
+### Claves principales
+
+| Clave | Qué es |
+|-------|--------|
+| `iso_week` | Semana ISO de referencia (`YYYY-Www`). |
+| `window_start` / `window_end` | Lunes y domingo de la ventana semanal. |
+| `as_of_date` | Fecha de corte usada para calcular la semana de referencia. |
+| `generated_at` | Timestamp de generación del sidecar. |
+| `anchor_source` | `current_week`, `latest_available` o `no_data`. |
+| `week_expected_days` | Días esperados en la semana ancla. |
+| `week_data_coverage_pct` | Cobertura observada sobre los días esperados, capada a `100.0`. |
+| `week_is_partial` | `True` si la semana no estaba completa o se usó fallback histórico. |
+| `week_days_present` | Días con datos realmente observados en la ventana. |
+| `week_type` | Patrón semanal: `polarized`, `pyramidal`, `threshold`, `mixed` o `insufficient_data`. |
+| `week_type_confidence` | Confianza de la lectura de intensidad semanal. |
+| `week_load` | Suma de `load_day` observados en la semana de referencia. |
+| `progression_risk` | `low`, `moderate`, `high` o `insufficient_data` según `ACWR`, `monotony` y `strain`. |
+| `hrv_trend` | `rising`, `stable`, `falling` o `insufficient_data` según la pendiente semanal de `RMSSD_stable`. |
+| `data_quality` | Calidad e interpretabilidad del sidecar: no equivale a normalidad operativa. |
+
+### Lo que NO debes hacer
+
+- ❌ Usar `data_quality` como si fuera un semáforo de estado atlético
+- ❌ Interpretar `week_load` como reconstrucción completa si faltan días por ingestión
+- ❌ Mezclar este sidecar con `reason_text` o con el gate diario
+
+---
+
+## 5septies. WELLNESS_SUBJECTIVE (sidecar retrospectivo) — 17 columnas
 
 Generado como `ENDURANCE_HRV_wellness_subjective.csv` a partir del wellness subjetivo reportado en Intervals.icu (capa retrospectiva de análisis). **NO alimenta `reason_text`** ni modifica el gate: es información complementaria reservada para revisiones semanales u offline.
 
@@ -800,13 +833,13 @@ Guarda lo que tú mismo reportaste cada día (fatiga, estrés, ánimo, etc.) jun
 
 ---
 
-## 5septies. SESSIONS (histórico de sesiones) — 73 columnas (mapa)
+## 5octies. SESSIONS (histórico de sesiones) — 73 columnas (mapa)
 
-Generado por `build_sessions.py` como `ENDURANCE_HRV_sessions.csv`. Es el **histórico canónico** de sesiones de Intervals.icu con zonas, bloques de trabajo, drift y métricas derivadas. No afecta al gate HRV, pero es la fuente a partir de la cual se construye `sessions_day.csv` (§5ter) y el sidecar semanal (§5quinque).
+Generado por `build_sessions.py` como `ENDURANCE_HRV_sessions.csv`. Es el **histórico canónico** de sesiones de Intervals.icu con zonas, bloques de trabajo, drift y métricas derivadas. No afecta al gate HRV, pero es la fuente a partir de la cual se construye `sessions_day.csv` (§5ter) y los sidecars semanales (§5quinquies y §5sexies).
 
 ### Fuente canónica del detalle columna-a-columna
 
-La especificación completa columna-a-columna vive en **`ENDURANCE_HRV_Sessions_Schema.md`** (revisión `r2026-04-20 v3.12`). Este diccionario no la duplica para evitar desincronizaciones.
+La especificación completa columna-a-columna vive en **`ENDURANCE_HRV_Sessions_Schema.md`** (revisión `r2026-05-13 v3.13`). Este diccionario no la duplica para evitar desincronizaciones.
 
 ### Mapa de bloques (73 columnas)
 

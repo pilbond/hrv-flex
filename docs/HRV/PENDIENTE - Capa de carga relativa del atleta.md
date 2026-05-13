@@ -1,11 +1,11 @@
 # Tarea: Capa de carga relativa del atleta
 
-Estado: en curso
+Estado: parcialmente implementado
 Tipo de valor: valor explicativo, valor predictivo temprano y valor de personalizacion
 Prioridad: alta
 
 ## Resumen
-La capa de carga actual ya dispone de una base canonica relevante en `sessions_day`:
+La capa de carga relativa ya existe en el repositorio y esta documentada en contratos. La base canonica relevante en `sessions_day` es:
 
 - `acwr_simple_prev`
 - `monotony_7d_prev`
@@ -16,7 +16,7 @@ La capa de carga actual ya dispone de una base canonica relevante en `sessions_d
 - `intensity_clustering_flag`
 - `intensity_clustering_level`
 
-El problema abierto de PCV-03 ya no es "crear contexto de carga desde cero", sino cerrar el hueco que queda entre esa capa canonica y los avisos todavia apoyados en umbrales absolutos dentro de `reason_text`, especialmente `load_3d`, `work_7d_sum` y `z3_7d_sum`.
+El problema abierto de PCV-03 ya no es "crear contexto de carga desde cero". Lo que queda es terminar de retirar o simplificar avisos residuales apoyados en umbrales absolutos dentro de `reason_text`, especialmente donde sigan apareciendo lecturas tipo `load_3d`, `work_7d_sum` y `z3_7d_sum` sin la lectura relativa correspondiente.
 
 Hoy siguen existiendo mensajes del tipo:
 
@@ -26,16 +26,16 @@ Hoy siguen existiendo mensajes del tipo:
 Eso limita la interpretacion porque el sistema mezcla senales ya personalizadas del atleta con reglas absolutas heredadas.
 
 ## Estado real del repositorio
-Lo que ya existe:
+Lo que ya existe y debe considerarse cubierto:
 
 - `acute_chronic_ratio_7_28` ya esta cubierto de forma operativa por `acwr_simple_prev`.
 - `monotony_7d` ya esta cubierto de forma operativa por `monotony_7d_prev`.
 - el apilado reciente de dias duros ya esta cubierto en parte por `intense_days_prev_3d` y `intense_days_prev_5d`.
 - `strain_7d_prev` ya aporta una lectura relativa adicional del contexto de carga.
 
-Lo que sigue faltando:
+Lo que sigue faltando o puede refinarsse:
 
-- una lectura relativa explicita de carga aguda de 72h que reemplace o complemente `load_3d` como warning absoluto;
+- una limpieza final de los textos que todavia mencionan `load_3d` como si fuera la unica señal de carga;
 - una forma mas clara de expresar si la carga reciente es alta para este atleta y este bloque, no solo alta en terminos brutos;
 - una narrativa de `reason_text` que explique mejor verdes fragiles y rojos con contexto de carga realmente personalizado.
 
@@ -64,7 +64,7 @@ Definicion operativa de cada uno:
 - `intensity_clustering_flag` y `intensity_clustering_level` se derivan de esos conteos.
 - `load_ctx_ready = True` cuando `load_28d_nobs >= 14`.
 
-La futura senal relativa que PCV-03 quiere añadir es:
+La senal relativa que PCV-03 introdujo es:
 
 - `acute_load_72h_rel = load_3d / (load_28d / 28)` cuando exista contexto suficiente.
 
@@ -77,16 +77,14 @@ Como se actualizan con el tiempo:
 
 ## Que falta exactamente
 - sustituir o complementar reglas absolutas por metricas relativas del atleta alli donde todavia domine `load_3d`;
-- introducir como minimo una senal relativa de carga aguda reciente, preferiblemente `acute_load_72h_rel`, calculada sin mirar hacia delante y apoyada en la propia historia del atleta;
 - revisar si hace falta una segunda senal de "calidad/densidad" reciente, pero sin duplicar mecanicamente lo que ya cubren `z3_7d_sum`, `intensity_clustering_*` o `DO-02`;
 - rehacer los avisos de `reason_text` para que expliquen mejor verdes fragiles y rojos sin causa aparente;
-- absorber aqui la mejora de `load_3d`, evitando dejarla como warning aislado con un umbral fijo.
+- decidir si `load_3d` debe quedarse como dato bruto de apoyo o reducirse aun mas en favor de la lectura relativa.
 
 ## Alcance recomendado
 Alcance minimo util:
 
-- anadir `acute_load_72h_rel` en `build_sessions.py`;
-- migrar el warning principal de `load_3d` en `build_hrv_final_dashboard.py` a una lectura relativa del atleta;
+- depurar los textos restantes que aun describen `load_3d` como warning principal sin contexto relativo;
 - ajustar el copy de `reason_text` para que exprese el exceso relativo frente al baseline cronico del propio atleta.
 
 Alcance diferido o condicional:
@@ -121,7 +119,7 @@ La calibracion operativa de los umbrales no es causal: cuando hay suficiente his
 - `tests/test_cli_reporting_contract.py`
 
 ## Criterio de cierre
-Existe una capa relativa de carga reciente del atleta, documentada en contratos, y el warning principal hoy asociado a `load_3d` deja de depender solo de un umbral absoluto.
+La capa relativa de carga reciente queda documentada en contratos y guias, y los textos de uso dejan de presentar `load_3d` como unica lectura de carga.
 
 Condiciones concretas:
 

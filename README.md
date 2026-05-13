@@ -107,6 +107,7 @@ La prioridad canonica de cobertura RR es Dropbox primero y Polar como fallback.
 - `ENDURANCE_HRV_sessions.csv`
 - `ENDURANCE_HRV_sessions_day.csv`
 - `ENDURANCE_HRV_intensity_distribution_weekly.csv`
+- `ENDURANCE_HRV_weekly_coach.json`
 - `ENDURANCE_HRV_sessions_metadata.json`
 - `ENDURANCE_HRV_wellness_subjective.csv`
 
@@ -153,6 +154,9 @@ Outputs principales de sesiones:
 
 - `ENDURANCE_HRV_intensity_distribution_weekly.csv`
   - Distribucion observada semanal por deporte.
+
+- `ENDURANCE_HRV_weekly_coach.json`
+  - Resumen semanal estructurado con marcas de corte y cobertura.
 
 - `ENDURANCE_HRV_sessions_metadata.json`
   - Metadata del pipeline y `training_audit`.

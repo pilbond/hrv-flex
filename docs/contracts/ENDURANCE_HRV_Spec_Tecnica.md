@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Especificación Técnica
 
-**Revisión:** r2026-04-19 v4.12 (SS-02 trazabilidad estructurada en analysis)
+**Revisión:** r2026-05-13 v4.13 (PCV-04 sidecar semanal estructurado)
 **Estado:** Producción
 
 ---
@@ -964,6 +964,7 @@ Si tu baseline actual está por debajo del P20 de todos tus baselines histórico
 | `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios + rolling con cobertura (_nobs) + contexto canónico de carga + clustering reciente de intensidad + señal DO-02 de polarización por familia + resumen de episodios | 60 |
 | `ENDURANCE_HRV_intensity_distribution_weekly.csv` | Distribución observada de intensidad por deporte y semana ISO (DO-01). Sidecar analítico; no alimenta el gate ni `reason_text`. | 21 |
 | `ENDURANCE_HRV_sessions_metadata.json` | Trazabilidad pipeline sesiones (versión, params, sampling rate) + auditoría ligera de interpretabilidad para coaching/carga | — |
+| `ENDURANCE_HRV_weekly_coach.json` | Sidecar semanal estructurado (PCV-04) con `iso_week`, ventana, `as_of_date`, `generated_at`, `anchor_source`, `week_expected_days`, `week_data_coverage_pct`, `week_type`, `week_load`, `progression_risk`, `hrv_trend` y `data_quality`. No alimenta el gate ni `reason_text`. | — |
 | `ENDURANCE_HRV_master_BETA_AUDIT.csv` | Modelo beta del V3, para comparación histórica | 13 |
 
 El contrato exacto (columnas, orden, tipos) de CORE/FINAL/DASHBOARD/SLEEP está en `ENDURANCE_HRV_Estructura.md`.
@@ -973,7 +974,11 @@ El contrato de sessions/sessions_day/metadata/intensity_distribution_weekly est�
 
 ## 17bis. Distribución de intensidad por deporte (DO-01)
 
-`build_sessions.py` genera, junto con `sessions_day.csv`, el sidecar `ENDURANCE_HRV_intensity_distribution_weekly.csv`. Una fila por combinación `(semana ISO, deporte)`.
+`build_sessions.py` genera, junto con `sessions_day.csv`, los sidecars `ENDURANCE_HRV_intensity_distribution_weekly.csv` y `ENDURANCE_HRV_weekly_coach.json`. El primero tiene una fila por combinación `(semana ISO, deporte)`; el segundo resume la semana de referencia calculable con marcas explícitas de corte (`as_of_date`, `generated_at`, `anchor_source`).
+
+`week_load` resume la carga de los días observados de la semana de referencia; si faltan días por ausencia de ingestión, el sidecar no los reconstruye ni los mezcla con días de descanso reales. `week_data_coverage_pct` usa los días esperados de la semana ancla como denominador y permite distinguir semana parcial real de huecos de ingestión. Esa limitación debe declararse en el consumo.
+
+`data_quality` describe calidad e interpretabilidad de los datos de entrada, no normalidad fisiológica u operativa. Una semana puede tener `data_quality = good` y aun así `progression_risk = high`.
 
 ### Propósito
 
@@ -1103,6 +1108,7 @@ Secciones obligatorias:
 | 2026-04-18 v4.11 | SS-02: `build_hrv_final_dashboard.py` publica el sidecar `ENDURANCE_HRV_master_FINAL_reason_items.json` para `analysis/`; `reason_text` sigue siendo el render humano, pero `analysis/session_analysis_pipeline.py` consume `final_reason_items` y deriva flags de cautela/tensión |
 | 2026-04-10 v4.10 | SS-01: `reason_text` pasa a renderizarse desde `reason_items` estructurados en memoria (`type/layer/source/...`), con separación interna entre dato medido, proxy, inferencia y acción; sin cambio de columnas públicas en `FINAL` ni `DASHBOARD` |
 | 2026-04-08 v4.7 | DO-01: `build_sessions.py` genera `ENDURANCE_HRV_intensity_distribution_weekly.csv` (21 cols, 1 fila por semana ISO × deporte); `classify_distribution_pattern` clasifica la semana como `polarized`, `pyramidal`, `threshold` o `mixed` con ponderación por minutos y confianza explícita; sidecar analítico, no alimenta el gate ni `reason_text` |
+| 2026-05-13 v4.13 | PCV-04: `build_sessions.py` genera `ENDURANCE_HRV_weekly_coach.json` como sidecar semanal estructurado; resume `iso_week`, ventana, `as_of_date`, `generated_at`, `anchor_source`, `week_expected_days`, `week_data_coverage_pct`, `week_type`, `week_load`, `progression_risk`, `hrv_trend` y `data_quality`; `data_quality` describe interpretabilidad de los datos, no normalidad operativa; no alimenta el gate ni `reason_text` |
 | 2026-04-08 v4.6 | RE-01: `build_hrv_final_dashboard.py` añade `recovery_context_quality`, `recovery_support_class`, `recovery_discordance_flag` y `recovery_discordance_reason`; `reason_text` gana cierres semánticos de recuperación sin tocar `gate_final` |
 | 2026-04-08 v4.6 | FINAL bumped 58→62 cols para exponer la capa RE-01 sin tocar DASHBOARD |
 | 2026-05-13 v4.7 | FINAL bumped 62→66 cols para exponer PCV-02: warning dual (`degraded_vs_best`, `degraded_vs_current_normal`) manteniendo `baseline60_degraded` como alias legacy |

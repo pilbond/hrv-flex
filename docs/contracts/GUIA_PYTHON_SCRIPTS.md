@@ -230,6 +230,7 @@ Importante:
     - `ENDURANCE_HRV_sessions.csv` (detalle por sesion)
     - `ENDURANCE_HRV_sessions_day.csv` (agregado diario + rolling)
     - `ENDURANCE_HRV_intensity_distribution_weekly.csv` (resumen semanal por deporte del patron de distribucion observada)
+    - `ENDURANCE_HRV_weekly_coach.json` (resumen semanal estructurado con marcas de corte y cobertura)
     - `ENDURANCE_HRV_sessions_metadata.json`
     - `ENDURANCE_HRV_wellness_subjective.csv` (wellness subjetivo diario desde Intervals, si hay cobertura)
   - Canoniza la capa AP-02 de señal mecanica minima en `sessions.csv` para deportes de pie:
@@ -280,6 +281,7 @@ Importante:
   - `sessions.csv` pasa a ser la fuente canonica de detalle por sesion, incluidos coste, zonas, drift, mecanica minima y la extracción mínima cerrada de coach metrics por sesión.
   - `sessions_day.csv` pasa a ser la fuente canonica de rolling de carga y clustering para `reason_text`.
   - `intensity_distribution_weekly.csv` pasa a ser la salida canonica de distribucion observada por `sport x week`.
+  - `ENDURANCE_HRV_weekly_coach.json` pasa a ser el sidecar canonico de resumen semanal estructurado para consumo posterior.
   - `sessions_metadata.json` pasa a ser la fuente canonica de `training_audit` para rebajar confianza de coaching/carga sin bloquear pipeline.
 - Automatico o manual:
   - Manual (no lo llama el flujo principal por defecto).
@@ -360,7 +362,7 @@ Si tu pregunta es "que scripts importan para operar dia a dia":
 
 Y aparte, opcional recomendado:
 
-1. `build_sessions.py` para mantener al dia `sessions.csv`, `sessions_day.csv`, `sessions_metadata.json` y `wellness_subjective.csv`, y asi habilitar AP-01, AP-02, CDC-01, ADC-01 y RE-02 en el contexto del sistema.
+1. `build_sessions.py` para mantener al dia `sessions.csv`, `sessions_day.csv`, `ENDURANCE_HRV_weekly_coach.json`, `sessions_metadata.json` y `wellness_subjective.csv`, y asi habilitar AP-01, AP-02, CDC-01, ADC-01, RE-02 y PCV-04 en el contexto del sistema.
 2. `analysis\\analyze_session.py` o `analysis\\run_session_analysis.py` cuando quieras explotar la capa analitica local sin tocar contratos canonicos:
    - terreno (`GAP`, `VAM`, potencia por split y climbs FIT`; en `bike`, la capa FIT puede anadir potencia estimada local por subida)
    - `composite_context` de `SYA-07` (`subjective_coherence`, `thermal_context`, `durability_context`)

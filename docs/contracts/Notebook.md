@@ -532,7 +532,9 @@ Cada clasificacion viene con `distribution_confidence` (`high`, `moderate`, `low
 
 Esta capa **no afecta al gate ni a `reason_text`**. Es revision retrospectiva. Sirve para mirar tres semanas atras y notar, por ejemplo, que llevas un mes en `threshold` aunque tu HRV no haya saltado: el agujero negro es exactamente eso, sabotaje silencioso.
 
-→ Diccionario §5quinquies (columnas detalladas de la distribucion semanal).
+El sistema tambien genera `ENDURANCE_HRV_weekly_coach.json` como resumen semanal estructurado. No sustituye a la distribucion por deporte: la complementa con ventana, cobertura, tipo semanal, carga y tendencia HRV para capas automatizadas.
+
+→ Diccionario §5quinquies (columnas detalladas de la distribucion semanal) y §5sexies (resumen semanal estructurado).
 
 ## ¿Que papel juega el sueno como contexto y por que no debe anular por si solo la medicion matinal?
 
@@ -688,7 +690,7 @@ No deberia presentar como vigentes, salvo que el codigo cambie de verdad:
 - ANS Charge operativo como entrada del gate
 - metricas Tier 3 accionables como SampEn (DFA-α1 existe en analysis local de sesion, pero **no** en el decisor diario)
 - protocolos ICC integrados en el flujo productivo
-- coach semanal estructurado en producto (sigue en `PENDIENTE`)
+- coach semanal estructurado en producto (ya cubierto por `PCV-04`)
 - baseline adaptativo a largo plazo (sigue en `PENDIENTE`)
 - capa de carga relativa del atleta (sigue en `PENDIENTE`)
 - SWC configurable o adaptativo (sigue en `PENDIENTE`)

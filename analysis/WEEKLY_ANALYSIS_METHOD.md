@@ -105,6 +105,9 @@ El usuario MAY anadir:
 ### Auxiliares citable
 - `analysis_only_context` y sidecars locales de una sesion individual
   cuando ayuden a ilustrar un patron semanal concreto,
+- `data/ENDURANCE_HRV_weekly_coach.json` cuando exista, como resumen
+  estructurado de la semana de referencia; puede ayudar a abrir la
+  lectura, pero no sustituye las fuentes primarias,
 - `ENDURANCE_HRV_wellness_subjective.csv` cuando aporte contexto
   retrospectivo util.
 
