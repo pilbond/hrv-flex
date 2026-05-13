@@ -323,14 +323,18 @@ Este bloque cubre el warning de baseline degradado y los flags sistémicos que l
 
 | # | Columna | Qué es |
 |---|---------|--------|
-| 47 | `baseline60_degraded` | ¿Tu capacidad de absorción está reducida respecto a tu mejor momento? True si tu baseline actual (mediana de los últimos 60 días) está por debajo de un umbral de referencia. Es un aviso a medio plazo — no cambia el gate del día, pero sugiere que las decisiones de progresión semanal deberían ser conservadoras. |
-| 48 | `healthy_rmssd` | Tu ancla de RMSSD "sano": la mediana de RMSSD durante un periodo en el que estabas bien entrenado y sin problemas. Sirve como referencia de lo que tu cuerpo puede dar en condiciones óptimas. Se define una vez y se mantiene fija. |
-| 49 | `healthy_hr` | Tu ancla de pulso "sano": la mediana de HR en reposo durante el mismo periodo de referencia. |
-| 50 | `healthy_period` | El rango de fechas usado para calcular las anclas healthy (ej: "2025-07-01 a 2025-09-30"). |
-| 51 | `flag_sistemico` | Campo reservado para información externa al HRV que podría afectar la interpretación: calidad de sueño, viajes, enfermedad, etc. Actualmente no se alimenta automáticamente — está preparado para futuras integraciones. |
-| 52 | `flag_razon` | Texto explicativo del flag sistémico (ej: "sueño <5h", "jet lag"). Vacío si no hay flag activo. |
-| 53 | `warning_threshold` | El umbral concreto (en ms de RMSSD) por debajo del cual se activa el warning. En modo healthy85 es el 85% de tu healthy_rmssd. En modo p20 es el percentil 20 de tu histórico. |
-| 54 | `warning_mode` | Qué método se usó para calcular el umbral de warning. healthy85 = basado en tu mejor periodo × 0.85. p20 = basado en el percentil 20 de tu histórico completo. |
+| 47 | `baseline60_degraded` | Alias legacy del warning de baseline. Mantiene compatibilidad hacia atrás y sigue el umbral seleccionado por `warning_mode`. En modo `adaptive90` (default) equivale a `degraded_vs_current_normal`. En modo `healthy85` equivale a `degraded_vs_best`. Se mantiene por compatibilidad con consumidores antiguos y con DASHBOARD. En consumidores nuevos, preferir `degraded_vs_best` y `degraded_vs_current_normal`. |
+| 48 | `degraded_vs_best` | Señal canónica: True si tu baseline actual (mediana de los últimos 60 días) está por debajo de la referencia de mejor forma histórica (`healthy_rmssd × healthy_factor`). Responde “¿sigues lejos de tu mejor nivel conocido?”. |
+| 49 | `degraded_vs_current_normal` | Señal canónica: True si tu baseline actual está por debajo de tu normal reciente adaptativa (`warning_threshold_current_normal`). Responde “¿estás en caída activa respecto a tu nivel reciente?”. |
+| 50 | `healthy_rmssd` | Tu ancla histórica de RMSSD "sano": la mediana de RMSSD durante un periodo en el que estabas bien entrenado y sin problemas. Sirve como contexto de mejor forma conocida y como base de `degraded_vs_best`. |
+| 51 | `healthy_hr` | Tu ancla histórica de pulso "sano": la mediana de HR en reposo durante el mismo periodo de referencia. |
+| 52 | `healthy_period` | El rango de fechas usado para calcular las anclas healthy (ej: "2025-07-01 a 2025-09-30"). Identifica la referencia histórica de mejor forma. |
+| 53 | `flag_sistemico` | Campo reservado para información externa al HRV que podría afectar la interpretación: calidad de sueño, viajes, enfermedad, etc. Actualmente no se alimenta automáticamente — está preparado para futuras integraciones. |
+| 54 | `flag_razon` | Texto explicativo del flag sistémico (ej: "sueño <5h", "jet lag"). Vacío si no hay flag activo. |
+| 55 | `warning_threshold` | Umbral efectivo usado por el warning legacy `baseline60_degraded`, según `warning_mode`. Se mantiene por compatibilidad y auditoría. |
+| 56 | `warning_threshold_best` | Umbral fijo de mejor forma histórica usado por `degraded_vs_best` (`healthy_factor × healthy_rmssd`). |
+| 57 | `warning_threshold_current_normal` | Umbral dinámico usado por `degraded_vs_current_normal` (`warning_factor × P75 rolling 90D` de `exp(ln_base60)`). |
+| 58 | `warning_mode` | Qué método se usó para calcular el warning legacy `baseline60_degraded`. `adaptive90` = alias de `degraded_vs_current_normal` (default). `healthy85` = alias de la comparación contra mejor forma histórica. `p20` = percentil 20 del histórico completo. |
 
 #### K) v4 Enhancement
 
@@ -408,7 +412,7 @@ Subconjunto de FINAL para mirar en 10 segundos. Solo lo esencial para decidir qu
 | `Action` | **Qué hacer hoy**: INTENSIDAD_OK (adelante), Z2_O_TEMPO_SUAVE (sin intervalos), SUAVE_O_DESCANSO (regenerativo o parar). |
 | `gate_razon_base60` | Por qué salió ese color. 2D_OK = todo dentro de rango. 2D_LN = HRV baja. 2D_HR = pulso alto. 2D_AMBOS = las dos cosas → máxima confianza de fatiga. |
 | `decision_path` | Si el gate fue ajustado por una sombra (BASE28 o BASE42) aparece aquí. Si dice BASE60_ONLY, no hubo override. |
-| `baseline60_degraded` | Warning a medio plazo: True si tu baseline de los últimos 2 meses está por debajo de tu referencia "sano". No cambia el gate de hoy, pero avisa de que tu capacidad de absorción está reducida. |
+| `baseline60_degraded` | Warning a medio plazo legacy. Para lectura nueva, distinguir `degraded_vs_best` (lejos de mejor forma) de `degraded_vs_current_normal` (caída activa reciente). |
 | `reason_text` | Contexto textual del día: por qué el sistema tomó esa decisión y qué factores externos hay (sueño, carga, divergencias). El wellness subjetivo no entra en esta capa. Vacío si no hay nada que reportar. |
 
 ---
@@ -1034,6 +1038,8 @@ Si no hay override, `override_reason` queda vacío.
                               └───────────────────────────┘
 ```
 
+Nota: `baseline60_degraded` es la señal legacy de lectura rápida. La lectura canónica nueva distingue `degraded_vs_best` (distancia a mejor forma histórica) y `degraded_vs_current_normal` (caída activa respecto a tu normal reciente).
+
 ---
 
 ## 10. Glosario de términos técnicos
@@ -1170,6 +1176,8 @@ Action_detail: EJECUTAR_PLAN
 gate_razon_base60: 2D_OK
 decision_path: BASE60_ONLY
 baseline60_degraded: False
+degraded_vs_best: False
+degraded_vs_current_normal: False
 ```
 
 **Interpretación:** Gate OK, ambos deltas dentro de SWC, residual ligeramente positivo. Ejecutar plan previsto.
@@ -1189,6 +1197,8 @@ decision_path: BASE60_ONLY
 bad_streak: 2
 bad_7d: 3
 baseline60_degraded: True
+degraded_vs_best: True
+degraded_vs_current_normal: True
 ```
 
 **Interpretación:** HR alto + HRV bajo simultáneamente, residual muy negativo, racha de 2 días malos, 3 en 7 días, baseline degradado. Señales claras de fatiga acumulada → descarga.
@@ -1206,6 +1216,8 @@ Action_detail: SIN_HIIT
 gate_razon_base60: 2D_HR
 decision_path: BASE60_ONLY
 baseline60_degraded: False
+degraded_vs_best: False
+degraded_vs_current_normal: False
 ```
 
 **Interpretación:** HR por encima de lo normal pero HRV dentro de rango. Posible sueño malo o estrés puntual. Sin HIIT, pero Z2 permitido.

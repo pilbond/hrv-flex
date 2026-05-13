@@ -7,3 +7,4 @@ El `healthy_period` está fijado en `2025-07-01..2025-09-30`. Los RMSSD de es
 - Usar un baseline running de 90 días en vez del periodo fijo
 - Escala dual: mantener el "historical best" como referencia pero usar el "current normal" para el gate diario
   
+> Nota histórica: esta nota describe el problema antes de `PCV-02`. Desde `2026-05-13`, la solución canónica ya separa `degraded_vs_best` y `degraded_vs_current_normal`, manteniendo `baseline60_degraded` como alias legacy.

@@ -43,6 +43,70 @@ def _write_sessions_day(data_dir: Path, rows: list[dict[str, object]]) -> None:
 
 
 class BuildFinalDashboardContractTests(unittest.TestCase):
+    def test_compute_dual_baseline_signals_exposes_best_and_current_normal(self):
+        fechas = pd.Series(pd.date_range("2026-01-01", periods=190, freq="D").strftime("%Y-%m-%d"))
+        rmssd = pd.Series(([50.0] * 90) + ([30.0] * 30) + ([38.0] * 30) + ([42.0] * 40), dtype=float)
+        cfg = final_builder.Config(
+            warning_mode="adaptive90",
+            adaptive_window_days=90,
+            adaptive_ref_quantile=0.75,
+            warning_factor=0.85,
+            healthy_factor=0.85,
+        )
+
+        out = final_builder.compute_dual_baseline_signals(fechas, rmssd, healthy_rmssd=50.0, cfg=cfg)
+
+        self.assertTrue(all(bool(x) for x in out["degraded_vs_best"][90:]))
+        self.assertFalse(any(bool(x) for x in out["degraded_vs_current_normal"][-10:]))
+        np.testing.assert_allclose(out["warning_threshold_best"][-5:], np.array([42.5] * 5))
+
+    def test_compute_warning_signal_healthy85_uses_fixed_anchor(self):
+        fechas = pd.Series(pd.date_range("2026-01-01", periods=3, freq="D").strftime("%Y-%m-%d"))
+        rmssd = pd.Series([50.0, 42.0, 39.0], dtype=float)
+        cfg = final_builder.Config(warning_mode="healthy85", healthy_factor=0.85)
+
+        thresholds, degraded = final_builder.compute_warning_signal(fechas, rmssd, healthy_rmssd=50.0, cfg=cfg)
+
+        np.testing.assert_allclose(thresholds, np.array([42.5, 42.5, 42.5]))
+        self.assertEqual(degraded.tolist(), [False, True, True])
+
+    def test_compute_warning_signal_adaptive90_recovers_after_prolonged_drop(self):
+        fechas = pd.Series(pd.date_range("2026-01-01", periods=190, freq="D").strftime("%Y-%m-%d"))
+        rmssd = pd.Series(([50.0] * 90) + ([30.0] * 30) + ([38.0] * 30) + ([42.0] * 40), dtype=float)
+        cfg = final_builder.Config(
+            warning_mode="adaptive90",
+            adaptive_window_days=90,
+            adaptive_ref_quantile=0.75,
+            warning_factor=0.85,
+        )
+
+        thresholds, degraded = final_builder.compute_warning_signal(fechas, rmssd, healthy_rmssd=float("nan"), cfg=cfg)
+
+        self.assertTrue(np.isnan(thresholds[0]))
+        self.assertTrue(all(bool(x) for x in degraded[90:120]))
+        self.assertTrue(bool(degraded[150]))
+        self.assertFalse(any(bool(x) for x in degraded[-10:]))
+
+    def test_compute_warning_signal_adaptive90_uses_calendar_window_not_row_count(self):
+        fechas = pd.Series(
+            pd.date_range("2026-01-01", periods=35, freq="D").strftime("%Y-%m-%d").tolist()
+            + ["2026-05-01"]
+        )
+        rmssd = pd.Series([50.0] * 36, dtype=float)
+        cfg = final_builder.Config(
+            warning_mode="adaptive90",
+            adaptive_window_days=90,
+            adaptive_ref_quantile=0.75,
+            warning_factor=0.85,
+        )
+
+        thresholds, degraded = final_builder.compute_warning_signal(fechas, rmssd, healthy_rmssd=float("nan"), cfg=cfg)
+
+        self.assertTrue(np.isnan(thresholds[0]))
+        self.assertFalse(np.isnan(thresholds[34]))
+        self.assertTrue(np.isnan(thresholds[35]))
+        self.assertFalse(bool(degraded[35]))
+
     def test_parse_args_ignores_flags_without_value(self):
         self.assertEqual(final_builder.parse_args(["--decision-mode"]), {})
         self.assertEqual(final_builder.parse_args(["--data-dir"]), {})
@@ -253,6 +317,10 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
                 final, _ = final_builder.build_final_and_dashboard(core, final_builder.Config())
 
         self.assertFalse(final.empty)
+        self.assertIn("degraded_vs_best", final.columns)
+        self.assertIn("degraded_vs_current_normal", final.columns)
+        self.assertIn("warning_threshold_best", final.columns)
+        self.assertIn("warning_threshold_current_normal", final.columns)
         self.assertTrue(set(captured_layers).issubset(final_builder._VALID_LAYERS))
         self.assertIn("inference", captured_layers)
         self.assertIn("action", captured_layers)

@@ -503,7 +503,7 @@ ENDURANCE_HRV_sleep.csv (entrada opcional, para reason_text)
 │  9. Reason_text (sleep.csv si existe) │
 └─────────────────────────────────────────┘
      │
-├──► ENDURANCE_HRV_master_FINAL.csv (auditable, 62 cols)
+├──► ENDURANCE_HRV_master_FINAL.csv (auditable, 66 cols)
      │
      └──► ENDURANCE_HRV_master_DASHBOARD.csv (operativo, 10 cols)
 ```
@@ -895,11 +895,34 @@ Esta capa usa solo soporte objetivo (`sleep.csv` + `sessions_day.csv`) y **no to
 
 ## 16. Warning baseline60_degraded
 
-**Objetivo:** avisar cuando tu capacidad actual (baseline de los últimos 60 días) está significativamente por debajo de tu mejor momento conocido. Es un indicador a medio plazo — no cambia el gate del día, pero sugiere que las decisiones de progresión semanal deberían ser conservadoras.
+**Objetivo:** avisar cuando tu capacidad actual (baseline de los últimos 60 días) está significativamente deprimida. Es un indicador a medio plazo — no cambia el gate del día, pero sugiere que las decisiones de progresión semanal deberían ser conservadoras.
+
+**Nota de trazabilidad:** desde `PCV-02` el default de `warning_mode` pasa a `adaptive90`. Un reprocesado histórico posterior a este cambio puede alterar `baseline60_degraded` y `warning_threshold` aunque los datos fisiológicos subyacentes no cambien. Para auditoría, usar siempre `warning_mode` como parte de la semántica de la fila.
 
 **Dos modos disponibles:**
 
-### 16.1 Modo healthy85 (default)
+### 16.0 Señales canónicas separadas
+
+Desde `PCV-02`, FINAL expone dos señales explícitas:
+
+- `degraded_vs_best`: distancia a tu mejor forma histórica conocida
+- `degraded_vs_current_normal`: caída activa respecto a tu normal reciente
+
+Además se mantiene `baseline60_degraded` como **alias legacy** gobernado por `warning_mode`, para no romper consumidores antiguos de `analysis/` y CLI.
+
+### 16.1 Modo adaptive90 (default)
+
+Compara tu baseline actual contra una referencia reciente adaptativa:
+
+```python
+rolling_ref = P75(exp(ln_base60)) en ventana rolling 90D calendario
+threshold = 0.85 × rolling_ref
+degraded = exp(ln_base60) < threshold
+```
+
+Semántica: detecta **caída activa respecto a tu normal reciente**, no distancia a tu mejor forma histórica. Evita que el warning quede crónicamente encendido durante meses de recuperación o cambio de régimen.
+
+### 16.2 Modo healthy85
 
 Compara tu baseline actual contra un periodo de referencia donde estabas bien entrenado y sano:
 
@@ -910,9 +933,9 @@ threshold = 0.85 × healthy_rmssd
 degraded = exp(ln_base60) < threshold
 ```
 
-Si tu RMSSD mediano actual está por debajo del 85% de tu mejor momento → warning.
+Si tu RMSSD mediano actual está por debajo del 85% de tu mejor momento → warning. Semántica: **distancia a tu mejor forma histórica**.
 
-### 16.2 Modo p20
+### 16.3 Modo p20
 
 Usa el percentil 20 de tu histórico completo como umbral (no necesita periodo de referencia definido manualmente):
 
@@ -923,7 +946,9 @@ degraded = exp(ln_base60) < threshold
 
 Si tu baseline actual está por debajo del P20 de todos tus baselines históricos → warning.
 
-**IMPORTANTE:** El warning es **informativo**, NO recolorea el gate. No distingue entre baseline bajo por enfermedad, por temporada de descanso, o por adaptación a volumen alto sostenido (donde es esperable).
+`healthy_rmssd`, `healthy_hr` y `healthy_period` se siguen exportando en FINAL como anclas históricas de contexto. En `adaptive90` **no son** el umbral operativo del warning; el umbral real usado ese día es `warning_threshold`.
+
+**IMPORTANTE:** El warning es **informativo**, NO recolorea el gate. `adaptive90` mide caída activa; `healthy85` mide distancia a tu mejor referencia; `p20` es una alternativa retrospectiva simple basada en histórico completo.
 
 ---
 
@@ -1080,6 +1105,7 @@ Secciones obligatorias:
 | 2026-04-08 v4.7 | DO-01: `build_sessions.py` genera `ENDURANCE_HRV_intensity_distribution_weekly.csv` (21 cols, 1 fila por semana ISO × deporte); `classify_distribution_pattern` clasifica la semana como `polarized`, `pyramidal`, `threshold` o `mixed` con ponderación por minutos y confianza explícita; sidecar analítico, no alimenta el gate ni `reason_text` |
 | 2026-04-08 v4.6 | RE-01: `build_hrv_final_dashboard.py` añade `recovery_context_quality`, `recovery_support_class`, `recovery_discordance_flag` y `recovery_discordance_reason`; `reason_text` gana cierres semánticos de recuperación sin tocar `gate_final` |
 | 2026-04-08 v4.6 | FINAL bumped 58→62 cols para exponer la capa RE-01 sin tocar DASHBOARD |
+| 2026-05-13 v4.7 | FINAL bumped 62→66 cols para exponer PCV-02: warning dual (`degraded_vs_best`, `degraded_vs_current_normal`) manteniendo `baseline60_degraded` como alias legacy |
 | 2026-04-07 v4.5 | RE-02 (decisión final): wellness subjetivo queda como sidecar retrospectivo; `build_hrv_final_dashboard.py` NO consume `wellness_subjective.csv`; `_merge_daily_rows_incremental` filtra fechas futuras al persistir |
 | 2026-04-07 v4.4 | RE-02: nuevo sidecar `ENDURANCE_HRV_wellness_subjective.csv` (17 cols: Fecha + 6×raw + 6×label + comment + n_fields + available + coverage_7d); `build_sessions.py` fetcha `/athlete/{id}/wellness`; sidecar para análisis retrospectivo o capas separadas |
 | 2026-04-07 v4.3 | sessions_day.csv: CDC-01 (+4 cols: acwr_simple_prev, monotony_7d_prev, strain_7d_prev, load_ctx_ready), AP-01 (+5 cols: intense_day, intense_days_prev_3d, intense_days_prev_5d, intensity_clustering_flag, intensity_clustering_level); total 40→49 cols |

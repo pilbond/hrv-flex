@@ -304,10 +304,14 @@ def show_last_daily_summary():
             calidad = last_row.get("Calidad", "N/A")
             stab = last_row.get("HRV_Stability", "N/A")
             degraded = str(last_row.get("baseline60_degraded", False)).strip().lower() in {"true", "1", "yes"}
+            degraded_best = str(last_row.get("degraded_vs_best", False)).strip().lower() in {"true", "1", "yes"}
+            degraded_current = str(last_row.get("degraded_vs_current_normal", False)).strip().lower() in {"true", "1", "yes"}
             ln_base60 = last_row.get("ln_base60", "N/A")
             n_base60 = last_row.get("n_base60", "N/A")
             healthy_rmssd = last_row.get("healthy_rmssd", "N/A")
             warning_threshold = last_row.get("warning_threshold", "N/A")
+            warning_threshold_best = last_row.get("warning_threshold_best", "N/A")
+            warning_threshold_current = last_row.get("warning_threshold_current_normal", "N/A")
             base60_rmssd = "N/A"
             if _has_value(ln_base60):
                 try:
@@ -343,6 +347,11 @@ def show_last_daily_summary():
                 print(f"⚠️  Límite inferior de referencia: {_format_metric(warning_threshold)} ms")
             if bool(degraded):
                 print("⚠️  Base 60d por debajo de tu referencia habitual")
+            if _has_value(warning_threshold_best) and _has_value(warning_threshold_current):
+                print(
+                    "🧭 Baseline largo: "
+                    f"best={'sí' if degraded_best else 'no'} / current={'sí' if degraded_current else 'no'}"
+                )
             print(f"🧠 Reason text:     {reason_text}")
             return
         except (FileNotFoundError, pd.errors.EmptyDataError, KeyError, IndexError) as e:

@@ -5,14 +5,14 @@ ENDURANCE HRV — Decisor FINAL/DASHBOARD
 ======================================
 
 Revisión de módulo: r2026-04-08
-Contrato esperado: FINAL 62 cols, DASHBOARD 10 cols
+Contrato esperado: FINAL 66 cols, DASHBOARD 10 cols
 Sistema vigente: ENDURANCE HRV V4.10
 
 Lee:
   - ENDURANCE_HRV_master_CORE.csv
 
 Genera:
-  - ENDURANCE_HRV_master_FINAL.csv     (62 cols, gate + sombras + residual + auditoría raw-vs-ref + RE-01)
+  - ENDURANCE_HRV_master_FINAL.csv     (66 cols, gate + sombras + residual + warning dual + auditoría raw-vs-ref + RE-01)
   - ENDURANCE_HRV_master_DASHBOARD.csv (10 cols, vista operativa compacta)
 
 Normativa:
@@ -89,7 +89,10 @@ class Config:
     tag_t3: float = 2.0
 
     # Warning baseline60_degraded
-    warning_mode: str = "healthy85"  # healthy85 | p20
+    warning_mode: str = (os.environ.get("HRV_WARNING_MODE", "adaptive90").strip() or "adaptive90")
+    adaptive_window_days: int = 90
+    adaptive_ref_quantile: float = 0.75
+    warning_factor: float = 0.85
     healthy_start: str = os.environ.get("HRV_HEALTHY_START", "2025-07-01")
     healthy_end: str   = os.environ.get("HRV_HEALTHY_END",   "2025-09-30")
     healthy_factor: float = 0.85
@@ -127,9 +130,10 @@ COLS_FINAL = [
     "residual_ln","residual_z","residual_tag","gate_badge",
     "quality_flag","Color_operativo",
     "Action","Action_detail","bad_streak","bad_7d",
-    "baseline60_degraded","healthy_rmssd","healthy_hr","healthy_period",
+    "baseline60_degraded","degraded_vs_best","degraded_vs_current_normal",
+    "healthy_rmssd","healthy_hr","healthy_period",
     "flag_sistemico","flag_razon",
-    "warning_threshold","warning_mode",
+    "warning_threshold","warning_threshold_best","warning_threshold_current_normal","warning_mode",
     "veto_agudo","ln_pre_veto","swc_ln_floor",
     "recovery_context_quality","recovery_support_class",
     "recovery_discordance_flag","recovery_discordance_reason",
@@ -267,6 +271,103 @@ def compute_healthy_anchors(core: pd.DataFrame, cfg: Config) -> Tuple[float, flo
     if s2.empty:
         return (float(np.nanmedian(sub["RMSSD_med7"])), float(np.nanmedian(sub["HR_med7"])), f"{cfg.healthy_start}..{cfg.healthy_end}(fallback)")
     return (float(np.nanmedian(s2["RMSSD_med7"])), float(np.nanmedian(s2["HR_med7"])), f"{cfg.healthy_start}..{cfg.healthy_end}")
+
+
+def compute_dual_baseline_signals(
+    fechas: pd.Series,
+    rmssd_base60_equiv: pd.Series,
+    healthy_rmssd: float,
+    cfg: Config,
+) -> Dict[str, np.ndarray]:
+    """Compute the two canonical long-term baseline warnings plus their thresholds."""
+    fecha_index = pd.to_datetime(fechas, errors="coerce")
+    values = rmssd_base60_equiv.astype(float)
+    mask = np.isfinite(values.to_numpy(dtype=float))
+
+    threshold_best = np.full(len(values), np.nan, dtype=float)
+    degraded_best = np.array([False] * len(values), dtype=bool)
+    if np.isfinite(healthy_rmssd):
+        threshold_best[:] = float(cfg.healthy_factor * healthy_rmssd)
+        degraded_best = mask & (values.to_numpy(dtype=float) < threshold_best)
+
+    dated = pd.Series(values.to_numpy(dtype=float), index=fecha_index)
+    rolling_ref = dated.rolling(f"{cfg.adaptive_window_days}D", min_periods=30).quantile(cfg.adaptive_ref_quantile)
+    threshold_current = (rolling_ref * cfg.warning_factor).to_numpy(dtype=float)
+    degraded_current = mask & np.isfinite(threshold_current) & (values.to_numpy(dtype=float) < threshold_current)
+
+    return {
+        "warning_threshold_best": threshold_best,
+        "warning_threshold_current_normal": threshold_current,
+        "degraded_vs_best": degraded_best,
+        "degraded_vs_current_normal": degraded_current,
+    }
+
+
+def compute_warning_signal(
+    fechas: pd.Series,
+    rmssd_base60_equiv: pd.Series,
+    healthy_rmssd: float,
+    cfg: Config,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Build the medium-term legacy warning signal from the canonical dual outputs.
+
+    Returns:
+      - effective warning threshold(s), one per row
+      - baseline60_degraded boolean mask
+    """
+    dual = compute_dual_baseline_signals(fechas, rmssd_base60_equiv, healthy_rmssd, cfg)
+
+    if cfg.warning_mode == "adaptive90":
+        return dual["warning_threshold_current_normal"], dual["degraded_vs_current_normal"]
+
+    if cfg.warning_mode == "healthy85":
+        return dual["warning_threshold_best"], dual["degraded_vs_best"]
+
+    if cfg.warning_mode == "p20":
+        values = rmssd_base60_equiv.astype(float)
+        mask = np.isfinite(values.to_numpy(dtype=float))
+        thresholds = np.full(len(values), np.nan, dtype=float)
+        degraded = np.array([False] * len(values), dtype=bool)
+        x = values.dropna().to_numpy(dtype=float)
+        if x.size >= 10:
+            thresholds[:] = float(np.quantile(x, cfg.p20_q))
+            degraded = mask & (values.to_numpy(dtype=float) < thresholds)
+        return thresholds, degraded
+
+    raise ValueError("warning_mode inválido. Usa adaptive90, healthy85 o p20.")
+
+
+def select_legacy_warning_signal(
+    dual_baseline: Dict[str, np.ndarray],
+    rmssd_base60_equiv: pd.Series,
+    cfg: Config,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Select the legacy warning signal from canonical outputs plus p20 fallback."""
+    if cfg.warning_mode == "adaptive90":
+        return (
+            dual_baseline["warning_threshold_current_normal"],
+            dual_baseline["degraded_vs_current_normal"],
+        )
+
+    if cfg.warning_mode == "healthy85":
+        return (
+            dual_baseline["warning_threshold_best"],
+            dual_baseline["degraded_vs_best"],
+        )
+
+    if cfg.warning_mode == "p20":
+        values = rmssd_base60_equiv.astype(float)
+        mask = np.isfinite(values.to_numpy(dtype=float))
+        thresholds = np.full(len(values), np.nan, dtype=float)
+        degraded = np.array([False] * len(values), dtype=bool)
+        x = values.dropna().to_numpy(dtype=float)
+        if x.size >= 10:
+            thresholds[:] = float(np.quantile(x, cfg.p20_q))
+            degraded = mask & (values.to_numpy(dtype=float) < thresholds)
+        return thresholds, degraded
+
+    raise ValueError("warning_mode inválido. Usa adaptive90, healthy85 o p20.")
 
 
 def residual_tag(res_z: float, cfg: Config) -> str:
@@ -1703,26 +1804,18 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
     rmssd_base60_equiv = np.exp(ln_base60.astype(float))
     rmssd_base60_equiv = pd.Series(rmssd_base60_equiv)
 
-    warning_threshold = np.nan
-    baseline60_degraded = np.array([False]*len(df), dtype=bool)
+    dual_baseline = compute_dual_baseline_signals(
+        df["Fecha"],
+        rmssd_base60_equiv,
+        healthy_rmssd,
+        cfg,
+    )
 
-    if cfg.warning_mode == "healthy85":
-        if np.isfinite(healthy_rmssd):
-            warning_threshold = float(cfg.healthy_factor * healthy_rmssd)
-            baseline60_degraded = (rmssd_base60_equiv.to_numpy(dtype=float) < warning_threshold) & np.isfinite(rmssd_base60_equiv.to_numpy(dtype=float))
-        else:
-            warning_threshold = np.nan
-            baseline60_degraded = np.array([False]*len(df), dtype=bool)
-    elif cfg.warning_mode == "p20":
-        x = rmssd_base60_equiv.dropna().to_numpy(dtype=float)
-        if x.size >= 10:
-            warning_threshold = float(np.quantile(x, cfg.p20_q))
-            baseline60_degraded = (rmssd_base60_equiv.to_numpy(dtype=float) < warning_threshold) & np.isfinite(rmssd_base60_equiv.to_numpy(dtype=float))
-        else:
-            warning_threshold = np.nan
-            baseline60_degraded = np.array([False]*len(df), dtype=bool)
-    else:
-        raise ValueError("warning_mode inválido. Usa healthy85 o p20.")
+    warning_threshold, baseline60_degraded = select_legacy_warning_signal(
+        dual_baseline,
+        rmssd_base60_equiv,
+        cfg,
+    )
 
     # =============================================================================
     # Placeholders sistémicos (no recolorean)
@@ -1792,6 +1885,8 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
         "bad_7d": bad_7d,
 
         "baseline60_degraded": baseline60_degraded.astype(bool),
+        "degraded_vs_best": dual_baseline["degraded_vs_best"].astype(bool),
+        "degraded_vs_current_normal": dual_baseline["degraded_vs_current_normal"].astype(bool),
         "healthy_rmssd": healthy_rmssd,
         "healthy_hr": healthy_hr,
         "healthy_period": healthy_period,
@@ -1800,6 +1895,8 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
         "flag_razon": flag_razon,
 
         "warning_threshold": warning_threshold,
+        "warning_threshold_best": dual_baseline["warning_threshold_best"],
+        "warning_threshold_current_normal": dual_baseline["warning_threshold_current_normal"],
         "warning_mode": cfg.warning_mode,
         "veto_agudo": veto_agudo.astype(bool),
         "ln_pre_veto": ln_pre_veto,

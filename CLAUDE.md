@@ -57,7 +57,10 @@ Sistema automatizado HRV para un **único atleta**:
 │   ├── ENDURANCE_HRV_master_FINAL.csv
 │   ├── ENDURANCE_HRV_master_DASHBOARD.csv
 │   ├── ENDURANCE_HRV_sessions.csv
-│   └── ENDURANCE_HRV_sessions_day.csv
+│   ├── ENDURANCE_HRV_sessions_day.csv
+│   ├── ENDURANCE_HRV_intensity_distribution_weekly.csv
+│   ├── ENDURANCE_HRV_sessions_metadata.json
+│   └── ENDURANCE_HRV_wellness_subjective.csv
 ├── scripts/                           # Scripts operativos locales
 ├── docs/
 │   ├── contracts/                     # Norma HRV activa (esquemas, QA, gating)
@@ -105,7 +108,10 @@ Sistema automatizado HRV para un **único atleta**:
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | 10 | Resumen operativo para dashboard |
 | `ENDURANCE_HRV_sleep.csv` | 17 | Sueño Polar (sidecar; carga en sessions_day.csv) |
 | `ENDURANCE_HRV_sessions.csv` | - | Sesiones Intervals.icu (histórico) |
-| `ENDURANCE_HRV_sessions_day.csv` | 60 | Carga por día + rolling con cobertura + clustering reciente de intensidad (usado por v4lite) |
+| `ENDURANCE_HRV_sessions_day.csv` | 60 | Carga por día + rolling con cobertura + clustering reciente de intensidad + DO-02 |
+| `ENDURANCE_HRV_sessions_metadata.json` | - | `training_audit` por capas (`dataset_level`, `signal_level`, `metric_level`) |
+| `ENDURANCE_HRV_intensity_distribution_weekly.csv` | - | Distribución observada por `sport x week` con patrón y confianza |
+| `ENDURANCE_HRV_wellness_subjective.csv` | - | Sidecar local para bienestar subjetivo |
 
 ---
 
@@ -143,17 +149,20 @@ Procesamiento de RR crudo.
 ### `build_hrv_final_dashboard.py`
 Decisor HRV con contexto.
 Inputs: `CORE.csv` + `sleep.csv` + `sessions_day.csv` (ambos opcionales, solo para reason_text)
-Outputs: `FINAL.csv` (58 cols) + `DASHBOARD.csv` (10 cols)
-- Veto agudo: bypass ROLL3 si caída > 2×SWC bajo baseline
-- Reason_text: contexto operativo (sueño, carga, clustering reciente de intensidad, nightly RMSSD discordancia)
-- ln_pre_veto, swc_ln_floor: trazabilidad del veto
+Outputs: `FINAL.csv` (62 cols) + `DASHBOARD.csv` (10 cols)
+- `load_3d`, la capa canonica `ACWR/monotony/strain` y el clustering reciente de intensidad se consumen solo como contexto de `reason_text`
+- `FINAL` integra la capa RE-01 sin tocar el gate HRV
 
 ### `build_sessions.py`
 Pipeline de sesiones desde Intervals.icu.
 Genera:
 - `ENDURANCE_HRV_sessions.csv` (histórico de sesiones)
 - `ENDURANCE_HRV_sessions_day.csv` (carga agregada por día + rolling + clustering)
+- `ENDURANCE_HRV_intensity_distribution_weekly.csv` (distribución semanal por deporte)
 - `ENDURANCE_HRV_sessions_metadata.json`
+- `ENDURANCE_HRV_wellness_subjective.csv`
+
+Canoniza la capa mecánica mínima para deportes de pie, el contexto de carga `ACWR/monotony/strain`, `training_audit` y la distribución observada semanal por deporte.
 
 Soporta: `--backfill`, `--daily`, `--update`, `--date`
 
@@ -336,17 +345,19 @@ python egc_to_rr.py --dropbox-folder /ruta/carpeta --dropbox-recursive --outdir 
 
 ---
 
-## Snapshot Actual (2026-04-14)
+## Snapshot Actual (2026-04-16)
 
 ### HRV global
 - ✅ ARQ-02 (AYO-11): módulos internos reorganizados en `hrv_app/`; entrypoints de raíz (`web_ui.py`, `polar_hrv_automation.py`, `build_sessions.py`) intactos
 - ✅ UI expone `/api/sync`, `/api/sync-sessions`, `/api/status`, endpoints OAuth
-- ✅ `build_sessions.py` genera sesiones + metadata (`pipeline_version v3.8`)
+- ✅ `build_sessions.py` genera `sessions`, `sessions_day`, `intensity_distribution_weekly`, `sessions_metadata` y `wellness_subjective`
 - ✅ Flujo recomendado: Dropbox primero, Polar fallback
 - ✅ `ENDURANCE_HRV_sleep.csv` es archivo canónico de sueño (17 cols; carga en sessions_day.csv)
 - ✅ UI no permite ejecutar sync HRV y sync-sessions simultáneamente
-- ✅ Veto agudo + reason_text operativo
-- ✅ Fetch sleep/nightly/intervals en polar_hrv_automation.py operativo
+- ✅ `sessions_day.csv` incluye carga canonica, clustering reciente de intensidad y señal `DO-02`
+- ✅ `sessions_metadata.json` incluye `training_audit` por capas para gobernar confianza de coaching/carga
+- ✅ `build_hrv_final_dashboard.py` consume `load_3d`, `ACWR/monotony/strain` y clustering reciente de intensidad solo como contexto de `reason_text`
+- ✅ Fetch sleep/nightly/intervals en `polar_hrv_automation.py` operativo
 - ✅ RE-01: capa de recuperación multiseñal en FINAL (62 cols); `recovery_support_class`, `recovery_discordance_flag` y `recovery_discordance_reason` sin tocar el gate
 - ✅ RE-02: sidecar `ENDURANCE_HRV_wellness_subjective.csv` (17 cols) para análisis retrospectivo; no alimenta `reason_text`
 - ✅ DO-01: sidecar `ENDURANCE_HRV_intensity_distribution_weekly.csv` (21 cols); distribución observada por `sport × semana ISO` con patrón (`polarized`, `pyramidal`, `threshold`, `mixed`) y confianza explícita; no alimenta el gate

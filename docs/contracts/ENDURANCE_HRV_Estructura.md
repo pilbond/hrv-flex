@@ -123,12 +123,12 @@ FINAL es el archivo de auditoría completo: contiene la medición del día, el s
 **Cabecera exacta (copiar literal):**
 
 ```
-Fecha,Calidad,HRV_Stability,Artifact_pct,Tiempo_Estabilizacion,Stability_Subtype,tail_mismatch_pct,HR_today,RMSSD_stable,lnRMSSD_today,lnRMSSD_used,HR_used,n_roll3,gate_raw_today,gate_raw_reason,unstable_note,ln_base60,HR_base60,n_base60,SWC_ln,SWC_HR,d_ln,d_HR,gate_base60,gate_razon_base60,gate_shadow42,gate_razon_shadow42,n_base42,gate_shadow28,gate_razon_shadow28,n_base28,decision_mode,gate_final,gate_final_delta,decision_path,override_reason,residual_ln,residual_z,residual_tag,gate_badge,quality_flag,Color_operativo,Action,Action_detail,bad_streak,bad_7d,baseline60_degraded,healthy_rmssd,healthy_hr,healthy_period,flag_sistemico,flag_razon,warning_threshold,warning_mode,veto_agudo,ln_pre_veto,swc_ln_floor,recovery_context_quality,recovery_support_class,recovery_discordance_flag,recovery_discordance_reason,reason_text
+Fecha,Calidad,HRV_Stability,Artifact_pct,Tiempo_Estabilizacion,Stability_Subtype,tail_mismatch_pct,HR_today,RMSSD_stable,lnRMSSD_today,lnRMSSD_used,HR_used,n_roll3,gate_raw_today,gate_raw_reason,unstable_note,ln_base60,HR_base60,n_base60,SWC_ln,SWC_HR,d_ln,d_HR,gate_base60,gate_razon_base60,gate_shadow42,gate_razon_shadow42,n_base42,gate_shadow28,gate_razon_shadow28,n_base28,decision_mode,gate_final,gate_final_delta,decision_path,override_reason,residual_ln,residual_z,residual_tag,gate_badge,quality_flag,Color_operativo,Action,Action_detail,bad_streak,bad_7d,baseline60_degraded,degraded_vs_best,degraded_vs_current_normal,healthy_rmssd,healthy_hr,healthy_period,flag_sistemico,flag_razon,warning_threshold,warning_threshold_best,warning_threshold_current_normal,warning_mode,veto_agudo,ln_pre_veto,swc_ln_floor,recovery_context_quality,recovery_support_class,recovery_discordance_flag,recovery_discordance_reason,reason_text
 ```
 
 ### Agrupación lógica
 
-Las 62 columnas se organizan en 13 bloques lógicos. Cada bloque agrupa campos relacionados:
+Las 66 columnas se organizan en 13 bloques lógicos. Cada bloque agrupa campos relacionados:
 
 #### A) Identidad / medición base (10 cols)
 
@@ -189,29 +189,29 @@ Racha y conteo de días ROJO. Cuando se acumulan, se activa DESCARGA. Los días 
 
 Columnas 45-46: `bad_streak`, `bad_7d`
 
-#### J) Warning baseline (4 cols)
+#### J) Warning baseline (6 cols)
 
 Aviso a medio plazo si tu capacidad actual está por debajo de tu mejor momento.
 
-Columnas 47-50: `baseline60_degraded`, `healthy_rmssd`, `healthy_hr`, `healthy_period`
+Columnas 47-52: `baseline60_degraded`, `degraded_vs_best`, `degraded_vs_current_normal`, `healthy_rmssd`, `healthy_hr`, `healthy_period`
 
 #### K) Flags sistémicos (2 cols)
 
 Reservado para información externa (sueño, enfermedad, viajes). Actualmente no se alimenta automáticamente.
 
-Columnas 51-52: `flag_sistemico`, `flag_razon`
+Columnas 53-54: `flag_sistemico`, `flag_razon`
 
-#### L) Parámetros warning (2 cols)
+#### L) Parámetros warning (4 cols)
 
 El umbral y el modo usados para calcular el warning de baseline degradado.
 
-Columnas 53-54: `warning_threshold`, `warning_mode`
+Columnas 55-58: `warning_threshold`, `warning_threshold_best`, `warning_threshold_current_normal`, `warning_mode`
 
 #### M) v4 Enhancement (8 cols)
 
 Veto agudo (bypass de ROLL3 ante caídas bruscas), capa RE-01 de recuperación multiseñal y texto explicativo contextual.
 
-Columnas 55-62: `veto_agudo`, `ln_pre_veto`, `swc_ln_floor`, `recovery_context_quality`, `recovery_support_class`, `recovery_discordance_flag`, `recovery_discordance_reason`, `reason_text`
+Columnas 59-66: `veto_agudo`, `ln_pre_veto`, `swc_ln_floor`, `recovery_context_quality`, `recovery_support_class`, `recovery_discordance_flag`, `recovery_discordance_reason`, `reason_text`
 
 **Nuevas columnas de auditoría mínima:**
 - `Stability_Subtype`: subtipo explícito de estabilidad (`OK`, `STAB_LAST2_MISMATCH`, `STAB_TAIL_SHORT`, etc.)
@@ -363,7 +363,7 @@ Muestra qué entra y qué sale de cada script, y cómo se encadenan:
            ▼               ▼
       FINAL.csv      DASHBOARD.csv
       (auditoría,     (operativo,
-       62 cols)        10 cols)
+       66 cols)        10 cols)
 
   Polar Sleep API ──┐
   Polar Nightly  ───┤
@@ -396,10 +396,10 @@ assert df["HRV_Stability"].isin(["OK", "Unstable"]).all()             # vocabula
 
 ```python
 assert df["Fecha"].is_unique                                                           # sin duplicados
-assert df.shape[1] == 62                                                               # schema v4 + RE-01
+assert df.shape[1] == 66                                                               # schema v4 + PCV-02 dual baseline
 assert df["gate_final"].isin(["VERDE", "ÁMBAR", "ROJO", "NO"]).all()                 # vocabulario cerrado
 assert df["Action"].isin(["INTENSIDAD_OK", "Z2_O_TEMPO_SUAVE", "SUAVE_O_DESCANSO"]).all()
-assert df["warning_mode"].isin(["healthy85", "p20"]).all()
+assert df["warning_mode"].isin(["adaptive90", "healthy85", "p20"]).all()
 assert "veto_agudo" in df.columns                                                      # v4 columns present
 assert "recovery_support_class" in df.columns                                          # RE-01 present
 assert "reason_text" in df.columns
