@@ -851,7 +851,7 @@ Las condiciones visibles se siguen evaluando en orden y las que se cumplen se co
 | 5 | `polar_interruptions_long > sleep_int_p90` | sleep.csv | `Sueño fragmentado (X interrupciones; habitualmente no pasas de Y)` |
 | 6 | VERDE + `polar_night_rmssd < 25` | sleep.csv | `VERDE, pero el HRV nocturno fue bajo (Xms): la recuperación durante el sueño no acompaña` |
 | 7 | ROJO + `polar_night_rmssd > 45` | sleep.csv | `ROJO, pero el HRV de sueño salió alto (Xms): la recuperación nocturna fue mejor de lo esperado` |
-| 8 | `load_3d > 250` (con `load_3d_nobs >= 2`) | sessions_day.csv | `Carga acumulada alta (load_3d=X)` |
+| 8 | `load_ctx_ready` + `acute_load_72h_rel >= P75/P90 local` | sessions_day.csv | `Carga aguda 72h por encima de tu base crónica (acute_load_72h_rel=Xx; load_3d=Y)` |
 | 9 | `load_ctx_ready` + `acwr_simple_prev >= 1.3` | sessions_day.csv | `ACWR alto/muy alto: carga aguda por encima de la base crónica` |
 | 10 | `load_ctx_ready` + `monotony_7d_prev >= 1.8` | sessions_day.csv | `Monotonía elevada/alta: patrón de carga poco variable` |
 | 11 | `load_ctx_ready` + `strain_7d_prev >= P75/P90 local` | sessions_day.csv | `Strain alto/muy alto: semana exigente y poco descargada` |
@@ -859,9 +859,9 @@ Las condiciones visibles se siguen evaluando en orden y las que se cumplen se co
 | 13 | `z3_7d_sum > 60` | sessions_day.csv | `Tiempo en alta intensidad acumulado esta semana (Xmin en Z3)` |
 | 14 | `intensity_clustering_flag == 1` + severidad `low/high` | sessions_day.csv | `VERDE pero con X días intensos...` o `Clustering ... reciente: vigilar recuperación` |
 | 15 | ROJO + `load_day < 30` + sueño OK | sessions_day.csv | `ROJO sin carga previa ni sueño malo: revisar factores externos al entrenamiento` |
-| 16 | VERDE + `load_3d > 200` | sessions_day.csv | `VERDE con carga acumulada (load_3d=X): precaución con la intensidad` |
+| 16 | VERDE + `acute_load_72h_rel >= P75/P90 local` | sessions_day.csv | `VERDE con carga aguda 72h (acute_load_72h_rel=Xx; load_3d=Y): precaución con la intensidad` |
 | 17 | VERDE + contexto canónico exigente | sessions_day.csv | `VERDE con contexto de carga exigente: precaución con la intensidad` |
-| 18 | VERDE + `load_3d > 200` + señal canónica exigente | sessions_day.csv | `VERDE con convergencia de carga (load_3d + ACWR/monotonía/strain): precaución con la intensidad reforzada` |
+| 18 | VERDE + `acute_load_72h_rel >= P75/P90 local` + señal canónica exigente | sessions_day.csv | `VERDE con convergencia de carga (carga 72h + ACWR/monotonía/strain): precaución con la intensidad reforzada` |
 | 19 | RE-01: VERDE + mala noche y/o carga reciente exigente | sleep.csv + sessions_day.csv | `VERDE con recuperación frágil...` |
 | 20 | RE-01: ÁMBAR + sueño nocturno bueno y poca carga reciente | sleep.csv + sessions_day.csv | `ÁMBAR con soporte nocturno aceptable...` |
 | 21 | RE-01: ÁMBAR + contexto objetivo empeorado | sleep.csv + sessions_day.csv | `ÁMBAR con recuperación frágil...` |
@@ -869,17 +869,17 @@ Las condiciones visibles se siguen evaluando en orden y las que se cumplen se co
 
 **Umbrales de sueño:** Basados en percentiles propios (P10, P90), NO en valores fijos. Se recalculan con todo el histórico disponible. Esto adapta los avisos a TU patrón de sueño.
 
-**Umbrales de carga:** `load_3d` se mantiene como sidecar agudo de corto plazo (`>250` aviso de acumulación; `>200` cautela de intensidad si el gate sale VERDE). La capa canónica sigue siendo `ACWR` + `monotony` + `strain`: `ACWR` usa bandas fijas interpretativas (`>=1.3` alto, `>=1.5` muy alto; `<=0.8` descarga), `monotony` usa bandas orientativas (`>=1.8` elevada, `>=2.0` alta), y `strain` se calibra por percentiles del histórico local (`P75/P90`) cuando hay al menos 8 observaciones listas. Todo sigue siendo contexto, no gate.
+**Umbrales de carga:** `load_3d` sigue existiendo como señal bruta de 3 días, pero el aviso interpretado principal usa `acute_load_72h_rel` con umbrales locales (`P75/P90`) cuando hay suficiente histórico; esos percentiles se calculan sobre todo el histórico listo disponible en `base_df`, igual que la capa de `strain`. Esto no es una ventana causal: para fechas antiguas del dataset, el percentil puede incorporar registros futuros, igual que ya ocurre con `strain_7d_prev`. Hasta entonces usa umbrales bootstrap provisionales. La capa canónica sigue siendo `ACWR` + `monotony` + `strain`: `ACWR` usa bandas fijas interpretativas (`>=1.3` alto, `>=1.5` muy alto; `<=0.8` descarga), `monotony` usa bandas orientativas (`>=1.8` elevada, `>=2.0` alta), y `strain` se calibra por percentiles del histórico local (`P75/P90`) cuando hay al menos 8 observaciones listas. Todo sigue siendo contexto, no gate.
 
 **Clustering de intensidad (AP-01 v1):** `sessions_day.csv` añade `intense_day`, `intense_days_prev_3d`, `intense_days_prev_5d`, `intensity_clustering_flag` e `intensity_clustering_level`. Es un proxy local del concepto NDLI: cuenta días `work_intense` en ventana corta sobre calendario continuo. Regla v1: `flag = intense_days_prev_5d >= 2`; severidad `high` si `intense_days_prev_3d >= 2` o `intense_days_prev_5d >= 3`, `low` en caso contrario. Nunca recolorea el gate.
 
 **Validación en sombra AP-03 (local a `analysis/`):** `analysis/session_analysis_pipeline.py` genera para sesiones `trail_run` una capa paralela `runaware_context` que evalúa si el proxy AP-01 v1 captura bien el coste específico de trail enriqueciendo el clustering con señal de terreno (`terrain_fit_context`) y potencia de carrera (`run_power_*`). Esta capa es **shadow-only**: no modifica `sessions_day.csv`, no alimenta `reason_text` y no recolorea el gate. Produce `runaware_intense_candidate`, `runaware_severity_candidate` y `v1_shadow_history` con concordancia histórica v1 vs sombra. La decisión de promover esta capa a operativa queda diferida hasta acumular evidencia suficiente (ver tarea AP-03 y `analysis/SESSION_ANALYSIS_METHOD.md`).
 
-**Propagación temporal de carga:** `ACWR`, `monotony`, `strain` y `load_ctx_ready` se reindexan a calendario diario y se propagan con `ffill(limit=7)` para poder contextualizar días HRV sin sesión el mismo día. Superado ese límite, el contexto deja de mostrarse.
+**Propagación temporal de carga:** `ACWR`, `acute_load_72h_rel`, `monotony`, `strain` y `load_ctx_ready` se reindexan a calendario diario y se propagan con `ffill(limit=7)` para poder contextualizar días HRV sin sesión el mismo día. Superado ese límite, el contexto deja de mostrarse.
 
 **Propagación temporal de clustering:** `intensity_clustering_flag` e `intensity_clustering_level` se reindexan a calendario diario y se propagan con `ffill(limit=2)`. Esto permite avisar en días HRV sin sesión si el apilamiento intenso ocurrió ayer o anteayer, pero evita arrastrar una alerta vieja más allá de la ventana corta que pretende modelar.
 
-**Lectura operativa de convergencia:** si `load_3d` y la capa canónica (`ACWR`, `monotony`, `strain`) convergen en el mismo día VERDE, el cierre no se repite dos veces; se sintetiza en un único mensaje reforzado de convergencia.
+**Lectura operativa de convergencia:** si `acute_load_72h_rel` y la capa canónica (`ACWR`, `monotony`, `strain`) convergen en el mismo día VERDE, el cierre no se repite dos veces; se sintetiza en un único mensaje reforzado de convergencia.
 
 **RE-01 (recuperación multiseñal):** además del texto libre, FINAL expone cuatro columnas de auditoría ligera:
 - `recovery_context_quality` = `none/basic/rich`

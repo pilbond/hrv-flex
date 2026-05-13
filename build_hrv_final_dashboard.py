@@ -102,8 +102,8 @@ class Config:
 CFG = Config()
 SWC_FLOOR = 0.04879  # ln(1.05), floor mínimo para SWC
 VETO_MULT = 2.0      # veto si raw cae > 2xSWC bajo base60
-LOAD_3D_HIGH = 250
-LOAD_3D_CAUTION = 200
+ACUTE_LOAD_72H_REL_HIGH_FALLBACK = 3.9
+ACUTE_LOAD_72H_REL_VERY_HIGH_FALLBACK = 4.5
 WORK_7D_HIGH = 200
 Z3_7D_HIGH = 60
 _VALID_LAYERS = {"measured", "proxy", "inference", "action"}
@@ -478,6 +478,19 @@ def _build_sessions_day_lookups(
             thresholds["strain_p75"] = float(np.quantile(strain_values, 0.75))
             thresholds["strain_p90"] = float(np.quantile(strain_values, 0.90))
 
+    if "acute_load_72h_rel" in base_df.columns:
+        acute_hist = pd.to_numeric(base_df["acute_load_72h_rel"], errors="coerce")
+        if "load_ctx_ready" in base_df.columns:
+            ready_mask = base_df["load_ctx_ready"].astype(str).str.lower().isin({"true", "1"})
+            acute_hist = acute_hist.loc[ready_mask]
+        acute_hist = acute_hist[np.isfinite(acute_hist.to_numpy(dtype=float))]
+        if acute_hist.size >= 8:
+            # Operative thresholds use the full ready historical sample available
+            # for this athlete, mirroring the existing strain percentile contract.
+            acute_values = acute_hist.to_numpy(dtype=float)
+            thresholds["acute_load_72h_rel_p75"] = float(np.quantile(acute_values, 0.75))
+            thresholds["acute_load_72h_rel_p90"] = float(np.quantile(acute_values, 0.90))
+
     return exact_lookup, ctx_lookup, clustering_lookup, thresholds
 
 
@@ -623,7 +636,7 @@ def _split_recovery_codes(codes: List[str]) -> Tuple[List[str], List[str]]:
     load_codes = [
         code
         for code in codes
-        if code in {"load_3d_high", "load_context_high", "intensity_clustering", "recent_load_low"}
+        if code in {"load_context_high", "intensity_clustering", "recent_load_low"}
     ]
     return sleep_codes, load_codes
 
@@ -1160,7 +1173,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
 
     for i in range(len(df)):
         fecha = str(df.iloc[i]["Fecha"])
-        verde_load_3d_caution = False
+        verde_load_72h_caution = False
         sleep_bad = False
         sleep_basic_signal = False
         sleep_score = None
@@ -1169,8 +1182,13 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
         night_rmssd_high_text = ""
         load_3d = None
         load_3d_nobs = None
+        acute_load_72h_rel = None
+        acute_load_72h_rel_p75 = ACUTE_LOAD_72H_REL_HIGH_FALLBACK
+        acute_load_72h_rel_p90 = ACUTE_LOAD_72H_REL_VERY_HIGH_FALLBACK
         load_day = None
         load_ctx_caution = False
+        load_ctx_caution_sources: List[str] = []
+        load_ctx_ready = False
         clustering_flag = False
         support_codes: List[str] = []
         caution_codes: List[str] = []
@@ -1303,6 +1321,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             load_ctx_row = load_ctx_lookup.loc[fecha]
             if isinstance(load_ctx_row, pd.DataFrame):
                 load_ctx_row = load_ctx_row.iloc[-1]
+            load_ctx_ready = str(load_ctx_row.get("load_ctx_ready", "")).lower() in {"true", "1"}
         if clustering_lookup is not None and fecha in clustering_lookup.index:
             clustering_row = clustering_lookup.loc[fecha]
             if isinstance(clustering_row, pd.DataFrame):
@@ -1316,29 +1335,59 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
 
             load_3d = _safe_float(sday_row, "load_3d")
             load_3d_nobs = _safe_float(sday_row, "load_3d_nobs")
+            acute_load_72h_rel = _safe_float(sday_row, "acute_load_72h_rel")
             load_day = _safe_float(sday_row, "load_day")
             work_7d = _safe_float(sday_row, "work_7d_sum")
             z3_7d = _safe_float(sday_row, "z3_7d_sum")
 
-            # Sidecar acute-load warning retained for short-term accumulation that
-            # may matter even when canonical 7d/28d context stays below threshold.
-            if load_3d is not None and load_3d_nobs is not None and load_3d_nobs >= 2:
-                if load_3d > LOAD_3D_HIGH:
+            acute_load_72h_rel_p75 = load_ctx_thresholds.get("acute_load_72h_rel_p75", acute_load_72h_rel_p75)
+            acute_load_72h_rel_p90 = load_ctx_thresholds.get("acute_load_72h_rel_p90", acute_load_72h_rel_p90)
+
+            # Relative acute-load warning; only interpret it when the chronic
+            # context is ready enough to make the ratio meaningful.
+            if load_ctx_ready and acute_load_72h_rel is not None:
+                if acute_load_72h_rel >= acute_load_72h_rel_p90:
                     _emit_reason(
                         reason_items,
                         reason_parts,
                         i,
-                        type="load_3d",
+                        type="acute_load_72h_rel",
                         layer="inference",
                         source="sessions_day",
                         variant="high",
-                        metric="load_3d",
-                        value=float(load_3d),
-                        threshold=float(LOAD_3D_HIGH),
-                        message=f"Carga acumulada reciente alta (load_3d={load_3d:.0f})",
+                        severity="very_high",
+                        metric="acute_load_72h_rel",
+                        value=float(acute_load_72h_rel),
+                        threshold=float(acute_load_72h_rel_p90),
+                        message=(
+                            "Carga aguda 72h muy alta respecto a tu base crónica "
+                            f"(acute_load_72h_rel={acute_load_72h_rel:.2f}x; load_3d={load_3d:.0f})"
+                        ),
                     )
-                if load_3d > LOAD_3D_CAUTION:
-                    _append_unique(caution_codes, "load_3d_high")
+                    load_ctx_caution = True
+                    load_ctx_caution_sources.append("carga 72h")
+                    _append_unique(caution_codes, "load_context_high")
+                elif acute_load_72h_rel >= acute_load_72h_rel_p75:
+                    _emit_reason(
+                        reason_items,
+                        reason_parts,
+                        i,
+                        type="acute_load_72h_rel",
+                        layer="inference",
+                        source="sessions_day",
+                        variant="high",
+                        severity="high",
+                        metric="acute_load_72h_rel",
+                        value=float(acute_load_72h_rel),
+                        threshold=float(acute_load_72h_rel_p75),
+                        message=(
+                            "Carga aguda 72h por encima de tu base crónica "
+                            f"(acute_load_72h_rel={acute_load_72h_rel:.2f}x; load_3d={load_3d:.0f})"
+                        ),
+                    )
+                    load_ctx_caution = True
+                    load_ctx_caution_sources.append("carga 72h")
+                    _append_unique(caution_codes, "load_context_high")
 
             if work_7d is not None and work_7d > WORK_7D_HIGH:
                 _emit_reason(
@@ -1396,12 +1445,11 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
 
             if (
                 gate_final[i] == VERDE
-                and load_3d is not None
-                and load_3d_nobs is not None
-                and load_3d_nobs >= 2
-                and load_3d > LOAD_3D_CAUTION
+                and load_ctx_ready
+                and acute_load_72h_rel is not None
+                and acute_load_72h_rel >= acute_load_72h_rel_p75
             ):
-                verde_load_3d_caution = True
+                verde_load_72h_caution = True
 
         if clustering_row is not None:
             clustering_flag_num = _safe_float(clustering_row, "intensity_clustering_flag")
@@ -1468,11 +1516,6 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             acwr_simple_prev = _safe_float(load_ctx_row, "acwr_simple_prev")
             monotony_7d_prev = _safe_float(load_ctx_row, "monotony_7d_prev")
             strain_7d_prev = _safe_float(load_ctx_row, "strain_7d_prev")
-            load_ctx_ready = str(load_ctx_row.get("load_ctx_ready", "")).lower() in {"true", "1"}
-
-            load_ctx_caution = False
-            load_ctx_caution_sources: List[str] = []
-
             if load_ctx_ready and acwr_simple_prev is not None:
                 if acwr_simple_prev >= 1.5:
                     _emit_reason(
@@ -1626,7 +1669,8 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
 
             if gate_final[i] == VERDE:
                 unique_sources = list(dict.fromkeys(load_ctx_caution_sources))
-                if verde_load_3d_caution and load_ctx_caution:
+                if verde_load_72h_caution and load_ctx_caution and len(unique_sources) > 1:
+                    convergence_sources = [source for source in unique_sources if source != "carga 72h"]
                     _emit_reason(
                         reason_items,
                         reason_parts,
@@ -1638,10 +1682,10 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         codes=unique_sources,
                         message=(
                             "VERDE con convergencia de carga "
-                            f"(load_3d + {' + '.join(unique_sources)}): precaución con la intensidad reforzada"
+                            f"(carga 72h + {' + '.join(convergence_sources)}): precaución con la intensidad reforzada"
                         ),
                     )
-                elif verde_load_3d_caution:
+                elif verde_load_72h_caution:
                     _emit_reason(
                         reason_items,
                         reason_parts,
@@ -1650,10 +1694,14 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         layer="inference",
                         source="sessions_day",
                         gate_scope="green",
-                        metric="load_3d",
-                        value=float(load_3d),
-                        threshold=float(LOAD_3D_CAUTION),
-                        message=f"VERDE con carga acumulada (load_3d={load_3d:.0f}): precaución con la intensidad",
+                        metric="acute_load_72h_rel",
+                        value=float(acute_load_72h_rel),
+                        threshold=float(acute_load_72h_rel_p75),
+                        message=(
+                            "VERDE con carga aguda 72h "
+                            f"(acute_load_72h_rel={acute_load_72h_rel:.2f}x; load_3d={load_3d:.0f}): "
+                            "precaución con la intensidad"
+                        ),
                     )
                 elif load_ctx_caution:
                     _emit_reason(
@@ -1665,12 +1713,12 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         source="sessions_day",
                         gate_scope="green",
                         codes=load_ctx_caution_sources,
-                    message=(
-                        "VERDE con contexto de carga exigente "
-                        f"({' + '.join(load_ctx_caution_sources)}): conviene prudencia con la intensidad"
-                    ),
-                )
-        elif gate_final[i] == VERDE and verde_load_3d_caution:
+                        message=(
+                            "VERDE con contexto de carga exigente "
+                            f"({' + '.join(load_ctx_caution_sources)}): conviene prudencia con la intensidad"
+                        ),
+                    )
+        elif gate_final[i] == VERDE and verde_load_72h_caution:
             _emit_reason(
                 reason_items,
                 reason_parts,
@@ -1679,10 +1727,14 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                 layer="inference",
                 source="sessions_day",
                 gate_scope="green",
-                metric="load_3d",
-                value=float(load_3d),
-                threshold=float(LOAD_3D_CAUTION),
-                message=f"VERDE con carga acumulada (load_3d={load_3d:.0f}): precaución con la intensidad",
+                metric="acute_load_72h_rel",
+                value=float(acute_load_72h_rel),
+                threshold=float(acute_load_72h_rel_p75),
+                message=(
+                    "VERDE con carga aguda 72h "
+                    f"(acute_load_72h_rel={acute_load_72h_rel:.2f}x; load_3d={load_3d:.0f}): "
+                    "precaución con la intensidad"
+                ),
             )
 
         if (
@@ -1691,7 +1743,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             and load_day < 30
             and not load_ctx_caution
             and not clustering_flag
-            and (load_3d is None or load_3d <= LOAD_3D_CAUTION)
+            and (acute_load_72h_rel is None or acute_load_72h_rel < acute_load_72h_rel_p75)
         ):
             _append_unique(support_codes, "recent_load_low")
 

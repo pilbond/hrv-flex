@@ -357,9 +357,9 @@ Este bloque cubre el warning de baseline degradado y los flags sistémicos que l
 | HRV inusualmente alta | `lnRMSSD_used` fuera del rango habitual de la media móvil 3d | `RMSSD suavizado de 3 días por encima de tu base reciente: posible saturación parasimpática relativa al rango local` |
 | Sueño (duración) | `sleep.csv` (percentiles personales `sleep_dur_p10/p90`) | `Sueño más corto de lo habitual (5h45 vs tu umbral habitual bajo de 6h02)` · `Noche larga atípica` |
 | Sueño (fragmentación) | `sleep.csv` (`sleep_int_p90`) | `Sueño más fragmentado de lo habitual (8 interrupciones largas sobre tu P90)` |
-| Carga aguda | `sessions_day.csv` (`load_3d`) | `Carga acumulada reciente alta (load_3d=237)` |
+| Carga aguda | `sessions_day.csv` (`acute_load_72h_rel`) | `Carga aguda 72h por encima de tu base crónica (acute_load_72h_rel=4.20x; load_3d=237)` |
 | Carga canónica | `sessions_day.csv` (`acwr_simple_prev`, `monotony_7d_prev`, `strain_7d_prev`) | `ACWR muy alto: carga aguda muy por encima de la base crónica (1.69)` · `Monotonía alta` · `Strain semanal elevado` |
-| Convergencia de carga | Convergencia `load_3d` + al menos una canónica | `VERDE con convergencia de carga (load_3d + ACWR/monotonía/strain): conviene prudencia con la intensidad reforzada` |
+| Convergencia de carga | Convergencia `acute_load_72h_rel` + al menos una canónica | `VERDE con convergencia de carga (carga 72h + ACWR/monotonía/strain): conviene prudencia con la intensidad reforzada` |
 | Clustering de intensidad | `sessions_day.csv` (`intensity_clustering_*`) | `VERDE pero con 2 días intensos en los últimos 3: conviene prudencia con la intensidad` · `Intensidad reciente muy agrupada: vigilar recuperación` |
 | Resumen de recuperación | `recovery_support_class` | `VERDE con recuperación frágil...` · `ÁMBAR con soporte nocturno aceptable...` · `ROJO con discordancia objetiva...` |
 | Nightly RMSSD discordante | `polar_night_rmssd` vs gate matinal | `Nightly RMSSD bajo pese a gate verde: vigilar` |
@@ -566,9 +566,10 @@ Además del clustering, `sessions_day.csv` sigue siendo la fuente de:
 - `work_7d_sum`
 - `z3_7d_sum`
 - `acwr_simple_prev`
+- `acute_load_72h_rel`
 - `monotony_7d_prev`
 - `strain_7d_prev`
-- `load_ctx_ready` — `True` si hay ≥14 días con datos de carga en la ventana de 28 días; indica que `acwr_simple_prev`, `monotony_7d_prev` y `strain_7d_prev` tienen historial suficiente para ser interpretables y entrar en `reason_text`.
+- `load_ctx_ready` — `True` si hay ≥14 días con datos de carga en la ventana de 28 días; indica que `acwr_simple_prev`, `acute_load_72h_rel`, `monotony_7d_prev` y `strain_7d_prev` tienen historial suficiente para ser interpretables y entrar en `reason_text`.
 
 Estas métricas explican *cuánta* carga hay. La capa de clustering explica si la intensidad reciente está **mal espaciada**.
 
@@ -599,12 +600,12 @@ Estas columnas viven también en `sessions_day.csv` y describen **cómo** se rep
 
 Cuando el día sale `VERDE`, la capa de carga puede cerrar de tres formas:
 
-- `VERDE con carga acumulada (load_3d=X): precaución con la intensidad`
-  Uso: solo la señal aguda de 3 días dispara cautela.
+- `VERDE con carga aguda 72h (acute_load_72h_rel=Xx; load_3d=Y): precaución con la intensidad`
+  Uso: solo la señal aguda relativa de 72h dispara cautela.
 - `VERDE con contexto de carga exigente: precaución con la intensidad`
-  Uso: dispara la capa canónica (`ACWR`, `monotony` o `strain`) sin apoyo de `load_3d`.
-- `VERDE con convergencia de carga (load_3d + ACWR/monotonía/strain): precaución con la intensidad reforzada`
-  Uso: convergen el sidecar agudo y al menos una señal canónica. La conclusión no se repite dos veces; se sintetiza y se refuerza.
+  Uso: dispara la capa canónica (`ACWR`, `monotony` o `strain`) sin apoyo de `acute_load_72h_rel`.
+- `VERDE con convergencia de carga (carga 72h + ACWR/monotonía/strain): precaución con la intensidad reforzada`
+  Uso: convergen la señal aguda relativa y al menos una señal canónica. La conclusión no se repite dos veces; se sintetiza y se refuerza.
 
 ---
 
@@ -1252,7 +1253,7 @@ Action_detail: SUAVE
 gate_razon_base60: 2D_AMBOS
 decision_path: BASE60_ONLY
 veto_agudo: True
-reason_text: RMSSD de hoy cayó bruscamente respecto a tu base reciente: superó el umbral de caída aguda | Sueño más corto de lo habitual (5h45 vs tu umbral habitual bajo de 6h02) | Carga acumulada reciente alta (load_3d=237)
+reason_text: RMSSD de hoy cayó bruscamente respecto a tu base reciente: superó el umbral de caída aguda | Sueño más corto de lo habitual (5h45 vs tu umbral habitual bajo de 6h02) | Carga aguda 72h por encima de tu base crónica (acute_load_72h_rel=4.20x; load_3d=237)
 ```
 
 **Interpretación:** El veto agudo detectó una caída brusca que ROLL3 habría suavizado. El `reason_text` explica tres factores convergentes: la caída fue real, dormiste poco, y acumulaste mucha carga. Alta confianza de que el ROJO es legítimo.
@@ -1270,7 +1271,7 @@ Action_detail: EJECUTAR_PLAN
 gate_razon_base60: 2D_OK
 decision_path: BASE60_ONLY
 veto_agudo: False
-reason_text: ACWR muy alto: carga aguda muy por encima de la base crónica (1.69) | VERDE con convergencia de carga (load_3d + ACWR): precaución con la intensidad reforzada
+reason_text: ACWR muy alto: carga aguda muy por encima de la base crónica (1.69) | VERDE con convergencia de carga (carga 72h + ACWR): precaución con la intensidad reforzada
 ```
 
 **Interpretación:** Tu HRV y pulso están bien (VERDE), pero la lectura operativa no es un verde limpio. La carga aguda de 3 días y el ACWR apuntan en la misma dirección, así que el cierre de `reason_text` escala la cautela: el gate permite intensidad, pero no justifica exprimirla.

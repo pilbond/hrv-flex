@@ -206,7 +206,7 @@ Ejemplo:
 🚦 Gate:                    VERDE++
 🧭 Acción:                  INTENSIDAD_OK / EJECUTAR_PLAN
 🧾 Razón gate:              2D_OK
-🧠 Reason text:             VERDE pero con 2 días intensos en los últimos 5: prudencia con la intensidad (1/3d · 2/5d) | VERDE con carga acumulada (load_3d=221): precaución intensidad
+🧠 Reason text:             VERDE pero con 2 días intensos en los últimos 5: prudencia con la intensidad (1/3d · 2/5d) | VERDE con carga aguda 72h (acute_load_72h_rel=4.20x; load_3d=221): precaución intensidad
 🧩 Decision path:           BASE60_ONLY
 🧪 Contexto recuperación:  contexto completo / señales alineadas
 📐 Base 60d:                44.1 ms (n=41)

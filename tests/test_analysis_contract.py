@@ -1850,7 +1850,7 @@ class AnalysisContractTests(unittest.TestCase):
                     "metric": "load_3d",
                     "value": 221.0,
                     "threshold": 200.0,
-                    "message": "VERDE con carga acumulada (load_3d=221): precaución con la intensidad",
+                    "message": "VERDE con carga aguda 72h (acute_load_72h_rel=4.20x; load_3d=221): precaución con la intensidad",
                 },
             ],
             final_reason_flags={
@@ -1925,7 +1925,7 @@ class AnalysisContractTests(unittest.TestCase):
                         "line": "- `intensity_clustering` (`intensity_clustering_flag=1`): 1 dia intenso en los ultimos 3"
                     },
                     {
-                        "line": "- `green_load_caution` (`load_3d=221`, umbral `200`): carga acumulada alta"
+                        "line": "- `green_load_caution` (`acute_load_72h_rel=4.20x`, umbral `3.9`): carga aguda 72h alta"
                     },
                 ],
                 "action_readout": "`has_action_constraint = false` -> no hay restriccion de accion activa; la cautela existe, pero no hay veto adicional.",

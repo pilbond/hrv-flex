@@ -402,6 +402,8 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
                         "load_day": 70,
                         "load_3d": 210,
                         "load_3d_nobs": 3,
+                        "acute_load_72h_rel": 4.6,
+                        "load_ctx_ready": True,
                     }
                 ],
             )
@@ -413,8 +415,70 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
         self.assertEqual(row["gate_final"], "VERDE")
         self.assertEqual(row["recovery_support_class"], "neutral")
         self.assertFalse(row["recovery_discordance_flag"])
-        self.assertIn("VERDE con carga acumulada (load_3d=210): precaución con la intensidad", row["reason_text"])
+        self.assertIn("Carga aguda 72h muy alta respecto a tu base crónica", row["reason_text"])
+        self.assertIn(
+            "VERDE con carga aguda 72h (acute_load_72h_rel=4.60x; load_3d=210): precaución con la intensidad",
+            row["reason_text"],
+        )
         self.assertNotIn("VERDE con recuperación frágil", row["reason_text"])
+
+    def test_load_caution_on_green_uses_convergence_when_acute_and_acwr_align(self):
+        core = _core_frame()
+
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            _write_sessions_day(
+                data_dir,
+                [
+                    {
+                        "Fecha": "2026-02-08",
+                        "load_day": 70,
+                        "load_3d": 210,
+                        "load_3d_nobs": 3,
+                        "acute_load_72h_rel": 4.2,
+                        "acwr_simple_prev": 1.4,
+                        "monotony_7d_prev": 1.2,
+                        "strain_7d_prev": 500.0,
+                        "load_ctx_ready": True,
+                    }
+                ],
+            )
+
+            with patch.object(final_builder, "DATA_DIR", data_dir):
+                final, _ = final_builder.build_final_and_dashboard(core, final_builder.Config())
+
+        row = final.loc[final["Fecha"] == "2026-02-08"].iloc[0]
+        self.assertEqual(row["gate_final"], "VERDE")
+        self.assertIn(
+            "VERDE con convergencia de carga (carga 72h + ACWR): precaución con la intensidad reforzada",
+            row["reason_text"],
+        )
+
+    def test_no_load_caution_is_emitted_when_load_context_is_not_ready(self):
+        core = _core_frame()
+
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            _write_sessions_day(
+                data_dir,
+                [
+                    {
+                        "Fecha": "2026-02-08",
+                        "load_day": 70,
+                        "load_3d": 210,
+                        "load_3d_nobs": 3,
+                        "acute_load_72h_rel": 4.6,
+                        "load_ctx_ready": False,
+                    }
+                ],
+            )
+
+            with patch.object(final_builder, "DATA_DIR", data_dir):
+                final, _ = final_builder.build_final_and_dashboard(core, final_builder.Config())
+
+        row = final.loc[final["Fecha"] == "2026-02-08"].iloc[0]
+        self.assertNotIn("Carga aguda 72h", row["reason_text"])
+        self.assertNotIn("convergencia de carga", row["reason_text"])
 
     def test_reason_text_uses_explicit_fallback_when_no_context_is_emitted(self):
         core = _core_frame()
@@ -500,6 +564,8 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
                         "load_day": 70,
                         "load_3d": 210,
                         "load_3d_nobs": 3,
+                        "acute_load_72h_rel": 4.2,
+                        "load_ctx_ready": True,
                     }
                 ],
             )

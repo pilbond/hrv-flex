@@ -81,6 +81,7 @@ EXPECTED_SESSIONS_DAY_COLUMNS = [
     "load_28d",
     "load_28d_nobs",
     "acwr_simple_prev",
+    "acute_load_72h_rel",
     "monotony_7d_prev",
     "strain_7d_prev",
     "load_ctx_ready",
@@ -390,7 +391,7 @@ class BuildSessionsContractTests(unittest.TestCase):
         )
         day = build_sessions_day(sessions)
         self.assertEqual(day.columns.tolist(), EXPECTED_SESSIONS_DAY_COLUMNS)
-        self.assertEqual(len(day.columns), 60)
+        self.assertEqual(len(day.columns), 61)
 
     def test_finish_strong_maps_to_endurance_easy(self):
         self.assertEqual(classify_session_group("trail_run", "finish_strong"), "endurance_easy")
@@ -507,9 +508,24 @@ class BuildSessionsContractTests(unittest.TestCase):
         row = day.loc[day["Fecha"] == "2026-03-08"].iloc[0]
 
         self.assertAlmostEqual(row["acwr_simple_prev"], 4.0, places=3)
+        self.assertTrue(pd.isna(row["acute_load_72h_rel"]))
         self.assertAlmostEqual(row["monotony_7d_prev"], 1.155, places=3)
         self.assertAlmostEqual(row["strain_7d_prev"], 461.9, places=1)
         self.assertFalse(bool(row["load_ctx_ready"]))
+
+    def test_acute_load_72h_rel_requires_load_ctx_ready(self):
+        sessions = pd.DataFrame(
+            [
+                _session(session_id=f"i{idx}", Fecha=f"2026-03-{idx:02d}", load=50.0)
+                for idx in range(1, 15)
+            ]
+        )
+
+        day = build_sessions_day(sessions)
+        row = day.loc[day["Fecha"] == "2026-03-14"].iloc[0]
+
+        self.assertFalse(bool(row["load_ctx_ready"]))
+        self.assertTrue(pd.isna(row["acute_load_72h_rel"]))
 
     def test_intensity_clustering_uses_calendar_days_and_severity_levels(self):
         high_sessions = pd.DataFrame(
@@ -570,6 +586,7 @@ class BuildSessionsContractTests(unittest.TestCase):
 
         self.assertTrue(bool(row["load_ctx_ready"]))
         self.assertAlmostEqual(row["acwr_simple_prev"], 2.0, places=3)
+        self.assertAlmostEqual(row["acute_load_72h_rel"], 6.0, places=3)
         self.assertTrue(pd.isna(row["monotony_7d_prev"]))
         self.assertTrue(pd.isna(row["strain_7d_prev"]))
 

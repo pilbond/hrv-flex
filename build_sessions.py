@@ -1499,6 +1499,10 @@ def build_sessions_day(sessions_df: pd.DataFrame) -> pd.DataFrame:
     acute_mean_7d = day_df["load_7d"] / 7.0
     chronic_mean_28d = day_df["load_28d"] / 28.0
     acwr_simple_prev = acute_mean_7d.divide(chronic_mean_28d.where(chronic_mean_28d > 0))
+    load_ctx_ready_mask = day_df["load_28d_nobs"].fillna(0).astype(int) >= 14
+    acute_load_72h_rel = day_df["load_3d"].divide(
+        chronic_mean_28d.where((chronic_mean_28d > 0) & load_ctx_ready_mask)
+    )
 
     monotony_mean_7d = load_day_shifted.rolling(7, min_periods=1).mean()
     monotony_std_7d = load_day_shifted.rolling(7, min_periods=1).std(ddof=0)
@@ -1507,9 +1511,10 @@ def build_sessions_day(sessions_df: pd.DataFrame) -> pd.DataFrame:
     strain_7d_prev = load_day_shifted.rolling(7, min_periods=1).sum() * monotony_7d_prev
 
     day_df["acwr_simple_prev"] = acwr_simple_prev.round(3)
+    day_df["acute_load_72h_rel"] = acute_load_72h_rel.round(3)
     day_df["monotony_7d_prev"] = monotony_7d_prev.round(3)
     day_df["strain_7d_prev"] = strain_7d_prev.round(1)
-    day_df["load_ctx_ready"] = day_df["load_28d_nobs"].fillna(0).astype(int) >= 14
+    day_df["load_ctx_ready"] = load_ctx_ready_mask
 
     if "elev_loss_day" in day_df:
         day_df["elev_loss_7d_sum"], _ = safe_rolling(day_df["elev_loss_day"], 7)
@@ -1599,6 +1604,7 @@ def build_sessions_day(sessions_df: pd.DataFrame) -> pd.DataFrame:
         "load_28d",
         "load_28d_nobs",
         "acwr_simple_prev",
+        "acute_load_72h_rel",
         "monotony_7d_prev",
         "strain_7d_prev",
         "load_ctx_ready",

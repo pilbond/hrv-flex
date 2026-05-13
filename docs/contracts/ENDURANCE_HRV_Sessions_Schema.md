@@ -242,7 +242,7 @@ Cómo se clasifica la sesión y cómo se compara con tu histórico.
 
 | Campo | Tipo | Qué es |
 |-------|------|--------|
-| `load` | int | Carga de entrenamiento asignada por Intervals.icu (su modelo HRSS/TSS). No lo calcula este pipeline — viene tal cual de la fuente. Es el valor que alimenta `load_day` y `load_3d` en sessions_day.csv. |
+| `load` | int | Carga de entrenamiento asignada por Intervals.icu (su modelo HRSS/TSS). No lo calcula este pipeline — viene tal cual de la fuente. Es el valor que alimenta `load_day` y, por arrastre, `load_3d` y `acute_load_72h_rel` en sessions_day.csv. |
 | `trimp` | float? | Carga TRIMP tipo Banister calculada por Intervals a partir de duración e intensidad cardíaca. Es una segunda señal fisiológica de carga, complementaria a `load` y separada de la percepción subjetiva. |
 | `rpe` | int? (1-10) | Rate of Perceived Exertion. Percepción subjetiva del esfuerzo que tú registraste después de entrenar. 1=muy fácil, 10=máximo. NaN si no lo registraste. El pipeline lo conserva pero no lo usa para clasificar — es informativo. |
 | `feel` | int? | Cómo te sentiste durante la sesión (escala Intervals). NaN si no lo registraste. Informativo. |
@@ -369,9 +369,10 @@ Los campos rolling son sumas o medias de los últimos N días, con un campo `_no
 | `load_14d` / `load_14d_nobs` | 14 días | Carga total de las 2 semanas anteriores. |
 | `load_28d` / `load_28d_nobs` | 28 días | Carga total del mes anterior. |
 | `acwr_simple_prev` | 7d / 28d | `((sum load d-1..d-7)/7) / ((sum load d-1..d-28)/28)`. Rolling simple, con `shift(1)`. Si la base crónica es 0, queda `NaN`. |
+| `acute_load_72h_rel` | 3d / 28d | `load_3d / (load_28d / 28)`. Se calcula solo con `load_ctx_ready = True` y `load_28d_nobs >= 14`; fuera de ese contexto queda `NaN`. Los umbrales operativos se calibran preferentemente por percentiles locales (`P75/P90`) del histórico listo del atleta, usando todo el histórico disponible en `base_df` para el cálculo de esos percentiles, y si aún no hay suficiente histórico caen en umbrales provisionales bootstrap (`3.9/4.5`). |
 | `monotony_7d_prev` | 7 días | `media(load_day previos 7d calendario) / sd(load_day previos 7d calendario)`. Se calcula sobre calendario continuo; los días sin sesión cuentan como `0`. Si `std == 0` o `load_7d_nobs < 3`, queda `NaN`. |
 | `strain_7d_prev` | 7 días | `sum(load_day previos 7d) * monotony_7d_prev`. Hereda `NaN` si `monotony_7d_prev` no está disponible. |
-| `load_ctx_ready` | bool | `True` cuando `load_28d_nobs >= 14`. Señala que la capa canónica de contexto de carga ya tiene suficiente soporte histórico para uso interpretativo estable. |
+| `load_ctx_ready` | bool | `True` cuando `load_28d_nobs >= 14`. Señala que la capa canónica de contexto de carga ya tiene suficiente soporte histórico para uso interpretativo estable y para calcular `acwr_simple_prev`, `acute_load_72h_rel`, `monotony_7d_prev` y `strain_7d_prev`. |
 | `finish_strong_7d_count` | 7 días | Conteo rolling de días con `late_intensity_day = 1` en la semana previa. |
 | `elev_loss_7d_sum` | 7 días | Suma rolling de desnivel negativo en la semana previa. Campo descriptivo; no lo usa el gate. |
 
@@ -568,7 +569,7 @@ Cada corrida del pipeline genera un `ENDURANCE_HRV_sessions_metadata.json` que d
 
 | Condición | Aviso generado |
 |-----------|----------------|
-| `load_3d > 250` (con `load_3d_nobs >= 2`) | "Carga acumulada alta (load_3d=X)" |
+| `load_ctx_ready` + `acute_load_72h_rel >= P75/P90 local` | "Carga aguda 72h por encima de tu base crónica (acute_load_72h_rel=Xx; load_3d=Y)" |
 | `load_ctx_ready` + `acwr_simple_prev >= 1.3` | "ACWR alto: carga aguda por encima de la base crónica" |
 | `load_ctx_ready` + `monotony_7d_prev >= 1.8` | "Monotonía elevada/alta: patrón de carga poco variable" |
 | `load_ctx_ready` + `strain_7d_prev >= P75/P90 local` | "Strain alto/muy alto: semana exigente y poco descargada" |
@@ -576,11 +577,13 @@ Cada corrida del pipeline genera un `ENDURANCE_HRV_sessions_metadata.json` que d
 | `z3_7d_sum > 60` | "Tiempo en alta intensidad acumulado esta semana (Xmin en Z3)" |
 | `intensity_clustering_flag = 1` + `level=low/high` | "VERDE pero con X días intensos..." o "Clustering ... reciente: vigilar recuperación" |
 | ROJO + `load_day < 30` + sueño OK | "ROJO sin carga previa ni sueño malo: revisar factores externos al entrenamiento" |
-| VERDE + `load_3d > 200` | "VERDE con carga acumulada (load_3d=X): precaución con la intensidad" |
+| VERDE + `acute_load_72h_rel >= P75/P90 local` | "VERDE con carga aguda 72h (acute_load_72h_rel=Xx; load_3d=Y): precaución con la intensidad" |
 | VERDE + contexto canónico exigente | "VERDE con contexto de carga exigente: precaución con la intensidad" |
-| VERDE + `load_3d > 200` + señal canónica exigente | "VERDE con convergencia de carga (load_3d + ACWR/monotonía/strain): precaución con la intensidad reforzada" |
+| VERDE + `acute_load_72h_rel >= P75/P90 local` + señal canónica exigente | "VERDE con convergencia de carga (carga 72h + ACWR/monotonía/strain): precaución con la intensidad reforzada" |
 
-**Principio:** Los avisos informan, nunca cambian el semáforo. El gate sigue dependiendo exclusivamente de HRV + pulso. `load_3d` se mantiene como sidecar agudo de corto plazo; la capa canónica sigue siendo `ACWR` + `monotony` + `strain`; y el clustering de intensidad aporta una alerta proactiva de mala distribución reciente. Si varias capas convergen en un día VERDE, el cierre operativo se vuelve más prudente, pero el color no cambia.
+**Principio:** Los avisos informan, nunca cambian el semáforo. El gate sigue dependiendo exclusivamente de HRV + pulso. `load_3d` sigue siendo la señal bruta de 3 días, pero el aviso interpretado principal pasa por `acute_load_72h_rel`; la capa canónica sigue siendo `ACWR` + `monotony` + `strain`; y el clustering de intensidad aporta una alerta proactiva de mala distribución reciente. Si varias capas convergen en un día VERDE, el cierre operativo se vuelve más prudente, pero el color no cambia.
+
+**Calibración local de carga:** `acute_load_72h_rel` usa percentiles del histórico listo del atleta (`P75/P90`) cuando hay soporte suficiente; mientras tanto, el dashboard usa umbrales bootstrap provisionales (`3.9/4.5`) para no perder señal al arrancar.
 
 ---
 
