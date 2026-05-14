@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Diccionario de Columnas (FINAL/DASHBOARD)
 
-**Revisión:** r2026-05-13 v4.13 (PCV-04 weekly coach sidecar + jargon fixes)
+**Revisión:** r2026-05-14 v4.14 (PCV-05 planning_note semanal)
 **Estado:** Producción
 
 **Documentos relacionados:**
@@ -782,6 +782,8 @@ Generado por `build_sessions.py` como `ENDURANCE_HRV_weekly_coach.json`. Resume 
 | `progression_risk` | `low`, `moderate`, `high` o `insufficient_data` según `ACWR`, `monotony` y `strain`. |
 | `hrv_trend` | `rising`, `stable`, `falling` o `insufficient_data` según la pendiente semanal de `RMSSD_stable`. |
 | `data_quality` | Calidad e interpretabilidad del sidecar: no equivale a normalidad operativa. |
+| `planning_note` | Orientacion breve, condicional y persistible para el arranque del siguiente microciclo. Se ancla a `HRV matinal` y `Action/reason_text` del primer dia; no prescribe sesiones exactas. |
+| `sleep_context` | Trazabilidad opcional de la lectura semanal de sueño usada para matizar `planning_note`. Puede incluir `sleep_days_present`, `sleep_duration_mean_min`, `sleep_short_nights_pct`, `sleep_deep_pct_mean` y `sleep_score_mean`. |
 
 ### Lo que NO debes hacer
 

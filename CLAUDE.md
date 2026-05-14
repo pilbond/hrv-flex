@@ -111,6 +111,7 @@ Sistema automatizado HRV para un **único atleta**:
 | `ENDURANCE_HRV_sessions_day.csv` | 60 | Carga por día + rolling con cobertura + clustering reciente de intensidad + DO-02 |
 | `ENDURANCE_HRV_sessions_metadata.json` | - | `training_audit` por capas (`dataset_level`, `signal_level`, `metric_level`) |
 | `ENDURANCE_HRV_intensity_distribution_weekly.csv` | - | Distribución observada por `sport x week` con patrón y confianza |
+| `ENDURANCE_HRV_weekly_coach.json` | - | Sidecar semanal con `planning_note` breve reutilizable y visible en `/api/status` |
 | `ENDURANCE_HRV_wellness_subjective.csv` | - | Sidecar local para bienestar subjetivo |
 
 ---

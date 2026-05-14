@@ -1,17 +1,15 @@
 # Tarea: Planning note semanal
 
-Estado: pendiente
+Estado: implementada
 Tipo de valor: valor accionable corto y valor de traduccion analisis -> plan
 Prioridad: media-alta
 
 ## Resumen
-El metodo semanal pide orientar la semana siguiente, pero no se ha materializado en una salida corta, reusable y visible del sistema.
+La orientacion semanal ya se materializa como `planning_note` en `ENDURANCE_HRV_weekly_coach.json` y se expone en `/api/status` para consumo operativo.
 
 ## Que falta exactamente
-- definir una salida breve y estable para la semana siguiente;
-- ejemplo minimo: `planning_note`, `coach_question` o `next_week_focus`;
-- anclarla a la primera variable operativa accionable de la semana siguiente;
-- evitar textos largos y dejar una formulacion util para decision real.
+- mantener sincronizado el texto con el metodo semanal y el prompt de informe cuando cambien las reglas;
+- revisar si la UI debe mostrar `planning_note` de forma visible o solo via status.
 
 ## Por que sigue teniendo valor
 - convierte analisis en una consigna util;

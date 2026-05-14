@@ -1971,6 +1971,136 @@ def _classify_progression_risk(week_days_df: pd.DataFrame, full_day_df: pd.DataF
     )
 
 
+def _load_weekly_sleep_context(week_start: date, week_end: date) -> dict:
+    sleep_path = CONFIG_DATA_DIR / "ENDURANCE_HRV_sleep.csv"
+    if not sleep_path.exists():
+        return {}
+
+    try:
+        sleep_df = pd.read_csv(sleep_path)
+    except Exception:
+        return {}
+
+    if sleep_df.empty or "Fecha" not in sleep_df.columns:
+        return {}
+
+    fecha = pd.to_datetime(sleep_df["Fecha"], errors="coerce").dt.date
+    week_mask = fecha.map(lambda d: isinstance(d, date) and week_start <= d <= week_end)
+    week_sleep = sleep_df.loc[week_mask].copy()
+    if week_sleep.empty:
+        return {}
+
+    dur = pd.to_numeric(week_sleep.get("polar_sleep_duration_min"), errors="coerce") if "polar_sleep_duration_min" in week_sleep.columns else pd.Series(dtype=float)
+    deep = pd.to_numeric(week_sleep.get("polar_deep_pct"), errors="coerce") if "polar_deep_pct" in week_sleep.columns else pd.Series(dtype=float)
+    score = pd.to_numeric(week_sleep.get("polar_sleep_score"), errors="coerce") if "polar_sleep_score" in week_sleep.columns else pd.Series(dtype=float)
+
+    short_pct = None
+    if not dur.empty:
+        valid_dur = dur.dropna()
+        if not valid_dur.empty:
+            short_pct = round(float((valid_dur < 420.0).mean() * 100.0), 1)
+
+    return {
+        "sleep_days_present": int(len(week_sleep)),
+        "sleep_duration_mean_min": round(float(dur.dropna().mean()), 1) if not dur.dropna().empty else None,
+        "sleep_short_nights_pct": short_pct,
+        "sleep_deep_pct_mean": round(float(deep.dropna().mean()), 1) if not deep.dropna().empty else None,
+        "sleep_score_mean": round(float(score.dropna().mean()), 1) if not score.dropna().empty else None,
+    }
+
+
+def _classify_sleep_pressure(sleep_context: Optional[dict]) -> tuple[str, Optional[str]]:
+    if not sleep_context:
+        return "none", None
+
+    sleep_duration_mean = sleep_context.get("sleep_duration_mean_min")
+    sleep_short_nights_pct = sleep_context.get("sleep_short_nights_pct")
+    sleep_score_mean = sleep_context.get("sleep_score_mean")
+
+    signals: list[str] = []
+    if sleep_duration_mean is not None and sleep_duration_mean < 420.0:
+        signals.append("short_duration")
+    if sleep_short_nights_pct is not None and sleep_short_nights_pct >= 50.0:
+        signals.append("many_short_nights")
+    if sleep_score_mean is not None and sleep_score_mean < 70.0:
+        signals.append("low_score")
+
+    if len(signals) >= 2:
+        if "many_short_nights" in signals and "short_duration" in signals:
+            return "high", "sueno corto sostenido"
+        if "low_score" in signals and ("short_duration" in signals or "many_short_nights" in signals):
+            return "high", "sueno degradado sostenido"
+        return "high", "sueno degradado"
+
+    if len(signals) == 1:
+        if "many_short_nights" in signals:
+            return "moderate", "muchas noches cortas"
+        if "short_duration" in signals:
+            return "moderate", "sueno corto"
+        return "moderate", "sleep score bajo"
+
+    return "none", None
+
+
+def _build_weekly_planning_note(
+    *,
+    week_type: str,
+    progression_risk: str,
+    hrv_trend: str,
+    data_quality: str,
+    sleep_context: Optional[dict] = None,
+) -> str:
+    prefix = "Semana con cobertura parcial: " if data_quality == "limited" else ""
+    sleep_context = sleep_context or {}
+    sleep_pressure, sleep_label = _classify_sleep_pressure(sleep_context)
+    sleep_clause = ""
+    if sleep_pressure == "high" and sleep_label:
+        sleep_clause = " El contexto de sueno apunta a " + sleep_label + "; no invalida la entrada favorable, pero pide vigilancia."
+    elif sleep_pressure == "moderate" and progression_risk != "low":
+        sleep_clause = " El contexto de sueno apunta a " + sleep_label + "."
+
+    if data_quality == "insufficient_data":
+        return (
+            "Sin senal semanal suficiente: decide el arranque con HRV matinal y "
+            "Action/reason_text del primer dia; no metas el primer pico hasta que "
+            "esa entrada salga estable."
+        )
+
+    if progression_risk == "high" or hrv_trend == "falling":
+        return (
+            prefix
+            + "no abras con pico de carga; el primer estimulo fuerte solo entra si "
+            + "la HRV matinal abre estable y Action/reason_text no piden contencion; "
+            + "si no, extiende recuperacion 24-48h."
+            + sleep_clause
+        )
+
+    if progression_risk == "low" and hrv_trend in {"rising", "stable"}:
+        return (
+            prefix
+            + "si la HRV matinal abre estable y Action/reason_text acompanan, puedes "
+            + "arrancar con progresion normal; si no, mueve 24h el primer pico de carga."
+            + sleep_clause
+        )
+
+    if week_type == "threshold":
+        return (
+            prefix
+            + "si la HRV matinal abre estable y Action/reason_text acompanan, retoma "
+            + "carga sin concentrar otro bloque medio denso al inicio; si no, retrasa "
+            + "24h el primer pico."
+            + sleep_clause
+        )
+
+    return (
+        prefix
+        + "abre la semana con lectura conservadora: usa HRV matinal y "
+        + "Action/reason_text del primer dia para decidir el primer pico; "
+        + "si la entrada no es clara, no fuerces carga alta en las primeras 24-48h."
+        + sleep_clause
+    )
+
+
 def _build_weekly_coach_summary(
     day_df: pd.DataFrame,
     distribution_df: pd.DataFrame,
@@ -1999,6 +2129,11 @@ def _build_weekly_coach_summary(
             "progression_risk": "insufficient_data",
             "hrv_trend": "insufficient_data",
             "data_quality": "insufficient_data",
+            "planning_note": (
+                "Sin senal semanal suficiente: decide el arranque con HRV matinal y "
+                "Action/reason_text del primer dia; no metas el primer pico hasta que "
+                "esa entrada salga estable."
+            ),
         }
 
     fecha_series = pd.to_datetime(day_df["Fecha"], errors="coerce")
@@ -2106,6 +2241,14 @@ def _build_weekly_coach_summary(
         data_quality = "limited"
     if anchor_source == "current_week" and week_data_coverage_pct is not None and week_data_coverage_pct < 100.0 and data_quality == "good":
         data_quality = "limited"
+    sleep_context = _load_weekly_sleep_context(week_start, week_end)
+    planning_note = _build_weekly_planning_note(
+        week_type=week_type,
+        progression_risk=progression_risk,
+        hrv_trend=hrv_trend,
+        data_quality=data_quality,
+        sleep_context=sleep_context,
+    )
 
     return {
         "iso_week": _format_iso_week(week_start),
@@ -2124,6 +2267,8 @@ def _build_weekly_coach_summary(
         "progression_risk": progression_risk,
         "hrv_trend": hrv_trend,
         "data_quality": data_quality,
+        "planning_note": planning_note,
+        "sleep_context": sleep_context or None,
     }
 
 

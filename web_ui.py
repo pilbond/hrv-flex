@@ -431,6 +431,30 @@ def _csv_runtime_diagnostics() -> dict:
     }
 
 
+def _weekly_coach_diagnostics() -> dict:
+    weekly_coach_path = DATA_DIR / "ENDURANCE_HRV_weekly_coach.json"
+    payload = {
+        "weekly_coach_exists": weekly_coach_path.exists(),
+        "weekly_coach_iso_week": None,
+        "weekly_coach_window_end": None,
+        "weekly_coach_data_quality": None,
+        "weekly_coach_planning_note": None,
+    }
+    if not weekly_coach_path.exists():
+        return payload
+
+    try:
+        weekly_coach = json.loads(weekly_coach_path.read_text(encoding="utf-8"))
+    except Exception:
+        return payload
+
+    payload["weekly_coach_iso_week"] = weekly_coach.get("iso_week")
+    payload["weekly_coach_window_end"] = weekly_coach.get("window_end")
+    payload["weekly_coach_data_quality"] = weekly_coach.get("data_quality")
+    payload["weekly_coach_planning_note"] = weekly_coach.get("planning_note")
+    return payload
+
+
 def _dropbox_runtime_diagnostics() -> dict:
     dropbox_script = Path((os.environ.get("HRV_DROPBOX_RR_SCRIPT") or "egc_to_rr.py").strip() or "egc_to_rr.py")
     dropbox_folder_path = (
@@ -457,6 +481,7 @@ def _dropbox_runtime_diagnostics() -> dict:
 def _build_status_payload() -> dict:
     token_info = _token_diagnostics()
     csv_info = _csv_runtime_diagnostics()
+    weekly_coach_info = _weekly_coach_diagnostics()
     dropbox_info = _dropbox_runtime_diagnostics()
     seed_info = _seed_upload_diagnostics()
     rr_info = _latest_rr_diagnostics()
@@ -466,6 +491,7 @@ def _build_status_payload() -> dict:
         "authorized": token_info.get("token_reason") == "ok",
         **token_info,
         **csv_info,
+        **weekly_coach_info,
         **dropbox_info,
         **seed_info,
         **rr_info,

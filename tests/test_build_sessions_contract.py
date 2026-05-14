@@ -2,6 +2,7 @@ import json
 import unittest
 from pathlib import Path
 from datetime import date
+from tempfile import TemporaryDirectory
 from uuid import uuid4
 from unittest.mock import patch
 
@@ -11,6 +12,7 @@ from hrv_app.polar_sessions import extract_mechanical_metrics, match_polar_exerc
 
 from build_sessions import (
     _classify_progression_risk,
+    _build_weekly_planning_note,
     build_intensity_distribution_weekly,
     build_weekly_coach_summary,
     build_training_audit,
@@ -1002,6 +1004,8 @@ class BuildSessionsContractTests(unittest.TestCase):
         self.assertEqual(weekly["progression_risk"], "low")
         self.assertEqual(weekly["hrv_trend"], "rising")
         self.assertEqual(weekly["data_quality"], "limited")
+        self.assertTrue(weekly["planning_note"].startswith("Semana con cobertura parcial: "))
+        self.assertIn("puedes arrancar con progresion normal", weekly["planning_note"])
         self.assertEqual(weekly["as_of_date"], "2026-03-04")
         self.assertIn("generated_at", weekly)
 
@@ -1032,6 +1036,7 @@ class BuildSessionsContractTests(unittest.TestCase):
         self.assertIsNone(weekly["week_data_coverage_pct"])
         self.assertEqual(weekly["week_type"], "insufficient_data")
         self.assertEqual(weekly["data_quality"], "insufficient_data")
+        self.assertIn("Sin senal semanal suficiente", weekly["planning_note"])
 
     def test_build_weekly_coach_summary_marks_distribution_gap_as_insufficient_data(self):
         day_df = pd.DataFrame(
@@ -1190,6 +1195,74 @@ class BuildSessionsContractTests(unittest.TestCase):
         weekly = build_weekly_coach_summary(day_df, distribution_df, dashboard_df, as_of_date=date(2026, 3, 4))
         self.assertEqual(weekly["progression_risk"], "high")
         self.assertEqual(weekly["data_quality"], "limited")
+        self.assertIn("no abras con pico de carga", weekly["planning_note"])
+
+    def test_build_weekly_planning_note_prefers_fysiologic_state_over_threshold_label(self):
+        note = _build_weekly_planning_note(
+            week_type="threshold",
+            progression_risk="low",
+            hrv_trend="rising",
+            data_quality="good",
+        )
+        self.assertIn("puedes arrancar con progresion normal", note)
+        self.assertNotIn("retoma carga sin concentrar otro bloque medio denso", note)
+
+    def test_build_weekly_planning_note_uses_threshold_fallback_when_state_is_not_green(self):
+        note = _build_weekly_planning_note(
+            week_type="threshold",
+            progression_risk="moderate",
+            hrv_trend="stable",
+            data_quality="limited",
+        )
+        self.assertTrue(note.startswith("Semana con cobertura parcial: "))
+        self.assertIn("retoma carga sin concentrar otro bloque medio denso", note)
+
+    def test_build_weekly_planning_note_uses_sleep_context_when_present(self):
+        note = _build_weekly_planning_note(
+            week_type="mixed",
+            progression_risk="low",
+            hrv_trend="stable",
+            data_quality="good",
+            sleep_context={
+                "sleep_duration_mean_min": 395.0,
+                "sleep_short_nights_pct": 60.0,
+                "sleep_score_mean": 65.0,
+            },
+        )
+        self.assertIn("puedes arrancar con progresion normal", note)
+        self.assertIn("El contexto de sueno apunta a sueno corto sostenido; no invalida la entrada favorable, pero pide vigilancia.", note)
+
+    def test_build_weekly_planning_note_ignores_isolated_sleep_signal_when_green(self):
+        note = _build_weekly_planning_note(
+            week_type="mixed",
+            progression_risk="low",
+            hrv_trend="stable",
+            data_quality="good",
+            sleep_context={
+                "sleep_duration_mean_min": 395.0,
+                "sleep_short_nights_pct": 20.0,
+                "sleep_score_mean": 82.0,
+            },
+        )
+        self.assertIn("puedes arrancar con progresion normal", note)
+        self.assertNotIn("El contexto de sueno apunta", note)
+
+    def test_build_weekly_coach_summary_includes_sleep_context_traceability(self):
+        day_df = pd.DataFrame([{"Fecha": "2026-03-04", "load_day": 20.0, "load_ctx_ready": True}])
+        distribution_df = pd.DataFrame()
+        dashboard_df = pd.DataFrame([{"Fecha": "2026-03-04", "Calidad": "OK", "RMSSD_stable": 45.0}])
+        with TemporaryDirectory() as tmpdir:
+            sleep_path = Path(tmpdir) / "ENDURANCE_HRV_sleep.csv"
+            sleep_path.write_text(
+                "Fecha,polar_sleep_duration_min,polar_deep_pct,polar_sleep_score\n"
+                "2026-03-04,395,12,65\n",
+                encoding="utf-8",
+            )
+            with patch("build_sessions.CONFIG_DATA_DIR", Path(tmpdir)):
+                weekly = build_weekly_coach_summary(day_df, distribution_df, dashboard_df, as_of_date=date(2026, 3, 4))
+        self.assertIsNotNone(weekly["sleep_context"])
+        self.assertEqual(weekly["sleep_context"]["sleep_duration_mean_min"], 395.0)
+        self.assertEqual(weekly["sleep_context"]["sleep_score_mean"], 65.0)
 
     def test_classify_progression_risk_flags_high_via_strain_percentile(self):
         week_days_df = pd.DataFrame(
