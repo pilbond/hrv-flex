@@ -516,7 +516,7 @@ Estas columnas viven en `sessions_day.csv` y alimentan directamente el aviso pro
 
 ### Análisis enriquecido local (capas opcionales de `analysis/`)
 
-Además del clustering básico, cuando el módulo `analysis/` procesa una sesión puede enriquecer el análisis con datos adicionales (terreno, potencia de carrera) y generar capas paralelas. Estos campos viven en `summary.json` (para auditoría) y en `session_payload.json` (para informes de sesión). **Para el significado semántico completo de estas capas experimentales, ver `analysis/ANALYSIS_DICTIONARY.md`:**
+Además del clustering básico, cuando el módulo `analysis/` procesa una sesión puede enriquecer el análisis con datos adicionales (terreno, potencia de carrera) y generar capas paralelas. Estos campos viven en `summary.json` (para auditoría) y en `session_payload.json` (para informes de sesión). De forma separada, `analysis/hrv_rebound_profile.py` genera un sidecar retrospectivo de rebote HRV en `analysis/reports/hrv_rebound_profile/` para lectura semanal, sin afectar el gate ni los contratos canónicos. **Para el significado semántico completo de estas capas experimentales, ver `analysis/ANALYSIS_DICTIONARY.md`:**
 
 | Campo | Qué es | Cómo leerlo |
 |-------|--------|-------------|
@@ -783,7 +783,7 @@ Generado por `build_sessions.py` como `ENDURANCE_HRV_weekly_coach.json`. Resume 
 | `hrv_trend` | `rising`, `stable`, `falling` o `insufficient_data` según la pendiente semanal de `RMSSD_stable`. |
 | `data_quality` | Calidad e interpretabilidad del sidecar: no equivale a normalidad operativa. |
 | `planning_note` | Orientacion breve, condicional y persistible para el arranque del siguiente microciclo. Se ancla a `HRV matinal` y `Action/reason_text` del primer dia; no prescribe sesiones exactas. |
-| `sleep_context` | Trazabilidad opcional de la lectura semanal de sueño usada para matizar `planning_note`. Puede incluir `sleep_days_present`, `sleep_duration_mean_min`, `sleep_short_nights_pct`, `sleep_deep_pct_mean` y `sleep_score_mean`. |
+| `sleep_context` | Trazabilidad opcional de la lectura semanal de sueño usada para matizar `planning_note`. Puede incluir `sleep_days_present`, `sleep_duration_mean_min`, `sleep_short_nights_pct`, `sleep_deep_pct_mean` y `sleep_score_mean`. Permanece en el JSON del sidecar semanal; no se expone por `GET /api/status` ni en la tarjeta UI. |
 
 ### Lo que NO debes hacer
 

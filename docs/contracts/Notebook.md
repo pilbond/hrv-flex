@@ -532,7 +532,7 @@ Cada clasificacion viene con `distribution_confidence` (`high`, `moderate`, `low
 
 Esta capa **no afecta al gate ni a `reason_text`**. Es revision retrospectiva. Sirve para mirar tres semanas atras y notar, por ejemplo, que llevas un mes en `threshold` aunque tu HRV no haya saltado: el agujero negro es exactamente eso, sabotaje silencioso.
 
-El sistema tambien genera `ENDURANCE_HRV_weekly_coach.json` como resumen semanal estructurado. No sustituye a la distribucion por deporte: la complementa con ventana, cobertura, tipo semanal, carga y tendencia HRV para capas automatizadas.
+El sistema tambien genera `ENDURANCE_HRV_weekly_coach.json` como resumen semanal estructurado. No sustituye a la distribucion por deporte: la complementa con ventana, cobertura, tipo semanal, carga y tendencia HRV para capas automatizadas. Su `planning_note` tambien se muestra en la UI en una tarjeta dedicada de `Coach semanal`, pero sigue siendo un punto de partida operativo, no una lectura primaria que reemplace a las fuentes semanales.
 
 → Diccionario §5quinquies (columnas detalladas de la distribucion semanal) y §5sexies (resumen semanal estructurado).
 

@@ -39,6 +39,16 @@ class WebUiStatusTests(unittest.TestCase):
         self.assertEqual(diagnostics["weekly_coach_data_quality"], "limited")
         self.assertIn("puedes arrancar con progresion normal", diagnostics["weekly_coach_planning_note"])
 
+    def test_index_exposes_weekly_coach_panel_shell(self):
+        with web_ui.app.test_client() as client:
+            response = client.get("/")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('id="weeklyCoachCard"', html)
+        self.assertIn("Coach semanal", html)
+        self.assertIn("renderWeeklyCoachPanel", html)
+
 
 if __name__ == "__main__":
     unittest.main()

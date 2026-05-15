@@ -9,7 +9,7 @@ La orientacion semanal ya se materializa como `planning_note` en `ENDURANCE_HRV_
 
 ## Que falta exactamente
 - mantener sincronizado el texto con el metodo semanal y el prompt de informe cuando cambien las reglas;
-- revisar si la UI debe mostrar `planning_note` de forma visible o solo via status.
+- si cambia la semantica del sidecar, mantener alineados `web_ui.py`, el prompt semanal y el contrato del JSON.
 
 ## Por que sigue teniendo valor
 - convierte analisis en una consigna util;

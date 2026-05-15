@@ -2042,6 +2042,13 @@ def _classify_sleep_pressure(sleep_context: Optional[dict]) -> tuple[str, Option
     return "none", None
 
 
+WEEKLY_INSUFFICIENT_PLANNING_NOTE = (
+    "Sin senal semanal suficiente: decide el arranque con HRV matinal y "
+    "Action/reason_text del primer dia; no metas el primer pico hasta que "
+    "esa entrada salga estable."
+)
+
+
 def _build_weekly_planning_note(
     *,
     week_type: str,
@@ -2050,6 +2057,9 @@ def _build_weekly_planning_note(
     data_quality: str,
     sleep_context: Optional[dict] = None,
 ) -> str:
+    if data_quality == "insufficient_data":
+        return WEEKLY_INSUFFICIENT_PLANNING_NOTE
+
     prefix = "Semana con cobertura parcial: " if data_quality == "limited" else ""
     sleep_context = sleep_context or {}
     sleep_pressure, sleep_label = _classify_sleep_pressure(sleep_context)
@@ -2058,13 +2068,6 @@ def _build_weekly_planning_note(
         sleep_clause = " El contexto de sueno apunta a " + sleep_label + "; no invalida la entrada favorable, pero pide vigilancia."
     elif sleep_pressure == "moderate" and progression_risk != "low":
         sleep_clause = " El contexto de sueno apunta a " + sleep_label + "."
-
-    if data_quality == "insufficient_data":
-        return (
-            "Sin senal semanal suficiente: decide el arranque con HRV matinal y "
-            "Action/reason_text del primer dia; no metas el primer pico hasta que "
-            "esa entrada salga estable."
-        )
 
     if progression_risk == "high" or hrv_trend == "falling":
         return (
@@ -2129,11 +2132,7 @@ def _build_weekly_coach_summary(
             "progression_risk": "insufficient_data",
             "hrv_trend": "insufficient_data",
             "data_quality": "insufficient_data",
-            "planning_note": (
-                "Sin senal semanal suficiente: decide el arranque con HRV matinal y "
-                "Action/reason_text del primer dia; no metas el primer pico hasta que "
-                "esa entrada salga estable."
-            ),
+            "planning_note": WEEKLY_INSUFFICIENT_PLANNING_NOTE,
         }
 
     fecha_series = pd.to_datetime(day_df["Fecha"], errors="coerce")

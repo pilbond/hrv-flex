@@ -24,6 +24,7 @@ Importante:
 - La capa de terreno `FP-02` no nace aqui: se genera despues dentro de `analysis/` al correr `analysis\\run_session_analysis.py` o `analysis\\analyze_session.py`.
 - Esa capa sigue siendo local a `analysis/`: hoy puede exponer `terrain_fit_context` tambien en `bike`, y en sesiones `trail`/`road` puede mostrar `climb_power_mean` cuando la fuente FIT lo declara como potencia medida; `terrain_climbs.csv` sigue siendo el detalle reproducible por climb y no cambia ningun contrato canonico global.
 - Esa misma capa local de `analysis/` ya puede enriquecer el bundle de sesion con `composite_context` (`subjective_coherence`, `thermal_context`, `durability_context`) sin tocar `sessions.csv`, `sessions_day.csv` ni otros contratos canonicos.
+- `analysis/hrv_rebound_profile.py` genera una lectura retrospectiva de rebote HRV D+1/D+3 como sidecar local (`analysis/reports/hrv_rebound_profile/`); sirve para analisis semanal de absorcion, no para el gate diario.
 - Desde `SYA-01`, `analysis/` deja tambien `artifacts/report_sync_status.json` para explicitar si el `report.md` humano esta alineado con `session_payload.json`, `summary.json` y `technical_report.md`. El prompt/handoff incluyen un `report_sync_token` que debe copiarse al inicio del `report.md`.
 - Desde esta misma fase, `analysis/run_analysis()` genera `report.md` directamente como artefacto final gobernado por pipeline. Si encuentra un `report.md` legacy sin token, crea antes un backup `report.legacy.md` y luego toma posesion del informe principal.
 
@@ -35,7 +36,7 @@ Importante:
   - Expone endpoints: `/`, `/auth`, `/auth/callback`, `/oauth/callback`, `/api/sync`, `/api/sync-sessions`, `/api/status`, `/api/import-seed`, `/api/delete-latest-rr`, `/health`.
   - En `/api/sync` dispara `polar_hrv_automation.py --process`.
   - En `/api/sync-sessions` dispara `build_sessions.py --update`.
-  - La UI actual prioriza `Detalle tecnico` / `raw output` como bloque principal visible.
+  - La UI prioriza los controles operativos, una tarjeta dedicada de `Coach semanal` cuando existe `ENDURANCE_HRV_weekly_coach.json`, y despues `Detalle tecnico` / `raw output`.
 - Cuando usarlo:
   - Siempre que quieras usar OAuth web y lanzar sync desde navegador.
   - Es el entrypoint de Railway.
@@ -44,6 +45,7 @@ Importante:
 - Salidas:
   - Respuestas HTTP y logs.
   - `GET /api/status` devuelve estado actual del job, `job_type` y ultimo `output/error` relevante.
+  - `GET /api/status` incluye tambien el resumen semanal de `ENDURANCE_HRV_weekly_coach.json` para que la UI pinte `planning_note`, `iso_week`, `window_end` y `data_quality` sin crear un endpoint nuevo.
   - `POST /api/sync` y `POST /api/sync-sessions` devuelven `202 Accepted` cuando el job queda corriendo en background; si terminan practicamente al instante, pueden devolver el resultado final en la propia respuesta.
   - No genera CSV por si solo; delega al pipeline.
 - Automatico o manual:
@@ -368,4 +370,5 @@ Y aparte, opcional recomendado:
    - `composite_context` de `SYA-07` (`subjective_coherence`, `thermal_context`, `durability_context`)
    - `narrative_targets` de `SYA-11` (`error_context`, `exit_context`, `final_reason_rendered`); `exit_context.block_role_signals.load_rank_in_sport_7d` usa una ventana real de 7 dias por deporte, no un recorte visual de sesiones recientes
    - para sesiones `trail_run`: capa shadow AP-03 (`runaware_context`, `v1_shadow_history`) — validacion paralela del clustering AP-01 v1 con senal de terreno y potencia de carrera; shadow-only, no modifica ningun contrato canonico
+3. `analysis\\hrv_rebound_profile.py` cuando quieras revisar la absorcion HRV de forma retrospectiva por semana o por bloque, sin mezclar esa lectura con el gate diario ni con `sessions_day`.
 

@@ -1232,6 +1232,27 @@ class BuildSessionsContractTests(unittest.TestCase):
         self.assertIn("puedes arrancar con progresion normal", note)
         self.assertIn("El contexto de sueno apunta a sueno corto sostenido; no invalida la entrada favorable, pero pide vigilancia.", note)
 
+    def test_build_weekly_planning_note_returns_before_sleep_classification_on_insufficient_data(self):
+        with patch("build_sessions._classify_sleep_pressure", side_effect=AssertionError("sleep classifier should not run")):
+            note = _build_weekly_planning_note(
+                week_type="mixed",
+                progression_risk="low",
+                hrv_trend="stable",
+                data_quality="insufficient_data",
+                sleep_context={
+                    "sleep_duration_mean_min": 395.0,
+                    "sleep_short_nights_pct": 20.0,
+                    "sleep_score_mean": 82.0,
+                },
+            )
+
+        self.assertEqual(
+            note,
+            "Sin senal semanal suficiente: decide el arranque con HRV matinal y "
+            "Action/reason_text del primer dia; no metas el primer pico hasta que "
+            "esa entrada salga estable.",
+        )
+
     def test_build_weekly_planning_note_ignores_isolated_sleep_signal_when_green(self):
         note = _build_weekly_planning_note(
             week_type="mixed",

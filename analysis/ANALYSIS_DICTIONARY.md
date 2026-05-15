@@ -759,6 +759,7 @@ Las siguientes señales están presentes en el código y tienen uso narrativo ac
 | `zones_source` | `analysis_only_context.zone_context` | Si `= fallback`, reducir el peso del bonus técnico trail basado en `work_avg_z3_pct`; la fiabilidad de las zonas es insuficiente para ese uso. |
 | `polarization_index` | `analysis_only_context.coach_metrics` | Índice de polarización de la sesión según Intervals.icu; exploratorio, no estabilizado como señal analítica. |
 | `v1_shadow_history` | `artifacts/v1_shadow_history.json` | Historial longitudinal de comparaciones v1 vs sombra; útil como contexto de patrón histórico, no como fuente de decisión por sesión. |
+| `hrv_rebound_profile` | `analysis/reports/hrv_rebound_profile/*` | Sidecar retrospectivo de rebote HRV D+1/D+3: resume eventos origen, baseline previa, clase de recuperación y lectura semanal. Sirve para absorción de carga y arrastre autonómico, no para el gate diario ni como señal canónica. |
 
 ---
 

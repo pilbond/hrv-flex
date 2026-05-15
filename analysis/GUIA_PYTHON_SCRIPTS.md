@@ -36,6 +36,8 @@ Paso 2 — Analizar y generar report
 
 El bundle en `.cache/` es temporal: se elimina automaticamente tras el analisis salvo `--keep-bundle`.
 
+`hrv_rebound_profile.py` no forma parte de este flujo de bundle. Es un sidecar retrospectivo separado que lee `FINAL`, `CORE`, `sessions_day`, `sessions` y `sleep` para construir una lectura semanal de rebote HRV D+1/D+3 y escribir sus propios artefactos en `analysis/reports/hrv_rebound_profile/`.
+
 ---
 
 ## 2) Script por script
@@ -232,6 +234,34 @@ python run_session_analysis.py \
 ```bash
 python session_cost_model.py --session-id i133874358
 ```
+
+---
+
+### `hrv_rebound_profile.py`
+
+**Que hace:**
+- Construye un perfil retrospectivo de rebote HRV D+1/D+3 a partir de `ENDURANCE_HRV_master_FINAL.csv`, `ENDURANCE_HRV_master_CORE.csv`, `ENDURANCE_HRV_sessions_day.csv`, `ENDURANCE_HRV_sessions.csv` y `ENDURANCE_HRV_sleep.csv`.
+- Detecta eventos origen relevantes, calcula baseline previa con dias validos `OK`, compara `D+1` y `D+3` y clasifica el resultado en clases de recuperacion.
+- Escribe un reporte local en `analysis/reports/hrv_rebound_profile/` para lectura semanal o por bloque.
+
+**Cuando usarlo:**
+- Cuando quieres una lectura retrospectiva de absorcion de carga y recuperacion autonómica.
+- Cuando necesitas documentar si un tipo de carga deja rebote rapido, rebote lento o arrastre hasta `D+3`.
+
+**Entradas:**
+- `data/ENDURANCE_HRV_master_FINAL.csv`
+- `data/ENDURANCE_HRV_master_CORE.csv`
+- `data/ENDURANCE_HRV_sessions_day.csv`
+- `data/ENDURANCE_HRV_sessions.csv`
+- `data/ENDURANCE_HRV_sleep.csv`
+
+**Salidas:**
+- `analysis/reports/hrv_rebound_profile/hrv_rebound_profile_events.csv`
+- `analysis/reports/hrv_rebound_profile/hrv_rebound_profile_weekly.csv`
+- `analysis/reports/hrv_rebound_profile/hrv_rebound_profile_summary.json`
+
+**Automatico o manual:**
+- Manual o lanzado como sidecar local independiente.
 
 ---
 

@@ -571,6 +571,60 @@ HTML_TEMPLATE = """
         .status.success { background: var(--ok-bg); color: var(--ok-text); }
         .status.error { background: var(--error-bg); color: var(--error-text); }
         .section-title { font-size: 16px; font-weight: 800; letter-spacing: -0.03em; color: var(--brand-strong); margin-bottom: 12px; }
+        .coach-card {
+            border: 1px solid rgba(15, 118, 110, 0.14);
+            background:
+                linear-gradient(180deg, rgba(227, 243, 234, 0.98), rgba(255, 252, 247, 0.96));
+        }
+        .coach-header {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px 10px;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        .coach-title {
+            font-size: 18px;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            color: var(--brand-strong);
+        }
+        .coach-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .coach-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: rgba(15, 118, 110, 0.09);
+            color: var(--brand-strong);
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.01em;
+        }
+        .coach-label {
+            color: var(--muted);
+            font-weight: 700;
+            margin-right: 4px;
+        }
+        .coach-note {
+            font-size: 15px;
+            line-height: 1.55;
+            color: var(--text);
+            white-space: pre-wrap;
+        }
+        .coach-source {
+            margin-top: 12px;
+            font-size: 12px;
+            line-height: 1.4;
+            color: var(--muted);
+        }
         .raw-output {
             padding: 14px; border-radius: 4px; background: #16353a; color: #eef6f5; font-family: Consolas, "Courier New", monospace;
             font-size: 12px; line-height: 1.5; min-height: 320px; max-height: 60vh; overflow-x: hidden; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word;
@@ -593,6 +647,18 @@ HTML_TEMPLATE = """
             </div>
             <div id="status" class="status"></div>
         </section>
+        <section id="weeklyCoachCard" class="card coach-card" hidden>
+            <div class="coach-header">
+                <div class="coach-title">Coach semanal</div>
+            </div>
+            <div class="coach-meta">
+                <span class="coach-pill"><span class="coach-label">Semana</span><span id="weeklyCoachWeek">-</span></span>
+                <span class="coach-pill"><span class="coach-label">Cierre</span><span id="weeklyCoachWindowEnd">-</span></span>
+                <span class="coach-pill"><span class="coach-label">Calidad</span><span id="weeklyCoachQuality">-</span></span>
+            </div>
+            <div id="weeklyCoachNote" class="coach-note">Esperando disponibilidad del resumen semanal...</div>
+            <div class="coach-source">Fuente visible en UI: <code>ENDURANCE_HRV_weekly_coach.json</code> vía <code>/api/status</code>. Fuentes primarias del método semanal: <code>sessions_day</code>, <code>sessions</code>, <code>FINAL</code>, <code>DASHBOARD</code> y <code>sleep</code>.</div>
+        </section>
         <section class="card">
             <div class="section-title">Detalle técnico</div>
             <pre id="rawOutput" class="raw-output">Esperando ejecución...</pre>
@@ -611,6 +677,27 @@ HTML_TEMPLATE = """
         function renderTechnicalOutput(rawText) {
             const rawOutput = document.getElementById('rawOutput');
             rawOutput.textContent = rawText || 'Esperando ejecución...';
+        }
+        function renderWeeklyCoachPanel(data) {
+            const card = document.getElementById('weeklyCoachCard');
+            const week = document.getElementById('weeklyCoachWeek');
+            const windowEnd = document.getElementById('weeklyCoachWindowEnd');
+            const quality = document.getElementById('weeklyCoachQuality');
+            const note = document.getElementById('weeklyCoachNote');
+            const diagnostics = data?.diagnostics || {};
+            const exists = Boolean(diagnostics.weekly_coach_exists);
+            card.hidden = !exists;
+            if (!exists) {
+                week.textContent = '-';
+                windowEnd.textContent = '-';
+                quality.textContent = '-';
+                note.textContent = 'Todavía no hay resumen semanal disponible.';
+                return;
+            }
+            week.textContent = diagnostics.weekly_coach_iso_week || 'Semana no declarada';
+            windowEnd.textContent = diagnostics.weekly_coach_window_end || 'Sin cierre';
+            quality.textContent = diagnostics.weekly_coach_data_quality || 'sin dato';
+            note.textContent = diagnostics.weekly_coach_planning_note || 'Sin planning note disponible.';
         }
         function setButtonState(jobType, state) {
             const mapping = { hrv: ['syncBtn', 'syncBtnText', 'Sincronizar HRV'], sessions: ['sessionsBtn', 'sessionsBtnText', 'Sincronizar sesiones'] };
@@ -647,6 +734,7 @@ HTML_TEMPLATE = """
                 const latestRrPath = data?.diagnostics?.latest_rr_path;
                 deleteLastRrBtn.disabled = Boolean(data.running || !latestRrPath);
             }
+            renderWeeklyCoachPanel(data);
             renderTechnicalOutput(rawText);
         }
         async function refreshDashboard() {

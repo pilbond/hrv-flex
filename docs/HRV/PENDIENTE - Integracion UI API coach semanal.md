@@ -1,17 +1,15 @@
 # Tarea: Integracion UI/API del coach semanal
 
-Estado: pendiente
+Estado: implementada
 Tipo de valor: valor de acceso operativo y valor de visibilidad del sistema
 Prioridad: media
 
 ## Resumen
-La parte coach existe como metodo y prompt, pero no esta claramente expuesta en la UI ni en endpoints especificos para consulta semanal.
+La parte coach existe como metodo y prompt, y ahora se expone en una tarjeta dedicada de la UI a partir de `/api/status`, sin crear un endpoint nuevo.
 
 ## Que falta exactamente
-- decidir el punto de exposicion: endpoint, bloque de `/api/status`, nuevo recurso o bloque UI dedicado;
-- mostrar el estado semanal sin mezclarlo con el gate diario;
-- enlazar la salida semanal con sus fuentes (`FINAL`, `sessions_day`, `sleep`, informes semanales si aplica);
-- documentar el contrato de consumo.
+- mantener sincronizado el texto con el metodo semanal y el prompt de informe cuando cambien las reglas;
+- revisar si conviene ampliar la tarjeta con mas contexto semanal cuando el contrato de `ENDURANCE_HRV_weekly_coach.json` crezca.
 
 ## Por que sigue teniendo valor
 - hace util la capa coach sin depender de ejecuciones manuales externas;
@@ -25,4 +23,4 @@ La parte coach existe como metodo y prompt, pero no esta claramente expuesta en 
 - `analysis/WEEKLY_ANALYSIS_METHOD.md`
 
 ## Criterio de cierre
-La UI o API expone una vista semanal coach clara, separada del gate diario y basada en contrato.
+La UI expone una vista semanal coach clara, separada del gate diario y basada en contrato.
