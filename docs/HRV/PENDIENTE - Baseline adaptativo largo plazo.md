@@ -4,19 +4,33 @@ Estado: pendiente
 Tipo de valor: valor de calibracion longitudinal y valor para la progresion semanal
 Prioridad: alta
 
+## Estado actual
+Desde `2026-05-13`, `PCV-02` ya cerro la parte operativa principal de esta linea:
+
+- `FINAL` expone `degraded_vs_best` y `degraded_vs_current_normal`
+- `warning_mode=adaptive90` pasa a ser el default operativo
+- `baseline60_degraded` queda como alias legacy
+- contratos y tests ya reflejan esa nueva semantica
+
+Por tanto, esta nota ya no compite con `HG-01`.
+La relacion correcta hoy es:
+
+- `PCV-02` = solucion canónica ya implantada para el warning largo plazo
+- `HG-01` = hipotesis complementaria de metrica longitudinal adicional, solo si demuestra valor incremental frente a la lectura canónica actual
+
 ## Resumen
-El warning `baseline60_degraded` sigue comparando contra un `healthy_period` fijo. Si el atleta pasa meses estable en un rango nuevo, la alerta puede quedar cronificada y perder utilidad.
+El problema original era que `baseline60_degraded` comparaba contra un `healthy_period` fijo y podia quedar cronificado cuando el atleta pasaba meses estable en un rango nuevo. Ese riesgo operativo ya quedo mitigado por `PCV-02`, pero sigue siendo relevante como contexto historico y de trazabilidad de la decision.
 
 ## Que falta exactamente
-- sustituir o complementar el `healthy_period` fijo por una referencia adaptativa;
-- evaluar opciones como baseline rolling de 90 dias, reseteo condicionado o doble referencia (`historical_best` vs `current_normal`);
-- mantener la separacion entre gate diario y warning longitudinal;
-- actualizar contratos y diccionario para reflejar la nueva semantica.
+- mantener trazabilidad clara de que `PCV-02` absorbio esta necesidad operativa;
+- vigilar si hace falta algun ajuste futuro de calibracion sobre `adaptive90`, sin reabrir la semantica base sin evidencia;
+- conservar separacion entre gate diario y warning longitudinal;
+- tratar `HG-01` solo como hipotesis complementaria y no como alternativa competidora mientras no haya evidencia nueva.
 
 ## Por que sigue teniendo valor
-- evita que el warning longitudinal se vuelva ruido permanente;
-- mejora la utilidad coach de `baseline60_degraded` para semanas de progresion y descarga;
-- hace que el sistema reconozca cambios reales de estado basal del atleta.
+- deja trazable por que se cambio la semantica del warning largo plazo;
+- ayuda a interpretar la convivencia entre `historical_best` y `current_normal`;
+- evita reabrir en falso el mismo problema bajo nombres distintos.
 
 ## Archivos candidatos
 - `build_hrv_final_dashboard.py`
@@ -25,4 +39,8 @@ El warning `baseline60_degraded` sigue comparando contra un `healthy_period` fij
 - `docs/contracts/ENDURANCE_HRV_Estructura.md`
 
 ## Criterio de cierre
-El baseline largo plazo deja de depender exclusivamente de un tramo historico fijo y mantiene valor interpretativo cuando el atleta cambia de rango basal durante meses.
+La linea queda cerrada cuando:
+
+- la semantica implantada en `PCV-02` se considera estable;
+- la documentacion deja claro que `HG-01` es solo una hipotesis complementaria y no una alternativa pendiente al warning canónico;
+- no quedan ambiguedades operativas entre baseline adaptativo, warning dual y backlog longitudinal diferido.

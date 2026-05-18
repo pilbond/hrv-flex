@@ -6,13 +6,24 @@
 
 ## Texto de la tarjeta
 
-Objetivo: formalizar y evaluar la propuesta de `baseline drift 60v180` como tarea HRV global separada, fijando su relacion con el baseline adaptativo de largo plazo, su impacto potencial sobre baseline, flags y gate, y sus criterios de activacion.
+Objetivo: reformular y evaluar `baseline drift 60v180` como metrica HRV longitudinal de contexto separada de `PCV-02`, verificando si aporta senal independiente frente a `degraded_vs_best` y `degraded_vs_current_normal`, sin tocar gate, flags canonicos, `FINAL`, `DASHBOARD`, `sessions_day` ni `reason_text` por ahora.
 
-Esta tarea no implementa aun cambios en `build_hrv_core.py`, `build_hrv_final_dashboard.py`, `FINAL`, `DASHBOARD` ni en la semantica operativa del gate HRV.
+Esta tarea no implementa cambios en `build_hrv_core.py`, `build_hrv_final_dashboard.py` ni en la semantica operativa del gate HRV.
 
 ---
 
-## Analisis tecnico 2026-05-05
+## Analisis tecnico 2026-05-18
+
+### Estado actual tras PCV-02
+
+Desde `2026-05-13`, `PCV-02` ya resolvio el problema operativo central del baseline largo plazo:
+
+- `FINAL` expone `degraded_vs_best` y `degraded_vs_current_normal`
+- `warning_mode=adaptive90` pasa a ser el default operativo
+- `baseline60_degraded` queda como alias legacy
+- el warning largo sigue siendo informativo y no recolorea el gate
+
+Por tanto, `HG-01` ya no debe plantearse como tarea candidata a modificar baseline, flags o gate. Su valor residual, si existe, es medir una deriva longitudinal adicional que complemente la lectura canónica ya implantada.
 
 ### Que pretende medir
 
@@ -27,17 +38,17 @@ La intuicion es sencilla:
 - pero el sistema sigue comparando contra un periodo historico ideal ya lejano
 - entonces `baseline60_degraded` puede quedarse activado durante meses sin representar bien el "normal actual"
 
-No es una senal de coaching ni de sesion. Es una cuestion de semantica central del motor HRV.
+No es una senal de coaching ni de sesion. En el estado actual del repo, tampoco es una pieza necesaria de la semantica central del motor HRV.
 
-### Por que merece tarjeta propia
+### Por que puede mantener tarjeta propia
 
-Esta propuesta no encaja como ampliacion de `analysis/` por tres razones:
+Si se conserva, esta propuesta no encaja como ampliacion de `analysis/` por tres razones:
 
-- toca el baseline fisiologico de referencia
-- puede cambiar la interpretacion de `degraded`, `green`, `amber` o `red`
-- puede afectar la lectura longitudinal del atleta incluso sin cambiar ninguna sesion
+- pertenece a la capa HRV global longitudinal
+- compara ventanas basales del atleta y no sesiones concretas
+- puede afectar la interpretacion retrospectiva del estado basal aunque no cambie ninguna sesion
 
-Por tanto, su destino natural es una tarea HRV global separada.
+Por tanto, su destino natural sigue siendo una tarea HRV global separada, pero ya no como cambio urgente del warning canónico.
 
 ### Relacion con baseline adaptativo de largo plazo
 
@@ -46,34 +57,35 @@ Hoy existe ya la nota [Baseline adaptativo a largo plazo..md](Baseline%20adaptat
 - el `healthy_period` historico puede quedar demasiado alto respecto al nuevo estado estable del atleta
 - eso puede degradar durante meses una lectura que ya no refleja una anomalia aguda, sino un nuevo normal
 
-`baseline drift 60v180` parece la misma familia de problema, pero formulada como comparacion entre ventanas.
+Ese problema ya quedo absorbido operativamente por `PCV-02`.
+
+`baseline drift 60v180` queda, como mucho, en la misma familia conceptual pero reformulado como comparacion cuantitativa entre ventanas.
 
 La tarea debe decidir si:
 
-- `baseline drift 60v180` es solo una forma concreta de operacionalizar el baseline adaptativo
-- o si es una senal separada que convive con otra logica de recalibracion
+- `baseline drift 60v180` no aporta nada nuevo y debe cerrarse como absorbida por `PCV-02`
+- o si es una metrica separada que convive con la lectura canónica actual sin modificarla
 
 ### Preguntas que esta tarea debe resolver
 
 1. Definicion operacional:
    que comparan exactamente `60` y `180`, con que estadistico y con que criterio de deriva
 2. Impacto semantico:
-   si la deriva cambia solo una lectura contextual o si modifica baseline, flags y gate
+   si la deriva queda solo como lectura contextual o si existe algun motivo fuerte para exponerla como metrica longitudinal aparte
 3. Politica de adaptacion:
-   si el sistema debe recalibrar automaticamente, sugerir recalibracion o mantener doble escala
+   si debe quedarse como ratio/indicador retrospectivo o si no merece entrar en outputs canonicos
 4. Compatibilidad historica:
    como preservar trazabilidad sin borrar la referencia al "historical best"
 5. Riesgo de regresion:
-   como evitar que un baseline dinamico normalice un deterioro real del atleta
+   como evitar duplicar semanticas ya cubiertas por `degraded_vs_current_normal`
 
 ### Criterios de aceptacion propuestos
 
 1. Existe una definicion escrita y auditable de `baseline drift 60v180`.
-2. Queda decidida su relacion con la propuesta de baseline adaptativo a largo plazo.
+2. Queda decidida su relacion con `PCV-02` y con la propuesta de baseline adaptativo a largo plazo.
 3. Se documenta si esta idea:
-   - modifica baseline HRV
-   - modifica flags o gate
-   - o queda solo como lectura contextual separada
+   - se cierra como absorbida por `PCV-02`
+   - o queda como lectura contextual separada
 4. Existe criterio de reactivacion claro antes de cualquier implementacion.
 
 ### Condicion minima para pasar de `purple` a `red`
@@ -81,21 +93,22 @@ La tarea debe decidir si:
 La tarjeta puede pasar a `red` solo si se cumplen a la vez estas condiciones:
 
 1. existe una definicion operacional escrita de `baseline drift 60v180` con ventana, estadistico y umbral de deriva;
-2. existe una decision documentada sobre si modifica `baseline`, `flags`, `gate` o si queda solo como lectura contextual;
+2. existe una decision documentada sobre si se cierra por absorcion en `PCV-02` o si queda como metrica contextual separada;
 3. existe una decision documentada sobre su relacion con [Baseline adaptativo a largo plazo..md](Baseline%20adaptativo%20a%20largo%20plazo..md): absorcion, equivalencia o convivencia separada.
 
 ### Fuera de alcance
 
 - colar la idea en `analysis_only_context` o `reason_text`
-- introducir cambios directos en el pipeline HRV sin decision semantica previa
+- introducir cambios directos en el pipeline HRV sin evidencia de valor incremental frente a `PCV-02`
 - alterar contratos en `docs/contracts/` sin una definicion cerrada de impacto
 
 ### Conclusiones provisionales
 
-`HG-01` tiene sentido como tarea propia porque fuerza a tratar el problema donde realmente vive:
+Tras `PCV-02`, `HG-01` queda en `stand by`.
 
-- no en la narrativa analitica
-- no en una capa weekly
-- sino en la semantica del baseline HRV del sistema
+Si se retoma, debe hacerse como pregunta mas estrecha:
 
-Hasta resolver esa semantica, cualquier intento de hacerlo "dinamico" seria prematuro.
+- aporta una metrica de deriva `60v180` informacion nueva no capturada por `degraded_vs_best` y `degraded_vs_current_normal`
+- y puede demostrarse ese valor sin tocar gate ni warning canónico
+
+Hasta demostrar ese valor incremental, la lectura prudente es backlog de investigacion/contexto, no cambio operativo.

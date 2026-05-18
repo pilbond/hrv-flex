@@ -964,7 +964,7 @@ Si tu baseline actual está por debajo del P20 de todos tus baselines histórico
 | `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios + rolling con cobertura (_nobs) + contexto canónico de carga + clustering reciente de intensidad + señal DO-02 de polarización por familia + resumen de episodios | 60 |
 | `ENDURANCE_HRV_intensity_distribution_weekly.csv` | Distribución observada de intensidad por deporte y semana ISO (DO-01). Sidecar analítico; no alimenta el gate ni `reason_text`. | 21 |
 | `ENDURANCE_HRV_sessions_metadata.json` | Trazabilidad pipeline sesiones (versión, params, sampling rate) + auditoría ligera de interpretabilidad para coaching/carga | — |
-| `ENDURANCE_HRV_weekly_coach.json` | Sidecar semanal estructurado (PCV-04) con `iso_week`, ventana, `as_of_date`, `generated_at`, `anchor_source`, `week_expected_days`, `week_data_coverage_pct`, `week_type`, `week_load`, `progression_risk`, `hrv_trend` y `data_quality`. No alimenta el gate ni `reason_text`. | — |
+| `ENDURANCE_HRV_weekly_coach.json` | Sidecar semanal estructurado (PCV-04) con `iso_week`, ventana, `as_of_date`, `generated_at`, `anchor_source`, `week_expected_days`, `week_data_coverage_pct`, `week_type`, `week_load`, `progression_risk`, `hrv_trend`, `data_quality` y claves opcionales de trazabilidad como `sleep_context` y `z3_budget_by_sport`. No alimenta el gate ni `reason_text`. | — |
 | `ENDURANCE_HRV_master_BETA_AUDIT.csv` | Modelo beta del V3, para comparación histórica | 13 |
 
 El contrato exacto (columnas, orden, tipos) de CORE/FINAL/DASHBOARD/SLEEP está en `ENDURANCE_HRV_Estructura.md`.

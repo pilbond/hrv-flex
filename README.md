@@ -66,7 +66,7 @@ La prioridad canonica de cobertura RR es Dropbox primero y Polar como fallback.
 
 - `build_sessions.py`
   - Pipeline de sesiones desde Intervals.icu.
-  - Genera sesiones, agregados diarios, distribucion semanal, metadata y wellness subjetivo.
+  - Genera sesiones, agregados diarios, distribucion semanal, weekly coach, metadata y wellness subjetivo.
 
 - `analysis/`
   - Modulo local de analisis de sesiones.
@@ -156,7 +156,8 @@ Outputs principales de sesiones:
   - Distribucion observada semanal por deporte.
 
 - `ENDURANCE_HRV_weekly_coach.json`
-  - Resumen semanal estructurado con marcas de corte y cobertura.
+  - Resumen semanal estructurado con marcas de corte, cobertura y contexto retrospectivo visible en UI.
+  - Desde `SYA-14`, puede incluir `z3_budget_by_sport` y `z3_budget_summary` como lectura de percentil historico de Z3 por deporte.
 
 - `ENDURANCE_HRV_sessions_metadata.json`
   - Metadata del pipeline y `training_audit`.
@@ -192,9 +193,10 @@ Reglas operativas:
 Notas de UI:
 
 - El bloque `Detalle tecnico` muestra el output operativo del ultimo job.
-- `GET /api/status` expone estado del job y diagnosticos de runtime.
+- `GET /api/status` expone estado del job, diagnosticos de runtime y el resumen ya procesado del weekly coach.
 - Si esta habilitado por entorno, la UI puede exponer import de CSV seed.
 - La UI permite borrar el ultimo RR moviendolo a backup, no borrandolo de forma destructiva.
+- Cuando existe `ENDURANCE_HRV_weekly_coach.json`, la UI puede mostrar `planning_note` y `Contexto Z3 semanal` sin introducir reglas nuevas de decision.
 
 ## Significado del bloque tecnico
 

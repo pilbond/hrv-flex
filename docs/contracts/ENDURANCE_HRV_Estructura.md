@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Estructura de Datos
 
-**Revisión:** r2026-05-13 v3.13 (PCV-04 sidecar semanal estructurado)
+**Revisión:** r2026-05-18 v3.14 (SYA-14 percentil historico Z3 en weekly coach)
 **Estado:** Producción
 
 **Documentos relacionados:**
@@ -47,7 +47,7 @@ El sistema genera 7 archivos CSV + 2 JSON de trazabilidad. Cada uno tiene un rol
 | `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios de entrenamiento + rolling con cobertura (_nobs), más contexto canónico de carga (`ACWR`, `monotony`, `strain`), clustering reciente de intensidad y la señal rolling `DO-02` de polarización por familia con resumen de episodio. Alimenta el reason_text para checks de carga. | `build_sessions.py` | 60 |
 | `ENDURANCE_HRV_intensity_distribution_weekly.csv` | Resumen semanal por deporte de distribución observada de intensidad (`sport x week`), con minutos ponderados por zona, `work_*`, patrón descriptivo y confianza. Es sidecar analítico; no alimenta el gate. | `build_sessions.py` | 21 |
 | `ENDURANCE_HRV_sessions_metadata.json` | Trazabilidad del pipeline de sesiones: versión, parámetros, hash, sampling rate, cobertura y auditoría ligera `dataset/signal/metric` para coaching/carga. | `build_sessions.py` | — |
-| `ENDURANCE_HRV_weekly_coach.json` | Sidecar semanal estructurado con `iso_week`, ventana, `as_of_date`, `generated_at`, `anchor_source`, `week_expected_days`, `week_data_coverage_pct`, tipo semanal, carga, riesgo de progresion, tendencia HRV y calidad de datos. No alimenta el gate ni el `reason_text`. | `build_sessions.py` | — |
+| `ENDURANCE_HRV_weekly_coach.json` | Sidecar semanal estructurado con `iso_week`, ventana, `as_of_date`, `generated_at`, `anchor_source`, `week_expected_days`, `week_data_coverage_pct`, tipo semanal, carga, riesgo de progresion, tendencia HRV, calidad de datos y contexto retrospectivo `SYA-14` (`z3_budget_by_sport`, `z3_budget_summary`). No alimenta el gate ni el `reason_text`. | `build_sessions.py` | — |
 | `ENDURANCE_HRV_wellness_subjective.csv` | Wellness subjetivo diario desde Intervals (`fatigue`, `stress`, `mood`, `motivation`, `soreness`, `injury`, comentario) con labels y cobertura 7d. Se reserva para análisis retrospectivo o capas separadas; no alimenta `reason_text`. | `build_sessions.py` | 17 |
 | `ENDURANCE_HRV_master_BETA_AUDIT.csv` | Modelo alométrico beta/cRMSSD del sistema V3. Se conserva para comparación histórica; no afecta al decisor FINAL/DASHBOARD. | `build_hrv_core.py` | 13 |
 
@@ -375,6 +375,7 @@ Muestra qué entra y qué sale de cada script, y cómo se encadenan:
 ├──► build_sessions.py ──► SESSIONS.csv (73 cols)
 │                     ├──► SESSIONS_DAY.csv (60 cols)
 │                     ├──► INTENSITY_DISTRIBUTION_WEEKLY.csv (21 cols)
+                    │                     ├──► ENDURANCE_HRV_weekly_coach.json
                     │                     └──► ENDURANCE_HRV_sessions_metadata.json
 ```
 

@@ -439,6 +439,7 @@ def _weekly_coach_diagnostics() -> dict:
         "weekly_coach_window_end": None,
         "weekly_coach_data_quality": None,
         "weekly_coach_planning_note": None,
+        "weekly_coach_z3_budget_summary": None,
     }
     if not weekly_coach_path.exists():
         return payload
@@ -452,6 +453,7 @@ def _weekly_coach_diagnostics() -> dict:
     payload["weekly_coach_window_end"] = weekly_coach.get("window_end")
     payload["weekly_coach_data_quality"] = weekly_coach.get("data_quality")
     payload["weekly_coach_planning_note"] = weekly_coach.get("planning_note")
+    payload["weekly_coach_z3_budget_summary"] = weekly_coach.get("z3_budget_summary")
     return payload
 
 
@@ -619,6 +621,15 @@ HTML_TEMPLATE = """
             color: var(--text);
             white-space: pre-wrap;
         }
+        .coach-z3 {
+            margin-top: 10px;
+            font-size: 13px;
+            line-height: 1.45;
+            color: var(--brand-strong);
+            background: rgba(15, 118, 110, 0.08);
+            border: 1px solid rgba(15, 118, 110, 0.12);
+            padding: 8px 10px;
+        }
         .coach-source {
             margin-top: 12px;
             font-size: 12px;
@@ -657,6 +668,7 @@ HTML_TEMPLATE = """
                 <span class="coach-pill"><span class="coach-label">Calidad</span><span id="weeklyCoachQuality">-</span></span>
             </div>
             <div id="weeklyCoachNote" class="coach-note">Esperando disponibilidad del resumen semanal...</div>
+            <div id="weeklyCoachZ3" class="coach-z3" hidden title="Lectura retrospectiva de Z3 respecto al historico comparable por deporte. No es una prescripcion automatica."></div>
             <div class="coach-source">Fuente visible en UI: <code>ENDURANCE_HRV_weekly_coach.json</code> vía <code>/api/status</code>. Fuentes primarias del método semanal: <code>sessions_day</code>, <code>sessions</code>, <code>FINAL</code>, <code>DASHBOARD</code> y <code>sleep</code>.</div>
         </section>
         <section class="card">
@@ -684,6 +696,7 @@ HTML_TEMPLATE = """
             const windowEnd = document.getElementById('weeklyCoachWindowEnd');
             const quality = document.getElementById('weeklyCoachQuality');
             const note = document.getElementById('weeklyCoachNote');
+            const z3 = document.getElementById('weeklyCoachZ3');
             const diagnostics = data?.diagnostics || {};
             const exists = Boolean(diagnostics.weekly_coach_exists);
             card.hidden = !exists;
@@ -692,12 +705,17 @@ HTML_TEMPLATE = """
                 windowEnd.textContent = '-';
                 quality.textContent = '-';
                 note.textContent = 'Todavía no hay resumen semanal disponible.';
+                z3.hidden = true;
+                z3.textContent = '';
                 return;
             }
             week.textContent = diagnostics.weekly_coach_iso_week || 'Semana no declarada';
             windowEnd.textContent = diagnostics.weekly_coach_window_end || 'Sin cierre';
             quality.textContent = diagnostics.weekly_coach_data_quality || 'sin dato';
             note.textContent = diagnostics.weekly_coach_planning_note || 'Sin planning note disponible.';
+            const z3Summary = diagnostics.weekly_coach_z3_budget_summary || '';
+            z3.hidden = !z3Summary;
+            z3.textContent = z3Summary ? `Contexto Z3 semanal: ${z3Summary}` : '';
         }
         function setButtonState(jobType, state) {
             const mapping = { hrv: ['syncBtn', 'syncBtnText', 'Sincronizar HRV'], sessions: ['sessionsBtn', 'sessionsBtnText', 'Sincronizar sesiones'] };

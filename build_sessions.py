@@ -2049,6 +2049,44 @@ WEEKLY_INSUFFICIENT_PLANNING_NOTE = (
 )
 
 
+def _build_z3_budget_summary(z3_budget_by_sport: Optional[list[dict]]) -> Optional[str]:
+    if not z3_budget_by_sport:
+        return None
+
+    eligible: list[tuple[int, str, float]] = []
+    band_rank = {"very_high": 2, "high": 1}
+    for item in z3_budget_by_sport:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("z3_budget_status", "")).strip().lower() not in {"ok", "ok_via_sport_family"}:
+            continue
+        band = str(item.get("z3_budget_band_by_sport", "")).strip().lower()
+        if band not in band_rank:
+            continue
+        sport = str(item.get("sport", "")).strip()
+        percentile = item.get("z3_pct_percentile_by_sport")
+        try:
+            percentile_value = float(percentile)
+        except (TypeError, ValueError):
+            continue
+        if not sport or not np.isfinite(percentile_value):
+            continue
+        eligible.append((band_rank[band], sport, percentile_value))
+
+    if not eligible:
+        return None
+
+    eligible.sort(key=lambda x: (-x[0], -x[2], x[1]))
+    top_rank = eligible[0][0]
+    top_items = [entry for entry in eligible if entry[0] == top_rank]
+    snippets = [f"{sport} (p{percentile:.1f})" for _, sport, percentile in top_items[:2]]
+    if not snippets:
+        return None
+    if top_rank == 2:
+        return "Z3 muy alto en " + " y ".join(snippets) + "."
+    return "Z3 alto en " + " y ".join(snippets) + "."
+
+
 def _build_weekly_planning_note(
     *,
     week_type: str,
@@ -2102,6 +2140,143 @@ def _build_weekly_planning_note(
         + "si la entrada no es clara, no fuerces carga alta en las primeras 24-48h."
         + sleep_clause
     )
+
+
+def _percentile_rank_leq(value: float, reference: np.ndarray) -> float:
+    if not np.isfinite(value) or reference.size == 0:
+        return float("nan")
+    return round(float((np.count_nonzero(reference <= value) / reference.size) * 100.0), 1)
+
+
+def _z3_budget_band(percentile: float) -> Optional[str]:
+    if not np.isfinite(percentile):
+        return None
+    if percentile < 40.0:
+        return "low"
+    if percentile < 75.0:
+        return "normal"
+    if percentile <= 90.0:
+        return "high"
+    return "very_high"
+
+
+def _build_weekly_z3_budget(
+    week_distribution: pd.DataFrame,
+    distribution_df: pd.DataFrame,
+    week_start: date,
+    week_end: date,
+) -> list[dict]:
+    if week_distribution.empty or distribution_df.empty:
+        return []
+
+    current_rows = week_distribution.copy()
+    current_rows["sport"] = current_rows.get("sport", "").astype(str)
+    current_rows["sport_family"] = current_rows["sport"].map(SPORT_FAMILY_MAP).fillna("")
+    if "distribution_confidence" in current_rows.columns:
+        current_rows["distribution_confidence"] = current_rows["distribution_confidence"].astype(str).str.lower()
+    else:
+        current_rows["distribution_confidence"] = ""
+    if "week_type" not in current_rows.columns:
+        current_rows["week_type"] = current_rows.get("distribution_pattern", "")
+    current_rows["week_type"] = current_rows["week_type"].astype(str).str.lower()
+    current_rows["z3_pct_weighted"] = pd.to_numeric(current_rows.get("z3_pct_weighted"), errors="coerce")
+    current_rows["z3_total_min"] = pd.to_numeric(current_rows.get("z3_total_min"), errors="coerce")
+
+    hist = distribution_df.copy()
+    hist["sport"] = hist.get("sport", "").astype(str)
+    hist["sport_family"] = hist["sport"].map(SPORT_FAMILY_MAP).fillna("")
+    if "distribution_confidence" in hist.columns:
+        hist["distribution_confidence"] = hist["distribution_confidence"].astype(str).str.lower()
+    else:
+        hist["distribution_confidence"] = ""
+    if "week_type" not in hist.columns:
+        hist["week_type"] = hist.get("distribution_pattern", "")
+    hist["week_type"] = hist["week_type"].astype(str).str.lower()
+    hist["z3_pct_weighted"] = pd.to_numeric(hist.get("z3_pct_weighted"), errors="coerce")
+    hist["window_start_dt"] = pd.to_datetime(hist.get("window_start"), errors="coerce").dt.date
+    hist["window_end_dt"] = pd.to_datetime(hist.get("window_end"), errors="coerce").dt.date
+
+    ref_start = week_start - timedelta(days=365)
+    window_end_series = pd.to_datetime(hist["window_end_dt"], errors="coerce")
+    ref_start_ts = pd.Timestamp(ref_start)
+    week_start_ts = pd.Timestamp(week_start)
+    hist = hist[
+        window_end_series.ge(ref_start_ts)
+        & window_end_series.lt(week_start_ts)
+        & hist["z3_pct_weighted"].notna()
+        & hist["distribution_confidence"].isin({"moderate", "high"})
+        & hist["week_type"].ne("insufficient_data")
+    ].copy()
+
+    results: list[dict] = []
+    for _, row in current_rows.iterrows():
+        sport = str(row.get("sport", "")).strip()
+        family = str(row.get("sport_family", "")).strip()
+        current_pct = float(row["z3_pct_weighted"]) if pd.notna(row["z3_pct_weighted"]) else float("nan")
+        current_total = float(row["z3_total_min"]) if pd.notna(row["z3_total_min"]) else float("nan")
+        current_conf = str(row.get("distribution_confidence", "")).strip().lower()
+        current_week_type = str(row.get("week_type", "")).strip().lower()
+
+        result = {
+            "sport": sport or None,
+            "sport_family": family or None,
+            "z3_pct_weighted_current": round(current_pct, 1) if np.isfinite(current_pct) else None,
+            "z3_total_min_current": round(current_total, 1) if np.isfinite(current_total) else None,
+            "z3_pct_percentile_by_sport": None,
+            "z3_budget_band_by_sport": None,
+            "z3_budget_reference_scope": None,
+            "z3_budget_coverage_weeks": 0,
+            "z3_budget_status": "insufficient_current_week_data",
+        }
+
+        if (
+            not sport
+            or not np.isfinite(current_pct)
+            or current_conf not in {"moderate", "high"}
+            or current_week_type == "insufficient_data"
+        ):
+            results.append(result)
+            continue
+
+        sport_ref = hist.loc[hist["sport"] == sport, "z3_pct_weighted"].to_numpy(dtype=float)
+        if sport_ref.size >= 8:
+            percentile = _percentile_rank_leq(current_pct, sport_ref)
+            result.update(
+                {
+                    "z3_pct_percentile_by_sport": percentile,
+                    "z3_budget_band_by_sport": _z3_budget_band(percentile),
+                    "z3_budget_reference_scope": "sport",
+                    "z3_budget_coverage_weeks": int(sport_ref.size),
+                    "z3_budget_status": "ok",
+                }
+            )
+            results.append(result)
+            continue
+
+        family_ref = np.array([], dtype=float)
+        if family:
+            family_ref = hist.loc[hist["sport_family"] == family, "z3_pct_weighted"].to_numpy(dtype=float)
+        if family_ref.size >= 12:
+            percentile = _percentile_rank_leq(current_pct, family_ref)
+            result.update(
+                {
+                    "z3_pct_percentile_by_sport": percentile,
+                    "z3_budget_band_by_sport": _z3_budget_band(percentile),
+                    "z3_budget_reference_scope": "sport_family",
+                    "z3_budget_coverage_weeks": int(family_ref.size),
+                    "z3_budget_status": "ok_via_sport_family",
+                }
+            )
+        else:
+            result.update(
+                {
+                    "z3_budget_reference_scope": "sport_family" if family else None,
+                    "z3_budget_coverage_weeks": int(family_ref.size if family else sport_ref.size),
+                    "z3_budget_status": "insufficient_history",
+                }
+            )
+        results.append(result)
+    return results
 
 
 def _build_weekly_coach_summary(
@@ -2241,6 +2416,8 @@ def _build_weekly_coach_summary(
     if anchor_source == "current_week" and week_data_coverage_pct is not None and week_data_coverage_pct < 100.0 and data_quality == "good":
         data_quality = "limited"
     sleep_context = _load_weekly_sleep_context(week_start, week_end)
+    z3_budget_by_sport = _build_weekly_z3_budget(week_distribution, distribution, week_start, week_end)
+    z3_budget_summary = _build_z3_budget_summary(z3_budget_by_sport)
     planning_note = _build_weekly_planning_note(
         week_type=week_type,
         progression_risk=progression_risk,
@@ -2268,6 +2445,8 @@ def _build_weekly_coach_summary(
         "data_quality": data_quality,
         "planning_note": planning_note,
         "sleep_context": sleep_context or None,
+        "z3_budget_by_sport": z3_budget_by_sport,
+        "z3_budget_summary": z3_budget_summary,
     }
 
 

@@ -784,6 +784,7 @@ Generado por `build_sessions.py` como `ENDURANCE_HRV_weekly_coach.json`. Resume 
 | `data_quality` | Calidad e interpretabilidad del sidecar: no equivale a normalidad operativa. |
 | `planning_note` | Orientacion breve, condicional y persistible para el arranque del siguiente microciclo. Se ancla a `HRV matinal` y `Action/reason_text` del primer dia; no prescribe sesiones exactas. |
 | `sleep_context` | Trazabilidad opcional de la lectura semanal de sueño usada para matizar `planning_note`. Puede incluir `sleep_days_present`, `sleep_duration_mean_min`, `sleep_short_nights_pct`, `sleep_deep_pct_mean` y `sleep_score_mean`. Permanece en el JSON del sidecar semanal; no se expone por `GET /api/status` ni en la tarjeta UI. |
+| `z3_budget_by_sport` | Lista opcional de lecturas retrospectivas `per-sport` para `SYA-14`. Cada elemento resume el `sport`, `sport_family`, `z3_pct_weighted_current`, `z3_total_min_current`, el percentil histórico `z3_pct_percentile_by_sport`, la banda `z3_budget_band_by_sport`, el alcance de referencia (`sport` o `sport_family`), semanas comparables usadas y el estado de cobertura. No prescribe sesiones: solo contextualiza si la semana actual cae baja, normal, alta o muy alta en `Z3` respecto al histórico comparable. La salida estructurada conserva las cuatro bandas; el resumen textual visible de la UI/weekly coach solo surfacea `high` y `very_high` en v1. |
 
 ### Lo que NO debes hacer
 

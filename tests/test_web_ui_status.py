@@ -25,6 +25,7 @@ class WebUiStatusTests(unittest.TestCase):
                             "con progresion normal; si no, mueve 24h el primer pico "
                             "de carga."
                         ),
+                        "z3_budget_summary": "Z3 alto en bike (p87.5) y road run (p81.0).",
                     }
                 ),
                 encoding="utf-8",
@@ -38,6 +39,10 @@ class WebUiStatusTests(unittest.TestCase):
         self.assertEqual(diagnostics["weekly_coach_window_end"], "2026-03-08")
         self.assertEqual(diagnostics["weekly_coach_data_quality"], "limited")
         self.assertIn("puedes arrancar con progresion normal", diagnostics["weekly_coach_planning_note"])
+        self.assertEqual(
+            diagnostics["weekly_coach_z3_budget_summary"],
+            "Z3 alto en bike (p87.5) y road run (p81.0).",
+        )
 
     def test_index_exposes_weekly_coach_panel_shell(self):
         with web_ui.app.test_client() as client:
@@ -48,6 +53,7 @@ class WebUiStatusTests(unittest.TestCase):
         self.assertIn('id="weeklyCoachCard"', html)
         self.assertIn("Coach semanal", html)
         self.assertIn("renderWeeklyCoachPanel", html)
+        self.assertIn('id="weeklyCoachZ3"', html)
 
 
 if __name__ == "__main__":

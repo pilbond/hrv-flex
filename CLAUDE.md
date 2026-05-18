@@ -59,6 +59,7 @@ Sistema automatizado HRV para un **único atleta**:
 │   ├── ENDURANCE_HRV_sessions.csv
 │   ├── ENDURANCE_HRV_sessions_day.csv
 │   ├── ENDURANCE_HRV_intensity_distribution_weekly.csv
+│   ├── ENDURANCE_HRV_weekly_coach.json
 │   ├── ENDURANCE_HRV_sessions_metadata.json
 │   └── ENDURANCE_HRV_wellness_subjective.csv
 ├── scripts/                           # Scripts operativos locales
@@ -111,7 +112,7 @@ Sistema automatizado HRV para un **único atleta**:
 | `ENDURANCE_HRV_sessions_day.csv` | 60 | Carga por día + rolling con cobertura + clustering reciente de intensidad + DO-02 |
 | `ENDURANCE_HRV_sessions_metadata.json` | - | `training_audit` por capas (`dataset_level`, `signal_level`, `metric_level`) |
 | `ENDURANCE_HRV_intensity_distribution_weekly.csv` | - | Distribución observada por `sport x week` con patrón y confianza |
-| `ENDURANCE_HRV_weekly_coach.json` | - | Sidecar semanal con `planning_note` breve reutilizable y visible en `/api/status` |
+| `ENDURANCE_HRV_weekly_coach.json` | - | Sidecar semanal con `planning_note`, cobertura y contexto retrospectivo `SYA-14` (`z3_budget_by_sport`, `z3_budget_summary`) visible en `/api/status` |
 | `ENDURANCE_HRV_wellness_subjective.csv` | - | Sidecar local para bienestar subjetivo |
 
 ---
@@ -160,10 +161,20 @@ Genera:
 - `ENDURANCE_HRV_sessions.csv` (histórico de sesiones)
 - `ENDURANCE_HRV_sessions_day.csv` (carga agregada por día + rolling + clustering)
 - `ENDURANCE_HRV_intensity_distribution_weekly.csv` (distribución semanal por deporte)
+- `ENDURANCE_HRV_weekly_coach.json` (resumen semanal estructurado para UI/coach)
 - `ENDURANCE_HRV_sessions_metadata.json`
 - `ENDURANCE_HRV_wellness_subjective.csv`
 
-Canoniza la capa mecánica mínima para deportes de pie, el contexto de carga `ACWR/monotony/strain`, `training_audit` y la distribución observada semanal por deporte.
+Canoniza la capa mecánica mínima para deportes de pie, el contexto de carga `ACWR/monotony/strain`, `training_audit`, la distribución observada semanal por deporte y el sidecar weekly coach.
+
+Desde `SYA-14`, `ENDURANCE_HRV_weekly_coach.json` puede incluir:
+- `z3_budget_by_sport`: lectura retrospectiva estructurada del percentil histórico de Z3 por deporte o familia
+- `z3_budget_summary`: resumen corto para UI (`Contexto Z3 semanal`)
+
+Regla de alcance:
+- esta señal sigue siendo retrospectiva
+- no modifica `sessions_day`, `FINAL`, `DASHBOARD` ni `reason_text`
+- no introduce prescripción automática
 
 Soporta: `--backfill`, `--daily`, `--update`, `--date`
 
@@ -351,12 +362,13 @@ python egc_to_rr.py --dropbox-folder /ruta/carpeta --dropbox-recursive --outdir 
 ### HRV global
 - ✅ ARQ-02 (AYO-11): módulos internos reorganizados en `hrv_app/`; entrypoints de raíz (`web_ui.py`, `polar_hrv_automation.py`, `build_sessions.py`) intactos
 - ✅ UI expone `/api/sync`, `/api/sync-sessions`, `/api/status`, endpoints OAuth
-- ✅ `build_sessions.py` genera `sessions`, `sessions_day`, `intensity_distribution_weekly`, `sessions_metadata` y `wellness_subjective`
+- ✅ `build_sessions.py` genera `sessions`, `sessions_day`, `intensity_distribution_weekly`, `weekly_coach`, `sessions_metadata` y `wellness_subjective`
 - ✅ Flujo recomendado: Dropbox primero, Polar fallback
 - ✅ `ENDURANCE_HRV_sleep.csv` es archivo canónico de sueño (17 cols; carga en sessions_day.csv)
 - ✅ UI no permite ejecutar sync HRV y sync-sessions simultáneamente
 - ✅ `sessions_day.csv` incluye carga canonica, clustering reciente de intensidad y señal `DO-02`
 - ✅ `sessions_metadata.json` incluye `training_audit` por capas para gobernar confianza de coaching/carga
+- ✅ `weekly_coach.json` expone tambien la capa `SYA-14` como contexto retrospectivo de Z3 por deporte sin tocar el gate
 - ✅ `build_hrv_final_dashboard.py` consume `load_3d`, `ACWR/monotony/strain` y clustering reciente de intensidad solo como contexto de `reason_text`
 - ✅ Fetch sleep/nightly/intervals en `polar_hrv_automation.py` operativo
 - ✅ RE-01: capa de recuperación multiseñal en FINAL (62 cols); `recovery_support_class`, `recovery_discordance_flag` y `recovery_discordance_reason` sin tocar el gate

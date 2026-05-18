@@ -46,7 +46,7 @@ Importante:
 - Salidas:
   - Respuestas HTTP y logs.
   - `GET /api/status` devuelve estado actual del job, `job_type` y ultimo `output/error` relevante.
-  - `GET /api/status` incluye tambien el resumen semanal de `ENDURANCE_HRV_weekly_coach.json` para que la UI pinte `planning_note`, `iso_week`, `window_end` y `data_quality` sin crear un endpoint nuevo.
+  - `GET /api/status` incluye tambien el resumen semanal de `ENDURANCE_HRV_weekly_coach.json` para que la UI pinte `planning_note`, `iso_week`, `window_end`, `data_quality` y `weekly_coach_z3_budget_summary` sin crear un endpoint nuevo.
   - `POST /api/sync` y `POST /api/sync-sessions` devuelven `202 Accepted` cuando el job queda corriendo en background; si terminan practicamente al instante, pueden devolver el resultado final en la propia respuesta.
   - No genera CSV por si solo; delega al pipeline.
 - Automatico o manual:
@@ -233,7 +233,7 @@ Importante:
     - `ENDURANCE_HRV_sessions.csv` (detalle por sesion)
     - `ENDURANCE_HRV_sessions_day.csv` (agregado diario + rolling)
     - `ENDURANCE_HRV_intensity_distribution_weekly.csv` (resumen semanal por deporte del patron de distribucion observada)
-    - `ENDURANCE_HRV_weekly_coach.json` (resumen semanal estructurado con marcas de corte y cobertura)
+    - `ENDURANCE_HRV_weekly_coach.json` (resumen semanal estructurado con marcas de corte, cobertura y contexto retrospectivo `SYA-14`)
     - `ENDURANCE_HRV_sessions_metadata.json`
     - `ENDURANCE_HRV_wellness_subjective.csv` (wellness subjetivo diario desde Intervals, si hay cobertura)
   - Canoniza la capa AP-02 de señal mecanica minima en `sessions.csv` para deportes de pie:
@@ -285,6 +285,10 @@ Importante:
   - `sessions_day.csv` pasa a ser la fuente canonica de rolling de carga y clustering para `reason_text`.
   - `intensity_distribution_weekly.csv` pasa a ser la salida canonica de distribucion observada por `sport x week`.
   - `ENDURANCE_HRV_weekly_coach.json` pasa a ser el sidecar canonico de resumen semanal estructurado para consumo posterior.
+  - Desde `SYA-14`, ese sidecar puede incluir:
+    - `z3_budget_by_sport` como lectura retrospectiva estructurada de percentil historico de Z3 por deporte o familia
+    - `z3_budget_summary` como resumen corto visible en UI (`Contexto Z3 semanal`), deliberadamente asimetrico y solo surfaceado para bandas `high/very_high`
+  - Esta capa sigue siendo retrospectiva y no introduce prescripcion automatica ni modifica `sessions_day`, `FINAL`, `DASHBOARD` o `reason_text`.
   - `sessions_metadata.json` pasa a ser la fuente canonica de `training_audit` para rebajar confianza de coaching/carga sin bloquear pipeline.
 - Automatico o manual:
   - Manual (no lo llama el flujo principal por defecto).
