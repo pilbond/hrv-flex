@@ -38,6 +38,16 @@ El bundle en `.cache/` es temporal: se elimina automaticamente tras el analisis 
 
 `hrv_rebound_profile.py` no forma parte de este flujo de bundle. Es un sidecar retrospectivo separado que lee `FINAL`, `CORE`, `sessions_day`, `sessions` y `sleep` para construir una lectura semanal de rebote HRV D+1/D+3 y escribir sus propios artefactos en `analysis/reports/hrv_rebound_profile/`.
 
+`sya15_continuity.py` tampoco forma parte del flujo de bundle ni del pipeline global. Es una utilidad local de analisis semanal que lee `ENDURANCE_HRV_intensity_distribution_weekly.csv`, reconstruye continuidad rolling por deporte y, si se le pide, escribe un reporte local reproducible en Markdown y/o JSON.
+
+`build_weekly_analysis_sidecars.py` sirve como runner manual del semanal de `analysis`: genera sidecars reproducibles bajo `analysis/reports/weekly/<week_start>_<week_end>/artifacts/` y, por ahora, engancha `SYA-15` sin tocar el pipeline canonico.
+
+`run_weekly_analysis_prep.py` es el entrypoint local del semanal: prepara la carpeta de semana, llama a los sidecars del modulo y deja un `weekly_prep_manifest.json` como punto comun de arranque reproducible.
+
+Ese `weekly_prep_manifest.json` es tambien el punto unico de descubrimiento: el semanal debe localizar sidecars desde ahi, no deducirlos por nombres de archivo.
+
+`analyze_weekly.py` es el entrypoint superior del semanal local: reutiliza `weekly_prep_manifest.json`, relee las fuentes canónicas de la semana y genera un paquete semanal reproducible (`report.auto.md`, `analyst_prompt.md`, `ai_handoff.md`, `report.ia.md` placeholder y `artifacts/report_sync_status.json`).
+
 ---
 
 ## 2) Script por script
@@ -258,10 +268,136 @@ python session_cost_model.py --session-id i133874358
 **Salidas:**
 - `analysis/reports/hrv_rebound_profile/hrv_rebound_profile_events.csv`
 - `analysis/reports/hrv_rebound_profile/hrv_rebound_profile_weekly.csv`
-- `analysis/reports/hrv_rebound_profile/hrv_rebound_profile_summary.json`
+
+---
+
+### `sya15_continuity.py`
+
+**Que hace:**
+- Lee `ENDURANCE_HRV_intensity_distribution_weekly.csv`.
+- Canoniza la semantica de `usable` y `Z1-dominante` para la lectura documental de SYA-15.
+- Reconstruye un calendario semanal continuo por deporte y calcula continuidad rolling por deporte con ventana configurable (`>= 2`, default `4w`).
+- Detecta episodios positivos consecutivos para la señal local.
+- Puede escribir un reporte local reproducible en Markdown y/o JSON estricto para lectura humana o para archivado interno.
+
+**Cuando usarlo:**
+- Cuando quieres reevaluar la continuidad aeróbica `Z1-dominante` sin tocar `analysis_only_context`, `sessions_day`, `FINAL` ni `reason_text`.
+- Cuando quieres generar un resumen local de la hipótesis SYA-15 para `bike`, `trail_run` o `road_run`.
+
+**Entradas:**
+- `data/ENDURANCE_HRV_intensity_distribution_weekly.csv`
+
+**Entradas CLI relevantes:**
+- `--today` fija la fecha de anclaje para reproducibilidad.
+- `--window-size` ajusta la ventana rolling y debe ser `>= 2`.
+- `--min-positive` ajusta el umbral de continuidad dentro de la ventana activa.
+- `--focus-sport` selecciona el deporte del reporte local; si se omite, el reporte usa el primer deporte del resumen.
+- `--sports` solo controla que deportes se imprimen en detalle por stdout; no selecciona el foco del reporte.
+- `--report-md` y `--report-json` escriben artefactos locales.
+
+**Salidas:**
+- Resumen tabular en stdout.
+- Reporte local en Markdown si se solicita.
+- Artefacto JSON local si se solicita.
 
 **Automatico o manual:**
 - Manual o lanzado como sidecar local independiente.
+
+---
+
+### `build_weekly_analysis_sidecars.py`
+
+**Que hace:**
+- Prepara sidecars locales para el analisis semanal de `analysis`.
+- Calcula la carpeta semanal destino bajo `analysis/reports/weekly/<week_start>_<week_end>/artifacts/`.
+- Ejecuta `SYA-15` sobre `ENDURANCE_HRV_intensity_distribution_weekly.csv` y escribe:
+  - `sya15_continuity_<sport>_<min>of<window>w.md`
+  - `sya15_continuity_<sport>_<min>of<window>w.json`
+
+**Cuando usarlo:**
+- Justo antes de redactar o revisar un informe semanal local.
+- Cuando quieres que `SYA-15` forme parte del flujo semanal de `analysis` sin elevarse al pipeline global.
+
+**Entradas CLI relevantes:**
+- `--today` fija la semana analizada.
+- `--out-dir` permite sobreescribir la carpeta de artefactos.
+- `--focus-sport`, `--window-size` y `--min-positive` se propagan a `SYA-15`.
+
+**Automatico o manual:**
+- Manual dentro del flujo local del analisis semanal.
+- No se ejecuta automaticamente al lanzar un prompt semanal; hoy es un paso explicito del modulo.
+- Comando recomendado: `python scripts/build_weekly_analysis_sidecars.py --today YYYY-MM-DD`
+
+---
+
+### `run_weekly_analysis_prep.py`
+
+**Que hace:**
+- Actua como entrypoint local de preparacion del analisis semanal.
+- Calcula la carpeta de semana bajo `analysis/reports/weekly/<week_start>_<week_end>/`.
+- Llama a `build_weekly_analysis_sidecars.py` para generar los sidecars activos del modulo.
+- Escribe `weekly_prep_manifest.json` con rutas, semana, fecha ancla y sidecars generados.
+
+**Cuando usarlo:**
+- Como primer comando del flujo semanal local de `analysis`.
+- Cuando quieres un punto unico y reproducible de preparacion antes de redactar el informe semanal.
+
+**Entradas CLI relevantes:**
+- `--today` fija la semana analizada.
+- `--weekly-dir` permite sobreescribir la carpeta semanal base.
+- `--focus-sport`, `--window-size` y `--min-positive` se propagan a `SYA-15`.
+
+**Salidas:**
+- `analysis/reports/weekly/<week_start>_<week_end>/weekly_prep_manifest.json`
+- `analysis/reports/weekly/<week_start>_<week_end>/artifacts/`
+- sidecars del semanal local, hoy `SYA-15`
+
+**Consumo posterior:**
+- El informe semanal debe leer `weekly_prep_manifest.json` para descubrir sidecars disponibles y sus rutas.
+- No debe escanear `artifacts/` ni depender de convenciones de nombre fuera del manifest.
+
+**Automatico o manual:**
+- Manual respecto al prompt semanal.
+- Es el comando recomendado para arrancar el semanal local.
+- Comando recomendado: `python scripts/run_weekly_analysis_prep.py --today YYYY-MM-DD`
+
+---
+
+### `analyze_weekly.py`
+
+**Que hace:**
+- Actua como entrypoint superior del semanal local.
+- Reutiliza `run_weekly_analysis_prep.py` o un `weekly_prep_manifest.json` ya existente.
+- Carga las fuentes canónicas de la semana (`sessions_day`, `sessions`, `DASHBOARD`, `CORE`, `sleep`, distribución semanal).
+- Genera un borrador reproducible `report.auto.md`.
+- Escribe `weekly_analysis_context.json` como sidecar de contexto mínimo del informe.
+- Genera `analyst_prompt.md` y `ai_handoff.md` semanales.
+- Genera `report.ia.md` gobernado por `report_sync_token`.
+- Genera `artifacts/report_sync_status.json` para declarar si `report.ia.md` está alineado con el semanal actual.
+
+**Cuando usarlo:**
+- Cuando quieres un punto único para preparar y redactar el borrador semanal local.
+- Cuando necesitas que el informe descubra sidecars desde el manifest, no por nombres de archivo.
+
+**Entradas CLI relevantes:**
+- `--today` fija la semana analizada.
+- `--weekly-dir` permite reutilizar o sobreescribir la carpeta semanal base.
+- `--skip-prep` consume un manifest ya existente sin relanzar la preparación.
+- `--focus-sport`, `--window-size` y `--min-positive` se propagan al prep si no se usa `--skip-prep`.
+
+**Salidas:**
+- `analysis/reports/weekly/<week_start>_<week_end>/report.auto.md`
+- `analysis/reports/weekly/<week_start>_<week_end>/report.ia.md`
+- `analysis/reports/weekly/<week_start>_<week_end>/analyst_prompt.md`
+- `analysis/reports/weekly/<week_start>_<week_end>/ai_handoff.md`
+- `analysis/reports/weekly/<week_start>_<week_end>/weekly_analysis_context.json`
+- `analysis/reports/weekly/<week_start>_<week_end>/artifacts/report_sync_status.json`
+- reutiliza `weekly_prep_manifest.json` y `artifacts/`
+
+**Automatico o manual:**
+- Manual respecto al prompt semanal.
+- Es el comando recomendado cuando quieres ya el borrador semanal local.
+- Comando recomendado: `python scripts/analyze_weekly.py --today YYYY-MM-DD`
 
 ---
 

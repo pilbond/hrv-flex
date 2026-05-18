@@ -34,6 +34,7 @@ Proposals (creates purple cards):
 Editing:
   edit <TASK-ID> "<TEXT>"          Update description (must be orange)
   add-dep <FROM-ID> <TO-ID>       Add dependency (rejects if cycle)
+  remove-dep <FROM-ID> <TO-ID>    Remove dependency edge if present
 
 Maintenance:
   normalize                       Assign IDs, update blocked states
@@ -1199,6 +1200,38 @@ def cmd_add_dep(canvas, args, path):
         print(f"  normalize: {c}")
 
 
+def cmd_remove_dep(canvas, args, path):
+    """Remove a dependency edge: from_id no longer blocks to_id."""
+    from_id = args.from_id
+    to_id = args.to_id
+
+    from_node = find_task(canvas, from_id)
+    if not from_node:
+        error(f"Task '{from_id}' not found")
+    to_node = find_task(canvas, to_id)
+    if not to_node:
+        error(f"Task '{to_id}' not found")
+
+    from_nid = from_node.get("id")
+    to_nid = to_node.get("id")
+
+    edges = canvas.get("edges", [])
+    kept_edges = [
+        e for e in edges
+        if not (e.get("fromNode") == from_nid and e.get("toNode") == to_nid)
+    ]
+
+    if len(kept_edges) == len(edges):
+        error(f"Dependency {from_id} → {to_id} does not exist")
+
+    canvas["edges"] = kept_edges
+    changes = normalize(canvas)
+    save_canvas(path, canvas)
+    print(f"Removed dependency: {from_id} → {to_id}")
+    for c in changes:
+        print(f"  normalize: {c}")
+
+
 # ---------------------------------------------------------------------------
 # Commands: Maintenance (write)
 # ---------------------------------------------------------------------------
@@ -1362,6 +1395,10 @@ def build_parser():
     p_dep.add_argument("from_id", help="Blocker task ID")
     p_dep.add_argument("to_id", help="Blocked task ID")
 
+    p_remove_dep = sub.add_parser("remove-dep", help="Remove dependency edge")
+    p_remove_dep.add_argument("from_id", help="Blocker task ID")
+    p_remove_dep.add_argument("to_id", help="Blocked task ID")
+
     # Maintenance
     sub.add_parser("normalize", help="Run normalization")
 
@@ -1415,6 +1452,7 @@ def main():
         "batch": cmd_batch,
         "edit": cmd_edit,
         "add-dep": cmd_add_dep,
+        "remove-dep": cmd_remove_dep,
         "normalize": cmd_normalize,
     }
 

@@ -1,4 +1,4 @@
-# HG-01 Propuesta baseline drift 60v180
+
 
 > Tarjeta Kanvas: `HG-01` - grupo `HRV Global`, estado `purple` (propuesta).
 > Documento precedente: [SYA-10 Backlog diferido de senales retrospectivas y HRV longitudinal.md](SYA-10%20Backlog%20diferido%20de%20senales%20retrospectivas%20y%20HRV%20longitudinal.md)

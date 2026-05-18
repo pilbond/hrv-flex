@@ -388,14 +388,14 @@ Campos relevantes:
 - `baseline_modifier`: lectura separada cuando `baseline60_degraded = true`; en `analysis/` debe leerse como rebaja de precisión, no como veto operativo por sí sola.
 
 Artefacto complementario:
-- `artifacts/report_sync_status.json`: estado de sincronización del `report.md` humano.
+- `artifacts/report_sync_status.json`: estado de sincronización del `report.md` o `report.ia.md` humano.
   - `status`: `missing`, `unmanaged_legacy`, `stale`, `up_to_date`.
   - `current_token`: token calculado desde `session_payload.json`, `summary.json` y `technical_report.md`.
-  - `report_token`: token encontrado en `report.md`, si existe.
+  - `report_token`: token encontrado en `report.md` o `report.ia.md`, si existe.
 
 Regla de trazabilidad:
 - si `final_reason_items_contract.fallback_to_reason_text = false`, los informes de `analysis/` deben tratar este sidecar como fuente estructurada activa y pueden declararlo explícitamente en `Fuentes`.
-- si `report_sync_status.status != up_to_date`, el `report.md` debe considerarse no alineado con la regeneración técnica más reciente.
+- si `report_sync_status.status != up_to_date`, el `report.md` o `report.ia.md` debe considerarse no alineado con la regeneración técnica más reciente.
 
 ---
 
