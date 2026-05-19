@@ -19,6 +19,15 @@
 			"label": "Terreno / Perfomance"
 		},
 		{
+			"id": "group-pendie",
+			"type": "group",
+			"x": 2640,
+			"y": 100,
+			"width": 1088,
+			"height": 1168,
+			"label": "Pendientes con valor"
+		},
+		{
 			"id": "group-hrvglo",
 			"type": "group",
 			"x": -1160,
@@ -55,15 +64,6 @@
 			"width": 1088,
 			"height": 2280,
 			"label": "ia updates"
-		},
-		{
-			"id": "group-pendie",
-			"type": "group",
-			"x": 2640,
-			"y": 100,
-			"width": 1088,
-			"height": 1168,
-			"label": "Pendientes con valor"
 		},
 		{
 			"id": "group-intens",
@@ -322,26 +322,6 @@
 			"color": "4"
 		},
 		{
-			"id": "05d2a3bc",
-			"type": "text",
-			"text": "## PCV-06 Integracion UI/API del coach semanal\nTipo de valor: visibilidad operativa y acceso desde producto. Analisis: [[docs/HRV/PENDIENTE - Integracion UI API coach semanal.md]]",
-			"x": 2660,
-			"y": 1120,
-			"width": 1044,
-			"height": 92,
-			"color": "4"
-		},
-		{
-			"id": "8e8e274d",
-			"type": "text",
-			"text": "## PCV-05 Planning note semanal\nTipo de valor: accion inmediata y traduccion analisis -> plan. Analisis: [[docs/HRV/PENDIENTE - Planning note semanal.md]]",
-			"x": 2660,
-			"y": 1000,
-			"width": 1044,
-			"height": 92,
-			"color": "4"
-		},
-		{
 			"id": "e7ed2639",
 			"type": "text",
 			"text": "## RE-02 Integrar wellness subjetivo de Intervals como contexto de recuperacion\nIntegrar los campos subjetivos de wellness de Intervals como contexto estructurado de recuperacion, sin mezclar esta tarea con RE-01 y sin tocar el gate HRV.\n\nCampos objetivo:\n- fatigue\n- stress\n- mood\n- motivation\n- soreness\n- injury\n\nRationale: estos campos aportan una capa subjetiva real que hoy el pipeline no modela y que complementa HRV, sueno Polar y carga reciente.\n\nMejora: anadir contexto interpretable sobre fatiga percibida, estres, dolor, motivacion y lesion en FINAL/reason_text sin sustituir al semaforo.\n\nNota de desarrollo: [[docs/HRV/RE-02 Integrar wellness subjetivo de Intervals como contexto de recuperacion]]",
@@ -474,16 +454,6 @@
 			"color": "6"
 		},
 		{
-			"id": "cc85dad5",
-			"type": "text",
-			"text": "## PCV-04 Coach semanal estructurado en producto\nPCV-04 Coach semanal estructurado en producto\n\nRedefinida como tarea de contrato y sidecar semanal determinista. Debe crear una salida estructurada reproducible llamada ENDURANCE_HRV_weekly_coach.json a partir de ENDURANCE_HRV_sessions_day.csv, ENDURANCE_HRV_intensity_distribution_weekly.csv y ENDURANCE_HRV_master_DASHBOARD.csv, sin narrativa LLM, sin endpoint y sin UI.\n\nEsta tarea SI puede: fijar campos minimos, semantica semanal y lugar canonico en build_sessions.py; documentar el output en docs/contracts/.\n\nEsta tarea NO puede: generar week_verdict, next_week_guidance, exponer api weekly coach, tocar FINAL o DASHBOARD ni absorber PCV-05 o PCV-06.\n\nNota de desarrollo: [[docs/HRV/PENDIENTE - Coach semanal estructurado en producto.md]]",
-			"x": 2660,
-			"y": 600,
-			"width": 1044,
-			"height": 368,
-			"color": "4"
-		},
-		{
 			"id": "6f932f78",
 			"type": "text",
 			"text": "## IU-03 Escritura atomica de ENDURANCE_HRV_sleep.csv\nSustituir la escritura directa de ENDURANCE_HRV_sleep.csv por persistencia atomica con reemplazo seguro, alineada con el patron ya usado en tokens y outputs de sesiones. Objetivo: reducir riesgo de corrupcion o truncado ante fallo, timeout o cierre del proceso.\n\nNota de desarrollo: [[docs/HRV/IU-03 Escritura atomica de ENDURANCE_HRV_sleep.csv]]",
@@ -504,16 +474,6 @@
 			"width": 1048,
 			"height": 203,
 			"color": "6"
-		},
-		{
-			"id": "969f54dd",
-			"type": "text",
-			"text": "## PCV-03 Capa de carga relativa del atleta\nTipo de valor: explicabilidad, deteccion temprana y personalizacion. Analisis: [[docs/HRV/PENDIENTE - Capa de carga relativa del atleta.md]]",
-			"x": 2660,
-			"y": 466,
-			"width": 1044,
-			"height": 109,
-			"color": "4"
 		},
 		{
 			"id": "b045f93b",
@@ -595,9 +555,72 @@
 			"type": "text",
 			"text": "## SYA-14 Z3 budget semanal\nRedefinir z3 budget semanal como percentil historico de Z3 por deporte, usando ENDURANCE_HRV_intensity_distribution_weekly.csv para cuantificar si la semana actual esta baja, normal, alta o muy alta en Z3 respecto al historico comparable del mismo sport, sin incorporarlo aun a analysis_only_context, sessions_day, FINAL ni reason_text.\n\nNota de desarrollo: [[docs/HRV/SYA-14 Z3 budget semanal.md]]",
 			"x": 224,
-			"y": 2364,
+			"y": 2320,
 			"width": 1040,
-			"height": 160,
+			"height": 204,
+			"color": "4"
+		},
+		{
+			"id": "53de12a1",
+			"type": "text",
+			"text": "## SYA-04 SYA-03A Fase 1 Extraccion minima canonica\nCerrar la extraccion minima canonica de metrics de intervalsicugptcoach. Definir campos finales, nombres canonicos, unidades, nullabilidad y criterios de presencia para sessions.csv, con actualizacion contractual si aplica.\n\nDocumento maestro: [[docs/HRV/SYA-03 Inventario y analisis ampliado de intervalsicugptcoach.md]]\nSecciones aplicables: resumen ejecutivo; 6.b Roadmap formal por fases; tabla priorizada; anexo exhaustivo.\nMarco obligatorio: ejecutar esta fase sin reabrir decisiones ya cerradas en SYA-03.\nEsta subtarea SI puede decidir: seleccion final de primitivas canonicas de Fase 1 y su formalizacion operativa.\nEsta subtarea NO puede decidir: reinterpretaciones globales fuera de Fase 1, nuevas senales compuestas o cambios de capa no defendidos en SYA-03.\nCierre obligatorio: actualizar SYA-03 si cambia cualquier conclusion, naming, unidad, nullabilidad o criterio contractual.",
+			"kanvas_group_id": "group-syaroa",
+			"x": 224,
+			"y": 1500,
+			"width": 1040,
+			"height": 336,
+			"color": "4"
+		},
+		{
+			"id": "e3909469",
+			"type": "text",
+			"text": "## TYM-02 FP-04 SWOLF y parametros mecanicos de natacion\nParser FIT swim (length/lap/session messages) para extraer SWOLF por estilo, DPS, distribucion de estilos y degradacion tecnica en sesiones de piscina. Resuelve que el pipeline reporta bajo_estimulo para toda sesion de natacion por ausencia de senal mecanica. Iteracion A: nuevo modulo fit_swim_utils.py + swim_context en summary.json + artifact swim_lengths.csv. Iteracion B: integracion en cost model (futura, fuera de alcance de A). Nota de desarrollo: [[docs/HRV/FP-04 SWOLF y parametros mecanicos de natacion]]",
+			"kanvas_group_id": "f19eb1a4521175f6",
+			"x": 1452,
+			"y": 1266,
+			"width": 1040,
+			"height": 206,
+			"color": "6"
+		},
+		{
+			"id": "77b09143",
+			"type": "text",
+			"text": "## FP-02 GAP-01 Incorporar GAP y VAM como capa analitica de terreno en analysis\nIncorporar GAP y VAM como capa analitica contextual en analysis, priorizando GAP por km o por intervalo y VAM solo en tramos de subida, sin inflar el contrato base de sessions.csv. Debe usar Intervals como fuente primaria (activity/intervals) y dejar un artefacto analitico o resumen estable para futuras reglas de fatiga periferica. Nota de desarrollo: [[docs/HRV/FP-02 GAP-01 Incorporar GAP y VAM como capa analitica de terreno]]",
+			"kanvas_group_id": "f19eb1a4521175f6",
+			"x": 1456,
+			"y": 1500,
+			"width": 1040,
+			"height": 192,
+			"color": "4"
+		},
+		{
+			"id": "18bb951e",
+			"type": "text",
+			"text": "## FP-04 Coste cardiovascular de subidas en ciclismo\n\nDocumento base: [docs/HRV/FP-03 Coste cardiovascular de subidas en ciclismo.md](docs/HRV/FP-03%20Coste%20cardiovascular%20de%20subidas%20en%20ciclismo.md)\n\nObjetivo: extender la capa FIT de terreno a bike para exponer coste cardiovascular por subida y hacer visible la FC real de las subidas, sin tocar session_cost_model, sessions.csv ni el gate HRV.\n\nV1 ejecutable: matched_climbs sobre terrain_fit_context para bike. grade_bins queda como evolucion posterior si hace falta mas granularidad.\n\nRelacion: no mezclar con la linea de run contextual; debe vivir en su propia tarjeta y su propio documento.",
+			"x": 1452,
+			"y": 1732,
+			"width": 1044,
+			"height": 272,
+			"color": "6"
+		},
+		{
+			"id": "616b8abd",
+			"type": "text",
+			"text": "## FP-06  Eficiencia contextual en run con segmentos comparables\n\nDocumento de estado actual: [docs/HRV/FP-06 Eficiencia contextual en run.md](docs/HRV/FP-06%20Eficiencia%20contextual%20en%20run.md)\nDocumento base: [docs/HRV/FP-05 Eficiencia contextual en run con segmentos comparables.md](docs/HRV/FP-05%20Eficiencia%20contextual%20en%20run%20con%20segmentos%20comparables.md)\n\nObjetivo: dejar trazabilidad de la linea de eficiencia contextual en run para road_run y trail_run usando comparaciones entre tramos equivalentes, sin promoverla a contrato canonico.\n\nV1 ejecutable: matched_climbs sobre terrain_context / terrain_fit_context. grade_bins queda como evolucion posterior si hace falta mas estabilidad para road_run.\n\nNota: esta tarjeta actua como espejo operativo de FP-05; el documento canonico es FP-05.",
+			"x": 1456,
+			"y": 2034,
+			"width": 1044,
+			"height": 260,
+			"color": "4"
+		},
+		{
+			"id": "8041a071",
+			"type": "text",
+			"text": "## FP-07 Validacion y calibracion de umbrales de eficiencia contextual en run\n## FP-07 Validacion y calibracion de umbrales de eficiencia contextual en run\\n\\nEstado: auditado. La logica de \u001bfficiency_context ya incluye \u001bfficiency_audit con buckets y separacion \threshold_gap vs signal_conflict.\\n\\nBarrido historico: 25 sesiones aplicables; 13 mixed_signal = 3 \threshold_gap + 10 signal_conflict.\\n\\nSiguiente paso: revisar si alguna subclase merece label nuevo o si se mantiene como audit local.",
+			"x": 1456,
+			"y": 2320,
+			"width": 1044,
+			"height": 180,
 			"color": "5"
 		},
 		{
@@ -621,24 +644,15 @@
 			"color": "4"
 		},
 		{
-			"id": "f9290203",
+			"id": "4778ae04",
 			"type": "text",
-			"text": "## SYA-17 SSM-01 Bayesian State-Space Model para estimacion de estado del atleta\n\nImplementar capa sombra SSM Bayesiano (Banister + Kalman) para estimar fitness/fatiga latentes con incertidumbre explicita. Emite campos ssm_* en FINAL.csv sin tocar el gate actual. Fases: (1) sombra con parametros literatura (2) calibracion personal MCMC (3) promocion opcional al gate. 📄 Análisis: [[docs/HRV/SSM-01 Bayesian State-Space Model para estimacion de estado del atleta]]",
-			"x": 220,
-			"y": 2972,
-			"width": 1040,
-			"height": 148,
-			"color": "6"
-		},
-		{
-			"id": "a6ce888e",
-			"type": "text",
-			"text": "## SYA-18 SYA-18 Endurecer API local y manifest del semanal de analysis\nEndurecer la capa semanal local de analysis tras SYA-15: API publica del sidecar, manifest semanal versionado, politica de inputs/degradacion y contrato de sincronizacion del report semanal sin tocar el pipeline HRV global. Nota de desarrollo: [[docs/HRV/SYA-18 Endurecer API local y manifest del semanal de analysis.md]]",
+			"text": "## SYA-07 SYA-03D Fase 4 Senales compuestas validadas\nConstruir solo senales compuestas que hayan demostrado valor incremental frente a primitivas. Prioridad real tras la revision externa: formalizar subjective coherence / load mismatch usando load, trimp, session_rpe y hr_load; formalizar thermal cost score en version simple y auditable apoyada primero en average_weather_temp; y validar primitivas de durabilidad por tercios como entrada a durability score sin cerrar todavia una taxonomia fuerte por deporte.\n\nDocumento maestro: [[docs/HRV/SYA-03 Inventario y analisis ampliado de intervalsicugptcoach.md]]\nSecciones aplicables: resumen ejecutivo; 6.b Roadmap formal por fases; tabla priorizada; anexo exhaustivo; 8.1 Priorizacion refinada tras revision externa.\nMarco obligatorio: no crear nuevas senales compuestas sin evidencia previa de las fases 1-3 y sin formula auditable.\nEsta subtarea SI puede decidir: formula, test retrospectivo y destino de senales compuestas ya previstas en SYA-03.\nEsta subtarea NO puede decidir: introducir indices nuevos fuera del marco del documento maestro sin actualizar antes SYA-03; ni convertir hallazgos de weekly/baseline HRV en senales de sesion por simple conveniencia.\nCierre obligatorio: actualizar SYA-03 con definicion matematica, cobertura, valor incremental y destino final de cada senal compuesta.",
+			"kanvas_group_id": "group-syaroa",
 			"x": 224,
-			"y": 3280,
+			"y": 1236,
 			"width": 1040,
-			"height": 160,
-			"color": "6"
+			"height": 240,
+			"color": "4"
 		},
 		{
 			"id": "d0864ede",
@@ -651,35 +665,23 @@
 			"color": "1"
 		},
 		{
+			"id": "f9290203",
+			"type": "text",
+			"text": "## SYA-17 SSM-01 Bayesian State-Space Model para estimacion de estado del atleta\n\nImplementar capa sombra SSM Bayesiano (Banister + Kalman) para estimar fitness/fatiga latentes con incertidumbre explicita. Emite campos ssm_* en FINAL.csv sin tocar el gate actual. Fases: (1) sombra con parametros literatura (2) calibracion personal MCMC (3) promocion opcional al gate. 📄 Análisis: [[docs/HRV/SSM-01 Bayesian State-Space Model para estimacion de estado del atleta]]",
+			"x": 220,
+			"y": 2972,
+			"width": 1040,
+			"height": 148,
+			"color": "6"
+		},
+		{
 			"id": "2dc1f9374c83e40c",
 			"type": "text",
-			"text": "1. **~~PCV-01 SWC configurable o adaptativo~~**\n2. **PCV-02 Baseline adaptativo largo plazo**\n3. **PCV-03 Capa de carga relativa del atleta**\n4. **PCV-04 Coach semanal estructurado en producto**\n5. **PCV-05 Planning note semanal**\n6. **PCV-06 Integracion UI/API del coach semanal**\n7. **SYA-16 HRV rebound profile D+1/D+3**\n8. **SYA-15 Continuidad aeróbica Z1 alta**\n9. HG-01 Propuesta baseline drift 60v180\n10. SYA-14 Z3 budget semanal\n11. FP-07 Validacion y calibracion de umbrales de eficiencia contextual en run\n12. SYA-17 SSM-01 Bayesian State-Space Model para estimacion de estado del atleta\n13. AP-01 NDLI-01 NDLI (Neural Load Density Index) - Aviso proactivo de clustering\n14. AP-03 Revisar AP-01 con capa run-aware tras GAP\n15. FP-04 Coste cardiovascular de subidas en ciclismo\n16. TYM-02 FP-04 SWOLF y parametros mecanicos de natacion\n17. SYA-02 TYM-02 FP-04 Replantear capa swim desde Polar Flow + fallback TCX\n18. AP-02 RP-01 Integrar senal mecanica de deportes de pie desde Polar Flow AccessLink en el pipeline",
+			"text": "1. **~~PCV-01 SWC configurable o adaptativo~~**\n2. **PCV-02 Baseline adaptativo largo plazo**\n3. **PCV-03 Capa de carga relativa del atleta**\n4. **PCV-04 Coach semanal estructurado en producto**\n5. **PCV-05 Planning note semanal**\n6. **PCV-06 Integracion UI/API del coach semanal**\n7. **SYA-16 HRV rebound profile D+1/D+3**\n8. **SYA-15 Continuidad aeróbica Z1 alta**\n9. HG-01 Propuesta baseline drift 60v180 (standby)\n10. **SYA-14 Z3 budget semanal**\n11. FP-07 Validacion y calibracion de umbrales de eficiencia contextual en run\n12. SYA-17 SSM-01 Bayesian State-Space Model para estimacion de estado del atleta\n13. AP-01 NDLI-01 NDLI (Neural Load Density Index) - Aviso proactivo de clustering\n14. AP-03 Revisar AP-01 con capa run-aware tras GAP\n15. FP-04 Coste cardiovascular de subidas en ciclismo\n16. TYM-02 FP-04 SWOLF y parametros mecanicos de natacion\n17. SYA-02 TYM-02 FP-04 Replantear capa swim desde Polar Flow + fallback TCX\n18. AP-02 RP-01 Integrar senal mecanica de deportes de pie desde Polar Flow AccessLink en el pipeline",
 			"x": -1160,
 			"y": 394,
 			"width": 660,
 			"height": 566
-		},
-		{
-			"id": "53de12a1",
-			"type": "text",
-			"text": "## SYA-04 SYA-03A Fase 1 Extraccion minima canonica\nCerrar la extraccion minima canonica de metrics de intervalsicugptcoach. Definir campos finales, nombres canonicos, unidades, nullabilidad y criterios de presencia para sessions.csv, con actualizacion contractual si aplica.\n\nDocumento maestro: [[docs/HRV/SYA-03 Inventario y analisis ampliado de intervalsicugptcoach.md]]\nSecciones aplicables: resumen ejecutivo; 6.b Roadmap formal por fases; tabla priorizada; anexo exhaustivo.\nMarco obligatorio: ejecutar esta fase sin reabrir decisiones ya cerradas en SYA-03.\nEsta subtarea SI puede decidir: seleccion final de primitivas canonicas de Fase 1 y su formalizacion operativa.\nEsta subtarea NO puede decidir: reinterpretaciones globales fuera de Fase 1, nuevas senales compuestas o cambios de capa no defendidos en SYA-03.\nCierre obligatorio: actualizar SYA-03 si cambia cualquier conclusion, naming, unidad, nullabilidad o criterio contractual.",
-			"kanvas_group_id": "group-syaroa",
-			"x": 224,
-			"y": 1500,
-			"width": 1040,
-			"height": 336,
-			"color": "4"
-		},
-		{
-			"id": "4778ae04",
-			"type": "text",
-			"text": "## SYA-07 SYA-03D Fase 4 Senales compuestas validadas\nConstruir solo senales compuestas que hayan demostrado valor incremental frente a primitivas. Prioridad real tras la revision externa: formalizar subjective coherence / load mismatch usando load, trimp, session_rpe y hr_load; formalizar thermal cost score en version simple y auditable apoyada primero en average_weather_temp; y validar primitivas de durabilidad por tercios como entrada a durability score sin cerrar todavia una taxonomia fuerte por deporte.\n\nDocumento maestro: [[docs/HRV/SYA-03 Inventario y analisis ampliado de intervalsicugptcoach.md]]\nSecciones aplicables: resumen ejecutivo; 6.b Roadmap formal por fases; tabla priorizada; anexo exhaustivo; 8.1 Priorizacion refinada tras revision externa.\nMarco obligatorio: no crear nuevas senales compuestas sin evidencia previa de las fases 1-3 y sin formula auditable.\nEsta subtarea SI puede decidir: formula, test retrospectivo y destino de senales compuestas ya previstas en SYA-03.\nEsta subtarea NO puede decidir: introducir indices nuevos fuera del marco del documento maestro sin actualizar antes SYA-03; ni convertir hallazgos de weekly/baseline HRV en senales de sesion por simple conveniencia.\nCierre obligatorio: actualizar SYA-03 con definicion matematica, cobertura, valor incremental y destino final de cada senal compuesta.",
-			"kanvas_group_id": "group-syaroa",
-			"x": 224,
-			"y": 1236,
-			"width": 1040,
-			"height": 240,
-			"color": "4"
 		},
 		{
 			"id": "9cd270e0",
@@ -770,56 +772,54 @@
 			"color": "6"
 		},
 		{
-			"id": "e3909469",
+			"id": "a6ce888e",
 			"type": "text",
-			"text": "## TYM-02 FP-04 SWOLF y parametros mecanicos de natacion\nParser FIT swim (length/lap/session messages) para extraer SWOLF por estilo, DPS, distribucion de estilos y degradacion tecnica en sesiones de piscina. Resuelve que el pipeline reporta bajo_estimulo para toda sesion de natacion por ausencia de senal mecanica. Iteracion A: nuevo modulo fit_swim_utils.py + swim_context en summary.json + artifact swim_lengths.csv. Iteracion B: integracion en cost model (futura, fuera de alcance de A). Nota de desarrollo: [[docs/HRV/FP-04 SWOLF y parametros mecanicos de natacion]]",
-			"kanvas_group_id": "f19eb1a4521175f6",
-			"x": 1452,
-			"y": 1266,
+			"text": "## SYA-18 SYA-18 Endurecer API local y manifest del semanal de analysis\nEndurecer la capa semanal local de analysis tras SYA-15: API publica del sidecar, manifest semanal versionado, politica de inputs/degradacion y contrato de sincronizacion del report semanal sin tocar el pipeline HRV global. Nota de desarrollo: [[docs/HRV/SYA-18 Endurecer API local y manifest del semanal de analysis.md]]",
+			"x": 224,
+			"y": 3280,
 			"width": 1040,
-			"height": 206,
+			"height": 160,
 			"color": "6"
 		},
 		{
-			"id": "77b09143",
+			"id": "05d2a3bc",
 			"type": "text",
-			"text": "## FP-02 GAP-01 Incorporar GAP y VAM como capa analitica de terreno en analysis\nIncorporar GAP y VAM como capa analitica contextual en analysis, priorizando GAP por km o por intervalo y VAM solo en tramos de subida, sin inflar el contrato base de sessions.csv. Debe usar Intervals como fuente primaria (activity/intervals) y dejar un artefacto analitico o resumen estable para futuras reglas de fatiga periferica. Nota de desarrollo: [[docs/HRV/FP-02 GAP-01 Incorporar GAP y VAM como capa analitica de terreno]]",
-			"kanvas_group_id": "f19eb1a4521175f6",
-			"x": 1456,
-			"y": 1500,
-			"width": 1040,
-			"height": 192,
+			"text": "## PCV-06 Integracion UI/API del coach semanal\nTipo de valor: visibilidad operativa y acceso desde producto. Analisis: [[docs/HRV/PENDIENTE - Integracion UI API coach semanal.md]]",
+			"x": 2660,
+			"y": 1120,
+			"width": 1044,
+			"height": 92,
 			"color": "4"
 		},
 		{
-			"id": "18bb951e",
+			"id": "8e8e274d",
 			"type": "text",
-			"text": "## FP-04 Coste cardiovascular de subidas en ciclismo\n\nDocumento base: [docs/HRV/FP-03 Coste cardiovascular de subidas en ciclismo.md](docs/HRV/FP-03%20Coste%20cardiovascular%20de%20subidas%20en%20ciclismo.md)\n\nObjetivo: extender la capa FIT de terreno a bike para exponer coste cardiovascular por subida y hacer visible la FC real de las subidas, sin tocar session_cost_model, sessions.csv ni el gate HRV.\n\nV1 ejecutable: matched_climbs sobre terrain_fit_context para bike. grade_bins queda como evolucion posterior si hace falta mas granularidad.\n\nRelacion: no mezclar con la linea de run contextual; debe vivir en su propia tarjeta y su propio documento.",
-			"x": 1452,
-			"y": 1732,
+			"text": "## PCV-05 Planning note semanal\nTipo de valor: accion inmediata y traduccion analisis -> plan. Analisis: [[docs/HRV/PENDIENTE - Planning note semanal.md]]",
+			"x": 2660,
+			"y": 1000,
 			"width": 1044,
-			"height": 272,
-			"color": "6"
-		},
-		{
-			"id": "616b8abd",
-			"type": "text",
-			"text": "## FP-06  Eficiencia contextual en run con segmentos comparables\n\nDocumento de estado actual: [docs/HRV/FP-06 Eficiencia contextual en run.md](docs/HRV/FP-06%20Eficiencia%20contextual%20en%20run.md)\nDocumento base: [docs/HRV/FP-05 Eficiencia contextual en run con segmentos comparables.md](docs/HRV/FP-05%20Eficiencia%20contextual%20en%20run%20con%20segmentos%20comparables.md)\n\nObjetivo: dejar trazabilidad de la linea de eficiencia contextual en run para road_run y trail_run usando comparaciones entre tramos equivalentes, sin promoverla a contrato canonico.\n\nV1 ejecutable: matched_climbs sobre terrain_context / terrain_fit_context. grade_bins queda como evolucion posterior si hace falta mas estabilidad para road_run.\n\nNota: esta tarjeta actua como espejo operativo de FP-05; el documento canonico es FP-05.",
-			"x": 1456,
-			"y": 2034,
-			"width": 1044,
-			"height": 260,
+			"height": 92,
 			"color": "4"
 		},
 		{
-			"id": "8041a071",
+			"id": "cc85dad5",
 			"type": "text",
-			"text": "## FP-07 Validacion y calibracion de umbrales de eficiencia contextual en run\n\nDocumento de estado actual: [docs/HRV/FP-07 Validacion y calibracion de umbrales de eficiencia contextual en run.md](docs/HRV/FP-07%20Validacion%20y%20calibracion%20de%20umbrales%20de%20eficiencia%20contextual%20en%20run.md)\n\nValidar con historico real si los thresholds provisionales de FP-06 (vam_ratio y hr_per_vam_ratio) separan patrones utiles. Ver docs/HRV/FP-07 Validacion y calibracion de umbrales de eficiencia contextual en run.md",
-			"x": 1456,
-			"y": 2320,
+			"text": "## PCV-04 Coach semanal estructurado en producto\nPCV-04 Coach semanal estructurado en producto\n\nRedefinida como tarea de contrato y sidecar semanal determinista. Debe crear una salida estructurada reproducible llamada ENDURANCE_HRV_weekly_coach.json a partir de ENDURANCE_HRV_sessions_day.csv, ENDURANCE_HRV_intensity_distribution_weekly.csv y ENDURANCE_HRV_master_DASHBOARD.csv, sin narrativa LLM, sin endpoint y sin UI.\n\nEsta tarea SI puede: fijar campos minimos, semantica semanal y lugar canonico en build_sessions.py; documentar el output en docs/contracts/.\n\nEsta tarea NO puede: generar week_verdict, next_week_guidance, exponer api weekly coach, tocar FINAL o DASHBOARD ni absorber PCV-05 o PCV-06.\n\nNota de desarrollo: [[docs/HRV/PENDIENTE - Coach semanal estructurado en producto.md]]",
+			"x": 2660,
+			"y": 600,
 			"width": 1044,
-			"height": 180,
-			"color": "6"
+			"height": 368,
+			"color": "4"
+		},
+		{
+			"id": "969f54dd",
+			"type": "text",
+			"text": "## PCV-03 Capa de carga relativa del atleta\nTipo de valor: explicabilidad, deteccion temprana y personalizacion. Analisis: [[docs/HRV/PENDIENTE - Capa de carga relativa del atleta.md]]",
+			"x": 2660,
+			"y": 466,
+			"width": 1044,
+			"height": 109,
+			"color": "4"
 		}
 	],
 	"edges": [

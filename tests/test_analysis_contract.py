@@ -4958,6 +4958,172 @@ class AnalysisContractTests(unittest.TestCase):
         self.assertEqual(checks["gain_upper_bound"]["reference_scope"], "all_positive_split_gain")
         self.assertTrue(checks["gain_upper_bound"]["passed"])
 
+ 
+class TestEfficiencyContextAudit(unittest.TestCase):
+    def test_build_summary_counts_mixed_signal_types_and_profiles(self):
+        from analysis.efficiency_context_audit import build_summary
+
+        rows = [
+            {"pattern": "stable_contextual_efficiency", "mixed_signal_type": None, "signal_profile": None, "sport_family": "road"},
+            {"pattern": "mixed_signal", "mixed_signal_type": "taxonomy_gap", "signal_profile": "ok|elevated|ok", "sport_family": "trail"},
+            {"pattern": "mixed_signal", "mixed_signal_type": "threshold_gap", "signal_profile": "ok|gray|gray", "sport_family": "road_run"},
+            {"pattern": "cardiovascular_efficiency_drop", "mixed_signal_type": None, "signal_profile": None, "sport_family": "trail"},
+        ]
+
+        summary = build_summary(rows)
+        self.assertEqual(summary["total_applicable"], 4)
+        self.assertEqual(summary["pattern_counts"], {
+            "stable_contextual_efficiency": 1,
+            "mixed_signal": 2,
+            "cardiovascular_efficiency_drop": 1,
+        })
+        self.assertEqual(summary["mixed_signal_counts"]["by_type"], {
+            "taxonomy_gap": 1,
+            "threshold_gap": 1,
+        })
+        self.assertEqual(summary["mixed_signal_counts"]["by_profile"], {
+            "ok|elevated|ok": 1,
+            "ok|gray|gray": 1,
+        })
+
+    def test_write_csv_serializes_threshold_gap_flags_with_pipe_separator(self):
+        from analysis.efficiency_context_audit import write_csv
+        import csv
+
+        with TemporaryDirectory() as tmp:
+            out = Path(tmp) / "audit.csv"
+            rows = [
+                {
+                    "slug": "slug-1",
+                    "sport_family": "road_run",
+                    "summary_path": "2026/05/foo/artifacts/summary.json",
+                    "matched_climbs_path": "2026/05/foo/artifacts/matched_climbs.csv",
+                    "matched_climbs_exists": True,
+                    "pattern": "mixed_signal",
+                    "interpretation_confidence": "low",
+                    "vam_ratio": 1.0,
+                    "hr_drift_bpm": 9.0,
+                    "hr_per_vam_ratio": 1.0,
+                    "vam_bucket": "ok",
+                    "hr_bucket": "elevated",
+                    "cost_bucket": "ok",
+                    "signal_profile": "ok|elevated|ok",
+                    "mixed_signal_type": "taxonomy_gap",
+                    "threshold_gap_flags": ["hr_drift_gray_band", "hr_per_vam_ratio_gray_band"],
+                    "threshold_gap_count": 2,
+                }
+            ]
+
+            write_csv(out, rows)
+            with out.open(encoding="utf-8") as handle:
+                reader = csv.DictReader(handle)
+                self.assertEqual(
+                    reader.fieldnames,
+                    [
+                        "slug",
+                        "sport_family",
+                        "summary_path",
+                        "matched_climbs_path",
+                        "matched_climbs_exists",
+                        "pattern",
+                        "interpretation_confidence",
+                        "vam_ratio",
+                        "hr_drift_bpm",
+                        "hr_per_vam_ratio",
+                        "vam_bucket",
+                        "hr_bucket",
+                        "cost_bucket",
+                        "signal_profile",
+                        "mixed_signal_type",
+                        "threshold_gap_flags",
+                        "threshold_gap_count",
+                    ],
+                )
+                row = next(reader)
+                self.assertEqual(row["threshold_gap_flags"], "hr_drift_gray_band|hr_per_vam_ratio_gray_band")
+
+    def test_collect_rows_non_strict_keeps_missing_sidecar_and_relative_paths(self):
+        from analysis.efficiency_context_audit import collect_rows
+
+        with TemporaryDirectory() as tmp:
+            reports_root = Path(tmp) / "analysis" / "reports"
+            summary_dir = reports_root / "2026" / "05" / "2026-05-18_09-00_road_run_i999999999" / "artifacts"
+            summary_dir.mkdir(parents=True, exist_ok=True)
+            summary_dir.joinpath("summary.json").write_text(
+                json.dumps(
+                    {
+                        "session_meta": {"sport": "running", "sport_family": "road"},
+                        "efficiency_context": {
+                            "applicable": True,
+                            "efficiency_pattern": "mixed_signal",
+                            "interpretation_confidence": "low",
+                            "aggregate": {
+                                "vam_ratio": 1.0,
+                                "hr_drift_bpm": 9.0,
+                                "hr_per_vam_ratio": 1.0,
+                            },
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            rows = collect_rows(reports_root, strict=False)
+            self.assertEqual(len(rows), 1)
+            self.assertFalse(rows[0]["matched_climbs_exists"])
+            self.assertEqual(rows[0]["summary_path"], "2026/05/2026-05-18_09-00_road_run_i999999999/artifacts/summary.json")
+            self.assertEqual(rows[0]["matched_climbs_path"], "2026/05/2026-05-18_09-00_road_run_i999999999/artifacts/matched_climbs.csv")
+
+    def test_collect_rows_strict_fails_when_matched_climbs_sidecar_is_missing(self):
+        from analysis.efficiency_context_audit import collect_rows
+
+        with TemporaryDirectory() as tmp:
+            reports_root = Path(tmp) / "analysis" / "reports"
+            summary_dir = reports_root / "2026" / "05" / "2026-05-18_09-00_road_run_i999999999" / "artifacts"
+            summary_dir.mkdir(parents=True, exist_ok=True)
+            summary_dir.joinpath("summary.json").write_text(
+                json.dumps(
+                    {
+                        "session_meta": {"sport": "running", "sport_family": "road"},
+                        "efficiency_context": {
+                            "applicable": True,
+                            "efficiency_pattern": "mixed_signal",
+                            "interpretation_confidence": "low",
+                            "aggregate": {
+                                "vam_ratio": 1.0,
+                                "hr_drift_bpm": 9.0,
+                                "hr_per_vam_ratio": 1.0,
+                            },
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(FileNotFoundError):
+                collect_rows(reports_root, strict=True)
+
+    def test_build_audit_from_summary_marks_missing_vam_as_data_insufficient(self):
+        from analysis.efficiency_context_audit import _build_audit_from_summary
+
+        audit = _build_audit_from_summary(
+            {
+                "efficiency_context": {
+                    "applicable": True,
+                    "efficiency_pattern": "mixed_signal",
+                    "aggregate": {
+                        "vam_ratio": None,
+                        "hr_drift_bpm": 9.0,
+                        "hr_per_vam_ratio": 1.0,
+                    },
+                }
+            }
+        )
+        self.assertEqual(audit["mixed_signal_type"], "data_insufficient")
+        self.assertEqual(audit["buckets"]["vam_ratio"], "missing")
+
 
 class TestBikePowerEstimation(unittest.TestCase):
     def _make_climb_records(self, n_seconds: int = 300, speed_mps: float = 4.0, grade_pct: float = 6.0) -> list[dict]:

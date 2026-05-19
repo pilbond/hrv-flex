@@ -55,6 +55,7 @@ Antes de entrar en el detalle, estas siglas aparecen frecuentemente:
 | **AP-03** | Clustering validado en sombra: variante experimental que enriquece AP-01 con datos de terreno y potencia para trail run. | En `runaware_context`, generalmente con nota "solo análisis, no reemplaza v1". |
 | **FP-01** | Análisis de durabilidad: evalúa si la potencia/velocidad cae o la FC sube de la primera a la última mitad de la sesión (fatiga). | En `durability_context`, `durability_pattern`, `durability_hint`. |
 | **FP-06** | Análisis de eficiencia en subidas: compara subidas early vs late del mismo rango de pendiente para detectar pérdida de eficiencia. | En `efficiency_context`, `efficiency_pattern`, `matched_climbs.csv`. |
+| **FP-07** | Auditoría reproducible de la clasificación de eficiencia contextual: separa `mixed_signal` en huecos de umbral vs combinaciones no taxonomizadas y regenera el barrido histórico. | En `efficiency_audit`, `analysis/efficiency_context_audit.py`. |
 | **v1** | Primera generación de algoritmos (ej. AP-01 v1). Implica algo estable y probado. | En `v1_snapshot`, `v1_shadow_comparison`, `v1_shadow_history`. |
 | **Sombra (shadow)** | Análisis experimental que se ejecuta en paralelo pero no reemplaza la decisión oficial. Permite compara sin modificar. | En `runaware_context` (sombra para AP-01), `v1_shadow_comparison` (resultado de la comparación). |
 
@@ -78,7 +79,7 @@ Los archivos de contexto viven en `artifacts/`; los informes y prompts en la ra�
 | `session_rr.csv` | `artifacts/session_rr.csv` | Intervalos RR brutos exportados desde Polar. Solo existe cuando hay datos RR válidos para la sesión. Si está ausente, `summary.json` registra `rr_unavailable = true`. |
 | `terrain_intervals.csv` | `artifacts/terrain_intervals.csv` | Splits de terreno desde Intervals.icu: cada fila es un segmento de la sesión clasificado por tipo (`uphill`, `downhill`, `rolling`, `unknown`), con métricas de distancia, tiempo, FC, VAM, potencia y zona. Es la base del `terrain_context` agregado. |
 | `terrain_climbs.csv` | `artifacts/terrain_climbs.csv` | Subidas individuales detectadas desde el archivo FIT: cada fila es una subida con su desnivel, pendiente media, VAM, FC, potencia y distribución de zonas. Es la base del `terrain_fit_context`. Distinto de `matched_climbs.csv`, que agrupa subidas por bin de pendiente para FP-06. |
-| `matched_climbs.csv` | `artifacts/matched_climbs.csv` | Tabla FP-06: subidas agrupadas por bin de pendiente (`low_grade` 3–7%, `mid_grade` 7–12%, `high_grade` 12%+). Comparar una subida del 4% con una del 15% no tiene sentido fisiológico, por eso se agrupan: solo se comparan subidas del mismo rango para detectar si la eficiencia cae entre las primeras y las últimas. Solo existe cuando FP-06 es aplicable. |
+| `matched_climbs.csv` | `artifacts/matched_climbs.csv` | Tabla FP-06: subidas agrupadas por bin de pendiente (`low_grade` 3–7%, `mid_grade` 7–12%, `high_grade` 12%+). Comparar una subida del 4% con una del 15% no tiene sentido fisiológico, por eso se agrupan: solo se comparan subidas del mismo rango para detectar si la eficiencia cae entre las primeras y las últimas. Solo existe cuando FP-06 es aplicable; `FP-07` puede regenerar su barrido histórico desde `summary.json` + este sidecar. |
 | `coach_intervals.csv` | `artifacts/coach_intervals.csv` | Intervalos de entrenamiento exportados de Intervals.icu. Capa local de apoyo: útil para identificar bloques o repeticiones con valor táctico, pero no es contrato canónico. |
 | `coach_groups.csv` | `artifacts/coach_groups.csv` | Grupos de intervalos agrupados por bloque; complementa `coach_intervals.csv` para sesiones con estructura repetida (p.ej. series). |
 | `coach_metrics.json` | `artifacts/coach_metrics.json` | Versión fichero independiente de `analysis_only_context.coach_metrics`. Permite cargar solo las métricas coach sin leer el payload completo. |
@@ -364,9 +365,9 @@ Los archivos de contexto viven en `artifacts/`; los informes y prompts en la ra�
 
 ### `efficiency_context` (análisis de eficiencia en subidas)
 
-**Aparece en:** `session_payload.json.efficiency_context` y reflejado en `matched_climbs.csv`, generado por `compute_matched_climbs_context()` en `fit_terrain_utils.py`.
+**Aparece en:** `session_payload.json.efficiency_context` y reflejado en `matched_climbs.csv`, generado por `compute_matched_climbs_context()` en `fit_terrain_utils.py`. El barrido reproducible asociado se regenera con `analysis/efficiency_context_audit.py`.
 
-**Qué es:** Análisis FP-06 de eficiencia contextual en subidas: compara subidas early vs late de pendiente similar para detectar pérdida de eficiencia a lo largo de la sesión.
+**Qué es:** Análisis FP-06 de eficiencia contextual en subidas: compara subidas early vs late de pendiente similar para detectar pérdida de eficiencia a lo largo de la sesión. FP-07 usa el mismo contexto para auditar qué parte de `mixed_signal` es hueco de umbral y qué parte es combinación no taxonomizada.
 
 **Campos clave:**
 
@@ -392,7 +393,7 @@ Los archivos de contexto viven en `artifacts/`; los informes y prompts en la ra�
 
 **Qué NO significa:** No aplica a bike. No es contrato canónico.
 
-**Canon:** ❌ Local de `analysis/` (FP-06).
+**Canon:** ❌ Local de `analysis/` (FP-06 + FP-07).
 
 ---
 
@@ -592,12 +593,32 @@ Los archivos de contexto viven en `artifacts/`; los informes y prompts en la ra�
 | `cardiovascular_efficiency_drop` | Costo FC/VAM elevado (>1.07) sin caída de VAM; mayor coste cardiovascular sin pérdida mecánica visible. |
 | `mechanical_efficiency_drop` | VAM cae (<0.90) pero FC estable y costo FC/VAM normal; pérdida mecánica sin deriva cardiovascular. |
 | `repeatability_loss_in_climbs` | VAM cae, FC sube y costo FC/VAM sube; pérdida combinada — el atleta produce menos VAM y además le cuesta más FC hacerlo. |
-| `mixed_signal` | VAM no disponible o señales contradictorias; confianza baja. |
+| `mixed_signal` | VAM no disponible o señales contradictorias; confianza baja. Puede venir de `threshold_gap`, `taxonomy_gap` o `data_insufficient` en `efficiency_audit`. |
 
 **Umbrales de clasificación:**
 - `vam_ok`: ratio ≥ 0.93; `vam_drop`: ratio < 0.90
 - `hr_stable`: |drift| ≤ 5 lpm; `hr_elevated`: drift > 8 lpm
 - `cost_ok`: hr_per_vam_ratio ≤ 1.04; `cost_elevated`: > 1.07
+
+**`efficiency_audit`:**
+
+**Aparece en:** `efficiency_context.efficiency_audit`.
+
+**Qué es:** Desglose local de la clasificación de `efficiency_pattern`. No cambia el label canónico local, pero deja trazabilidad de por qué una sesión acabó en `mixed_signal` o en un label más específico.
+
+**Campos principales:**
+
+| Campo | Significado |
+|---|---|
+| `signals.vam_ratio` | Valor bruto de VAM ratio usado por la clasificación. |
+| `signals.hr_drift_bpm` | Valor bruto de deriva HR usado por la clasificación. |
+| `signals.hr_per_vam_ratio` | Valor bruto de coste HR/VAM usado por la clasificación. |
+| `buckets.vam_ratio` | `ok`, `gray`, `drop` o `missing`. |
+| `buckets.hr_drift_bpm` | `stable`, `gray`, `elevated`, `drop` o `missing`. |
+| `buckets.hr_per_vam_ratio` | `ok`, `gray`, `elevated` o `missing`. |
+| `signal_profile` | Resumen compacto `vam|hr|cost`, por ejemplo `ok|gray|ok`. |
+| `threshold_gap_flags` | Lista de huecos de umbral detectados; en CSV se serializa como cadena separada por `|`, por ejemplo `hr_drift_gray_band|hr_per_vam_ratio_gray_band`. |
+| `mixed_signal_type` | Para `mixed_signal`, distingue `threshold_gap`, `taxonomy_gap` y `data_insufficient`. |
 
 **Bins de pendiente:**
 - `low_grade`: 3–7%

@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Sessions Schema
 
-**Revisión:** r2026-05-14 v3.14 (PCV-05 planning_note semanal; params_hash: c1c78a78)
+**Revisión:** r2026-05-18 v3.15 (SYA-14 resumen weekly coach y consumo real /api/status)
 **Estado:** Producción
 
 **Documentos relacionados:**
@@ -45,7 +45,7 @@ Este pipeline está diseñado para **un único atleta** y consume la cuenta pers
 | `sessions.csv` | 1 fila por sesión | Detalle completo de cada entrenamiento: zonas, work blocks, drift, clasificación y minutos primarios por zona (`z1/z2/z3_total_min`). Lo que miras cuando quieres entender una sesión concreta. |
 | `sessions_day.csv` | 1 fila por día | Agregados diarios + rolling 3d/7d/14d/28d con cobertura, más la capa canónica de contexto de carga (`ACWR`, `monotony`, `strain`), una señal corta de clustering reciente de intensidad y la señal rolling `DO-02` de polarización por familia con resumen de episodio. Lo que lee `build_hrv_final_dashboard.py` para generar avisos de carga en reason_text. |
 | `ENDURANCE_HRV_intensity_distribution_weekly.csv` | 1 fila por semana y deporte | Resumen canónico `sport x week` de distribución observada de intensidad: minutos ponderados por zona, `work_*`, patrón descriptivo (`polarized`, `pyramidal`, `threshold`, `mixed`) y confianza explícita. Pensado para análisis semanal y comparativa intra-deporte; no alimenta el gate. |
-| `ENDURANCE_HRV_weekly_coach.json` | 1 por corrida | Sidecar semanal estructurado: `iso_week`, ventana, marcas de corte (`as_of_date`, `generated_at`, `anchor_source`), cobertura (`week_expected_days`, `week_data_coverage_pct`), tipo semanal, carga, riesgo de progresión, tendencia HRV, calidad de datos, `planning_note` breve, `sleep_context` opcional de trazabilidad y `z3_budget_by_sport` opcional como lectura retrospectiva `per-sport` de `SYA-14`. `sleep_context` y `z3_budget_by_sport` quedan como trazabilidad interna del JSON; la UI solo consume `planning_note`, `iso_week`, `window_end` y `data_quality` desde `/api/status`. No alimenta el gate. |
+| `ENDURANCE_HRV_weekly_coach.json` | 1 por corrida | Sidecar semanal estructurado: `iso_week`, ventana, marcas de corte (`as_of_date`, `generated_at`, `anchor_source`), cobertura (`week_expected_days`, `week_data_coverage_pct`), tipo semanal, carga, riesgo de progresión, tendencia HRV, calidad de datos, `planning_note` breve, `sleep_context` opcional de trazabilidad, `z3_budget_by_sport` opcional como lectura retrospectiva `per-sport` de `SYA-14` y `z3_budget_summary` opcional como resumen corto de UI. `sleep_context` y `z3_budget_by_sport` quedan como trazabilidad interna del JSON; la UI consume `planning_note`, `iso_week`, `window_end`, `data_quality` y `weekly_coach_z3_budget_summary` desde `/api/status`. No alimenta el gate. |
 | `ENDURANCE_HRV_sessions_metadata.json` | 1 por corrida | Trazabilidad: versión del pipeline, parámetros usados, hash de configuración, sampling rate del stream y una auditoría ligera por capas (`dataset/signal/metric`) para coaching y carga. |
 | `ENDURANCE_HRV_wellness_subjective.csv` | 1 fila por día | Wellness subjetivo diario desde Intervals (`fatigue`, `stress`, `mood`, `motivation`, `soreness`, `injury`, comentario), con labels y cobertura 7d para análisis retrospectivo o capas separadas. |
 

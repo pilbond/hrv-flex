@@ -3632,6 +3632,29 @@ def render_report_markdown(summary: dict[str, Any]) -> str:
             "",
         ])
 
+    efficiency_context = summary.get("efficiency_context") or {}
+    if efficiency_context:
+        efficiency_audit = efficiency_context.get("efficiency_audit") or {}
+        lines.extend([
+            "## Efficiency Context",
+            f"- efficiency_pattern: `{efficiency_context.get('efficiency_pattern')}`",
+            f"- interpretation_confidence: `{efficiency_context.get('interpretation_confidence')}`",
+        ])
+        if efficiency_context.get("efficiency_pattern") == "mixed_signal":
+            efficiency_buckets = efficiency_audit.get("buckets") or {}
+            threshold_gap_flags = efficiency_audit.get("threshold_gap_flags") or []
+            signal_profile = efficiency_audit.get("signal_profile")
+            mixed_signal_type = efficiency_audit.get("mixed_signal_type")
+            if signal_profile or mixed_signal_type or threshold_gap_flags:
+                lines.append(
+                    f"- audit_profile: `{signal_profile}`; type: `{mixed_signal_type}`; gaps: `{', '.join(threshold_gap_flags) if threshold_gap_flags else 'none'}`"
+                )
+            if efficiency_buckets:
+                lines.append(
+                    f"- audit_buckets: `vam={efficiency_buckets.get('vam_ratio')}, hr={efficiency_buckets.get('hr_drift_bpm')}, cost={efficiency_buckets.get('hr_per_vam_ratio')}`"
+                )
+        lines.append("")
+
     if analysis_only_context:
         coach_metrics = analysis_only_context.get("coach_metrics") or {}
         structured = analysis_only_context.get("structured_workout") or {}

@@ -167,6 +167,35 @@ Con el tamano actual de muestra, el output esperable es:
 4. Si se propone cambiar la taxonomia o thresholds, hay una justificacion apoyada en casos reales del historico.
 5. La documentacion de `analysis/` deja explicito que parte es hueco logico, que parte es ambiguedad real y que parte depende de thresholds.
 
+### Resultado del barrido historico 2026-05-18
+
+Aplicando `analysis/efficiency_context_audit.py` a los `25` casos aplicables del historico actual:
+
+- `13` sesiones caen en `mixed_signal`
+- de esas `13`, `3` son `threshold_gap`
+- las otras `10` son `taxonomy_gap`
+
+Distribucion observada de `mixed_signal`:
+
+- `ok|elevated|ok`: `7`
+- `ok|gray|gray`: `2`
+- `drop|stable|elevated`: `2`
+- `drop|gray|elevated`: `1`
+- `ok|drop|ok`: `1`
+
+Lectura operativa:
+
+- el hueco de umbral existe, pero no domina
+- la mayor parte de `mixed_signal` refleja conflicto real entre señales
+- `ok|drop|ok` es la unica combinacion con deriva HR negativa clara; puede representar adaptacion aeróbica, descenso real de la demanda o un cambio de pendiente, asi que no conviene forzarla a etiqueta negativa
+- con esta muestra, no hay base suficiente para abrir un label nuevo solo por `threshold_gap`
+
+### Recomendacion
+
+Mantener `mixed_signal` como bucket prudente y usar `efficiency_audit` para explicar el motivo exacto. Si en el futuro se quiere romper ese bucket, el candidato mas claro no es mover umbrales de inmediato, sino decidir primero si `taxonomy_gap` merece una taxonomia propia.
+
+El barrido se puede regenerar con `python analysis/efficiency_context_audit.py --json-output analysis/reports/efficiency_context_audit.json --csv-output analysis/reports/efficiency_context_audit.csv`.
+
 ### Fuera de alcance
 
 - cambiar `FINAL`, `DASHBOARD`, `sessions.csv` o el gate HRV

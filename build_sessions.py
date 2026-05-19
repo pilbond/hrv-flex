@@ -2049,6 +2049,10 @@ WEEKLY_INSUFFICIENT_PLANNING_NOTE = (
 )
 
 
+def _humanize_weekly_sport_label(sport: str) -> str:
+    return str(sport or "").strip().replace("_", " ")
+
+
 def _build_z3_budget_summary(z3_budget_by_sport: Optional[list[dict]]) -> Optional[str]:
     if not z3_budget_by_sport:
         return None
@@ -2071,7 +2075,7 @@ def _build_z3_budget_summary(z3_budget_by_sport: Optional[list[dict]]) -> Option
             continue
         if not sport or not np.isfinite(percentile_value):
             continue
-        eligible.append((band_rank[band], sport, percentile_value))
+        eligible.append((band_rank[band], _humanize_weekly_sport_label(sport), percentile_value))
 
     if not eligible:
         return None
