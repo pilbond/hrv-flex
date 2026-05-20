@@ -1,0 +1,28 @@
+{
+  "iso_week": "2026-W21",
+  "window_start": "2026-05-18",
+  "window_end": "2026-05-24",
+  "as_of_date": "2026-05-20",
+  "generated_at": "2026-05-20T07:41:51.678801",
+  "anchor_source": "current_week",
+  "week_is_partial": true,
+  "week_days_present": 1,
+  "week_expected_days": 3,
+  "week_data_coverage_pct": 33.3,
+  "week_type": "insufficient_data",
+  "week_type_confidence": "low",
+  "week_load": 37.0,
+  "progression_risk": "low",
+  "hrv_trend": "insufficient_data",
+  "data_quality": "limited",
+  "planning_note": "Semana con cobertura parcial: abre la semana con lectura conservadora: usa HRV matinal y Action/reason_text del primer dia para decidir el primer pico; si la entrada no es clara, no fuerces carga alta en las primeras 24-48h. El contexto de sueno apunta a sueno corto sostenido; no invalida la entrada favorable, pero pide vigilancia.",
+  "sleep_context": {
+    "sleep_days_present": 2,
+    "sleep_duration_mean_min": 367.2,
+    "sleep_short_nights_pct": 100.0,
+    "sleep_deep_pct_mean": 20.3,
+    "sleep_score_mean": 73.0
+  },
+  "z3_budget_by_sport": [],
+  "z3_budget_summary": null
+}

@@ -1,0 +1,186 @@
+{
+  "source": "build_hrv_ssm.py",
+  "generated_at": "2026-05-20T11:54:05.443806+00:00",
+  "parameters": {
+    "phi_slow": 0.985,
+    "phi_fast": 0.85,
+    "beta_slow": 8e-05,
+    "beta_fast": 0.00072,
+    "sigma_obs_fallback": 0.12,
+    "sigma_proc_slow": 0.025,
+    "sigma_proc_fast": 0.06,
+    "warmup_candidate_window_days": 90,
+    "warmup_required_obs": 30,
+    "warmup_obs_var_multiplier_threshold": 1.25,
+    "slow_baseline_window_days": 60,
+    "quality_artifact_threshold_pct": 5.0
+  },
+  "parameter_origin": {
+    "phi_slow": "default_fixed",
+    "phi_fast": "default_fixed",
+    "beta_slow": "default_fixed",
+    "beta_fast": "default_fixed",
+    "sigma_proc_slow": "default_fixed",
+    "sigma_proc_fast": "default_fixed",
+    "sigma_obs_base": "warmup_or_fallback"
+  },
+  "processed_date_range": {
+    "start": "2025-05-12 00:00:00",
+    "end": "2026-05-20 00:00:00",
+    "n_days": 374
+  },
+  "core_input": {
+    "path": "data\\ENDURANCE_HRV_master_CORE.csv",
+    "size_bytes": 151724,
+    "sha256": "da79167c835fc0461e2910f8bc4286b0c0aa62b6a9dc051b3d4fff90dedc6f58"
+  },
+  "sessions_day_input": {
+    "path": "data\\ENDURANCE_HRV_sessions_day.csv",
+    "size_bytes": 79202,
+    "sha256": "59713ba1110da618c3bbb0a01db821ecac5b2ba23f056772b7f73b5d0f2fe352"
+  },
+  "sleep_input": {
+    "path": "data\\ENDURANCE_HRV_sleep.csv",
+    "size_bytes": 42134,
+    "sha256": "db9fa4a2982096d942f9a5983f563f811d07a50c55dd7de431b07aece3f18cd1"
+  },
+  "days_valid": 333,
+  "days_suppressed_by_quality": 42,
+  "days_with_load_missing": 0,
+  "load_context_distribution": {
+    "session_recorded": 313,
+    "rest_day_no_session": 51,
+    "calendar_gap_no_session": 10
+  },
+  "proc_var_multiplier_distribution": {
+    "1.0": 313,
+    "1.15": 51,
+    "1.35": 10
+  },
+  "warmup_mean_obs_var_multiplier": 1.3227502322196758,
+  "beta_frozen_count": 269,
+  "beta_frozen_pct": 0.7192513368983957,
+  "quality_penalty_counts": {
+    "flag_mecanico": 39,
+    "stability_not_ok": 50,
+    "beta_frozen": 269,
+    "artifact_gt_5pct": 21
+  },
+  "kalman_diagnostics": {
+    "warmup_candidate_window_days": 90,
+    "warmup_required_obs": 30,
+    "warmup_obs_var_multiplier_threshold": 1.25,
+    "warmup_observations_usable": 66,
+    "warmup_complete": true,
+    "warmup_complete_date": "2025-06-22",
+    "p0_method": "rolling_median_30d_residual_or_mad_fallback",
+    "state_anchor_mu": 3.831020187106229,
+    "state_model": "banister_2state_baseline_minus_fatigue",
+    "phi_slow": 0.985,
+    "phi_fast": 0.85,
+    "beta_slow": 8e-05,
+    "beta_fast": 0.00072,
+    "sigma_proc_slow": 0.025,
+    "sigma_proc_fast": 0.06,
+    "sigma_obs_base": 0.19857959524420818,
+    "sleep_observation_coverage_n": 132,
+    "sleep_observation_coverage_pct": 0.35294117647058826,
+    "slow_baseline_window_days": 60,
+    "slow_baseline_coverage": 0.9812834224598931,
+    "slow_baseline_state_corr": 0.7619573606659101,
+    "lnrmssd_detrended_mean": 0.008817350231844049,
+    "innovation_mean": -0.026301827930098318,
+    "innovation_sd": 0.2584636384748373,
+    "innovation_abs_p90": 0.3949849878506011,
+    "interval_scale_factor": 1.9198674951139358,
+    "interval_scale_source": "calib_70pct_abs_standardized_residual_q90",
+    "interval_calib_n": 224,
+    "interval_holdout_n": 96,
+    "interval_coverage_source": "holdout_30pct",
+    "interval_coverage_n": 96,
+    "interval_coverage_90pct": 0.8229166666666666,
+    "interval_coverage_ci95": [
+      0.7316814537399138,
+      0.8933229640980848
+    ],
+    "interval_calibration_delta": -0.07708333333333339,
+    "interval_calibration_status": "undercovered",
+    "sleep_recovery_index_source": "nightly_rmssd_crosswalk",
+    "sleep_nightly_rmssd_fit": {
+      "available": true,
+      "n": 128,
+      "intercept": 2.75922487893305,
+      "slope": 0.017863358096059087,
+      "rmse": 0.48616732941787855,
+      "resid_sd": 0.4880776209788213
+    },
+    "sleep_score_fit": {
+      "available": true,
+      "n": 128,
+      "intercept": 3.474524058437084,
+      "slope": 0.0019732593783876986,
+      "rmse": 0.5151659582537451,
+      "resid_sd": 0.5171901937853994
+    }
+  },
+  "load_signal_pretest": {
+    "n_rows": 312,
+    "coef": 0.00033971469080879,
+    "se": 0.0005487072355294988,
+    "p_value": 0.5362975771395594,
+    "r2_full": 0.11287763819666596,
+    "r2_reduced": 0.11177001400302855,
+    "holdout_mse_improvement": -0.008410170346372653,
+    "sign_stability": [
+      -0.000738893024434667,
+      -0.00014851337852511692,
+      0.00033971469080879
+    ],
+    "load_signal_status": "exploratory"
+  },
+  "outcome_audit": {
+    "primary_outcome_available": true,
+    "secondary_outcome_available": true,
+    "primary_outcome_name": "effort_above_anchor_aerobic",
+    "primary_outcome_lag_rule": "next comparable session within t+1..t+7",
+    "secondary_outcome_name": "well_fatigue_raw",
+    "secondary_outcome_lag_rule": "same-date structured self-report; temporal semantics still require confirmation",
+    "outcome_coverage_by_fold": {
+      "fold_1": 1.0,
+      "fold_2": 1.0,
+      "fold_3": 1.0
+    },
+    "outcome_temporal_semantics_status": "sessions_day_plausible_wellness_unverified",
+    "outcome_audit_status": "pass"
+  },
+  "daily_user_summary": {
+    "status": "ok",
+    "date": "2026-05-20",
+    "state_label": "medio",
+    "confidence_label": "media-alta",
+    "ssm_recovery_state": 3.699666041618151,
+    "ssm_baseline_state": 3.985267886676458,
+    "ssm_fatigue_state": 0.2856018450583071,
+    "sleep_recovery_index": 3.7498438426117575,
+    "sleep_recovery_index_sd": 0.35496894135375445,
+    "sleep_recovery_index_var": 0.12600294932580516,
+    "state_interval_lo": 3.4053964747947063,
+    "state_interval_hi": 3.9939356084415953,
+    "state_sd": 0.09318517763821663,
+    "rolling_hrv_7d": 3.645783355190857,
+    "delta_vs_rolling_hrv_7d": 0.05388268642729388,
+    "input_quality": "clean",
+    "obs_var_multiplier": 1.0,
+    "sleep_input_quality": "degraded",
+    "sleep_obs_var_multiplier": 1.4,
+    "sleep_innovation": -0.00950016763655226,
+    "load_context_mode": "rest_day_no_session",
+    "innovation": -0.26719998390151956,
+    "interpretive_text": "Respecto a tu histórico del SSM, hoy quedas en zona medio. Tu HRV de fondo (tendencia lenta) está en ≈54 ms (3.99 en log) y la fatiga reciente te descuenta ≈25% (≈13 ms, 0.29 en log, nivel media en tu histórico). La observación nocturna de sueño aporta ≈43 ms (3.75 en log) y se usa como apoyo al HRV matinal. Confianza de la lectura SSM: media-alta. Frente a tu rolling HRV 7d (3.65 ≈ 38 ms) y el estado de hoy (3.70 ≈ 40 ms), hoy está muy cerca, así que el modelo lo interpreta como continuidad de tu línea reciente. La sorpresa del modelo es negativa: el HRV observado quedó -23% respecto a lo predicho por estado y carga (innovation=-0.27 en log). La observación de hoy fue limpia y el modelo le da un peso normal. La observación nocturna de sueño fue usable pero algo más frágil, así que entra como apoyo con menos peso. El contexto reciente parece de descanso sin sesión registrada. La confianza de la lectura SSM es razonablemente buena, aunque no perfecta."
+  },
+  "go_no_go_criteria": {
+    "incremental_value_fail": "shadow state does not beat rolling HRV or load_7d baselines",
+    "degeneracy_test_fail": "simple EWMA-style baselines reproduce the state within tolerance",
+    "calibration_fail": "predictive interval coverage for lnRMSSD is not yet audited in this build"
+  }
+}

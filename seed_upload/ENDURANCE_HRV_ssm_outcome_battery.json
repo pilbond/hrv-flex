@@ -1,0 +1,253 @@
+{
+  "source": "build_hrv_ssm_outcome_battery.py",
+  "generated_at": "2026-05-20T17:03:59.852136+00:00",
+  "ewma_alpha_grid": [
+    0.05,
+    0.1,
+    0.15,
+    0.2,
+    0.3,
+    0.4
+  ],
+  "outcomes": {
+    "lnrmssd_next_day": {
+      "outcome_name": "lnRMSSD día siguiente",
+      "outcome_col": "lnrmssd_next",
+      "n_pairs": 319,
+      "evaluations": {
+        "ssm_goodness": {
+          "n": 319,
+          "spearman_rho": 0.5414281067013663,
+          "spearman_p": 1.0794951683304108e-25,
+          "holdout_mae": 0.3050119056988398,
+          "holdout_rmse": 0.49825251326239306,
+          "direction_ok": true,
+          "wf_mae_mean": 0.34678069935681716,
+          "wf_n_folds": 4
+        },
+        "rolling_hrv_goodness": {
+          "n": 319,
+          "spearman_rho": 0.5463118087182823,
+          "spearman_p": 3.2369022062718554e-26,
+          "holdout_mae": 0.3140248163960611,
+          "holdout_rmse": 0.4894959969296881,
+          "direction_ok": true,
+          "wf_mae_mean": 0.2812285747986244,
+          "wf_n_folds": 4
+        },
+        "ar1_baseline": {
+          "n": 308,
+          "spearman_rho": 0.5105028427187752,
+          "spearman_p": 7.65925948253511e-22,
+          "holdout_mae": 0.32464177884397155,
+          "holdout_rmse": 0.5123556046775527,
+          "direction_ok": true,
+          "wf_mae_mean": 0.3082712252135251,
+          "wf_n_folds": 4
+        },
+        "load_7d": {
+          "n": 265,
+          "spearman_rho": 0.37775835003385483,
+          "spearman_p": 2.050524137458907e-10,
+          "holdout_mae": 0.3126452650336779,
+          "holdout_rmse": 0.5248311789392434,
+          "direction_ok": true,
+          "wf_mae_mean": 0.3270982883181066,
+          "wf_n_folds": 4
+        },
+        "ssm_innovation": {
+          "n": 291,
+          "spearman_rho": 0.25474679691646906,
+          "spearman_p": 1.0837387789262957e-05,
+          "holdout_mae": 0.3038716302952689,
+          "holdout_rmse": 0.5000913276250522,
+          "direction_ok": true,
+          "wf_mae_mean": 0.32212984078897944,
+          "wf_n_folds": 4
+        }
+      },
+      "innovation_verdict": "innovation_wins",
+      "bootstrap_innovation_vs_rolling": {
+        "status": "ok",
+        "n_iter": 1000,
+        "delta_mae_mean": -0.008456134379177603,
+        "delta_mae_median": -0.008339977249907843,
+        "delta_mae_ci90": [
+          -0.038821839352842794,
+          0.02035561294918723
+        ],
+        "prob_delta_gt_0": 0.312
+      },
+      "ewma_grid": [
+        {
+          "alpha": 0.05,
+          "n": 310,
+          "spearman_rho": 0.5677691251864257,
+          "spearman_p": 7.480300152747571e-28,
+          "holdout_mae": 0.2946926026134466,
+          "holdout_rmse": 0.4971605014801515,
+          "direction_ok": true,
+          "wf_mae_mean": 0.2994772691441831,
+          "wf_n_folds": 4
+        },
+        {
+          "alpha": 0.1,
+          "n": 310,
+          "spearman_rho": 0.5705465029510898,
+          "spearman_p": 3.623050365341511e-28,
+          "holdout_mae": 0.29993362161947923,
+          "holdout_rmse": 0.49000918905159946,
+          "direction_ok": true,
+          "wf_mae_mean": 0.2825090986770261,
+          "wf_n_folds": 4
+        },
+        {
+          "alpha": 0.15,
+          "n": 310,
+          "spearman_rho": 0.566615476177289,
+          "spearman_p": 1.0088452636403665e-27,
+          "holdout_mae": 0.3090495960104685,
+          "holdout_rmse": 0.4918078884174487,
+          "direction_ok": true,
+          "wf_mae_mean": 0.2839507684873616,
+          "wf_n_folds": 4
+        },
+        {
+          "alpha": 0.2,
+          "n": 310,
+          "spearman_rho": 0.5626969365261429,
+          "spearman_p": 2.7623947080758463e-27,
+          "holdout_mae": 0.31604856091047256,
+          "holdout_rmse": 0.49440881838931283,
+          "direction_ok": true,
+          "wf_mae_mean": 0.2870126224938768,
+          "wf_n_folds": 4
+        },
+        {
+          "alpha": 0.3,
+          "n": 310,
+          "spearman_rho": 0.5470469465460518,
+          "spearman_p": 1.3545527628791765e-25,
+          "holdout_mae": 0.32450336044189915,
+          "holdout_rmse": 0.49944853810262935,
+          "direction_ok": true,
+          "wf_mae_mean": 0.292818114515338,
+          "wf_n_folds": 4
+        },
+        {
+          "alpha": 0.4,
+          "n": 310,
+          "spearman_rho": 0.5461454568524596,
+          "spearman_p": 1.684578930022832e-25,
+          "holdout_mae": 0.3310169075604294,
+          "holdout_rmse": 0.5039684647905323,
+          "direction_ok": true,
+          "wf_mae_mean": 0.2981197178040773,
+          "wf_n_folds": 4
+        }
+      ],
+      "ewma_verdict": {
+        "best_alpha": 0.05,
+        "best_holdout_mae": 0.2946926026134466,
+        "ssm_vs_ewma_best_delta": 0.010319303085393194,
+        "ewma_wins_holdout": true
+      },
+      "bootstrap_ssm_vs_rolling": {
+        "status": "ok",
+        "n_iter": 1000,
+        "delta_mae_mean": -0.008436582308220315,
+        "delta_mae_median": -0.008607486738147208,
+        "delta_mae_ci90": [
+          -0.03274881264534613,
+          0.015308888532133705
+        ],
+        "prob_delta_gt_0": 0.282
+      },
+      "verdict": "ssm_wins",
+      "ssm_beats_ar1": true
+    },
+    "wellness_next_day": {
+      "outcome_name": "Bienestar subjetivo día siguiente (well_fatigue_raw)",
+      "outcome_col": "wellness_outcome",
+      "n_pairs": 73,
+      "evaluations": {
+        "ssm_goodness": {
+          "n": 73,
+          "spearman_rho": -0.12736459568307537,
+          "spearman_p": 0.28291153860254575,
+          "holdout_mae": 0.6101602566056931,
+          "holdout_rmse": 0.7762993152840088,
+          "direction_ok": false,
+          "wf_mae_mean": 0.3991285263830949,
+          "wf_n_folds": 3
+        },
+        "rolling_hrv_goodness": {
+          "n": 73,
+          "spearman_rho": 0.03545792962928005,
+          "spearman_p": 0.7658425002176596,
+          "holdout_mae": 0.6584038514783911,
+          "holdout_rmse": 0.8153044408728997,
+          "direction_ok": true,
+          "wf_mae_mean": 0.40476592563478936,
+          "wf_n_folds": 3
+        },
+        "ar1_baseline": {},
+        "load_7d": {
+          "n": 63,
+          "spearman_rho": 0.02036840142269808,
+          "spearman_p": 0.874103678065003,
+          "holdout_mae": 0.5575879907134512,
+          "holdout_rmse": 0.737708832054926,
+          "direction_ok": true,
+          "wf_mae_mean": 0.37807994057068844,
+          "wf_n_folds": 3
+        },
+        "ssm_innovation": {
+          "n": 65,
+          "spearman_rho": -0.024143755205057345,
+          "spearman_p": 0.8486007591625142,
+          "holdout_mae": 0.640227152030489,
+          "holdout_rmse": 0.7889355688252956,
+          "direction_ok": false,
+          "wf_mae_mean": 0.43026108382860667,
+          "wf_n_folds": 3
+        }
+      },
+      "innovation_verdict": "innovation_wins",
+      "bootstrap_innovation_vs_rolling": {
+        "status": "ok",
+        "n_iter": 1000,
+        "delta_mae_mean": -0.05225025459666632,
+        "delta_mae_median": -0.05134512580739903,
+        "delta_mae_ci90": [
+          -0.11163514747961255,
+          0.002808186589020589
+        ],
+        "prob_delta_gt_0": 0.062
+      },
+      "ewma_grid": [],
+      "ewma_verdict": {},
+      "bootstrap_ssm_vs_rolling": {
+        "status": "ok",
+        "n_iter": 1000,
+        "delta_mae_mean": -0.04709473464800206,
+        "delta_mae_median": -0.04774617829631439,
+        "delta_mae_ci90": [
+          -0.09061515200063695,
+          -0.002566503400981218
+        ],
+        "prob_delta_gt_0": 0.043
+      },
+      "verdict": "ssm_wins",
+      "ssm_beats_ar1": null
+    }
+  },
+  "battery_conclusion": {
+    "status": "ssm_wins_at_least_one_outcome",
+    "all_verdicts": {
+      "lnrmssd_next_day": "ssm_wins",
+      "wellness_next_day": "ssm_wins"
+    },
+    "summary": "El SSM muestra ventaja predictiva en al menos un outcome alternativo. Ver detalles por outcome para evaluar si justifica revisión de Fase 2."
+  }
+}
