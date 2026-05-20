@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 import math
 
 try:
@@ -14,6 +15,7 @@ from .config import (
     GATE_EMOJI,
     PANDAS_AVAILABLE,
     QUIET,
+    SSM_SHADOW_METADATA_PATH,
     _qprint,
 )
 
@@ -98,6 +100,21 @@ def _maybe_float(value):
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _load_ssm_daily_summary(expected_date=None):
+    if not SSM_SHADOW_METADATA_PATH.exists():
+        return None
+    try:
+        payload = json.loads(SSM_SHADOW_METADATA_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    summary = payload.get("daily_user_summary")
+    if not isinstance(summary, dict) or summary.get("status") != "ok":
+        return None
+    if expected_date is not None and str(summary.get("date")) != str(expected_date):
+        return None
+    return summary
 
 
 def _format_gate_reason(value, row=None):
@@ -353,6 +370,11 @@ def show_last_daily_summary():
                     f"best={'sí' if degraded_best else 'no'} / current={'sí' if degraded_current else 'no'}"
                 )
             print(f"🧠 Reason text:     {reason_text}")
+            ssm_summary = _load_ssm_daily_summary(expected_date=fecha)
+            if ssm_summary:
+                print("🧠 SSM estado:      "
+                      f"{ssm_summary.get('state_label', 'N/A')} / confianza {ssm_summary.get('confidence_label', 'N/A')}")
+                print(f"🧠 SSM lectura:     {ssm_summary.get('interpretive_text', 'N/A')}")
             return
         except (FileNotFoundError, pd.errors.EmptyDataError, KeyError, IndexError) as e:
             print(f"⚠️  Error mostrando summary FINAL: {e}")

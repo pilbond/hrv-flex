@@ -43,6 +43,52 @@ class PipelineRunnerContractTests(unittest.TestCase):
         self.assertTrue(kwargs["check"])
         self.assertEqual(kwargs["env"]["PYTHONIOENCODING"], "utf-8")
 
+    def test_run_build_hrv_ssm_shadow_only_uses_utf8_env(self):
+        fake_result = SimpleNamespace(stdout="ssm listo\n")
+        buffer = io.StringIO()
+
+        with (
+            patch.object(pipeline_runner.Path, "exists", return_value=True),
+            patch.object(pipeline_runner.subprocess, "run", return_value=fake_result) as run_mock,
+            contextlib.redirect_stdout(buffer),
+        ):
+            ok = pipeline_runner.run_build_hrv_ssm_shadow_only()
+
+        self.assertTrue(ok)
+        self.assertIn("ssm listo", buffer.getvalue())
+        run_mock.assert_called_once()
+
+        args, kwargs = run_mock.call_args
+        self.assertEqual(args[0][0], sys.executable)
+        self.assertEqual(args[0][1], "build_hrv_ssm.py")
+        self.assertEqual(kwargs["encoding"], "utf-8")
+        self.assertEqual(kwargs["errors"], "replace")
+        self.assertTrue(kwargs["check"])
+        self.assertEqual(kwargs["env"]["PYTHONIOENCODING"], "utf-8")
+
+    def test_run_build_hrv_ssm_validation_only_uses_utf8_env(self):
+        fake_result = SimpleNamespace(stdout="validation listo\n")
+        buffer = io.StringIO()
+
+        with (
+            patch.object(pipeline_runner.Path, "exists", return_value=True),
+            patch.object(pipeline_runner.subprocess, "run", return_value=fake_result) as run_mock,
+            contextlib.redirect_stdout(buffer),
+        ):
+            ok = pipeline_runner.run_build_hrv_ssm_validation_only()
+
+        self.assertTrue(ok)
+        self.assertIn("validation listo", buffer.getvalue())
+        run_mock.assert_called_once()
+
+        args, kwargs = run_mock.call_args
+        self.assertEqual(args[0][0], sys.executable)
+        self.assertEqual(args[0][1], "build_hrv_ssm_validation.py")
+        self.assertEqual(kwargs["encoding"], "utf-8")
+        self.assertEqual(kwargs["errors"], "replace")
+        self.assertTrue(kwargs["check"])
+        self.assertEqual(kwargs["env"]["PYTHONIOENCODING"], "utf-8")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -62,6 +62,10 @@ class ConfigContractTests(unittest.TestCase):
                 self.assertEqual(config.SLEEP_PATH, data_dir / "ENDURANCE_HRV_sleep.csv")
                 self.assertEqual(config.FINAL_PATH, data_dir / "ENDURANCE_HRV_master_FINAL.csv")
                 self.assertEqual(config.DASHBOARD_PATH, data_dir / "ENDURANCE_HRV_master_DASHBOARD.csv")
+                self.assertEqual(config.SSM_SHADOW_PATH, data_dir / "ENDURANCE_HRV_ssm_shadow.csv")
+                self.assertEqual(config.SSM_SHADOW_METADATA_PATH, data_dir / "ENDURANCE_HRV_ssm_shadow_metadata.json")
+                self.assertEqual(config.SSM_VALIDATION_REPORT_JSON_PATH, data_dir / "ENDURANCE_HRV_ssm_validation_report.json")
+                self.assertEqual(config.SSM_VALIDATION_REPORT_MD_PATH, data_dir / "ENDURANCE_HRV_ssm_validation_report.md")
                 self.assertEqual(config.DROPBOX_RR_TIMEOUT_SEC, 321)
 
     def test_path_resolution_falls_back_to_a_writable_storage_root(self):

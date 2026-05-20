@@ -61,3 +61,33 @@ def run_build_hrv_final_dashboard_only() -> bool:
     if result.stdout:
         print(result.stdout)
     return True
+
+
+def run_build_hrv_ssm_shadow_only() -> bool:
+    """Ejecuta build_hrv_ssm.py para regenerar el sidecar sombra SSM."""
+    result = _run_python_script("build_hrv_ssm.py")
+    if result is None:
+        return False
+    if result.stdout:
+        print(result.stdout)
+    return True
+
+
+def run_build_hrv_ssm_validation_only() -> bool:
+    """Ejecuta build_hrv_ssm_validation.py para regenerar el reporte SSM."""
+    result = _run_python_script("build_hrv_ssm_validation.py")
+    if result is None:
+        return False
+    if result.stdout:
+        print(result.stdout)
+    return True
+
+
+def run_build_hrv_ssm_outcome_battery_only() -> bool:
+    """Ejecuta build_hrv_ssm_outcome_battery.py para la batería de outcomes alternativos."""
+    result = _run_python_script("build_hrv_ssm_outcome_battery.py")
+    if result is None:
+        return False
+    if result.stdout:
+        print(result.stdout)
+    return True

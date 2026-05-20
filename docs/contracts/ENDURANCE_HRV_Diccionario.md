@@ -30,7 +30,10 @@
 - §5quinquies. INTENSITY_DISTRIBUTION_WEEKLY (sidecar CSV) — 21 columnas
 - §5sexies. WEEKLY_COACH (sidecar JSON)
 - §5septies. WELLNESS_SUBJECTIVE (sidecar retrospectivo) — 17 columnas
-- §5octies. SESSIONS (histórico de sesiones) — 73 columnas (mapa)
+- §5octies. SSM_SHADOW (sidecar técnico SYA-17) — 30 columnas
+- §5nonies. SSM_VALIDATION_REPORT (sidecar JSON + MD)
+- §5decies_bis. SSM_OUTCOME_BATTERY (sidecar exploratorio SYA-17)
+- §5decies. SESSIONS (histórico de sesiones) — 73 columnas (mapa)
 - §6. Valores de gate_razon_base60 (y sombras)
 - §7. Valores de Flags (CORE)
 - §8. decision_path (auditoría de "quién mandó")
@@ -836,7 +839,165 @@ Guarda lo que tú mismo reportaste cada día (fatiga, estrés, ánimo, etc.) jun
 
 ---
 
-## 5octies. SESSIONS (histórico de sesiones) — 73 columnas (mapa)
+## 5octies. SSM_SHADOW (sidecar técnico SYA-17) — 30 columnas
+
+Generado por `build_hrv_ssm.py` como `ENDURANCE_HRV_ssm_shadow.csv`, acompañado por `ENDURANCE_HRV_ssm_shadow_metadata.json`. Es una capa sombra diaria para estimar un estado latente de recuperación/autonomía a partir de `lnRMSSD` (`CORE`), `load_day[t-1]` (`sessions_day`) y una observación secundaria nocturna derivada de `ENDURANCE_HRV_sleep.csv`.
+
+Reglas operativas:
+
+- no modifica `ENDURANCE_HRV_master_FINAL.csv`
+- no modifica `gate_final`, `Action` ni `reason_text`
+- no se considera señal visible al usuario final en Fase 1
+- si el histórico de inputs cambia, el sidecar debe regenerarse completo; la metadata guarda `sha256` para auditarlo
+
+| Columna | Significado |
+|---------|-------------|
+| `Fecha` | Día calendario del eje sombra. |
+| `ssm_input_ready` | `true` si el día pudo entrar en el eje diario de trabajo del modelo. |
+| `ssm_warmup_complete` | `true` cuando ya se alcanzó el `warm-up` mínimo exigido para emitir estado maduro. |
+| `ssm_recovery_state` | Estado latente filtrado. Es una señal técnica, no una decisión operativa. |
+| `ssm_state_lo` | Límite inferior del intervalo técnico al 90% para el estado filtrado. |
+| `ssm_state_hi` | Límite superior del intervalo técnico al 90% para el estado filtrado. |
+| `ssm_state_var` | Varianza del estado filtrado. |
+| `ssm_state_sd` | Desviación estándar del estado filtrado. |
+| `ssm_baseline_state` | Componente lento del Banister de dos estados. Se interpreta como la base autonómica/lenta sobre la que actúa la fatiga. |
+| `ssm_fatigue_state` | Componente rápido del Banister de dos estados. Se interpreta como la carga/fatiga aguda acumulada que tira hacia abajo del estado compuesto. |
+| `ssm_baseline_state_var` | Varianza del componente lento. |
+| `ssm_fatigue_state_var` | Varianza del componente rápido. |
+| `ssm_baseline_state_sd` | Desviación estándar del componente lento. |
+| `ssm_fatigue_state_sd` | Desviación estándar del componente rápido. |
+| `sleep_recovery_index` | Observación secundaria nocturna cruzada a escala `lnRMSSD` desde `polar_night_rmssd` y `polar_sleep_score` cuando están disponibles. Alimenta el Banister como medida auxiliar, no como gate. |
+| `sleep_recovery_index_var` | Varianza de la observación nocturna ya calibrada. |
+| `sleep_recovery_index_sd` | Desviación estándar de la observación nocturna ya calibrada. |
+| `sleep_obs_missing` | `true` si no había observación nocturna utilizable para ese día. |
+| `sleep_input_quality` | Calidad operativa de la observación nocturna: `clean`, `degraded` o `suppressed`. |
+| `sleep_obs_var_multiplier` | Multiplicador continuo de la varianza observacional nocturna derivado de calidad/artefactos. |
+| `sleep_innovation` | Resíduo nocturno del Kalman antes del update HRV matinal. Sirve como sidecar de sorpresa nocturna y matiz interpretativo. |
+| `ssm_obs_missing` | `true` si la observación HRV quedó suprimida ese día (`lnRMSSD` ausente, `Calidad=INVALID` o `LAT_NAN`). |
+| `ssm_innovation` | Residuos de observación del Kalman (`lnRMSSD` observado menos predicho) antes del update. Sirven como sidecar de sorpresa del día y base de `reason_text`/lectura diaria, pero no cambian el gate. |
+| `ssm_load_missing` | `true` si hubo fila de `sessions_day` pero `load_day` no era utilizable. |
+| `ssm_load_context_mode` | Contexto de carga usado para modular la confianza del proceso: `session_recorded`, `rest_day_no_session`, `calendar_gap_no_session`, `missing_session_value`. |
+| `ssm_proc_var_multiplier` | Multiplicador aplicado a la varianza de proceso según el contexto de carga. |
+| `ssm_input_quality` | Calidad operativa de la observación HRV: `clean`, `degraded` o `suppressed`. |
+| `ssm_obs_var_multiplier` | Multiplicador continuo de la varianza observacional derivado de calidad/artefactos. `BETA_FROZEN` ya no degrada por sí mismo el peso de la observación en SSM; queda solo como auditoría. |
+| `control_rolling_hrv_7d` | Baseline simple de control: media móvil causal 7d de `lnRMSSD`. |
+| `control_load_7d` | Baseline simple de control para carga: `load_7d` si existe, o suma móvil 7d calculada localmente. |
+
+La metadata JSON añade parámetros fijados, hashes y tamaños de `CORE`, `sessions_day` y `sleep`, diagnóstico de `warm-up`, pre-test de utilidad de carga, calibración de la observación nocturna y auditoría previa de outcomes.
+La sección `kalman_diagnostics` también expone la calibración de bandas al 90%: `interval_scale_factor`, `interval_scale_source` (método de calibración), `interval_calib_n` (n de calibración, 70% del histórico), `interval_holdout_n` (n de evaluación, 30%), `interval_coverage_source` (`holdout_30pct` si hay suficientes datos, `all_warmup_complete_fallback` si no), `interval_coverage_90pct`, `interval_coverage_ci95`, `interval_calibration_delta` e `interval_calibration_status`.
+
+Además, la metadata puede incluir `daily_user_summary`, una lectura diaria simplificada de la última fila válida del shadow:
+
+- `state_label` (`alto`, `medio`, `bajo`)
+- `confidence_label` (`alta`, `media-alta`, `media`, `baja`)
+- `innovation` como sorpresa del día frente a lo predicho por el estado y la carga: positiva si el HRV observado queda por encima de lo esperado, negativa si queda por debajo
+- `sleep_recovery_index` y `sleep_innovation` para la lectura nocturna auxiliar del mismo día
+- `interpretive_text` en castellano llano, pensado para lectura rápida del usuario final
+- `ssm_baseline_state` y `ssm_fatigue_state` para desglosar la lectura en componente lento y rápido del Banister
+
+Esta lectura no cambia el gate ni `reason_text`; solo añade matiz interpretativo sobre el estado SSM del día.
+
+Nota Fase 1: en `build_hrv_final_dashboard.py` existe un bloque latente que emitiría un mensaje `ssm_context` en `reason_text` cuando el estado SSM diverge >=0.08 del rolling HRV bajo condiciones de alta confianza (`state_sd<0.08`, `input_quality=clean`, `|innovation|<0.12`). Ese bloque se preserva tras la feature flag `HRV_SSM_REASON_TEXT_ENABLED` (default `0`, deshabilitado). No se activa en Fase 1 por dos razones: (1) la validación principal concluye `no_go`; (2) el bloque no filtra por `sport_family` y el SSM tiene comportamiento dispar entre bike (pierde a rolling) y run (empata). Para promoción real en Fase 2 hay que añadir el filtro por deporte y validar la lectura específicamente para los deportes viables.
+
+---
+
+## 5nonies. SSM_VALIDATION_REPORT (sidecar JSON + MD)
+
+Generado por `build_hrv_ssm_validation.py` como:
+
+- `ENDURANCE_HRV_ssm_validation_report.json`
+- `ENDURANCE_HRV_ssm_validation_report.md`
+
+Es la capa reproducible de validación Fase 1 del shadow SSM. No cambia el gate, no se usa en `/api/status` y no recolorea `FINAL`. Su función es responder si la señal SSM aporta algo frente a comparadores simples.
+
+El JSON incluye al menos:
+
+- `primary_outcome_name`
+- `primary_outcome_selection`
+- `pairing_rule`
+- `sign_semantics_audit`
+- `phase1_conclusion`
+- `structural_comparator`
+- `sleep_comparator`
+- `ewma_comparator`
+- `phi_sensitivity`
+- `discordant_day_analysis`
+- `sport_stratified_analysis`
+- `primary_strict_by_sport`
+- `walk_forward_by_sport`
+- `primary_operational_view`
+- `calibration_check`
+- `baseline_comparison`
+- `n_pairs`
+- `lag_days_mean`, `lag_days_median`
+- `strict_funnel`
+- `outcome_diagnostics`
+- `outcome_normalization`
+- `evaluations` por predictor (`ssm_goodness`, `rolling_hrv_goodness`, `load_badness`, `gate_badness`) con holdout simple y walk-forward temporal
+- `redundancy_check`
+- `uncertainty_slice`
+- `go_no_go`
+- `primary_strict`
+- `primary_lite`
+- `exploratory_broad`
+- `exploratory_window_t1_t3`
+- `metadata_snapshot`
+
+Reglas de lectura:
+
+- `pairing_rule` principal vuelve a usar la siguiente sesión comparable en `t+1..t+7` para preservar soporte estricto
+- `exploratory_pairing_rule` y `exploratory_window_t1_t3` conservan la variante multi-día `t+1..t+3` usando hasta 3 sesiones, solo como diagnóstico exploratorio
+- `primary_strict` gobierna el `go/no-go` de Fase 1: exige `FDS`, excluye `strength_only` y requiere soporte mínimo de baseline comparable
+- dentro de `primary_strict`, `candidate_go` exige además batir a `rolling_hrv_7d` en holdout; mejorar solo a `load_7d` ya no basta para promoción
+- `primary_lite` es diagnóstico intermedio: exige `FDS` o `FDS-lite`, excluye `strength_only` y baja el soporte mínimo a baseline comparable `>=2`; no gobierna promoción
+- `exploratory_broad` conserva todos los pares comparables disponibles, incluyendo `oriented_raw_fallback`; sirve para generar hipótesis, no para promocionar el modelo
+- `strict_funnel` explicita en qué paso se vacía el bloque estricto (`fds_only`, deporte aeróbico, baseline comparable, etc.)
+- `outcome_diagnostics` explica si el problema es falta de historial comparable o degeneración del outcome dentro de familia (por ejemplo `MAD=0`)
+- `outcome_normalization` documenta si el target se reescaló antes del `FDS`; para `cardiac_drift_worst`, la validación puede normalizar por `sport_family` usando la magnitud mediana propia del deporte antes de orientar el outcome
+- `primary_outcome_selection` deja trazabilidad de por qué el validador eligió ese outcome y no otro; si el candidato del audit upstream está degenerado, puede hacer fallback al mejor target validable
+- `sign_semantics_audit` audita directamente si la señal principal soporta lectura `goodness`; reporta `rho_goodness`, `p_value_goodness` y si esa semántica queda soportada por los datos
+- `phase1_conclusion` persiste el cierre operativo de Fase 1 y enlaza explícitamente `go_no_go`, `structural_comparator`, `sleep_comparator` y `ewma_comparator`: resume semántica preferida, si la ventaja aguanta en discordantes, y si la estratificación por deporte obliga a leer el `candidate_go` con cautela; también deja claro si el comparador estructural favorece `HRV-only`, si la observación nocturna de sueño añade o no valor frente a la variante sin sueño, y si un `EWMA` simple ya iguala o supera al Banister. Además expone `sport_go_statuses` y `sport_primary_reading` para que la lectura final pueda priorizar los `no_go` por deporte cuando el agregado global sea más optimista que las validaciones estratificadas
+- `phi_sensitivity` ejecuta una rejilla corta de `phi` y compara holdout en los mismos pares estrictos; sirve para verificar si `phi=0.92` cae en una zona razonable o si hay un valor claramente mejor
+- `discordant_day_analysis` separa el bloque estricto en días concordantes vs discordantes (SSM vs carga, SSM vs HRV, SSM vs gate) para comprobar si la mejora del modelo aparece donde realmente debería desambiguar
+- `sport_stratified_analysis` repite la evaluación del bloque estricto por `sport_family`; sirve para detectar si el outcome o la señal funcionan en un deporte y se degradan al mezclarlos
+- `primary_strict_by_sport` promociona esa misma lectura a bloques primarios por deporte viable (`run`, `bike`, etc.), con su propio `go_no_go`, para que la interpretación no dependa solo del target combinado
+- `walk_forward_by_sport` reexpone el `walk-forward` de cada deporte viable como vista operativa separada, para que la comparación no quede mezclada en el agregado global
+- `primary_operational_view` fija qué lectura debe priorizarse a nivel operativo (`sport_first` o `global_with_sport_context`) para evitar que un `candidate_go` agregado eclipse varios `no_go` por deporte
+- `calibration_check` resume si las bandas técnicas `ssm_state_lo/hi` están calibradas frente a `lnRMSSD` observado y expone cobertura, delta e intervalo de confianza
+- `baseline_comparison` añade un `baseline` trivial (`median_fds`) y un baseline `last_in_family` para saber si el modelo realmente aporta algo más allá de un predictor tonto; además incluye `bootstrap_ci` sobre diferencias de MAE para cuantificar si la brecha frente a `rolling` y los baselines es señal o ruido
+- `ewma_comparator` prueba una baseline EWMA sobre `lnRMSSD` con rejilla de `alpha` y reporta holdout, walk-forward y deltas frente al Banister; sirve como test de degeneración honesto para saber si el filtro aporta más que un suavizado exponencial simple
+- `ssm_goodness` = lectura principal validada de `ssm_recovery_state`; más alto implica mejor outcome funcional orientado
+- `rolling_hrv_goodness` = baseline simple de HRV suavizada leído con la misma semántica de `goodness`
+- `load_badness` sigue siendo baseline de estímulo reciente, no una decisión operativa ni un estado fisiológico equivalente
+- `gate_badness` es referencia informativa, no baseline neutro independiente
+- la comparabilidad del outcome prioriza `route_id` recurrente; si no hay soporte suficiente, cae a `session_group`; si tampoco lo hay, cae a familia `session_family + sport_family`
+- `candidate_go` no significa promoción automática; solo habilita discutir Fase 2, y requiere batir explícitamente a `rolling_hrv_7d` en el bloque correspondiente
+
+El `.md` es un resumen humano del mismo análisis. Si hay discrepancia, manda el `.json`.
+
+---
+
+## 5decies_bis. SSM_OUTCOME_BATTERY (sidecar exploratorio SYA-17)
+
+Generado por `build_hrv_ssm_outcome_battery.py` como `ENDURANCE_HRV_ssm_outcome_battery.json` y `.md`.
+
+Prueba el predictor SSM contra outcomes alternativos a `cardiac_drift_worst`:
+
+- `lnrmssd_next_day`: predice `lnRMSSD[t+1]` desde `ssm_recovery_state[t]`, rolling, AR(1), EWMA grid y `ssm_innovation[t]`.
+- `wellness_next_day`: predice `well_fatigue_raw[t+1]` (u otra columna `_raw` con mejor cobertura) desde los mismos predictores.
+
+Para cada outcome incluye: evaluaciones Spearman + holdout MAE/RMSE + walk-forward, grid EWMA, bootstrap CI90 sobre delta MAE SSM−rolling y veredicto (`ssm_wins`, `rolling_wins`, `tied`, `insufficient_data`).
+
+Hallazgo principal de Fase 1: `ssm_innovation[t]` predice `well_fatigue_raw[t+1]` con CI90 enteramente negativo (MAE innovación 0.55 vs rolling 0.62, `prob_delta_gt_0=0.004`, n=71). Señal incipiente; se fortalecerá con más entradas de wellness.
+
+Reglas de lectura:
+- Este sidecar es exploratorio; no modifica el gate ni recolorea `FINAL`.
+- El veredicto `ssm_wins` no implica promoción; solo indica que el SSM supera al rolling por encima del margen de ruido (0.005 MAE).
+- `ssm_beats_ar1: None` significa que AR(1) no aplica para ese outcome (wellness), no que el SSM pierda.
+
+---
+
+## 5decies. SESSIONS (histórico de sesiones) — 73 columnas (mapa)
 
 Generado por `build_sessions.py` como `ENDURANCE_HRV_sessions.csv`. Es el **histórico canónico** de sesiones de Intervals.icu con zonas, bloques de trabajo, drift y métricas derivadas. No afecta al gate HRV, pero es la fuente a partir de la cual se construye `sessions_day.csv` (§5ter) y los sidecars semanales (§5quinquies y §5sexies).
 
