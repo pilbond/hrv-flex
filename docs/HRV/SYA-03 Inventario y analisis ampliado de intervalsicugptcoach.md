@@ -1173,6 +1173,35 @@ Regla de incorporacion:
 2. si depende de horizonte longitudinal, benchmark o especializacion por deporte, debe entrar por `SYA-08`
 3. si depende de retrospectiva semanal o de reabrir la semantica del baseline HRV, no debe camuflarse como enriquecimiento local de `analysis/`
 
+#### 8.2 Backlog diferido SYA-10: cierre y trazabilidad (2026-05-05)
+
+`SYA-10` no autoriza implementacion. Su funcion es contener y desambiguar ideas que:
+
+- no encajan hoy como senal compuesta de sesion
+- no deben entrar por la puerta de atras en `analysis_only_context`
+- o reabren semantica weekly o HRV global antes de estar bien definidas
+
+Regla operativa:
+
+- toda idea del backlog diferido debe acabar en una tarjeta propia o quedar descartada de forma explicita
+- `SYA-10` no ejecuta esas ideas; solo fija su destino natural y su criterio de reactivacion
+
+Tabla activa de trazabilidad:
+
+| idea | destino natural | por que no entra hoy | criterio de reactivacion | tarea destino |
+|---|---|---|---|---|
+| `HRV rebound profile D+1/D+3` | `weekly retrospectivo` | usa informacion posterior a la sesion y no debe confundirse con una lectura inmediata de coste | pasa a `red` solo si existe definicion operacional del rebote, regla de atribucion a sesion o bloque, politica para dias contaminados y destino final escrito | [SYA-16](SYA-16%20HRV%20rebound%20profile%20D%2B1%20D%2B3.md) |
+| `baseline drift 60v180` | `HRV global / baseline` | toca baseline, flags y potencialmente gate; no pertenece a capa coach de sesion | pasa a `red` solo si existe definicion operacional `60v180`, decision documentada sobre impacto en `baseline/flags/gate` y relacion cerrada con el baseline adaptativo de largo plazo | [HG-01](HG-01%20Propuesta%20baseline%20drift%2060v180.md) |
+| `continuidad aerobica Z1 alta` | `longitudinal per-sport no operativo` | la semantica de `Z1 alta` y de continuidad sigue siendo ambigua por deporte y horizonte | pasa a `red` solo si existe definicion operacional de `Z1 alta`, definicion de continuidad, decision de aplicabilidad por deporte y comparacion documentada con valor incremental frente a `SYA-08`, `DO-01` y `DO-02` | [SYA-15](SYA-15%20Continuidad%20aer%C3%B3bica%20Z1%20alta.md) |
+| `z3 budget semanal` | `weekly retrospectivo` | depende de tolerancia historica y puede solaparse con carga, clustering e intensidad semanal ya disponibles | pasa a `red` solo si existe definicion operacional de `Z3` y del `budget`, comparacion documentada con la capa actual y conclusion explicita de valor incremental no redundante | [SYA-14](SYA-14%20Z3%20budget%20semanal.md) |
+| `TSB / form score clasico` | `descartado por redundancia` | ya existe contexto suficiente en `icu_atl/ctl/tsb` y en la capa canonica de carga de `sessions_day` | solo reconsiderar si aparece evidencia clara de valor incremental no redundante | sin tarea nueva |
+
+Estado de cierre de `SYA-10`:
+
+- el backlog ya no queda como lista difusa dentro de `SYA-03`
+- cada idea principal tiene destino natural y tarjeta hija propia, salvo `TSB / form score` que queda descartado
+- cualquier reactivacion futura debe salir de su tarjeta hija, no de `SYA-10`
+
 ### 9. Decision final
 
 La conclusion mas robusta tras integrar el analisis exploratorio y la revision critica es esta:
@@ -1222,6 +1251,12 @@ En resumen:
 ## 11. Plantilla obligatoria de trazabilidad para subtareas SYA-03A a SYA-03E
 
 Estas subtareas no deben arrancarse como analisis independientes. Cada una debe tratarse como ejecucion parcial del documento maestro `SYA-03`.
+
+Para backlog diferido y reactivaciones posteriores como `SYA-10`, la referencia ya no es esta plantilla cerrada de fases `A` a `E`, sino la tabla de `8.2 Backlog diferido SYA-10: cierre y trazabilidad`, que fija:
+
+- destino natural de cada idea
+- criterio binario de promocion a `red`
+- y enlace obligatorio a su tarjeta hija propia o a su descarte explicito
 
 Bloque obligatorio para cualquier subtarea derivada:
 

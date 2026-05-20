@@ -66,7 +66,7 @@ La prioridad canonica de cobertura RR es Dropbox primero y Polar como fallback.
 
 - `build_sessions.py`
   - Pipeline de sesiones desde Intervals.icu.
-  - Genera sesiones, agregados diarios, distribucion semanal, metadata y wellness subjetivo.
+  - Genera sesiones, agregados diarios, distribucion semanal, weekly coach, metadata y wellness subjetivo.
 
 - `analysis/`
   - Modulo local de analisis de sesiones.
@@ -107,6 +107,7 @@ La prioridad canonica de cobertura RR es Dropbox primero y Polar como fallback.
 - `ENDURANCE_HRV_sessions.csv`
 - `ENDURANCE_HRV_sessions_day.csv`
 - `ENDURANCE_HRV_intensity_distribution_weekly.csv`
+- `ENDURANCE_HRV_weekly_coach.json`
 - `ENDURANCE_HRV_sessions_metadata.json`
 - `ENDURANCE_HRV_wellness_subjective.csv`
 
@@ -154,6 +155,10 @@ Outputs principales de sesiones:
 - `ENDURANCE_HRV_intensity_distribution_weekly.csv`
   - Distribucion observada semanal por deporte.
 
+- `ENDURANCE_HRV_weekly_coach.json`
+  - Resumen semanal estructurado con marcas de corte, cobertura y contexto retrospectivo visible en UI.
+  - Desde `SYA-14`, puede incluir `z3_budget_by_sport` y `z3_budget_summary` como lectura de percentil historico de Z3 por deporte.
+
 - `ENDURANCE_HRV_sessions_metadata.json`
   - Metadata del pipeline y `training_audit`.
 
@@ -188,9 +193,10 @@ Reglas operativas:
 Notas de UI:
 
 - El bloque `Detalle tecnico` muestra el output operativo del ultimo job.
-- `GET /api/status` expone estado del job y diagnosticos de runtime.
+- `GET /api/status` expone estado del job, diagnosticos de runtime y el resumen ya procesado del weekly coach.
 - Si esta habilitado por entorno, la UI puede exponer import de CSV seed.
 - La UI permite borrar el ultimo RR moviendolo a backup, no borrandolo de forma destructiva.
+- Cuando existe `ENDURANCE_HRV_weekly_coach.json`, la UI puede mostrar `planning_note` y `Contexto Z3 semanal` sin introducir reglas nuevas de decision.
 
 ## Significado del bloque tecnico
 
@@ -206,7 +212,7 @@ Ejemplo:
 🚦 Gate:                    VERDE++
 🧭 Acción:                  INTENSIDAD_OK / EJECUTAR_PLAN
 🧾 Razón gate:              2D_OK
-🧠 Reason text:             VERDE pero con 2 días intensos en los últimos 5: prudencia con la intensidad (1/3d · 2/5d) | VERDE con carga acumulada (load_3d=221): precaución intensidad
+🧠 Reason text:             VERDE pero con 2 días intensos en los últimos 5: prudencia con la intensidad (1/3d · 2/5d) | VERDE con carga aguda 72h (acute_load_72h_rel=4.20x; load_3d=221): precaución intensidad
 🧩 Decision path:           BASE60_ONLY
 🧪 Contexto recuperación:  contexto completo / señales alineadas
 📐 Base 60d:                44.1 ms (n=41)

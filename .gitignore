@@ -78,6 +78,7 @@ env/
 *.log
 analysis/reports/
 analysis/.cache/
+new/
 
 # Testing
 .pytest_cache/

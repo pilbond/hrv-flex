@@ -38,6 +38,7 @@ Usa como base primaria de evidencia:
 - Puedes usar informes de sesion de esa misma semana solo si sirven como ejemplo concreto de un patron semanal.
 - No uses informes previos como fuente primaria de evidencia.
 - Si citas una sesion concreta, que sea para ilustrar un patron semanal, no para recapitular la semana.
+- Si existe `data/ENDURANCE_HRV_weekly_coach.json`, usa `planning_note` como punto de partida breve para la Seccion 7, pero sin copiarla de forma literal si la evidencia de la semana pide matizarla. Esa nota ya se muestra en la UI en la tarjeta `Coach semanal`, asi que no la trates como una fuente primaria nueva.
 
 ## 6. Reglas operativas de construccion
 - Construye un calendario explicito de 7 dias con join por fecha entre las fuentes.

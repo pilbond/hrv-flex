@@ -43,6 +43,70 @@ def _write_sessions_day(data_dir: Path, rows: list[dict[str, object]]) -> None:
 
 
 class BuildFinalDashboardContractTests(unittest.TestCase):
+    def test_compute_dual_baseline_signals_exposes_best_and_current_normal(self):
+        fechas = pd.Series(pd.date_range("2026-01-01", periods=190, freq="D").strftime("%Y-%m-%d"))
+        rmssd = pd.Series(([50.0] * 90) + ([30.0] * 30) + ([38.0] * 30) + ([42.0] * 40), dtype=float)
+        cfg = final_builder.Config(
+            warning_mode="adaptive90",
+            adaptive_window_days=90,
+            adaptive_ref_quantile=0.75,
+            warning_factor=0.85,
+            healthy_factor=0.85,
+        )
+
+        out = final_builder.compute_dual_baseline_signals(fechas, rmssd, healthy_rmssd=50.0, cfg=cfg)
+
+        self.assertTrue(all(bool(x) for x in out["degraded_vs_best"][90:]))
+        self.assertFalse(any(bool(x) for x in out["degraded_vs_current_normal"][-10:]))
+        np.testing.assert_allclose(out["warning_threshold_best"][-5:], np.array([42.5] * 5))
+
+    def test_compute_warning_signal_healthy85_uses_fixed_anchor(self):
+        fechas = pd.Series(pd.date_range("2026-01-01", periods=3, freq="D").strftime("%Y-%m-%d"))
+        rmssd = pd.Series([50.0, 42.0, 39.0], dtype=float)
+        cfg = final_builder.Config(warning_mode="healthy85", healthy_factor=0.85)
+
+        thresholds, degraded = final_builder.compute_warning_signal(fechas, rmssd, healthy_rmssd=50.0, cfg=cfg)
+
+        np.testing.assert_allclose(thresholds, np.array([42.5, 42.5, 42.5]))
+        self.assertEqual(degraded.tolist(), [False, True, True])
+
+    def test_compute_warning_signal_adaptive90_recovers_after_prolonged_drop(self):
+        fechas = pd.Series(pd.date_range("2026-01-01", periods=190, freq="D").strftime("%Y-%m-%d"))
+        rmssd = pd.Series(([50.0] * 90) + ([30.0] * 30) + ([38.0] * 30) + ([42.0] * 40), dtype=float)
+        cfg = final_builder.Config(
+            warning_mode="adaptive90",
+            adaptive_window_days=90,
+            adaptive_ref_quantile=0.75,
+            warning_factor=0.85,
+        )
+
+        thresholds, degraded = final_builder.compute_warning_signal(fechas, rmssd, healthy_rmssd=float("nan"), cfg=cfg)
+
+        self.assertTrue(np.isnan(thresholds[0]))
+        self.assertTrue(all(bool(x) for x in degraded[90:120]))
+        self.assertTrue(bool(degraded[150]))
+        self.assertFalse(any(bool(x) for x in degraded[-10:]))
+
+    def test_compute_warning_signal_adaptive90_uses_calendar_window_not_row_count(self):
+        fechas = pd.Series(
+            pd.date_range("2026-01-01", periods=35, freq="D").strftime("%Y-%m-%d").tolist()
+            + ["2026-05-01"]
+        )
+        rmssd = pd.Series([50.0] * 36, dtype=float)
+        cfg = final_builder.Config(
+            warning_mode="adaptive90",
+            adaptive_window_days=90,
+            adaptive_ref_quantile=0.75,
+            warning_factor=0.85,
+        )
+
+        thresholds, degraded = final_builder.compute_warning_signal(fechas, rmssd, healthy_rmssd=float("nan"), cfg=cfg)
+
+        self.assertTrue(np.isnan(thresholds[0]))
+        self.assertFalse(np.isnan(thresholds[34]))
+        self.assertTrue(np.isnan(thresholds[35]))
+        self.assertFalse(bool(degraded[35]))
+
     def test_parse_args_ignores_flags_without_value(self):
         self.assertEqual(final_builder.parse_args(["--decision-mode"]), {})
         self.assertEqual(final_builder.parse_args(["--data-dir"]), {})
@@ -253,6 +317,10 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
                 final, _ = final_builder.build_final_and_dashboard(core, final_builder.Config())
 
         self.assertFalse(final.empty)
+        self.assertIn("degraded_vs_best", final.columns)
+        self.assertIn("degraded_vs_current_normal", final.columns)
+        self.assertIn("warning_threshold_best", final.columns)
+        self.assertIn("warning_threshold_current_normal", final.columns)
         self.assertTrue(set(captured_layers).issubset(final_builder._VALID_LAYERS))
         self.assertIn("inference", captured_layers)
         self.assertIn("action", captured_layers)
@@ -334,6 +402,8 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
                         "load_day": 70,
                         "load_3d": 210,
                         "load_3d_nobs": 3,
+                        "acute_load_72h_rel": 4.6,
+                        "load_ctx_ready": True,
                     }
                 ],
             )
@@ -345,8 +415,86 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
         self.assertEqual(row["gate_final"], "VERDE")
         self.assertEqual(row["recovery_support_class"], "neutral")
         self.assertFalse(row["recovery_discordance_flag"])
-        self.assertIn("VERDE con carga acumulada (load_3d=210): precaución con la intensidad", row["reason_text"])
+        self.assertIn("Carga aguda 72h muy alta respecto a tu base crónica", row["reason_text"])
+        self.assertIn(
+            "VERDE con carga aguda 72h (acute_load_72h_rel=4.60x; load_3d=210): precaución con la intensidad",
+            row["reason_text"],
+        )
         self.assertNotIn("VERDE con recuperación frágil", row["reason_text"])
+
+    def test_load_caution_on_green_uses_convergence_when_acute_and_acwr_align(self):
+        core = _core_frame()
+
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            _write_sessions_day(
+                data_dir,
+                [
+                    {
+                        "Fecha": "2026-02-08",
+                        "load_day": 70,
+                        "load_3d": 210,
+                        "load_3d_nobs": 3,
+                        "acute_load_72h_rel": 4.2,
+                        "acwr_simple_prev": 1.4,
+                        "monotony_7d_prev": 1.2,
+                        "strain_7d_prev": 500.0,
+                        "load_ctx_ready": True,
+                    }
+                ],
+            )
+
+            with patch.object(final_builder, "DATA_DIR", data_dir):
+                final, _ = final_builder.build_final_and_dashboard(core, final_builder.Config())
+
+        row = final.loc[final["Fecha"] == "2026-02-08"].iloc[0]
+        self.assertEqual(row["gate_final"], "VERDE")
+        self.assertIn(
+            "VERDE con convergencia de carga (carga 72h + ACWR): precaución con la intensidad reforzada",
+            row["reason_text"],
+        )
+
+    def test_no_load_caution_is_emitted_when_load_context_is_not_ready(self):
+        core = _core_frame()
+
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            _write_sessions_day(
+                data_dir,
+                [
+                    {
+                        "Fecha": "2026-02-08",
+                        "load_day": 70,
+                        "load_3d": 210,
+                        "load_3d_nobs": 3,
+                        "acute_load_72h_rel": 4.6,
+                        "load_ctx_ready": False,
+                    }
+                ],
+            )
+
+            with patch.object(final_builder, "DATA_DIR", data_dir):
+                final, _ = final_builder.build_final_and_dashboard(core, final_builder.Config())
+
+        row = final.loc[final["Fecha"] == "2026-02-08"].iloc[0]
+        self.assertNotIn("Carga aguda 72h", row["reason_text"])
+        self.assertNotIn("convergencia de carga", row["reason_text"])
+
+    def test_reason_text_uses_explicit_fallback_when_no_context_is_emitted(self):
+        core = _core_frame()
+
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            with patch.object(final_builder, "DATA_DIR", data_dir):
+                final, _ = final_builder.build_final_and_dashboard(core, final_builder.Config())
+
+        row = final.iloc[-1]
+        self.assertRegex(
+            row["reason_text"],
+            r"^(VERDE: HRV en rango, sin señales que matizar"
+            r"|(?:ÁMBAR|ROJO): sin señales individuales destacables"
+            r"|sin señales que añadir)$",
+        )
 
     def test_reason_text_adds_fragile_recovery_warning_on_ffill_clustering_window(self):
         core = _core_frame()
@@ -421,6 +569,8 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
                         "load_day": 70,
                         "load_3d": 210,
                         "load_3d_nobs": 3,
+                        "acute_load_72h_rel": 4.2,
+                        "load_ctx_ready": True,
                     }
                 ],
             )
@@ -610,6 +760,178 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
             final_builder._build_clustering_window_clause(2, None),
             "2 días intensos en los últimos 3",
         )
+
+
+    # --- Pedagogical/structural invariants (UX-01 follow-up) ---
+
+    def test_reason_text_has_no_exact_duplicate_segments(self):
+        """Ningún reason_text debe contener el mismo segmento dos veces."""
+        core = _core_frame()
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            _write_sleep(
+                data_dir,
+                [
+                    {
+                        "Fecha": "2026-02-08",
+                        "polar_sleep_duration_min": 330,
+                        "polar_interruptions_long": 12,
+                        "sleep_dur_p10": 360,
+                        "sleep_int_p90": 8,
+                        "polar_night_rmssd": 58,
+                    }
+                ],
+            )
+            _write_sessions_day(
+                data_dir,
+                [
+                    {
+                        "Fecha": "2026-02-08",
+                        "load_day": 120,
+                        "load_3d": 260,
+                        "load_3d_nobs": 3,
+                    }
+                ],
+            )
+            with patch.object(final_builder, "DATA_DIR", data_dir):
+                final, _ = final_builder.build_final_and_dashboard(core, final_builder.Config())
+
+        for _, row in final.iterrows():
+            text = str(row["reason_text"])
+            segments = [s.strip() for s in text.replace(" · ", ". ").split(". ") if s.strip()]
+            self.assertEqual(
+                len(segments),
+                len(set(segments)),
+                f"reason_text contiene segmento duplicado en {row['Fecha']}: {text!r}",
+            )
+
+    def test_glosa_is_present_for_acwr_and_monotony_messages(self):
+        """Cuando se emite un mensaje de monotony/acwr, debe llevar anchor verbal."""
+        core = _core_frame()
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            _write_sessions_day(
+                data_dir,
+                [
+                    {
+                        "Fecha": "2026-02-08",
+                        "load_day": 70,
+                        "load_3d": 210,
+                        "load_3d_nobs": 3,
+                        "acwr_simple_prev": 1.55,
+                        "monotony_7d_prev": 2.1,
+                        "load_ctx_ready": True,
+                    }
+                ],
+            )
+            with patch.object(final_builder, "DATA_DIR", data_dir):
+                final, _ = final_builder.build_final_and_dashboard(core, final_builder.Config())
+
+        row = final.loc[final["Fecha"] == "2026-02-08"].iloc[0]
+        text = str(row["reason_text"])
+        self.assertRegex(text, r"ACWR=\d+\.\d+, (muy alta|alta|baja)")
+        self.assertRegex(text, r"monotonía=\d+\.\d+, (alta|moderada)")
+
+    def test_acute_drop_message_includes_percentage_tendency(self):
+        """El mensaje de caída aguda debe traer el delta cuantificado."""
+        core = _core_frame()
+        # Forzar una caída clara en el último día
+        last_idx = len(core) - 1
+        core.loc[last_idx, "lnRMSSD"] = 3.10
+        core.loc[last_idx, "RMSSD_stable"] = float(np.exp(3.10))
+
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            with patch.object(final_builder, "DATA_DIR", data_dir):
+                final, _ = final_builder.build_final_and_dashboard(core, final_builder.Config())
+
+        last = final.iloc[-1]
+        if "RMSSD de hoy cayó" in str(last["reason_text"]):
+            self.assertRegex(
+                str(last["reason_text"]),
+                r"RMSSD de hoy cayó bruscamente.*\d+ ms vs base \d+ ms, [-+]\d+%",
+                "acute_drop debe incluir ms + porcentaje",
+            )
+
+    # --- Unit tests directos sobre helpers de reason_text ---
+
+    def test_filter_redundant_recovery_support_drops_single_nightly_echo(self):
+        items = [
+            {"type": "nightly_discordance", "message": "ROJO, pero el HRV de sueño salió alto (50ms): la recuperación nocturna fue mejor de lo esperado"},
+            {"type": "recovery_support", "message": "ROJO, pero la señal nocturna sale mejor de lo esperado"},
+        ]
+        out = final_builder._filter_redundant_recovery_support(items)
+        types_out = [it["type"] for it in out]
+        self.assertEqual(types_out, ["nightly_discordance"])
+
+    def test_filter_redundant_recovery_support_drops_recovery_discordance_echo(self):
+        items = [
+            {"type": "nightly_discordance", "message": "ROJO, pero el HRV de sueño salió alto"},
+            {"type": "recovery_discordance", "message": "ROJO, pero la señal nocturna sale mejor de lo esperado"},
+        ]
+        out = final_builder._filter_redundant_recovery_support(items)
+        self.assertEqual([it["type"] for it in out], ["nightly_discordance"])
+
+    def test_filter_redundant_recovery_support_keeps_multi_signal_message(self):
+        """Si el recovery_support menciona AMBAS señales (sueño + carga) y eso
+        no aparece en la tabla de redundancia, se preserva."""
+        items = [
+            {"type": "nightly_discordance", "message": "ROJO, pero el HRV de sueño salió alto"},
+            {"type": "recovery_support", "message": "ROJO, pero sueño y carga reciente no encajan con un rojo claro"},
+        ]
+        out = final_builder._filter_redundant_recovery_support(items)
+        self.assertEqual(len(out), 2)
+
+    def test_filter_redundant_keeps_recovery_support_when_no_specific_emitter(self):
+        """Sin emisor específico, el recovery_support sobrevive aunque carque la frase."""
+        items = [
+            {"type": "recovery_support", "message": "ROJO, pero la señal nocturna sale mejor de lo esperado"},
+        ]
+        out = final_builder._filter_redundant_recovery_support(items)
+        self.assertEqual(len(out), 1)
+
+    def test_filter_redundant_load_echo_dropped_when_acwr_present(self):
+        items = [
+            {"type": "acwr", "message": "Carga reciente por encima de tu base habitual (ACWR=1.40, alta)"},
+            {"type": "recovery_support", "message": "VERDE, pero la carga reciente pide prudencia"},
+        ]
+        out = final_builder._filter_redundant_recovery_support(items)
+        self.assertEqual([it["type"] for it in out], ["acwr"])
+
+    def test_compose_reason_text_structures_verdict_why_action(self):
+        items = [
+            {"type": "green_load_caution", "message": "VERDE con contexto de carga exigente: prudencia"},
+            {"type": "monotony", "message": "Semana muy repetitiva (monotonía=2.10, alta)"},
+            {"type": "strain", "message": "Semana muy exigente (strain=900, muy elevado)"},
+            {"type": "action_constraint", "message": "Acción: contener la intensidad"},
+        ]
+        text = final_builder._compose_reason_text(items, "VERDE")
+        # verdict primero, whys con ";", action al final con prefijo único
+        self.assertTrue(text.startswith("VERDE con contexto de carga exigente"))
+        self.assertIn("monotonía=2.10, alta); Semana muy exigente", text)
+        self.assertTrue(text.endswith("Acción: contener la intensidad"))
+        # nunca duplica el prefijo Acción
+        self.assertEqual(text.count("Acción:"), 1)
+
+    def test_compose_reason_text_empty_returns_gate_aware_fallback(self):
+        self.assertIn("HRV en rango", final_builder._compose_reason_text([], "VERDE"))
+        self.assertIn("ÁMBAR", final_builder._compose_reason_text([], "ÁMBAR"))
+        self.assertIn("ROJO", final_builder._compose_reason_text([], "ROJO"))
+
+    def test_compose_reason_text_dedups_exact_duplicates(self):
+        items = [
+            {"type": "monotony", "message": "Semana repetitiva (monotonía=2.0, alta)"},
+            {"type": "monotony", "message": "Semana repetitiva (monotonía=2.0, alta)"},
+        ]
+        text = final_builder._compose_reason_text(items, "VERDE")
+        self.assertEqual(text.count("monotonía=2.0"), 1)
+
+    def test_strip_action_prefix_handles_extended_variants(self):
+        self.assertEqual(final_builder._strip_action_prefix("Acción: contener"), "contener")
+        self.assertEqual(final_builder._strip_action_prefix("Acción sugerida: contener"), "contener")
+        self.assertEqual(final_builder._strip_action_prefix("Acción recomendada: descanso"), "descanso")
+        self.assertEqual(final_builder._strip_action_prefix("Accion: contener"), "contener")
+        self.assertEqual(final_builder._strip_action_prefix("contener"), "contener")
 
 
 if __name__ == "__main__":

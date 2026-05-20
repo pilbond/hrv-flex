@@ -1,14 +1,14 @@
 # ENDURANCE HRV — Sessions Schema
 
-**Revisión:** r2026-04-20 v3.12 (params_hash: c1c78a78)
+**Revisión:** r2026-05-18 v3.15 (SYA-14 resumen weekly coach y consumo real /api/status)
 **Estado:** Producción
 
 **Documentos relacionados:**
 - `ENDURANCE_HRV_Estructura.md` — contrato de datos del sistema completo (CORE, FINAL, DASHBOARD, SLEEP)
 - `ENDURANCE_HRV_Spec_Tecnica.md` — fórmulas y algoritmos del gate HRV
-- `ENDURANCE_HRV_Diccionario.md` — diccionario de columnas del gate HRV
+- `ENDURANCE_HRV_Diccionario.md` — diccionario de columnas del gate HRV y sidecars
 
-**Convención de versión:** esta cabecera identifica la revisión del pipeline de sesiones (`r2026-04-20 v3.12`), no la versión global del sistema HRV. La versión de sistema vigente se declara en `ENDURANCE_HRV_Spec_Tecnica.md`.
+**Convención de versión:** esta cabecera identifica la revisión del pipeline de sesiones (`r2026-05-13 v3.13`), no la versión global del sistema HRV. La versión de sistema vigente se declara en `ENDURANCE_HRV_Spec_Tecnica.md`.
 
 ---
 
@@ -45,6 +45,7 @@ Este pipeline está diseñado para **un único atleta** y consume la cuenta pers
 | `sessions.csv` | 1 fila por sesión | Detalle completo de cada entrenamiento: zonas, work blocks, drift, clasificación y minutos primarios por zona (`z1/z2/z3_total_min`). Lo que miras cuando quieres entender una sesión concreta. |
 | `sessions_day.csv` | 1 fila por día | Agregados diarios + rolling 3d/7d/14d/28d con cobertura, más la capa canónica de contexto de carga (`ACWR`, `monotony`, `strain`), una señal corta de clustering reciente de intensidad y la señal rolling `DO-02` de polarización por familia con resumen de episodio. Lo que lee `build_hrv_final_dashboard.py` para generar avisos de carga en reason_text. |
 | `ENDURANCE_HRV_intensity_distribution_weekly.csv` | 1 fila por semana y deporte | Resumen canónico `sport x week` de distribución observada de intensidad: minutos ponderados por zona, `work_*`, patrón descriptivo (`polarized`, `pyramidal`, `threshold`, `mixed`) y confianza explícita. Pensado para análisis semanal y comparativa intra-deporte; no alimenta el gate. |
+| `ENDURANCE_HRV_weekly_coach.json` | 1 por corrida | Sidecar semanal estructurado: `iso_week`, ventana, marcas de corte (`as_of_date`, `generated_at`, `anchor_source`), cobertura (`week_expected_days`, `week_data_coverage_pct`), tipo semanal, carga, riesgo de progresión, tendencia HRV, calidad de datos, `planning_note` breve, `sleep_context` opcional de trazabilidad, `z3_budget_by_sport` opcional como lectura retrospectiva `per-sport` de `SYA-14` y `z3_budget_summary` opcional como resumen corto de UI. `sleep_context` y `z3_budget_by_sport` quedan como trazabilidad interna del JSON; la UI consume `planning_note`, `iso_week`, `window_end`, `data_quality` y `weekly_coach_z3_budget_summary` desde `/api/status`. No alimenta el gate. |
 | `ENDURANCE_HRV_sessions_metadata.json` | 1 por corrida | Trazabilidad: versión del pipeline, parámetros usados, hash de configuración, sampling rate del stream y una auditoría ligera por capas (`dataset/signal/metric`) para coaching y carga. |
 | `ENDURANCE_HRV_wellness_subjective.csv` | 1 fila por día | Wellness subjetivo diario desde Intervals (`fatigue`, `stress`, `mood`, `motivation`, `soreness`, `injury`, comentario), con labels y cobertura 7d para análisis retrospectivo o capas separadas. |
 
@@ -71,7 +72,7 @@ El stream HR de Intervals es idéntico al TCX del sensor (verificado empíricame
 
 El pipeline de sesiones y el módulo `analysis/` se conectan, pero no comparten contrato de salida:
 
-- `build_sessions.py` sigue siendo la fuente canónica de `sessions.csv`, `sessions_day.csv`, `ENDURANCE_HRV_sessions_metadata.json` y sidecars operativos.
+- `build_sessions.py` sigue siendo la fuente canónica de `sessions.csv`, `sessions_day.csv`, `ENDURANCE_HRV_weekly_coach.json`, `ENDURANCE_HRV_sessions_metadata.json` y sidecars operativos.
 - `analysis/` puede reutilizar:
   - `run_power_*`
   - `speed_first_half/second_half`
@@ -242,7 +243,7 @@ Cómo se clasifica la sesión y cómo se compara con tu histórico.
 
 | Campo | Tipo | Qué es |
 |-------|------|--------|
-| `load` | int | Carga de entrenamiento asignada por Intervals.icu (su modelo HRSS/TSS). No lo calcula este pipeline — viene tal cual de la fuente. Es el valor que alimenta `load_day` y `load_3d` en sessions_day.csv. |
+| `load` | int | Carga de entrenamiento asignada por Intervals.icu (su modelo HRSS/TSS). No lo calcula este pipeline — viene tal cual de la fuente. Es el valor que alimenta `load_day` y, por arrastre, `load_3d` y `acute_load_72h_rel` en sessions_day.csv. |
 | `trimp` | float? | Carga TRIMP tipo Banister calculada por Intervals a partir de duración e intensidad cardíaca. Es una segunda señal fisiológica de carga, complementaria a `load` y separada de la percepción subjetiva. |
 | `rpe` | int? (1-10) | Rate of Perceived Exertion. Percepción subjetiva del esfuerzo que tú registraste después de entrenar. 1=muy fácil, 10=máximo. NaN si no lo registraste. El pipeline lo conserva pero no lo usa para clasificar — es informativo. |
 | `feel` | int? | Cómo te sentiste durante la sesión (escala Intervals). NaN si no lo registraste. Informativo. |
@@ -369,9 +370,10 @@ Los campos rolling son sumas o medias de los últimos N días, con un campo `_no
 | `load_14d` / `load_14d_nobs` | 14 días | Carga total de las 2 semanas anteriores. |
 | `load_28d` / `load_28d_nobs` | 28 días | Carga total del mes anterior. |
 | `acwr_simple_prev` | 7d / 28d | `((sum load d-1..d-7)/7) / ((sum load d-1..d-28)/28)`. Rolling simple, con `shift(1)`. Si la base crónica es 0, queda `NaN`. |
+| `acute_load_72h_rel` | 3d / 28d | `load_3d / (load_28d / 28)`. Se calcula solo con `load_ctx_ready = True` y `load_28d_nobs >= 14`; fuera de ese contexto queda `NaN`. Los umbrales operativos se calibran preferentemente por percentiles locales (`P75/P90`) del histórico listo del atleta, usando todo el histórico disponible en `base_df` para el cálculo de esos percentiles, y si aún no hay suficiente histórico caen en umbrales provisionales bootstrap (`3.9/4.5`). |
 | `monotony_7d_prev` | 7 días | `media(load_day previos 7d calendario) / sd(load_day previos 7d calendario)`. Se calcula sobre calendario continuo; los días sin sesión cuentan como `0`. Si `std == 0` o `load_7d_nobs < 3`, queda `NaN`. |
 | `strain_7d_prev` | 7 días | `sum(load_day previos 7d) * monotony_7d_prev`. Hereda `NaN` si `monotony_7d_prev` no está disponible. |
-| `load_ctx_ready` | bool | `True` cuando `load_28d_nobs >= 14`. Señala que la capa canónica de contexto de carga ya tiene suficiente soporte histórico para uso interpretativo estable. |
+| `load_ctx_ready` | bool | `True` cuando `load_28d_nobs >= 14`. Señala que la capa canónica de contexto de carga ya tiene suficiente soporte histórico para uso interpretativo estable y para calcular `acwr_simple_prev`, `acute_load_72h_rel`, `monotony_7d_prev` y `strain_7d_prev`. |
 | `finish_strong_7d_count` | 7 días | Conteo rolling de días con `late_intensity_day = 1` en la semana previa. |
 | `elev_loss_7d_sum` | 7 días | Suma rolling de desnivel negativo en la semana previa. Campo descriptivo; no lo usa el gate. |
 
@@ -568,7 +570,7 @@ Cada corrida del pipeline genera un `ENDURANCE_HRV_sessions_metadata.json` que d
 
 | Condición | Aviso generado |
 |-----------|----------------|
-| `load_3d > 250` (con `load_3d_nobs >= 2`) | "Carga acumulada alta (load_3d=X)" |
+| `load_ctx_ready` + `acute_load_72h_rel >= P75/P90 local` | "Carga aguda 72h por encima de tu base crónica (acute_load_72h_rel=Xx; load_3d=Y)" |
 | `load_ctx_ready` + `acwr_simple_prev >= 1.3` | "ACWR alto: carga aguda por encima de la base crónica" |
 | `load_ctx_ready` + `monotony_7d_prev >= 1.8` | "Monotonía elevada/alta: patrón de carga poco variable" |
 | `load_ctx_ready` + `strain_7d_prev >= P75/P90 local` | "Strain alto/muy alto: semana exigente y poco descargada" |
@@ -576,11 +578,13 @@ Cada corrida del pipeline genera un `ENDURANCE_HRV_sessions_metadata.json` que d
 | `z3_7d_sum > 60` | "Tiempo en alta intensidad acumulado esta semana (Xmin en Z3)" |
 | `intensity_clustering_flag = 1` + `level=low/high` | "VERDE pero con X días intensos..." o "Clustering ... reciente: vigilar recuperación" |
 | ROJO + `load_day < 30` + sueño OK | "ROJO sin carga previa ni sueño malo: revisar factores externos al entrenamiento" |
-| VERDE + `load_3d > 200` | "VERDE con carga acumulada (load_3d=X): precaución con la intensidad" |
+| VERDE + `acute_load_72h_rel >= P75/P90 local` | "VERDE con carga aguda 72h (acute_load_72h_rel=Xx; load_3d=Y): precaución con la intensidad" |
 | VERDE + contexto canónico exigente | "VERDE con contexto de carga exigente: precaución con la intensidad" |
-| VERDE + `load_3d > 200` + señal canónica exigente | "VERDE con convergencia de carga (load_3d + ACWR/monotonía/strain): precaución con la intensidad reforzada" |
+| VERDE + `acute_load_72h_rel >= P75/P90 local` + señal canónica exigente | "VERDE con convergencia de carga (carga 72h + ACWR/monotonía/strain): precaución con la intensidad reforzada" |
 
-**Principio:** Los avisos informan, nunca cambian el semáforo. El gate sigue dependiendo exclusivamente de HRV + pulso. `load_3d` se mantiene como sidecar agudo de corto plazo; la capa canónica sigue siendo `ACWR` + `monotony` + `strain`; y el clustering de intensidad aporta una alerta proactiva de mala distribución reciente. Si varias capas convergen en un día VERDE, el cierre operativo se vuelve más prudente, pero el color no cambia.
+**Principio:** Los avisos informan, nunca cambian el semáforo. El gate sigue dependiendo exclusivamente de HRV + pulso. `load_3d` sigue siendo la señal bruta de 3 días, pero el aviso interpretado principal pasa por `acute_load_72h_rel`; la capa canónica sigue siendo `ACWR` + `monotony` + `strain`; y el clustering de intensidad aporta una alerta proactiva de mala distribución reciente. Si varias capas convergen en un día VERDE, el cierre operativo se vuelve más prudente, pero el color no cambia.
+
+**Calibración local de carga:** `acute_load_72h_rel` usa percentiles del histórico listo del atleta (`P75/P90`) cuando hay soporte suficiente; mientras tanto, el dashboard usa umbrales bootstrap provisionales (`3.9/4.5`) para no perder señal al arrancar.
 
 ---
 
@@ -736,7 +740,8 @@ F) effort split aerobic/strength
 ### v3.2 (alineación semántica y trazabilidad)
 1) `elev_density` = `elev_gain / distance` (verticalidad ascendente, no relieve total)  
 2) `PIPELINE_VERSION` bumped a `v3.2` en sessions + metadata  
-3) metadata renombrado a `ENDURANCE_HRV_sessions_metadata.json`  
+3) `ENDURANCE_HRV_weekly_coach.json`  
+4) metadata renombrado a `ENDURANCE_HRV_sessions_metadata.json`  
 
 ### v3.3 (capa mecánica mínima y prioridad de fuentes)
 1) `sessions.csv` bumped `43 -> 57` columnas con capa mecánica opcional para deportes de pie  
@@ -781,6 +786,6 @@ python build_sessions.py --daily
 python build_sessions.py --date 2026-02-25
 ```
 
-Genera: `sessions.csv` + `sessions_day.csv` + `ENDURANCE_HRV_sessions_metadata.json`
+Genera: `sessions.csv` + `sessions_day.csv` + `ENDURANCE_HRV_weekly_coach.json` + `ENDURANCE_HRV_sessions_metadata.json`
 
 

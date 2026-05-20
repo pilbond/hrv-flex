@@ -1850,7 +1850,7 @@ class AnalysisContractTests(unittest.TestCase):
                     "metric": "load_3d",
                     "value": 221.0,
                     "threshold": 200.0,
-                    "message": "VERDE con carga acumulada (load_3d=221): precaución con la intensidad",
+                    "message": "VERDE con carga aguda 72h (acute_load_72h_rel=4.20x; load_3d=221): precaución con la intensidad",
                 },
             ],
             final_reason_flags={
@@ -1904,6 +1904,115 @@ class AnalysisContractTests(unittest.TestCase):
         self.assertTrue(rendered["lines"][0].startswith("- `gate_badge = ÁMBAR+++`"))
         self.assertIn("Si el gate ya es `ÁMBAR` o `ROJO`", rendered["instructions"][3])
 
+    def test_build_final_report_markdown_does_not_treat_low_acwr_as_high_load_fatigue(self):
+        payload = {
+            "meta": {"session_id": "i1", "slug": "s", "date": "2026-05-19", "start_time": "15:30", "sport": "swim", "sport_family": "swim"},
+            "session_row": {
+                "session_id": "i1",
+                "Fecha": "2026-05-19",
+                "start_time": "15:30",
+                "sport": "swim",
+                "moving_min": "59.1",
+                "duration_min": "59.8",
+                "distance_km": "1.85",
+                "hr_mean": "120",
+                "hr_max": "138",
+                "vt1_used": "134",
+                "vt2_used": "149",
+                "zones_source": "icu",
+                "z1_pct": "99.1",
+                "z2_pct": "0.9",
+                "z3_pct": "0.0",
+                "hr_p95": "130",
+                "load": "32",
+                "trimp": "56.2",
+                "work_n_blocks": "0",
+                "work_total_min": "0",
+                "work_longest_min": "0",
+                "work_avg_z3_pct": "0",
+                "late_intensity": "0",
+                "cardiac_drift_pct": "8.3",
+                "session_group": "endurance_easy",
+            },
+            "subjective_context": {},
+            "composite_context": {"durability_context": {"durability_hint": "fade_like", "confidence": "high"}},
+            "durability_context": {"durability_hint": "fade_like", "confidence": "high"},
+            "work_block_context": {},
+            "rr_analysis_summary": {},
+            "analysis_only_context": {},
+            "final_reason_items": [
+                {"type": "sleep_duration", "layer": "proxy", "metric": "polar_sleep_duration_min", "value": 356, "threshold": 361.3, "message": "Sueño más corto de lo habitual (5h56 vs tu umbral habitual bajo de 6h01)"},
+                {"type": "acwr", "layer": "inference", "metric": "acwr_simple_prev", "value": 0.62, "threshold": 0.8, "message": "Carga reciente baja frente a tu base habitual (ACWR=0.62, baja)"},
+            ],
+            "final_reason_flags": {
+                "has_measured_quality_caution": False,
+                "has_load_inference_caution": True,
+                "has_action_constraint": False,
+                "has_recovery_discordance": False,
+                "has_explicit_tension": True,
+            },
+            "final_reason_items_contract": {"fallback_to_reason_text": False, "conformant": True},
+            "terrain_intervals_csv": None,
+            "terrain_climbs_csv": None,
+            "coach_metrics_json": None,
+            "coach_intervals_csv": None,
+            "coach_groups_csv": None,
+            "context": {
+                "sleep": {
+                    "polar_sleep_duration_min": "356",
+                    "polar_sleep_score": "69",
+                    "polar_efficiency_pct": "93.9",
+                    "polar_night_rmssd": "58",
+                },
+                "sessions_day": {
+                    "load_day": "37",
+                    "load_3d": "93",
+                    "load_7d": "243",
+                    "work_7d_sum": "48.1",
+                    "z3_7d_sum": "44.8",
+                },
+                "final": {
+                    "RMSSD_stable": "53.13",
+                    "residual_z": "1.58",
+                    "gate_badge": "VERDE++",
+                    "Action": "INTENSIDAD_OK",
+                    "baseline60_degraded": "False",
+                    "reason_text": "Sueño más corto de lo habitual (5h56 vs tu umbral habitual bajo de 6h01); Carga reciente baja frente a tu base habitual (ACWR=0.62, baja)",
+                },
+                "dashboard": {},
+                "sessions_metadata": {"training_audit": {}},
+                "runaware_context": {},
+            },
+            "narrative_targets": {
+                "final_reason_rendered": build_final_reason_rendered(
+                    final_reason_items=[
+                        {"type": "sleep_duration", "layer": "proxy", "metric": "polar_sleep_duration_min", "value": 356, "threshold": 361.3, "message": "Sueño más corto de lo habitual (5h56 vs tu umbral habitual bajo de 6h01)"},
+                        {"type": "acwr", "layer": "inference", "metric": "acwr_simple_prev", "value": 0.62, "threshold": 0.8, "message": "Carga reciente baja frente a tu base habitual (ACWR=0.62, baja)"},
+                    ],
+                    final_reason_flags={
+                        "has_measured_quality_caution": False,
+                        "has_load_inference_caution": True,
+                        "has_action_constraint": False,
+                        "has_recovery_discordance": False,
+                        "has_explicit_tension": True,
+                    },
+                    final_reason_items_contract={"fallback_to_reason_text": False, "conformant": True},
+                    final_row={"gate_badge": "VERDE++", "Action": "INTENSIDAD_OK", "baseline60_degraded": "False"},
+                )
+            },
+        }
+        summary = {
+            "session_cost_model": {"usable": True, "coste_dominante": "bajo estímulo"},
+            "duration_consistency": "n/d",
+            "hr_source": "stream",
+            "rr_unavailable": True,
+        }
+        report = build_final_report_markdown(payload, summary, "lowacwr123")
+        self.assertIn("Eso no describe sobrecarga: indica que la carga reciente venía baja frente a tu base.", report)
+        self.assertIn("La cautela no venía de una sobrecarga acumulada: la carga reciente estaba baja frente a tu base", report)
+        self.assertNotIn("más fondo de fatiga activo que simple memoria de intensidad", report)
+        self.assertNotIn("carga reciente suficientemente alta como para leer el día con prudencia operativa", report)
+
     def test_build_analyst_prompt_markdown_injects_pre_rendered_final_reason_block(self):
         prompt = build_analyst_prompt_markdown(
             report_dir=Path("analysis/reports/example"),
@@ -1925,7 +2034,7 @@ class AnalysisContractTests(unittest.TestCase):
                         "line": "- `intensity_clustering` (`intensity_clustering_flag=1`): 1 dia intenso en los ultimos 3"
                     },
                     {
-                        "line": "- `green_load_caution` (`load_3d=221`, umbral `200`): carga acumulada alta"
+                        "line": "- `green_load_caution` (`acute_load_72h_rel=4.20x`, umbral `3.9`): carga aguda 72h alta"
                     },
                 ],
                 "action_readout": "`has_action_constraint = false` -> no hay restriccion de accion activa; la cautela existe, pero no hay veto adicional.",
@@ -4958,6 +5067,172 @@ class AnalysisContractTests(unittest.TestCase):
         self.assertEqual(checks["gain_upper_bound"]["reference_scope"], "all_positive_split_gain")
         self.assertTrue(checks["gain_upper_bound"]["passed"])
 
+ 
+class TestEfficiencyContextAudit(unittest.TestCase):
+    def test_build_summary_counts_mixed_signal_types_and_profiles(self):
+        from analysis.efficiency_context_audit import build_summary
+
+        rows = [
+            {"pattern": "stable_contextual_efficiency", "mixed_signal_type": None, "signal_profile": None, "sport_family": "road"},
+            {"pattern": "mixed_signal", "mixed_signal_type": "taxonomy_gap", "signal_profile": "ok|elevated|ok", "sport_family": "trail"},
+            {"pattern": "mixed_signal", "mixed_signal_type": "threshold_gap", "signal_profile": "ok|gray|gray", "sport_family": "road_run"},
+            {"pattern": "cardiovascular_efficiency_drop", "mixed_signal_type": None, "signal_profile": None, "sport_family": "trail"},
+        ]
+
+        summary = build_summary(rows)
+        self.assertEqual(summary["total_applicable"], 4)
+        self.assertEqual(summary["pattern_counts"], {
+            "stable_contextual_efficiency": 1,
+            "mixed_signal": 2,
+            "cardiovascular_efficiency_drop": 1,
+        })
+        self.assertEqual(summary["mixed_signal_counts"]["by_type"], {
+            "taxonomy_gap": 1,
+            "threshold_gap": 1,
+        })
+        self.assertEqual(summary["mixed_signal_counts"]["by_profile"], {
+            "ok|elevated|ok": 1,
+            "ok|gray|gray": 1,
+        })
+
+    def test_write_csv_serializes_threshold_gap_flags_with_pipe_separator(self):
+        from analysis.efficiency_context_audit import write_csv
+        import csv
+
+        with TemporaryDirectory() as tmp:
+            out = Path(tmp) / "audit.csv"
+            rows = [
+                {
+                    "slug": "slug-1",
+                    "sport_family": "road_run",
+                    "summary_path": "2026/05/foo/artifacts/summary.json",
+                    "matched_climbs_path": "2026/05/foo/artifacts/matched_climbs.csv",
+                    "matched_climbs_exists": True,
+                    "pattern": "mixed_signal",
+                    "interpretation_confidence": "low",
+                    "vam_ratio": 1.0,
+                    "hr_drift_bpm": 9.0,
+                    "hr_per_vam_ratio": 1.0,
+                    "vam_bucket": "ok",
+                    "hr_bucket": "elevated",
+                    "cost_bucket": "ok",
+                    "signal_profile": "ok|elevated|ok",
+                    "mixed_signal_type": "taxonomy_gap",
+                    "threshold_gap_flags": ["hr_drift_gray_band", "hr_per_vam_ratio_gray_band"],
+                    "threshold_gap_count": 2,
+                }
+            ]
+
+            write_csv(out, rows)
+            with out.open(encoding="utf-8") as handle:
+                reader = csv.DictReader(handle)
+                self.assertEqual(
+                    reader.fieldnames,
+                    [
+                        "slug",
+                        "sport_family",
+                        "summary_path",
+                        "matched_climbs_path",
+                        "matched_climbs_exists",
+                        "pattern",
+                        "interpretation_confidence",
+                        "vam_ratio",
+                        "hr_drift_bpm",
+                        "hr_per_vam_ratio",
+                        "vam_bucket",
+                        "hr_bucket",
+                        "cost_bucket",
+                        "signal_profile",
+                        "mixed_signal_type",
+                        "threshold_gap_flags",
+                        "threshold_gap_count",
+                    ],
+                )
+                row = next(reader)
+                self.assertEqual(row["threshold_gap_flags"], "hr_drift_gray_band|hr_per_vam_ratio_gray_band")
+
+    def test_collect_rows_non_strict_keeps_missing_sidecar_and_relative_paths(self):
+        from analysis.efficiency_context_audit import collect_rows
+
+        with TemporaryDirectory() as tmp:
+            reports_root = Path(tmp) / "analysis" / "reports"
+            summary_dir = reports_root / "2026" / "05" / "2026-05-18_09-00_road_run_i999999999" / "artifacts"
+            summary_dir.mkdir(parents=True, exist_ok=True)
+            summary_dir.joinpath("summary.json").write_text(
+                json.dumps(
+                    {
+                        "session_meta": {"sport": "running", "sport_family": "road"},
+                        "efficiency_context": {
+                            "applicable": True,
+                            "efficiency_pattern": "mixed_signal",
+                            "interpretation_confidence": "low",
+                            "aggregate": {
+                                "vam_ratio": 1.0,
+                                "hr_drift_bpm": 9.0,
+                                "hr_per_vam_ratio": 1.0,
+                            },
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            rows = collect_rows(reports_root, strict=False)
+            self.assertEqual(len(rows), 1)
+            self.assertFalse(rows[0]["matched_climbs_exists"])
+            self.assertEqual(rows[0]["summary_path"], "2026/05/2026-05-18_09-00_road_run_i999999999/artifacts/summary.json")
+            self.assertEqual(rows[0]["matched_climbs_path"], "2026/05/2026-05-18_09-00_road_run_i999999999/artifacts/matched_climbs.csv")
+
+    def test_collect_rows_strict_fails_when_matched_climbs_sidecar_is_missing(self):
+        from analysis.efficiency_context_audit import collect_rows
+
+        with TemporaryDirectory() as tmp:
+            reports_root = Path(tmp) / "analysis" / "reports"
+            summary_dir = reports_root / "2026" / "05" / "2026-05-18_09-00_road_run_i999999999" / "artifacts"
+            summary_dir.mkdir(parents=True, exist_ok=True)
+            summary_dir.joinpath("summary.json").write_text(
+                json.dumps(
+                    {
+                        "session_meta": {"sport": "running", "sport_family": "road"},
+                        "efficiency_context": {
+                            "applicable": True,
+                            "efficiency_pattern": "mixed_signal",
+                            "interpretation_confidence": "low",
+                            "aggregate": {
+                                "vam_ratio": 1.0,
+                                "hr_drift_bpm": 9.0,
+                                "hr_per_vam_ratio": 1.0,
+                            },
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(FileNotFoundError):
+                collect_rows(reports_root, strict=True)
+
+    def test_build_audit_from_summary_marks_missing_vam_as_data_insufficient(self):
+        from analysis.efficiency_context_audit import _build_audit_from_summary
+
+        audit = _build_audit_from_summary(
+            {
+                "efficiency_context": {
+                    "applicable": True,
+                    "efficiency_pattern": "mixed_signal",
+                    "aggregate": {
+                        "vam_ratio": None,
+                        "hr_drift_bpm": 9.0,
+                        "hr_per_vam_ratio": 1.0,
+                    },
+                }
+            }
+        )
+        self.assertEqual(audit["mixed_signal_type"], "data_insufficient")
+        self.assertEqual(audit["buckets"]["vam_ratio"], "missing")
+
 
 class TestBikePowerEstimation(unittest.TestCase):
     def _make_climb_records(self, n_seconds: int = 300, speed_mps: float = 4.0, grade_pct: float = 6.0) -> list[dict]:
@@ -5009,6 +5284,9 @@ class TestBikePowerEstimation(unittest.TestCase):
         self.assertIsNotNone(ctx.get("climb_power_estimated_mean"))
         self.assertIsNotNone(ctx.get("climb_power_estimated_max"))
         self.assertEqual(ctx.get("climb_power_source"), "estimated")
+        self.assertIsNotNone(ctx.get("session_altitude_m"))
+        self.assertEqual(ctx.get("session_altitude_samples"), len(records))
+        self.assertGreater(ctx.get("session_altitude_m"), ctx.get("session_altitude_start_m"))
         climbs = result["terrain_climbs"]
         self.assertTrue(all(c.get("power_source") == "estimated" for c in climbs))
         self.assertTrue(all(c.get("power_estimated_mean") is not None for c in climbs))

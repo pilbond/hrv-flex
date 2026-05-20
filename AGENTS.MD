@@ -71,7 +71,7 @@ Elementos estructurales estables del repo:
 Estado actual de implementacion observado:
 
 - la UI expone `/api/sync`, `/api/sync-sessions`, `/api/status` y endpoints OAuth,
-- `build_sessions.py` genera `ENDURANCE_HRV_sessions.csv`, `ENDURANCE_HRV_sessions_day.csv`, `ENDURANCE_HRV_intensity_distribution_weekly.csv`, `ENDURANCE_HRV_sessions_metadata.json` y `ENDURANCE_HRV_wellness_subjective.csv`,
+- `build_sessions.py` genera `ENDURANCE_HRV_sessions.csv`, `ENDURANCE_HRV_sessions_day.csv`, `ENDURANCE_HRV_intensity_distribution_weekly.csv`, `ENDURANCE_HRV_weekly_coach.json`, `ENDURANCE_HRV_sessions_metadata.json` y `ENDURANCE_HRV_wellness_subjective.csv`,
 - `ENDURANCE_HRV_sessions_day.csv` ya incluye contexto canonico de carga (`acwr_simple_prev`, `monotony_7d_prev`, `strain_7d_prev`, `load_ctx_ready`), clustering reciente de intensidad (`intense_day`, `intense_days_prev_3d`, `intense_days_prev_5d`, `intensity_clustering_flag`, `intensity_clustering_level`) y la señal rolling `DO-02` de polarizacion por familia (`dominant_family_prev_7d`, `dominant_family_share_prev_7d`, `n_sessions_usable_prev_7d`, `z1/z2/z3_pct_weighted_prev_7d`, `distribution_signal_confidence_prev_7d`, `polarisation_index_prev_7d`, `intensity_blackhole_flag`, `intensity_blackhole_episode_id`, `intensity_blackhole_episode_len`),
 - `ENDURANCE_HRV_intensity_distribution_weekly.csv` ya resume la distribucion observada por `sport x week` con ponderacion por minutos, patron (`polarized`, `pyramidal`, `threshold`, `mixed`) y confianza explicita,
 - `ENDURANCE_HRV_sessions_metadata.json` ya incluye `training_audit` por capas (`dataset_level`, `signal_level`, `metric_level`) para gobernar confianza de coaching/carga sin tocar el gate HRV,
@@ -127,7 +127,7 @@ Si este bloque queda desactualizado, debe actualizarse o reducirse.
 
 - `build_sessions.py`
   Pipeline de sesiones desde Intervals.icu.
-  Genera `ENDURANCE_HRV_sessions.csv`, `ENDURANCE_HRV_sessions_day.csv`, `ENDURANCE_HRV_intensity_distribution_weekly.csv`, `ENDURANCE_HRV_sessions_metadata.json` y `ENDURANCE_HRV_wellness_subjective.csv`.
+  Genera `ENDURANCE_HRV_sessions.csv`, `ENDURANCE_HRV_sessions_day.csv`, `ENDURANCE_HRV_intensity_distribution_weekly.csv`, `ENDURANCE_HRV_weekly_coach.json`, `ENDURANCE_HRV_sessions_metadata.json` y `ENDURANCE_HRV_wellness_subjective.csv`.
   Canoniza la capa mecanica minima para deportes de pie, el contexto de carga `ACWR/monotony/strain`, `training_audit` y la distribucion observada semanal por deporte.
   Soporta `--backfill`, `--daily`, `--update` y `--date`.
 
@@ -157,6 +157,7 @@ Complementarios:
 - `ENDURANCE_HRV_sessions.csv`
 - `ENDURANCE_HRV_sessions_day.csv`
 - `ENDURANCE_HRV_intensity_distribution_weekly.csv`
+- `ENDURANCE_HRV_weekly_coach.json`
 - `ENDURANCE_HRV_sessions_metadata.json`
 - `ENDURANCE_HRV_wellness_subjective.csv`
 

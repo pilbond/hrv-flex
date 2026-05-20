@@ -5,14 +5,14 @@ ENDURANCE HRV — Decisor FINAL/DASHBOARD
 ======================================
 
 Revisión de módulo: r2026-04-08
-Contrato esperado: FINAL 62 cols, DASHBOARD 10 cols
+Contrato esperado: FINAL 66 cols, DASHBOARD 10 cols
 Sistema vigente: ENDURANCE HRV V4.10
 
 Lee:
   - ENDURANCE_HRV_master_CORE.csv
 
 Genera:
-  - ENDURANCE_HRV_master_FINAL.csv     (62 cols, gate + sombras + residual + auditoría raw-vs-ref + RE-01)
+  - ENDURANCE_HRV_master_FINAL.csv     (66 cols, gate + sombras + residual + warning dual + auditoría raw-vs-ref + RE-01)
   - ENDURANCE_HRV_master_DASHBOARD.csv (10 cols, vista operativa compacta)
 
 Normativa:
@@ -42,6 +42,7 @@ import numpy as np
 import pandas as pd
 from hrv_app.config import (
     DATA_DIR as CONFIG_DATA_DIR,
+    SSM_SHADOW_PATH,
     resolve_writable_dir,
 )
 
@@ -89,7 +90,10 @@ class Config:
     tag_t3: float = 2.0
 
     # Warning baseline60_degraded
-    warning_mode: str = "healthy85"  # healthy85 | p20
+    warning_mode: str = (os.environ.get("HRV_WARNING_MODE", "adaptive90").strip() or "adaptive90")
+    adaptive_window_days: int = 90
+    adaptive_ref_quantile: float = 0.75
+    warning_factor: float = 0.85
     healthy_start: str = os.environ.get("HRV_HEALTHY_START", "2025-07-01")
     healthy_end: str   = os.environ.get("HRV_HEALTHY_END",   "2025-09-30")
     healthy_factor: float = 0.85
@@ -99,8 +103,8 @@ class Config:
 CFG = Config()
 SWC_FLOOR = 0.04879  # ln(1.05), floor mínimo para SWC
 VETO_MULT = 2.0      # veto si raw cae > 2xSWC bajo base60
-LOAD_3D_HIGH = 250
-LOAD_3D_CAUTION = 200
+ACUTE_LOAD_72H_REL_HIGH_FALLBACK = 3.9
+ACUTE_LOAD_72H_REL_VERY_HIGH_FALLBACK = 4.5
 WORK_7D_HIGH = 200
 Z3_7D_HIGH = 60
 _VALID_LAYERS = {"measured", "proxy", "inference", "action"}
@@ -127,9 +131,10 @@ COLS_FINAL = [
     "residual_ln","residual_z","residual_tag","gate_badge",
     "quality_flag","Color_operativo",
     "Action","Action_detail","bad_streak","bad_7d",
-    "baseline60_degraded","healthy_rmssd","healthy_hr","healthy_period",
+    "baseline60_degraded","degraded_vs_best","degraded_vs_current_normal",
+    "healthy_rmssd","healthy_hr","healthy_period",
     "flag_sistemico","flag_razon",
-    "warning_threshold","warning_mode",
+    "warning_threshold","warning_threshold_best","warning_threshold_current_normal","warning_mode",
     "veto_agudo","ln_pre_veto","swc_ln_floor",
     "recovery_context_quality","recovery_support_class",
     "recovery_discordance_flag","recovery_discordance_reason",
@@ -269,6 +274,103 @@ def compute_healthy_anchors(core: pd.DataFrame, cfg: Config) -> Tuple[float, flo
     return (float(np.nanmedian(s2["RMSSD_med7"])), float(np.nanmedian(s2["HR_med7"])), f"{cfg.healthy_start}..{cfg.healthy_end}")
 
 
+def compute_dual_baseline_signals(
+    fechas: pd.Series,
+    rmssd_base60_equiv: pd.Series,
+    healthy_rmssd: float,
+    cfg: Config,
+) -> Dict[str, np.ndarray]:
+    """Compute the two canonical long-term baseline warnings plus their thresholds."""
+    fecha_index = pd.to_datetime(fechas, errors="coerce")
+    values = rmssd_base60_equiv.astype(float)
+    mask = np.isfinite(values.to_numpy(dtype=float))
+
+    threshold_best = np.full(len(values), np.nan, dtype=float)
+    degraded_best = np.array([False] * len(values), dtype=bool)
+    if np.isfinite(healthy_rmssd):
+        threshold_best[:] = float(cfg.healthy_factor * healthy_rmssd)
+        degraded_best = mask & (values.to_numpy(dtype=float) < threshold_best)
+
+    dated = pd.Series(values.to_numpy(dtype=float), index=fecha_index)
+    rolling_ref = dated.rolling(f"{cfg.adaptive_window_days}D", min_periods=30).quantile(cfg.adaptive_ref_quantile)
+    threshold_current = (rolling_ref * cfg.warning_factor).to_numpy(dtype=float)
+    degraded_current = mask & np.isfinite(threshold_current) & (values.to_numpy(dtype=float) < threshold_current)
+
+    return {
+        "warning_threshold_best": threshold_best,
+        "warning_threshold_current_normal": threshold_current,
+        "degraded_vs_best": degraded_best,
+        "degraded_vs_current_normal": degraded_current,
+    }
+
+
+def compute_warning_signal(
+    fechas: pd.Series,
+    rmssd_base60_equiv: pd.Series,
+    healthy_rmssd: float,
+    cfg: Config,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Build the medium-term legacy warning signal from the canonical dual outputs.
+
+    Returns:
+      - effective warning threshold(s), one per row
+      - baseline60_degraded boolean mask
+    """
+    dual = compute_dual_baseline_signals(fechas, rmssd_base60_equiv, healthy_rmssd, cfg)
+
+    if cfg.warning_mode == "adaptive90":
+        return dual["warning_threshold_current_normal"], dual["degraded_vs_current_normal"]
+
+    if cfg.warning_mode == "healthy85":
+        return dual["warning_threshold_best"], dual["degraded_vs_best"]
+
+    if cfg.warning_mode == "p20":
+        values = rmssd_base60_equiv.astype(float)
+        mask = np.isfinite(values.to_numpy(dtype=float))
+        thresholds = np.full(len(values), np.nan, dtype=float)
+        degraded = np.array([False] * len(values), dtype=bool)
+        x = values.dropna().to_numpy(dtype=float)
+        if x.size >= 10:
+            thresholds[:] = float(np.quantile(x, cfg.p20_q))
+            degraded = mask & (values.to_numpy(dtype=float) < thresholds)
+        return thresholds, degraded
+
+    raise ValueError("warning_mode inválido. Usa adaptive90, healthy85 o p20.")
+
+
+def select_legacy_warning_signal(
+    dual_baseline: Dict[str, np.ndarray],
+    rmssd_base60_equiv: pd.Series,
+    cfg: Config,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Select the legacy warning signal from canonical outputs plus p20 fallback."""
+    if cfg.warning_mode == "adaptive90":
+        return (
+            dual_baseline["warning_threshold_current_normal"],
+            dual_baseline["degraded_vs_current_normal"],
+        )
+
+    if cfg.warning_mode == "healthy85":
+        return (
+            dual_baseline["warning_threshold_best"],
+            dual_baseline["degraded_vs_best"],
+        )
+
+    if cfg.warning_mode == "p20":
+        values = rmssd_base60_equiv.astype(float)
+        mask = np.isfinite(values.to_numpy(dtype=float))
+        thresholds = np.full(len(values), np.nan, dtype=float)
+        degraded = np.array([False] * len(values), dtype=bool)
+        x = values.dropna().to_numpy(dtype=float)
+        if x.size >= 10:
+            thresholds[:] = float(np.quantile(x, cfg.p20_q))
+            degraded = mask & (values.to_numpy(dtype=float) < thresholds)
+        return thresholds, degraded
+
+    raise ValueError("warning_mode inválido. Usa adaptive90, healthy85 o p20.")
+
+
 def residual_tag(res_z: float, cfg: Config) -> str:
     if not np.isfinite(res_z):
         return ""
@@ -376,6 +478,19 @@ def _build_sessions_day_lookups(
             strain_values = strain_hist.to_numpy(dtype=float)
             thresholds["strain_p75"] = float(np.quantile(strain_values, 0.75))
             thresholds["strain_p90"] = float(np.quantile(strain_values, 0.90))
+
+    if "acute_load_72h_rel" in base_df.columns:
+        acute_hist = pd.to_numeric(base_df["acute_load_72h_rel"], errors="coerce")
+        if "load_ctx_ready" in base_df.columns:
+            ready_mask = base_df["load_ctx_ready"].astype(str).str.lower().isin({"true", "1"})
+            acute_hist = acute_hist.loc[ready_mask]
+        acute_hist = acute_hist[np.isfinite(acute_hist.to_numpy(dtype=float))]
+        if acute_hist.size >= 8:
+            # Operative thresholds use the full ready historical sample available
+            # for this athlete, mirroring the existing strain percentile contract.
+            acute_values = acute_hist.to_numpy(dtype=float)
+            thresholds["acute_load_72h_rel_p75"] = float(np.quantile(acute_values, 0.75))
+            thresholds["acute_load_72h_rel_p90"] = float(np.quantile(acute_values, 0.90))
 
     return exact_lookup, ctx_lookup, clustering_lookup, thresholds
 
@@ -522,7 +637,7 @@ def _split_recovery_codes(codes: List[str]) -> Tuple[List[str], List[str]]:
     load_codes = [
         code
         for code in codes
-        if code in {"load_3d_high", "load_context_high", "intensity_clustering", "recent_load_low"}
+        if code in {"load_context_high", "intensity_clustering", "recent_load_low"}
     ]
     return sleep_codes, load_codes
 
@@ -632,6 +747,119 @@ def _recovery_discordance_message(gate: str, recovery_class: str, coverage: str,
     if fallback:
         return fallback
     return f"Discordancia de recuperación ({gate}, {recovery_class}, cobertura={coverage})"
+
+
+# =============================================================================
+# reason_text composition (UX-01)
+# =============================================================================
+
+# Tipos cuya semántica es matizar el verdict del gate (no datos crudos).
+_VERDICT_TYPES = frozenset({
+    "contradiction",
+    "green_load_caution",
+    "green_load_convergence",
+    "nightly_discordance",
+    "recovery_discordance",
+    "recovery_support",
+    "ssm_context",
+})
+_ACTION_TYPES = frozenset({"action_constraint"})
+
+# Tabla de redundancia: cuando recovery_support|recovery_discordance carga la
+# frase clave Y otro emisor más específico está presente, suprimir el eco genérico.
+# El matching por frase es frágil; cuando el emisor pase a estructura con `codes`
+# o `variant` explícito, migrar a comparación estructurada.
+_RECOVERY_SUPPORT_REDUNDANT = (
+    ("señal nocturna sale mejor", frozenset({"nightly_discordance"})),
+    ("el sueño no acompaña", frozenset({"sleep_duration", "sleep_fragmentation"})),
+    (
+        "la carga reciente pide prudencia",
+        frozenset({
+            "green_load_caution", "green_load_convergence",
+            "acwr", "monotony", "strain", "work_7d", "acute_load_72h_rel",
+        }),
+    ),
+    ("carga reciente no parece alta", frozenset({"acwr"})),
+)
+_RECOVERY_ECHO_TYPES = frozenset({"recovery_support", "recovery_discordance"})
+
+
+def _empty_reason_text(gate: str) -> str:
+    if gate == VERDE:
+        return "VERDE: HRV en rango, sin señales que matizar"
+    if gate == AMBAR:
+        return f"{AMBAR}: sin señales individuales destacables"
+    if gate == ROJO:
+        return f"{ROJO}: sin señales individuales destacables"
+    return "sin señales que añadir"
+
+
+def _strip_action_prefix(msg: str) -> str:
+    for prefix in (
+        "Acción sugerida: ", "Acción recomendada: ",
+        "Acción: ", "Acción:",
+        "Accion sugerida: ", "Accion recomendada: ",
+        "Accion: ", "Accion:",
+    ):
+        if msg.startswith(prefix):
+            return msg[len(prefix):].lstrip()
+    return msg
+
+
+def _filter_redundant_recovery_support(items: List[dict]) -> List[dict]:
+    """Filtra echo genéricos de recovery_support|recovery_discordance cuando
+    un emisor específico (nightly_discordance, sleep_*, green_load_*, acwr...)
+    ya cubre la misma información."""
+    types_present = {str(it.get("type", "")) for it in items}
+    out: List[dict] = []
+    for it in items:
+        if str(it.get("type", "")) in _RECOVERY_ECHO_TYPES:
+            msg = str(it.get("message", "")).lower()
+            if any(
+                phrase in msg and (types_present & redundant_with)
+                for phrase, redundant_with in _RECOVERY_SUPPORT_REDUNDANT
+            ):
+                continue
+        out.append(it)
+    return out
+
+
+def _compose_reason_text(items: List[dict], gate: str) -> str:
+    """Ensamble final del reason_text a partir de reason_items tipados.
+
+    Estructura: `{verdicts " · "}. {whys "; "}. Acción: {actions "; "}`.
+    Deduplica por igualdad exacta de mensaje y suprime recovery_support
+    cuando un emisor más específico cubre la misma señal.
+    """
+    if not items:
+        return _empty_reason_text(gate)
+    items = _filter_redundant_recovery_support(items)
+    verdicts: List[str] = []
+    whys: List[str] = []
+    actions: List[str] = []
+    seen: set = set()
+    for it in items:
+        msg = str(it.get("message", "") or "").strip()
+        if not msg or msg in seen:
+            continue
+        seen.add(msg)
+        t = str(it.get("type", ""))
+        if t in _ACTION_TYPES:
+            actions.append(_strip_action_prefix(msg))
+        elif t in _VERDICT_TYPES:
+            verdicts.append(msg)
+        else:
+            whys.append(msg)
+    segments: List[str] = []
+    if verdicts:
+        segments.append(" · ".join(verdicts))
+    if whys:
+        segments.append("; ".join(whys))
+    if actions:
+        segments.append("Acción: " + "; ".join(actions))
+    if not segments:
+        return _empty_reason_text(gate)
+    return ". ".join(segments)
 
 
 def parse_args(argv: List[str]) -> Dict[str, str]:
@@ -833,6 +1061,16 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                 ln_pre_veto[i] = ln_used[i]
                 ln_used[i] = ln_today[i]
                 hr_used[i] = hr_today[i]
+                rmssd_today_val = float(np.exp(ln_today[i]))
+                rmssd_base_val = float(np.exp(b_ln))
+                drop_pct = (
+                    (rmssd_today_val - rmssd_base_val) / rmssd_base_val * 100.0
+                    if rmssd_base_val > 0 else float("nan")
+                )
+                drop_suffix = (
+                    f" ({rmssd_today_val:.0f} ms vs base {rmssd_base_val:.0f} ms, {drop_pct:+.0f}%)"
+                    if np.isfinite(drop_pct) else ""
+                )
                 _emit_reason(
                     reason_items,
                     reason_parts,
@@ -843,7 +1081,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                     metric="lnRMSSD",
                     value=float(ln_today[i]),
                     threshold=float(b_ln - VETO_MULT * swc_v4),
-                    message="RMSSD de hoy cayó bruscamente respecto a tu base reciente: superó el umbral de caída aguda",
+                    message=f"RMSSD de hoy cayó bruscamente respecto a tu base reciente{drop_suffix}: superó el umbral de caída aguda",
                 )
 
             dln = float(ln_used[i] - b_ln)
@@ -1035,6 +1273,19 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             log.warning("Sleep context unavailable from %s: %s", sleep_path, exc)
             sleep_lookup = None
 
+    # --- SSM shadow context (informative only) ---
+    ssm_lookup: Optional[pd.DataFrame] = None
+    if SSM_SHADOW_PATH.exists():
+        try:
+            ssm_df = pd.read_csv(SSM_SHADOW_PATH)
+            if "Fecha" in ssm_df.columns:
+                ssm_df["Fecha"] = ssm_df["Fecha"].astype(str)
+                ssm_df = ssm_df.drop_duplicates(subset=["Fecha"], keep="last")
+                ssm_lookup = ssm_df.set_index("Fecha")
+        except (OSError, ValueError, KeyError) as exc:
+            log.warning("SSM context unavailable from %s: %s", SSM_SHADOW_PATH, exc)
+            ssm_lookup = None
+
     # --- Training load from sessions_day.csv (generated by build_sessions.py) ---
     sday_lookup: Optional[pd.DataFrame] = None
     load_ctx_lookup: Optional[pd.DataFrame] = None
@@ -1059,7 +1310,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
 
     for i in range(len(df)):
         fecha = str(df.iloc[i]["Fecha"])
-        verde_load_3d_caution = False
+        verde_load_72h_caution = False
         sleep_bad = False
         sleep_basic_signal = False
         sleep_score = None
@@ -1068,8 +1319,13 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
         night_rmssd_high_text = ""
         load_3d = None
         load_3d_nobs = None
+        acute_load_72h_rel = None
+        acute_load_72h_rel_p75 = ACUTE_LOAD_72H_REL_HIGH_FALLBACK
+        acute_load_72h_rel_p90 = ACUTE_LOAD_72H_REL_VERY_HIGH_FALLBACK
         load_day = None
         load_ctx_caution = False
+        load_ctx_caution_sources: List[str] = []
+        load_ctx_ready = False
         clustering_flag = False
         support_codes: List[str] = []
         caution_codes: List[str] = []
@@ -1202,6 +1458,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             load_ctx_row = load_ctx_lookup.loc[fecha]
             if isinstance(load_ctx_row, pd.DataFrame):
                 load_ctx_row = load_ctx_row.iloc[-1]
+            load_ctx_ready = str(load_ctx_row.get("load_ctx_ready", "")).lower() in {"true", "1"}
         if clustering_lookup is not None and fecha in clustering_lookup.index:
             clustering_row = clustering_lookup.loc[fecha]
             if isinstance(clustering_row, pd.DataFrame):
@@ -1215,29 +1472,59 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
 
             load_3d = _safe_float(sday_row, "load_3d")
             load_3d_nobs = _safe_float(sday_row, "load_3d_nobs")
+            acute_load_72h_rel = _safe_float(sday_row, "acute_load_72h_rel")
             load_day = _safe_float(sday_row, "load_day")
             work_7d = _safe_float(sday_row, "work_7d_sum")
             z3_7d = _safe_float(sday_row, "z3_7d_sum")
 
-            # Sidecar acute-load warning retained for short-term accumulation that
-            # may matter even when canonical 7d/28d context stays below threshold.
-            if load_3d is not None and load_3d_nobs is not None and load_3d_nobs >= 2:
-                if load_3d > LOAD_3D_HIGH:
+            acute_load_72h_rel_p75 = load_ctx_thresholds.get("acute_load_72h_rel_p75", acute_load_72h_rel_p75)
+            acute_load_72h_rel_p90 = load_ctx_thresholds.get("acute_load_72h_rel_p90", acute_load_72h_rel_p90)
+
+            # Relative acute-load warning; only interpret it when the chronic
+            # context is ready enough to make the ratio meaningful.
+            if load_ctx_ready and acute_load_72h_rel is not None:
+                if acute_load_72h_rel >= acute_load_72h_rel_p90:
                     _emit_reason(
                         reason_items,
                         reason_parts,
                         i,
-                        type="load_3d",
+                        type="acute_load_72h_rel",
                         layer="inference",
                         source="sessions_day",
                         variant="high",
-                        metric="load_3d",
-                        value=float(load_3d),
-                        threshold=float(LOAD_3D_HIGH),
-                        message=f"Carga acumulada reciente alta (load_3d={load_3d:.0f})",
+                        severity="very_high",
+                        metric="acute_load_72h_rel",
+                        value=float(acute_load_72h_rel),
+                        threshold=float(acute_load_72h_rel_p90),
+                        message=(
+                            "Carga aguda 72h muy alta respecto a tu base crónica "
+                            f"(acute_load_72h_rel={acute_load_72h_rel:.2f}x; load_3d={load_3d:.0f})"
+                        ),
                     )
-                if load_3d > LOAD_3D_CAUTION:
-                    _append_unique(caution_codes, "load_3d_high")
+                    load_ctx_caution = True
+                    load_ctx_caution_sources.append("carga 72h")
+                    _append_unique(caution_codes, "load_context_high")
+                elif acute_load_72h_rel >= acute_load_72h_rel_p75:
+                    _emit_reason(
+                        reason_items,
+                        reason_parts,
+                        i,
+                        type="acute_load_72h_rel",
+                        layer="inference",
+                        source="sessions_day",
+                        variant="high",
+                        severity="high",
+                        metric="acute_load_72h_rel",
+                        value=float(acute_load_72h_rel),
+                        threshold=float(acute_load_72h_rel_p75),
+                        message=(
+                            "Carga aguda 72h por encima de tu base crónica "
+                            f"(acute_load_72h_rel={acute_load_72h_rel:.2f}x; load_3d={load_3d:.0f})"
+                        ),
+                    )
+                    load_ctx_caution = True
+                    load_ctx_caution_sources.append("carga 72h")
+                    _append_unique(caution_codes, "load_context_high")
 
             if work_7d is not None and work_7d > WORK_7D_HIGH:
                 _emit_reason(
@@ -1251,7 +1538,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                     metric="work_7d_sum",
                     value=float(work_7d),
                     threshold=float(WORK_7D_HIGH),
-                    message=f"Volumen de trabajo semanal alto (work_7d={work_7d:.0f}min)",
+                    message=f"Volumen de trabajo semanal alto (work_7d={work_7d:.0f}min, alto)",
                 )
             if z3_7d is not None and z3_7d > Z3_7D_HIGH:
                 _emit_reason(
@@ -1295,12 +1582,11 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
 
             if (
                 gate_final[i] == VERDE
-                and load_3d is not None
-                and load_3d_nobs is not None
-                and load_3d_nobs >= 2
-                and load_3d > LOAD_3D_CAUTION
+                and load_ctx_ready
+                and acute_load_72h_rel is not None
+                and acute_load_72h_rel >= acute_load_72h_rel_p75
             ):
-                verde_load_3d_caution = True
+                verde_load_72h_caution = True
 
         if clustering_row is not None:
             clustering_flag_num = _safe_float(clustering_row, "intensity_clustering_flag")
@@ -1367,11 +1653,6 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             acwr_simple_prev = _safe_float(load_ctx_row, "acwr_simple_prev")
             monotony_7d_prev = _safe_float(load_ctx_row, "monotony_7d_prev")
             strain_7d_prev = _safe_float(load_ctx_row, "strain_7d_prev")
-            load_ctx_ready = str(load_ctx_row.get("load_ctx_ready", "")).lower() in {"true", "1"}
-
-            load_ctx_caution = False
-            load_ctx_caution_sources: List[str] = []
-
             if load_ctx_ready and acwr_simple_prev is not None:
                 if acwr_simple_prev >= 1.5:
                     _emit_reason(
@@ -1388,7 +1669,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         threshold=1.5,
                         message=(
                             "Carga reciente muy por encima de tu base habitual "
-                            f"(ACWR={acwr_simple_prev:.2f})"
+                            f"(ACWR={acwr_simple_prev:.2f}, muy alta)"
                         ),
                     )
                     load_ctx_caution = True
@@ -1409,7 +1690,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         threshold=1.3,
                         message=(
                             "Carga reciente por encima de tu base habitual "
-                            f"(ACWR={acwr_simple_prev:.2f})"
+                            f"(ACWR={acwr_simple_prev:.2f}, alta)"
                         ),
                     )
                     load_ctx_caution = True
@@ -1429,7 +1710,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         threshold=0.8,
                         message=(
                             "Carga reciente baja frente a tu base habitual "
-                            f"(ACWR={acwr_simple_prev:.2f})"
+                            f"(ACWR={acwr_simple_prev:.2f}, baja)"
                         ),
                     )
 
@@ -1449,7 +1730,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         threshold=2.0,
                         message=(
                             "Semana muy repetitiva, con poca variación de carga "
-                            f"(monotonía={monotony_7d_prev:.2f})"
+                            f"(monotonía={monotony_7d_prev:.2f}, alta)"
                         ),
                     )
                     load_ctx_caution = True
@@ -1470,7 +1751,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         threshold=1.8,
                         message=(
                             "Semana algo repetitiva; conviene variar más la carga "
-                            f"(monotonía={monotony_7d_prev:.2f})"
+                            f"(monotonía={monotony_7d_prev:.2f}, moderada)"
                         ),
                     )
                     load_ctx_caution = True
@@ -1495,7 +1776,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         threshold=float(strain_p90),
                         message=(
                             "Semana muy exigente y con poca descarga "
-                            f"(strain={strain_7d_prev:.0f})"
+                            f"(strain={strain_7d_prev:.0f}, muy elevado)"
                         ),
                     )
                     load_ctx_caution = True
@@ -1516,7 +1797,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         threshold=float(strain_p75),
                         message=(
                             "Semana exigente y algo cargada "
-                            f"(strain={strain_7d_prev:.0f})"
+                            f"(strain={strain_7d_prev:.0f}, elevado)"
                         ),
                     )
                     load_ctx_caution = True
@@ -1525,7 +1806,8 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
 
             if gate_final[i] == VERDE:
                 unique_sources = list(dict.fromkeys(load_ctx_caution_sources))
-                if verde_load_3d_caution and load_ctx_caution:
+                if verde_load_72h_caution and load_ctx_caution and len(unique_sources) > 1:
+                    convergence_sources = [source for source in unique_sources if source != "carga 72h"]
                     _emit_reason(
                         reason_items,
                         reason_parts,
@@ -1537,10 +1819,10 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         codes=unique_sources,
                         message=(
                             "VERDE con convergencia de carga "
-                            f"(load_3d + {' + '.join(unique_sources)}): precaución con la intensidad reforzada"
+                            f"(carga 72h + {' + '.join(convergence_sources)}): precaución con la intensidad reforzada"
                         ),
                     )
-                elif verde_load_3d_caution:
+                elif verde_load_72h_caution:
                     _emit_reason(
                         reason_items,
                         reason_parts,
@@ -1549,10 +1831,14 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         layer="inference",
                         source="sessions_day",
                         gate_scope="green",
-                        metric="load_3d",
-                        value=float(load_3d),
-                        threshold=float(LOAD_3D_CAUTION),
-                        message=f"VERDE con carga acumulada (load_3d={load_3d:.0f}): precaución con la intensidad",
+                        metric="acute_load_72h_rel",
+                        value=float(acute_load_72h_rel),
+                        threshold=float(acute_load_72h_rel_p75),
+                        message=(
+                            "VERDE con carga aguda 72h "
+                            f"(acute_load_72h_rel={acute_load_72h_rel:.2f}x; load_3d={load_3d:.0f}): "
+                            "precaución con la intensidad"
+                        ),
                     )
                 elif load_ctx_caution:
                     _emit_reason(
@@ -1564,12 +1850,12 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         source="sessions_day",
                         gate_scope="green",
                         codes=load_ctx_caution_sources,
-                    message=(
-                        "VERDE con contexto de carga exigente "
-                        f"({' + '.join(load_ctx_caution_sources)}): conviene prudencia con la intensidad"
-                    ),
-                )
-        elif gate_final[i] == VERDE and verde_load_3d_caution:
+                        message=(
+                            "VERDE con contexto de carga exigente "
+                            f"({' + '.join(load_ctx_caution_sources)}): conviene prudencia con la intensidad"
+                        ),
+                    )
+        elif gate_final[i] == VERDE and verde_load_72h_caution:
             _emit_reason(
                 reason_items,
                 reason_parts,
@@ -1578,10 +1864,14 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                 layer="inference",
                 source="sessions_day",
                 gate_scope="green",
-                metric="load_3d",
-                value=float(load_3d),
-                threshold=float(LOAD_3D_CAUTION),
-                message=f"VERDE con carga acumulada (load_3d={load_3d:.0f}): precaución con la intensidad",
+                metric="acute_load_72h_rel",
+                value=float(acute_load_72h_rel),
+                threshold=float(acute_load_72h_rel_p75),
+                message=(
+                    "VERDE con carga aguda 72h "
+                    f"(acute_load_72h_rel={acute_load_72h_rel:.2f}x; load_3d={load_3d:.0f}): "
+                    "precaución con la intensidad"
+                ),
             )
 
         if (
@@ -1590,7 +1880,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             and load_day < 30
             and not load_ctx_caution
             and not clustering_flag
-            and (load_3d is None or load_3d <= LOAD_3D_CAUTION)
+            and (acute_load_72h_rel is None or acute_load_72h_rel < acute_load_72h_rel_p75)
         ):
             _append_unique(support_codes, "recent_load_low")
 
@@ -1617,6 +1907,55 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             support_codes=support_codes,
             caution_codes=caution_codes,
         )
+        # SYA-17 Fase 1: bloque latente, disabled-by-design.
+        # La validación concluyó no_go (rho ~0.10, EWMA empata, advantage no estable en walk-forward).
+        # Además este bloque no respeta sport_family (bike y run tienen señales distintas).
+        # Se preserva el código tras feature flag para Fase 2; activar solo cuando haya evidencia
+        # validada por deporte. Default: deshabilitado.
+        if (
+            os.environ.get("HRV_SSM_REASON_TEXT_ENABLED", "0") == "1"
+            and ssm_lookup is not None
+            and fecha in ssm_lookup.index
+        ):
+            ssm_row = ssm_lookup.loc[fecha]
+            if isinstance(ssm_row, pd.DataFrame):
+                ssm_row = ssm_row.iloc[-1]
+            ssm_state = _safe_float(ssm_row, "ssm_recovery_state")
+            ssm_state_sd = _safe_float(ssm_row, "ssm_state_sd")
+            ssm_input_quality = str(ssm_row.get("ssm_input_quality", "")).strip().lower()
+            ssm_innovation = _safe_float(ssm_row, "ssm_innovation")
+            ssm_rolling = _safe_float(ssm_row, "control_rolling_hrv_7d")
+            ssm_confident = (
+                ssm_state is not None
+                and ssm_state_sd is not None
+                and ssm_state_sd < 0.08
+                and ssm_input_quality == "clean"
+                and ssm_innovation is not None
+                and abs(ssm_innovation) < 0.12
+            )
+            if ssm_confident and ssm_state is not None and ssm_rolling is not None and abs(ssm_state - ssm_rolling) >= 0.08:
+                if ssm_state >= ssm_rolling:
+                    ssm_message = (
+                        f"SSM limpio y estable: ve más margen de recuperación ({ssm_state:.2f}) que el rolling "
+                        f"({ssm_rolling:.2f}); el promedio reciente puede estar siendo conservador."
+                    )
+                else:
+                    ssm_message = (
+                        f"SSM limpio y estable: ve menos margen de recuperación ({ssm_state:.2f}) que el rolling "
+                        f"({ssm_rolling:.2f}); el promedio reciente puede estar siendo algo optimista."
+                    )
+                _emit_reason(
+                    reason_items,
+                    reason_parts,
+                    i,
+                    type="ssm_context",
+                    layer="inference",
+                    source="ssm_shadow",
+                    metric="ssm_recovery_state",
+                    value=float(ssm_state),
+                    threshold=float(ssm_rolling),
+                    message=ssm_message,
+                )
         # Un nightly_rmssd bajo aislado en un VERDE no abre mensaje por sí solo:
         # RE-01 exige convergencia real para no sobrerreaccionar a un sidecar nocturno único.
         if night_rmssd_low_text and recovery_class == "fragile":
@@ -1693,7 +2032,13 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
         recovery_discordance_flag[i] = recovery_is_discordant
         recovery_discordance_reason[i] = "|".join(discordance_codes if recovery_is_discordant else [])
 
-    reason_text = np.array([" | ".join(p) if p else "" for p in reason_parts], dtype=object)
+    reason_text = np.array(
+        [
+            _compose_reason_text(reason_items[i], str(gate_final[i]))
+            for i in range(len(reason_parts))
+        ],
+        dtype=object,
+    )
 
     # =============================================================================
     # Warning baseline60_degraded (informativo)
@@ -1703,26 +2048,18 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
     rmssd_base60_equiv = np.exp(ln_base60.astype(float))
     rmssd_base60_equiv = pd.Series(rmssd_base60_equiv)
 
-    warning_threshold = np.nan
-    baseline60_degraded = np.array([False]*len(df), dtype=bool)
+    dual_baseline = compute_dual_baseline_signals(
+        df["Fecha"],
+        rmssd_base60_equiv,
+        healthy_rmssd,
+        cfg,
+    )
 
-    if cfg.warning_mode == "healthy85":
-        if np.isfinite(healthy_rmssd):
-            warning_threshold = float(cfg.healthy_factor * healthy_rmssd)
-            baseline60_degraded = (rmssd_base60_equiv.to_numpy(dtype=float) < warning_threshold) & np.isfinite(rmssd_base60_equiv.to_numpy(dtype=float))
-        else:
-            warning_threshold = np.nan
-            baseline60_degraded = np.array([False]*len(df), dtype=bool)
-    elif cfg.warning_mode == "p20":
-        x = rmssd_base60_equiv.dropna().to_numpy(dtype=float)
-        if x.size >= 10:
-            warning_threshold = float(np.quantile(x, cfg.p20_q))
-            baseline60_degraded = (rmssd_base60_equiv.to_numpy(dtype=float) < warning_threshold) & np.isfinite(rmssd_base60_equiv.to_numpy(dtype=float))
-        else:
-            warning_threshold = np.nan
-            baseline60_degraded = np.array([False]*len(df), dtype=bool)
-    else:
-        raise ValueError("warning_mode inválido. Usa healthy85 o p20.")
+    warning_threshold, baseline60_degraded = select_legacy_warning_signal(
+        dual_baseline,
+        rmssd_base60_equiv,
+        cfg,
+    )
 
     # =============================================================================
     # Placeholders sistémicos (no recolorean)
@@ -1792,6 +2129,8 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
         "bad_7d": bad_7d,
 
         "baseline60_degraded": baseline60_degraded.astype(bool),
+        "degraded_vs_best": dual_baseline["degraded_vs_best"].astype(bool),
+        "degraded_vs_current_normal": dual_baseline["degraded_vs_current_normal"].astype(bool),
         "healthy_rmssd": healthy_rmssd,
         "healthy_hr": healthy_hr,
         "healthy_period": healthy_period,
@@ -1800,6 +2139,8 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
         "flag_razon": flag_razon,
 
         "warning_threshold": warning_threshold,
+        "warning_threshold_best": dual_baseline["warning_threshold_best"],
+        "warning_threshold_current_normal": dual_baseline["warning_threshold_current_normal"],
         "warning_mode": cfg.warning_mode,
         "veto_agudo": veto_agudo.astype(bool),
         "ln_pre_veto": ln_pre_veto,

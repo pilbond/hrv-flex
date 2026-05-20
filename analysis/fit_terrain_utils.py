@@ -6,7 +6,7 @@ import math
 import sys
 from itertools import pairwise
 from pathlib import Path
-from statistics import median
+from statistics import mean, median
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -574,6 +574,25 @@ def _signals_available(rows: list[dict[str, Any]]) -> dict[str, bool]:
     }
 
 
+def _session_altitude_context(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    altitude_rows = [row for row in rows if parse_float(row.get("altitude_m")) is not None]
+    if not altitude_rows:
+        return {}
+
+    altitude_values = [float(parse_float(row.get("altitude_m")) or 0.0) for row in altitude_rows]
+    start_altitude_m = float(altitude_values[0])
+    end_altitude_m = float(altitude_values[-1])
+    return {
+        "session_altitude_m": round(mean(altitude_values), 1),
+        "session_altitude_start_m": round(start_altitude_m, 1),
+        "session_altitude_end_m": round(end_altitude_m, 1),
+        "session_altitude_min_m": round(min(altitude_values), 1),
+        "session_altitude_max_m": round(max(altitude_values), 1),
+        "session_altitude_range_m": round(max(altitude_values) - min(altitude_values), 1),
+        "session_altitude_samples": len(altitude_values),
+    }
+
+
 def _power_mean_from_fit_records(
     fit_records: list[dict[str, Any]] | None,
     start_sec: float | None,
@@ -800,6 +819,7 @@ def analyze_terrain_records(
         "climb_time_min": climb_time_min,
         "climb_distance_km": climb_distance_km,
         "climb_gain_m": climb_gain_m,
+        **_session_altitude_context(active_records),
         "climb_gain_coverage_pct": round(climb_gain_coverage_pct, 1) if climb_gain_coverage_pct is not None else None,
         "climb_hr_mean": round(climb_hr_mean, 1) if climb_hr_mean is not None else None,
         "climb_cadence_mean": round(climb_cadence_mean, 1) if climb_cadence_mean is not None else None,
@@ -901,6 +921,81 @@ def _classify_efficiency_pattern(
     if vam_drop and hr_stable and not cost_elevated:
         return "mechanical_efficiency_drop", confidence
     return "mixed_signal", "low"
+
+
+def _efficiency_signal_bucket(value: float | None, *, kind: str) -> str:
+    if value is None:
+        return "missing"
+
+    if kind == "vam":
+        if value >= 0.93:
+            return "ok"
+        if value < 0.90:
+            return "drop"
+        return "gray"
+
+    if kind == "hr":
+        if abs(value) <= 5.0:
+            return "stable"
+        if value > 8.0:
+            return "elevated"
+        if value < -5.0:
+            return "drop"
+        return "gray"
+
+    if kind == "cost":
+        if value <= 1.04:
+            return "ok"
+        if value > 1.07:
+            return "elevated"
+        return "gray"
+
+    raise ValueError(f"unsupported bucket kind: {kind}")
+
+
+def _build_efficiency_audit(
+    vam_ratio: float | None,
+    hr_drift_bpm: float | None,
+    hr_per_vam_ratio: float | None,
+    pattern: str,
+) -> dict[str, Any]:
+    vam_bucket = _efficiency_signal_bucket(vam_ratio, kind="vam")
+    hr_bucket = _efficiency_signal_bucket(hr_drift_bpm, kind="hr")
+    cost_bucket = _efficiency_signal_bucket(hr_per_vam_ratio, kind="cost")
+    signal_profile = "|".join([vam_bucket, hr_bucket, cost_bucket])
+
+    threshold_gap_flags: list[str] = []
+    if vam_bucket == "gray":
+        threshold_gap_flags.append("vam_ratio_gray_band")
+    if hr_bucket == "gray":
+        threshold_gap_flags.append("hr_drift_gray_band")
+    if cost_bucket == "gray":
+        threshold_gap_flags.append("hr_per_vam_ratio_gray_band")
+
+    mixed_signal_type = None
+    if pattern == "mixed_signal":
+        if vam_bucket == "missing":
+            mixed_signal_type = "data_insufficient"
+        elif threshold_gap_flags:
+            mixed_signal_type = "threshold_gap"
+        else:
+            mixed_signal_type = "taxonomy_gap"
+
+    return {
+        "signals": {
+            "vam_ratio": vam_ratio,
+            "hr_drift_bpm": hr_drift_bpm,
+            "hr_per_vam_ratio": hr_per_vam_ratio,
+        },
+        "buckets": {
+            "vam_ratio": vam_bucket,
+            "hr_drift_bpm": hr_bucket,
+            "hr_per_vam_ratio": cost_bucket,
+        },
+        "signal_profile": signal_profile,
+        "threshold_gap_flags": threshold_gap_flags,
+        "mixed_signal_type": mixed_signal_type,
+    }
 
 
 def compute_matched_climbs_context(
@@ -1020,6 +1115,12 @@ def compute_matched_climbs_context(
     efficiency_pattern, interpretation_confidence = _classify_efficiency_pattern(
         agg_vam_ratio, agg_hr_drift, agg_hr_per_vam
     )
+    efficiency_audit = _build_efficiency_audit(
+        agg_vam_ratio,
+        agg_hr_drift,
+        agg_hr_per_vam,
+        efficiency_pattern,
+    )
 
     return {
         "applicable": True,
@@ -1037,5 +1138,6 @@ def compute_matched_climbs_context(
         },
         "efficiency_pattern": efficiency_pattern,
         "interpretation_confidence": interpretation_confidence,
+        "efficiency_audit": efficiency_audit,
         "matched_groups": matched_groups,
     }

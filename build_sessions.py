@@ -7,6 +7,7 @@ Extrae datos de sesiones desde Intervals.icu API y genera:
   - sessions_day.csv   (1 fila por día, agregado + rolling)
   - intensity_distribution_weekly.csv (1 fila por semana y deporte)
   - ENDURANCE_HRV_sessions_metadata.json (trazabilidad de la corrida)
+  - ENDURANCE_HRV_weekly_coach.json (sidecar semanal estructurado)
 
 Modos:
   --backfill           Histórico completo desde --oldest (default 2025-05-12)
@@ -140,6 +141,11 @@ def write_text_atomic(text: str, path: Path, encoding: str = "utf-8") -> None:
             except OSError:
                 pass
 
+
+def write_json_atomic(payload: dict, path: Path) -> None:
+    """Write JSON atomically via same-directory temp file + replace."""
+    write_text_atomic(json.dumps(payload, indent=2, ensure_ascii=False), path)
+
 ENV_FILE = Path(__file__).parent / ".env"
 if ENV_FILE.exists():
     for line in ENV_FILE.read_text().splitlines():
@@ -154,6 +160,8 @@ BASE_URL = "https://intervals.icu/api/v1"
 REQUEST_DELAY = 0.4
 SUBJECTIVE_WELLNESS_PATH = "ENDURANCE_HRV_wellness_subjective.csv"
 INTENSITY_DISTRIBUTION_WEEKLY_PATH = "ENDURANCE_HRV_intensity_distribution_weekly.csv"
+WEEKLY_COACH_PATH = "ENDURANCE_HRV_weekly_coach.json"
+MASTER_DASHBOARD_PATH = "ENDURANCE_HRV_master_DASHBOARD.csv"
 SUBJECTIVE_WELLNESS_FIELDS = [
     "fatigue",
     "stress",
@@ -1499,6 +1507,10 @@ def build_sessions_day(sessions_df: pd.DataFrame) -> pd.DataFrame:
     acute_mean_7d = day_df["load_7d"] / 7.0
     chronic_mean_28d = day_df["load_28d"] / 28.0
     acwr_simple_prev = acute_mean_7d.divide(chronic_mean_28d.where(chronic_mean_28d > 0))
+    load_ctx_ready_mask = day_df["load_28d_nobs"].fillna(0).astype(int) >= 14
+    acute_load_72h_rel = day_df["load_3d"].divide(
+        chronic_mean_28d.where((chronic_mean_28d > 0) & load_ctx_ready_mask)
+    )
 
     monotony_mean_7d = load_day_shifted.rolling(7, min_periods=1).mean()
     monotony_std_7d = load_day_shifted.rolling(7, min_periods=1).std(ddof=0)
@@ -1507,9 +1519,10 @@ def build_sessions_day(sessions_df: pd.DataFrame) -> pd.DataFrame:
     strain_7d_prev = load_day_shifted.rolling(7, min_periods=1).sum() * monotony_7d_prev
 
     day_df["acwr_simple_prev"] = acwr_simple_prev.round(3)
+    day_df["acute_load_72h_rel"] = acute_load_72h_rel.round(3)
     day_df["monotony_7d_prev"] = monotony_7d_prev.round(3)
     day_df["strain_7d_prev"] = strain_7d_prev.round(1)
-    day_df["load_ctx_ready"] = day_df["load_28d_nobs"].fillna(0).astype(int) >= 14
+    day_df["load_ctx_ready"] = load_ctx_ready_mask
 
     if "elev_loss_day" in day_df:
         day_df["elev_loss_7d_sum"], _ = safe_rolling(day_df["elev_loss_day"], 7)
@@ -1599,6 +1612,7 @@ def build_sessions_day(sessions_df: pd.DataFrame) -> pd.DataFrame:
         "load_28d",
         "load_28d_nobs",
         "acwr_simple_prev",
+        "acute_load_72h_rel",
         "monotony_7d_prev",
         "strain_7d_prev",
         "load_ctx_ready",
@@ -1834,6 +1848,620 @@ def build_intensity_distribution_weekly(sessions_df: pd.DataFrame) -> pd.DataFra
         return out
     out = out.sort_values(["window_start", "sport"], kind="stable").reset_index(drop=True)
     return out
+
+
+def _week_window_bounds(fecha: date | pd.Timestamp | str) -> tuple[date, date]:
+    if isinstance(fecha, pd.Timestamp):
+        fecha = fecha.date()
+    elif isinstance(fecha, str):
+        fecha = pd.to_datetime(fecha, errors="coerce").date()
+    if not isinstance(fecha, date):
+        raise ValueError("Invalid date for weekly window")
+    week_start = fecha - timedelta(days=fecha.weekday())
+    week_end = week_start + timedelta(days=6)
+    return week_start, week_end
+
+
+def _read_csv_if_exists(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        return pd.DataFrame()
+    try:
+        return pd.read_csv(path, keep_default_na=False)
+    except Exception as exc:
+        log.warning(f"Could not read {path}: {exc}")
+        return pd.DataFrame()
+
+
+def _format_iso_week(fecha: date) -> str:
+    iso = fecha.isocalendar()
+    return f"{iso.year}-W{iso.week:02d}"
+
+
+def _classify_hrv_trend(week_dashboard_df: pd.DataFrame) -> tuple[str, int, Optional[float]]:
+    if week_dashboard_df.empty:
+        return ("insufficient_data", 0, None)
+    if "Fecha" not in week_dashboard_df.columns or "RMSSD_stable" not in week_dashboard_df.columns:
+        return ("insufficient_data", 0, None)
+
+    df = week_dashboard_df.copy()
+    df["Fecha_dt"] = pd.to_datetime(df["Fecha"], errors="coerce")
+    df["RMSSD_stable"] = pd.to_numeric(df["RMSSD_stable"], errors="coerce")
+    if "Calidad" in df.columns:
+        df = df[df["Calidad"].astype(str).str.upper().eq("OK")].copy()
+    df = df.dropna(subset=["Fecha_dt", "RMSSD_stable"]).sort_values("Fecha_dt", kind="stable")
+    if len(df) < 3:
+        return ("insufficient_data", int(len(df)), None)
+
+    x = (df["Fecha_dt"] - df["Fecha_dt"].min()).dt.days.astype(float).to_numpy()
+    y = df["RMSSD_stable"].astype(float).to_numpy()
+    if len(np.unique(x)) < 2:
+        return ("insufficient_data", int(len(df)), None)
+
+    slope = float(np.polyfit(x, y, 1)[0])
+    if slope >= 0.5:
+        return ("rising", int(len(df)), round(slope, 3))
+    if slope <= -0.5:
+        return ("falling", int(len(df)), round(slope, 3))
+    return ("stable", int(len(df)), round(slope, 3))
+
+
+def _classify_progression_risk(week_days_df: pd.DataFrame, full_day_df: pd.DataFrame) -> tuple[str, dict]:
+    if week_days_df.empty:
+        return ("insufficient_data", {})
+
+    acwr = (
+        pd.to_numeric(week_days_df["acwr_simple_prev"], errors="coerce").dropna()
+        if "acwr_simple_prev" in week_days_df.columns
+        else pd.Series(dtype=float)
+    )
+    monotony = (
+        pd.to_numeric(week_days_df["monotony_7d_prev"], errors="coerce").dropna()
+        if "monotony_7d_prev" in week_days_df.columns
+        else pd.Series(dtype=float)
+    )
+    strain = (
+        pd.to_numeric(week_days_df["strain_7d_prev"], errors="coerce").dropna()
+        if "strain_7d_prev" in week_days_df.columns
+        else pd.Series(dtype=float)
+    )
+    ready = week_days_df["load_ctx_ready"].fillna(False).astype(bool) if "load_ctx_ready" in week_days_df.columns else pd.Series(False, index=week_days_df.index)
+
+    if acwr.empty and monotony.empty and strain.empty:
+        return ("insufficient_data", {})
+
+    if not bool(ready.any()) and acwr.empty and monotony.empty and strain.empty:
+        return ("insufficient_data", {})
+
+    strain_hist = pd.to_numeric(full_day_df["strain_7d_prev"], errors="coerce").dropna() if "strain_7d_prev" in full_day_df.columns else pd.Series(dtype=float)
+    strain_p75 = float(np.percentile(strain_hist, 75)) if len(strain_hist) >= 8 else None
+    strain_p90 = float(np.percentile(strain_hist, 90)) if len(strain_hist) >= 8 else None
+
+    acwr_peak = float(acwr.max()) if not acwr.empty else None
+    monotony_peak = float(monotony.max()) if not monotony.empty else None
+    strain_peak = float(strain.max()) if not strain.empty else None
+
+    high = (
+        (acwr_peak is not None and acwr_peak >= 1.5)
+        or (monotony_peak is not None and monotony_peak >= 2.0)
+        or (strain_peak is not None and strain_p90 is not None and strain_peak >= strain_p90)
+    )
+    moderate = (
+        (acwr_peak is not None and acwr_peak >= 1.3)
+        or (monotony_peak is not None and monotony_peak >= 1.8)
+        or (strain_peak is not None and strain_p75 is not None and strain_peak >= strain_p75)
+    )
+
+    if high:
+        risk = "high"
+    elif moderate:
+        risk = "moderate"
+    else:
+        risk = "low"
+
+    return (
+        risk,
+        {
+            "acwr_peak": round(acwr_peak, 3) if acwr_peak is not None else None,
+            "monotony_peak": round(monotony_peak, 3) if monotony_peak is not None else None,
+            "strain_peak": round(strain_peak, 1) if strain_peak is not None else None,
+            "strain_p75": round(strain_p75, 1) if strain_p75 is not None else None,
+            "strain_p90": round(strain_p90, 1) if strain_p90 is not None else None,
+            "load_ctx_ready": bool(ready.any()),
+        },
+    )
+
+
+def _load_weekly_sleep_context(week_start: date, week_end: date) -> dict:
+    sleep_path = CONFIG_DATA_DIR / "ENDURANCE_HRV_sleep.csv"
+    if not sleep_path.exists():
+        return {}
+
+    try:
+        sleep_df = pd.read_csv(sleep_path)
+    except Exception:
+        return {}
+
+    if sleep_df.empty or "Fecha" not in sleep_df.columns:
+        return {}
+
+    fecha = pd.to_datetime(sleep_df["Fecha"], errors="coerce").dt.date
+    week_mask = fecha.map(lambda d: isinstance(d, date) and week_start <= d <= week_end)
+    week_sleep = sleep_df.loc[week_mask].copy()
+    if week_sleep.empty:
+        return {}
+
+    dur = pd.to_numeric(week_sleep.get("polar_sleep_duration_min"), errors="coerce") if "polar_sleep_duration_min" in week_sleep.columns else pd.Series(dtype=float)
+    deep = pd.to_numeric(week_sleep.get("polar_deep_pct"), errors="coerce") if "polar_deep_pct" in week_sleep.columns else pd.Series(dtype=float)
+    score = pd.to_numeric(week_sleep.get("polar_sleep_score"), errors="coerce") if "polar_sleep_score" in week_sleep.columns else pd.Series(dtype=float)
+
+    short_pct = None
+    if not dur.empty:
+        valid_dur = dur.dropna()
+        if not valid_dur.empty:
+            short_pct = round(float((valid_dur < 420.0).mean() * 100.0), 1)
+
+    return {
+        "sleep_days_present": int(len(week_sleep)),
+        "sleep_duration_mean_min": round(float(dur.dropna().mean()), 1) if not dur.dropna().empty else None,
+        "sleep_short_nights_pct": short_pct,
+        "sleep_deep_pct_mean": round(float(deep.dropna().mean()), 1) if not deep.dropna().empty else None,
+        "sleep_score_mean": round(float(score.dropna().mean()), 1) if not score.dropna().empty else None,
+    }
+
+
+def _classify_sleep_pressure(sleep_context: Optional[dict]) -> tuple[str, Optional[str]]:
+    if not sleep_context:
+        return "none", None
+
+    sleep_duration_mean = sleep_context.get("sleep_duration_mean_min")
+    sleep_short_nights_pct = sleep_context.get("sleep_short_nights_pct")
+    sleep_score_mean = sleep_context.get("sleep_score_mean")
+
+    signals: list[str] = []
+    if sleep_duration_mean is not None and sleep_duration_mean < 420.0:
+        signals.append("short_duration")
+    if sleep_short_nights_pct is not None and sleep_short_nights_pct >= 50.0:
+        signals.append("many_short_nights")
+    if sleep_score_mean is not None and sleep_score_mean < 70.0:
+        signals.append("low_score")
+
+    if len(signals) >= 2:
+        if "many_short_nights" in signals and "short_duration" in signals:
+            return "high", "sueno corto sostenido"
+        if "low_score" in signals and ("short_duration" in signals or "many_short_nights" in signals):
+            return "high", "sueno degradado sostenido"
+        return "high", "sueno degradado"
+
+    if len(signals) == 1:
+        if "many_short_nights" in signals:
+            return "moderate", "muchas noches cortas"
+        if "short_duration" in signals:
+            return "moderate", "sueno corto"
+        return "moderate", "sleep score bajo"
+
+    return "none", None
+
+
+WEEKLY_INSUFFICIENT_PLANNING_NOTE = (
+    "Sin senal semanal suficiente: decide el arranque con HRV matinal y "
+    "Action/reason_text del primer dia; no metas el primer pico hasta que "
+    "esa entrada salga estable."
+)
+
+
+def _humanize_weekly_sport_label(sport: str) -> str:
+    return str(sport or "").strip().replace("_", " ")
+
+
+def _build_z3_budget_summary(z3_budget_by_sport: Optional[list[dict]]) -> Optional[str]:
+    if not z3_budget_by_sport:
+        return None
+
+    eligible: list[tuple[int, str, float]] = []
+    band_rank = {"very_high": 2, "high": 1}
+    for item in z3_budget_by_sport:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("z3_budget_status", "")).strip().lower() not in {"ok", "ok_via_sport_family"}:
+            continue
+        band = str(item.get("z3_budget_band_by_sport", "")).strip().lower()
+        if band not in band_rank:
+            continue
+        sport = str(item.get("sport", "")).strip()
+        percentile = item.get("z3_pct_percentile_by_sport")
+        try:
+            percentile_value = float(percentile)
+        except (TypeError, ValueError):
+            continue
+        if not sport or not np.isfinite(percentile_value):
+            continue
+        eligible.append((band_rank[band], _humanize_weekly_sport_label(sport), percentile_value))
+
+    if not eligible:
+        return None
+
+    eligible.sort(key=lambda x: (-x[0], -x[2], x[1]))
+    top_rank = eligible[0][0]
+    top_items = [entry for entry in eligible if entry[0] == top_rank]
+    snippets = [f"{sport} (p{percentile:.1f})" for _, sport, percentile in top_items[:2]]
+    if not snippets:
+        return None
+    if top_rank == 2:
+        return "Z3 muy alto en " + " y ".join(snippets) + "."
+    return "Z3 alto en " + " y ".join(snippets) + "."
+
+
+def _build_weekly_planning_note(
+    *,
+    week_type: str,
+    progression_risk: str,
+    hrv_trend: str,
+    data_quality: str,
+    sleep_context: Optional[dict] = None,
+) -> str:
+    if data_quality == "insufficient_data":
+        return WEEKLY_INSUFFICIENT_PLANNING_NOTE
+
+    prefix = "Semana con cobertura parcial: " if data_quality == "limited" else ""
+    sleep_context = sleep_context or {}
+    sleep_pressure, sleep_label = _classify_sleep_pressure(sleep_context)
+    sleep_clause = ""
+    if sleep_pressure == "high" and sleep_label:
+        sleep_clause = " El contexto de sueno apunta a " + sleep_label + "; no invalida la entrada favorable, pero pide vigilancia."
+    elif sleep_pressure == "moderate" and progression_risk != "low":
+        sleep_clause = " El contexto de sueno apunta a " + sleep_label + "."
+
+    if progression_risk == "high" or hrv_trend == "falling":
+        return (
+            prefix
+            + "no abras con pico de carga; el primer estimulo fuerte solo entra si "
+            + "la HRV matinal abre estable y Action/reason_text no piden contencion; "
+            + "si no, extiende recuperacion 24-48h."
+            + sleep_clause
+        )
+
+    if progression_risk == "low" and hrv_trend in {"rising", "stable"}:
+        return (
+            prefix
+            + "si la HRV matinal abre estable y Action/reason_text acompanan, puedes "
+            + "arrancar con progresion normal; si no, mueve 24h el primer pico de carga."
+            + sleep_clause
+        )
+
+    if week_type == "threshold":
+        return (
+            prefix
+            + "si la HRV matinal abre estable y Action/reason_text acompanan, retoma "
+            + "carga sin concentrar otro bloque medio denso al inicio; si no, retrasa "
+            + "24h el primer pico."
+            + sleep_clause
+        )
+
+    return (
+        prefix
+        + "abre la semana con lectura conservadora: usa HRV matinal y "
+        + "Action/reason_text del primer dia para decidir el primer pico; "
+        + "si la entrada no es clara, no fuerces carga alta en las primeras 24-48h."
+        + sleep_clause
+    )
+
+
+def _percentile_rank_leq(value: float, reference: np.ndarray) -> float:
+    if not np.isfinite(value) or reference.size == 0:
+        return float("nan")
+    return round(float((np.count_nonzero(reference <= value) / reference.size) * 100.0), 1)
+
+
+def _z3_budget_band(percentile: float) -> Optional[str]:
+    if not np.isfinite(percentile):
+        return None
+    if percentile < 40.0:
+        return "low"
+    if percentile < 75.0:
+        return "normal"
+    if percentile <= 90.0:
+        return "high"
+    return "very_high"
+
+
+def _build_weekly_z3_budget(
+    week_distribution: pd.DataFrame,
+    distribution_df: pd.DataFrame,
+    week_start: date,
+    week_end: date,
+) -> list[dict]:
+    if week_distribution.empty or distribution_df.empty:
+        return []
+
+    current_rows = week_distribution.copy()
+    current_rows["sport"] = current_rows.get("sport", "").astype(str)
+    current_rows["sport_family"] = current_rows["sport"].map(SPORT_FAMILY_MAP).fillna("")
+    if "distribution_confidence" in current_rows.columns:
+        current_rows["distribution_confidence"] = current_rows["distribution_confidence"].astype(str).str.lower()
+    else:
+        current_rows["distribution_confidence"] = ""
+    if "week_type" not in current_rows.columns:
+        current_rows["week_type"] = current_rows.get("distribution_pattern", "")
+    current_rows["week_type"] = current_rows["week_type"].astype(str).str.lower()
+    current_rows["z3_pct_weighted"] = pd.to_numeric(current_rows.get("z3_pct_weighted"), errors="coerce")
+    current_rows["z3_total_min"] = pd.to_numeric(current_rows.get("z3_total_min"), errors="coerce")
+
+    hist = distribution_df.copy()
+    hist["sport"] = hist.get("sport", "").astype(str)
+    hist["sport_family"] = hist["sport"].map(SPORT_FAMILY_MAP).fillna("")
+    if "distribution_confidence" in hist.columns:
+        hist["distribution_confidence"] = hist["distribution_confidence"].astype(str).str.lower()
+    else:
+        hist["distribution_confidence"] = ""
+    if "week_type" not in hist.columns:
+        hist["week_type"] = hist.get("distribution_pattern", "")
+    hist["week_type"] = hist["week_type"].astype(str).str.lower()
+    hist["z3_pct_weighted"] = pd.to_numeric(hist.get("z3_pct_weighted"), errors="coerce")
+    hist["window_start_dt"] = pd.to_datetime(hist.get("window_start"), errors="coerce").dt.date
+    hist["window_end_dt"] = pd.to_datetime(hist.get("window_end"), errors="coerce").dt.date
+
+    ref_start = week_start - timedelta(days=365)
+    window_end_series = pd.to_datetime(hist["window_end_dt"], errors="coerce")
+    ref_start_ts = pd.Timestamp(ref_start)
+    week_start_ts = pd.Timestamp(week_start)
+    hist = hist[
+        window_end_series.ge(ref_start_ts)
+        & window_end_series.lt(week_start_ts)
+        & hist["z3_pct_weighted"].notna()
+        & hist["distribution_confidence"].isin({"moderate", "high"})
+        & hist["week_type"].ne("insufficient_data")
+    ].copy()
+
+    results: list[dict] = []
+    for _, row in current_rows.iterrows():
+        sport = str(row.get("sport", "")).strip()
+        family = str(row.get("sport_family", "")).strip()
+        current_pct = float(row["z3_pct_weighted"]) if pd.notna(row["z3_pct_weighted"]) else float("nan")
+        current_total = float(row["z3_total_min"]) if pd.notna(row["z3_total_min"]) else float("nan")
+        current_conf = str(row.get("distribution_confidence", "")).strip().lower()
+        current_week_type = str(row.get("week_type", "")).strip().lower()
+
+        result = {
+            "sport": sport or None,
+            "sport_family": family or None,
+            "z3_pct_weighted_current": round(current_pct, 1) if np.isfinite(current_pct) else None,
+            "z3_total_min_current": round(current_total, 1) if np.isfinite(current_total) else None,
+            "z3_pct_percentile_by_sport": None,
+            "z3_budget_band_by_sport": None,
+            "z3_budget_reference_scope": None,
+            "z3_budget_coverage_weeks": 0,
+            "z3_budget_status": "insufficient_current_week_data",
+        }
+
+        if (
+            not sport
+            or not np.isfinite(current_pct)
+            or current_conf not in {"moderate", "high"}
+            or current_week_type == "insufficient_data"
+        ):
+            results.append(result)
+            continue
+
+        sport_ref = hist.loc[hist["sport"] == sport, "z3_pct_weighted"].to_numpy(dtype=float)
+        if sport_ref.size >= 8:
+            percentile = _percentile_rank_leq(current_pct, sport_ref)
+            result.update(
+                {
+                    "z3_pct_percentile_by_sport": percentile,
+                    "z3_budget_band_by_sport": _z3_budget_band(percentile),
+                    "z3_budget_reference_scope": "sport",
+                    "z3_budget_coverage_weeks": int(sport_ref.size),
+                    "z3_budget_status": "ok",
+                }
+            )
+            results.append(result)
+            continue
+
+        family_ref = np.array([], dtype=float)
+        if family:
+            family_ref = hist.loc[hist["sport_family"] == family, "z3_pct_weighted"].to_numpy(dtype=float)
+        if family_ref.size >= 12:
+            percentile = _percentile_rank_leq(current_pct, family_ref)
+            result.update(
+                {
+                    "z3_pct_percentile_by_sport": percentile,
+                    "z3_budget_band_by_sport": _z3_budget_band(percentile),
+                    "z3_budget_reference_scope": "sport_family",
+                    "z3_budget_coverage_weeks": int(family_ref.size),
+                    "z3_budget_status": "ok_via_sport_family",
+                }
+            )
+        else:
+            result.update(
+                {
+                    "z3_budget_reference_scope": "sport_family" if family else None,
+                    "z3_budget_coverage_weeks": int(family_ref.size if family else sport_ref.size),
+                    "z3_budget_status": "insufficient_history",
+                }
+            )
+        results.append(result)
+    return results
+
+
+def _build_weekly_coach_summary(
+    day_df: pd.DataFrame,
+    distribution_df: pd.DataFrame,
+    dashboard_df: pd.DataFrame,
+    as_of_date: Optional[date] = None,
+    generated_at: Optional[str] = None,
+) -> dict:
+    as_of_date = as_of_date or date.today()
+    generated_at = generated_at or datetime.now().isoformat()
+
+    if day_df.empty:
+        return {
+            "iso_week": None,
+            "window_start": None,
+            "window_end": None,
+            "as_of_date": as_of_date.isoformat(),
+            "generated_at": generated_at,
+            "anchor_source": "no_data",
+            "week_is_partial": True,
+            "week_days_present": 0,
+            "week_expected_days": 0,
+            "week_data_coverage_pct": None,
+            "week_type": "insufficient_data",
+            "week_type_confidence": "low",
+            "week_load": None,
+            "progression_risk": "insufficient_data",
+            "hrv_trend": "insufficient_data",
+            "data_quality": "insufficient_data",
+            "planning_note": WEEKLY_INSUFFICIENT_PLANNING_NOTE,
+        }
+
+    fecha_series = pd.to_datetime(day_df["Fecha"], errors="coerce")
+    current_week_start, current_week_end = _week_window_bounds(as_of_date)
+    week_dates = fecha_series.dt.date
+    current_week_mask = week_dates.map(lambda d: isinstance(d, date) and current_week_start <= d <= current_week_end)
+    current_week_days = day_df.loc[current_week_mask].copy()
+
+    anchor_source = "current_week" if not current_week_days.empty else "latest_available"
+    if anchor_source == "current_week":
+        week_start, week_end = current_week_start, current_week_end
+        week_days = current_week_days.copy()
+    else:
+        week_end_date = fecha_series.dropna().max().date()
+        week_start, week_end = _week_window_bounds(week_end_date)
+        week_mask = week_dates.map(lambda d: isinstance(d, date) and week_start <= d <= week_end)
+        week_days = day_df.loc[week_mask].copy()
+    week_days["Fecha_dt"] = pd.to_datetime(week_days["Fecha"], errors="coerce")
+
+    distribution = distribution_df.copy() if distribution_df is not None else pd.DataFrame()
+    if not distribution.empty and {"window_start", "window_end"}.issubset(distribution.columns):
+        distribution["window_start_dt"] = pd.to_datetime(distribution["window_start"], errors="coerce").dt.date
+        distribution["window_end_dt"] = pd.to_datetime(distribution["window_end"], errors="coerce").dt.date
+        week_distribution = distribution[
+            (distribution["window_start_dt"] == week_start)
+            & (distribution["window_end_dt"] == week_end)
+        ].copy()
+    else:
+        week_distribution = pd.DataFrame()
+
+    dashboard = dashboard_df.copy() if dashboard_df is not None else pd.DataFrame()
+    if not dashboard.empty and "Fecha" in dashboard.columns:
+        dashboard["Fecha_dt"] = pd.to_datetime(dashboard["Fecha"], errors="coerce").dt.date
+        week_dashboard = dashboard[
+            (dashboard["Fecha_dt"] >= week_start) & (dashboard["Fecha_dt"] <= week_end)
+        ].copy()
+    else:
+        week_dashboard = pd.DataFrame()
+
+    load_series = pd.to_numeric(week_days["load_day"], errors="coerce") if "load_day" in week_days.columns else pd.Series(dtype=float)
+    week_load = round(float(load_series.fillna(0).sum()), 1) if not week_days.empty else None
+
+    week_days_present = int(len(week_days))
+    if anchor_source == "current_week":
+        elapsed_end = min(as_of_date, week_end)
+        week_expected_days = max(1, (elapsed_end - week_start).days + 1)
+    else:
+        week_expected_days = 7
+    week_data_coverage_pct = (
+        min(100.0, round((week_days_present / week_expected_days) * 100.0, 1))
+        if week_expected_days > 0
+        else None
+    )
+
+    if week_distribution.empty:
+        week_type = "insufficient_data"
+        week_type_confidence = "low"
+    else:
+        z1_total = pd.to_numeric(week_distribution["z1_total_min"], errors="coerce").fillna(0).sum() if "z1_total_min" in week_distribution.columns else 0
+        z2_total = pd.to_numeric(week_distribution["z2_total_min"], errors="coerce").fillna(0).sum() if "z2_total_min" in week_distribution.columns else 0
+        z3_total = pd.to_numeric(week_distribution["z3_total_min"], errors="coerce").fillna(0).sum() if "z3_total_min" in week_distribution.columns else 0
+        total_zone = float(z1_total + z2_total + z3_total)
+        if total_zone <= 0:
+            week_type = "insufficient_data"
+            week_type_confidence = "low"
+        else:
+            z1_pct = round((float(z1_total) / total_zone) * 100.0, 1)
+            z2_pct = round((float(z2_total) / total_zone) * 100.0, 1)
+            z3_pct = round((float(z3_total) / total_zone) * 100.0, 1)
+            week_type = classify_distribution_pattern(z1_pct, z2_pct, z3_pct) or "mixed"
+            confidence_rank = {"low": 0, "moderate": 1, "high": 2}
+            week_type_confidence = "high"
+            if len(week_distribution) < 2:
+                week_type_confidence = "low"
+            elif len(week_distribution) == 2:
+                week_type_confidence = "moderate"
+            if "distribution_confidence" in week_distribution.columns:
+                for level in week_distribution["distribution_confidence"].astype(str).str.lower():
+                    if level in confidence_rank and confidence_rank[level] < confidence_rank[week_type_confidence]:
+                        week_type_confidence = level
+            if "distribution_notes" in week_distribution.columns:
+                notes = ";".join(week_distribution["distribution_notes"].astype(str).tolist())
+                if "partial_zone_coverage" in notes or "zones_fallback_present" in notes:
+                    if confidence_rank["moderate"] < confidence_rank[week_type_confidence]:
+                        week_type_confidence = "moderate"
+            if week_type == "mixed" and confidence_rank["moderate"] < confidence_rank[week_type_confidence]:
+                week_type_confidence = "moderate"
+
+    progression_risk, _risk_context = _classify_progression_risk(week_days, day_df)
+    hrv_trend, _hrv_n, _hrv_slope = _classify_hrv_trend(week_dashboard)
+    week_is_partial = bool(anchor_source == "latest_available" or week_end > as_of_date)
+
+    if week_days.empty:
+        data_quality = "insufficient_data"
+    elif week_type_confidence == "low" or hrv_trend == "insufficient_data" or progression_risk == "insufficient_data":
+        data_quality = "limited"
+    elif week_is_partial:
+        data_quality = "limited"
+    else:
+        data_quality = "good"
+
+    if week_type == "insufficient_data":
+        data_quality = "limited" if not week_days.empty else "insufficient_data"
+    if anchor_source == "latest_available" and data_quality == "good":
+        data_quality = "limited"
+    if anchor_source == "current_week" and week_data_coverage_pct is not None and week_data_coverage_pct < 100.0 and data_quality == "good":
+        data_quality = "limited"
+    sleep_context = _load_weekly_sleep_context(week_start, week_end)
+    z3_budget_by_sport = _build_weekly_z3_budget(week_distribution, distribution, week_start, week_end)
+    z3_budget_summary = _build_z3_budget_summary(z3_budget_by_sport)
+    planning_note = _build_weekly_planning_note(
+        week_type=week_type,
+        progression_risk=progression_risk,
+        hrv_trend=hrv_trend,
+        data_quality=data_quality,
+        sleep_context=sleep_context,
+    )
+
+    return {
+        "iso_week": _format_iso_week(week_start),
+        "window_start": week_start.isoformat(),
+        "window_end": week_end.isoformat(),
+        "as_of_date": as_of_date.isoformat(),
+        "generated_at": generated_at,
+        "anchor_source": anchor_source,
+        "week_is_partial": week_is_partial,
+        "week_days_present": week_days_present,
+        "week_expected_days": week_expected_days,
+        "week_data_coverage_pct": week_data_coverage_pct,
+        "week_type": week_type,
+        "week_type_confidence": week_type_confidence,
+        "week_load": week_load,
+        "progression_risk": progression_risk,
+        "hrv_trend": hrv_trend,
+        "data_quality": data_quality,
+        "planning_note": planning_note,
+        "sleep_context": sleep_context or None,
+        "z3_budget_by_sport": z3_budget_by_sport,
+        "z3_budget_summary": z3_budget_summary,
+    }
+
+
+def build_weekly_coach_summary(
+    day_df: pd.DataFrame,
+    distribution_df: pd.DataFrame,
+    dashboard_df: pd.DataFrame,
+    as_of_date: Optional[date] = None,
+) -> dict:
+    """Public helper for the weekly coach sidecar."""
+    return _build_weekly_coach_summary(day_df, distribution_df, dashboard_df, as_of_date=as_of_date)
 
 
 # ─── Metadata ─────────────────────────────────────────────────────────────────
@@ -2361,6 +2989,13 @@ def run_pipeline(oldest: str, newest: str, output_dir: Path,
     distribution_path = output_dir / INTENSITY_DISTRIBUTION_WEEKLY_PATH
     write_csv_atomic(distribution_df, distribution_path)
     log.info(f"Saved {len(distribution_df)} weekly sport windows → {distribution_path}")
+
+    dashboard_path = output_dir / MASTER_DASHBOARD_PATH
+    dashboard_df = _read_csv_if_exists(dashboard_path)
+    weekly_coach = build_weekly_coach_summary(day_df, distribution_df, dashboard_df)
+    weekly_coach_path = output_dir / WEEKLY_COACH_PATH
+    write_json_atomic(weekly_coach, weekly_coach_path)
+    log.info(f"Saved weekly coach summary → {weekly_coach_path}")
 
     # Metadata — with sampling rate canary (Fix 4)
     n_streams_total = int(df["hr_p95"].notna().sum()) if "hr_p95" in df.columns else 0

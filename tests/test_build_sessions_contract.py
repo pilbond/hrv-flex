@@ -1,6 +1,8 @@
 import json
 import unittest
 from pathlib import Path
+from datetime import date
+from tempfile import TemporaryDirectory
 from uuid import uuid4
 from unittest.mock import patch
 
@@ -9,7 +11,13 @@ import numpy as np
 from hrv_app.polar_sessions import extract_mechanical_metrics, match_polar_exercise
 
 from build_sessions import (
+    _classify_progression_risk,
+    _build_weekly_planning_note,
+    _build_z3_budget_summary,
+    _percentile_rank_leq,
+    _z3_budget_band,
     build_intensity_distribution_weekly,
+    build_weekly_coach_summary,
     build_training_audit,
     build_sessions_day,
     build_session_row,
@@ -81,6 +89,7 @@ EXPECTED_SESSIONS_DAY_COLUMNS = [
     "load_28d",
     "load_28d_nobs",
     "acwr_simple_prev",
+    "acute_load_72h_rel",
     "monotony_7d_prev",
     "strain_7d_prev",
     "load_ctx_ready",
@@ -390,7 +399,7 @@ class BuildSessionsContractTests(unittest.TestCase):
         )
         day = build_sessions_day(sessions)
         self.assertEqual(day.columns.tolist(), EXPECTED_SESSIONS_DAY_COLUMNS)
-        self.assertEqual(len(day.columns), 60)
+        self.assertEqual(len(day.columns), 61)
 
     def test_finish_strong_maps_to_endurance_easy(self):
         self.assertEqual(classify_session_group("trail_run", "finish_strong"), "endurance_easy")
@@ -507,9 +516,24 @@ class BuildSessionsContractTests(unittest.TestCase):
         row = day.loc[day["Fecha"] == "2026-03-08"].iloc[0]
 
         self.assertAlmostEqual(row["acwr_simple_prev"], 4.0, places=3)
+        self.assertTrue(pd.isna(row["acute_load_72h_rel"]))
         self.assertAlmostEqual(row["monotony_7d_prev"], 1.155, places=3)
         self.assertAlmostEqual(row["strain_7d_prev"], 461.9, places=1)
         self.assertFalse(bool(row["load_ctx_ready"]))
+
+    def test_acute_load_72h_rel_requires_load_ctx_ready(self):
+        sessions = pd.DataFrame(
+            [
+                _session(session_id=f"i{idx}", Fecha=f"2026-03-{idx:02d}", load=50.0)
+                for idx in range(1, 15)
+            ]
+        )
+
+        day = build_sessions_day(sessions)
+        row = day.loc[day["Fecha"] == "2026-03-14"].iloc[0]
+
+        self.assertFalse(bool(row["load_ctx_ready"]))
+        self.assertTrue(pd.isna(row["acute_load_72h_rel"]))
 
     def test_intensity_clustering_uses_calendar_days_and_severity_levels(self):
         high_sessions = pd.DataFrame(
@@ -570,6 +594,7 @@ class BuildSessionsContractTests(unittest.TestCase):
 
         self.assertTrue(bool(row["load_ctx_ready"]))
         self.assertAlmostEqual(row["acwr_simple_prev"], 2.0, places=3)
+        self.assertAlmostEqual(row["acute_load_72h_rel"], 6.0, places=3)
         self.assertTrue(pd.isna(row["monotony_7d_prev"]))
         self.assertTrue(pd.isna(row["strain_7d_prev"]))
 
@@ -902,6 +927,650 @@ class BuildSessionsContractTests(unittest.TestCase):
         self.assertEqual(row["distribution_confidence"], "low")
         self.assertIn("partial_zone_coverage", row["distribution_notes"])
         self.assertIn("zones_fallback_present", row["distribution_notes"])
+
+    def test_build_weekly_coach_summary_uses_week_window_and_hrv_trend(self):
+        day_df = pd.DataFrame(
+            [
+                {
+                    "Fecha": "2026-03-02",
+                    "load_day": 40.0,
+                    "acwr_simple_prev": 1.05,
+                    "monotony_7d_prev": 1.10,
+                    "strain_7d_prev": 50.0,
+                    "load_ctx_ready": True,
+                },
+                {
+                    "Fecha": "2026-03-03",
+                    "load_day": 50.0,
+                    "acwr_simple_prev": 1.10,
+                    "monotony_7d_prev": 1.15,
+                    "strain_7d_prev": 55.0,
+                    "load_ctx_ready": True,
+                },
+                {
+                    "Fecha": "2026-03-04",
+                    "load_day": 60.0,
+                    "acwr_simple_prev": 1.20,
+                    "monotony_7d_prev": 1.20,
+                    "strain_7d_prev": 60.0,
+                    "load_ctx_ready": True,
+                },
+            ]
+        )
+        distribution_df = pd.DataFrame(
+            [
+                {
+                    "window_start": "2026-03-02",
+                    "window_end": "2026-03-08",
+                    "sport": "bike",
+                    "n_sessions_total": 3,
+                    "n_sessions_usable": 3,
+                    "total_duration_min": 150.0,
+                    "z1_total_min": 120.0,
+                    "z2_total_min": 20.0,
+                    "z3_total_min": 10.0,
+                    "z1_pct_weighted": 80.0,
+                    "z2_pct_weighted": 13.3,
+                    "z3_pct_weighted": 6.7,
+                    "work_total_min": 25.0,
+                    "work_n_blocks": 2,
+                    "work_longest_min": 15.0,
+                    "work_avg_z3_pct_weighted": 12.0,
+                    "zones_source_mix": "icu=3",
+                    "intensity_category_mix": "easy=2;work_steady=1",
+                    "distribution_pattern": "pyramidal",
+                    "distribution_confidence": "high",
+                    "distribution_notes": "",
+                }
+            ]
+        )
+        dashboard_df = pd.DataFrame(
+            [
+                {"Fecha": "2026-03-02", "Calidad": "OK", "RMSSD_stable": 40.0},
+                {"Fecha": "2026-03-03", "Calidad": "OK", "RMSSD_stable": 45.0},
+                {"Fecha": "2026-03-04", "Calidad": "OK", "RMSSD_stable": 50.0},
+            ]
+        )
+
+        weekly = build_weekly_coach_summary(day_df, distribution_df, dashboard_df, as_of_date=date(2026, 3, 4))
+
+        self.assertEqual(weekly["iso_week"], "2026-W10")
+        self.assertEqual(weekly["window_start"], "2026-03-02")
+        self.assertEqual(weekly["window_end"], "2026-03-08")
+        self.assertTrue(weekly["week_is_partial"])
+        self.assertEqual(weekly["anchor_source"], "current_week")
+        self.assertEqual(weekly["week_expected_days"], 3)
+        self.assertEqual(weekly["week_data_coverage_pct"], 100.0)
+        self.assertEqual(weekly["week_type"], "pyramidal")
+        self.assertEqual(weekly["week_type_confidence"], "low")
+        self.assertEqual(weekly["week_load"], 150.0)
+        self.assertEqual(weekly["progression_risk"], "low")
+        self.assertEqual(weekly["hrv_trend"], "rising")
+        self.assertEqual(weekly["data_quality"], "limited")
+        self.assertTrue(weekly["planning_note"].startswith("Semana con cobertura parcial: "))
+        self.assertIn("puedes arrancar con progresion normal", weekly["planning_note"])
+        self.assertEqual(len(weekly["z3_budget_by_sport"]), 1)
+        self.assertEqual(weekly["z3_budget_by_sport"][0]["sport"], "bike")
+        self.assertEqual(weekly["z3_budget_by_sport"][0]["z3_budget_status"], "insufficient_history")
+        self.assertEqual(weekly["as_of_date"], "2026-03-04")
+        self.assertIn("generated_at", weekly)
+
+    def test_build_weekly_coach_summary_falls_back_to_latest_available_week(self):
+        day_df = pd.DataFrame(
+            [
+                {"Fecha": "2026-03-02", "load_day": 40.0},
+                {"Fecha": "2026-03-03", "load_day": 50.0},
+                {"Fecha": "2026-03-04", "load_day": 60.0},
+            ]
+        )
+        weekly = build_weekly_coach_summary(day_df, pd.DataFrame(), pd.DataFrame(), as_of_date=date(2026, 3, 11))
+
+        self.assertEqual(weekly["anchor_source"], "latest_available")
+        self.assertTrue(weekly["week_is_partial"])
+        self.assertEqual(weekly["week_type"], "insufficient_data")
+        self.assertEqual(weekly["data_quality"], "limited")
+        self.assertEqual(weekly["week_load"], 150.0)
+        self.assertEqual(weekly["week_days_present"], 3)
+        self.assertEqual(weekly["week_expected_days"], 7)
+        self.assertEqual(weekly["week_data_coverage_pct"], 42.9)
+
+    def test_build_weekly_coach_summary_handles_empty_day_df(self):
+        weekly = build_weekly_coach_summary(pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
+        self.assertEqual(weekly["anchor_source"], "no_data")
+        self.assertTrue(weekly["week_is_partial"])
+        self.assertEqual(weekly["week_expected_days"], 0)
+        self.assertIsNone(weekly["week_data_coverage_pct"])
+        self.assertEqual(weekly["week_type"], "insufficient_data")
+        self.assertEqual(weekly["data_quality"], "insufficient_data")
+        self.assertNotIn("z3_budget_by_sport", weekly)
+        self.assertIn("Sin senal semanal suficiente", weekly["planning_note"])
+
+    def test_build_weekly_coach_summary_marks_distribution_gap_as_insufficient_data(self):
+        day_df = pd.DataFrame(
+            [
+                {"Fecha": "2026-03-02", "load_day": 40.0},
+                {"Fecha": "2026-03-03", "load_day": 50.0},
+                {"Fecha": "2026-03-04", "load_day": 60.0},
+            ]
+        )
+        dashboard_df = pd.DataFrame(
+            [
+                {"Fecha": "2026-03-02", "Calidad": "OK", "RMSSD_stable": 40.0},
+                {"Fecha": "2026-03-03", "Calidad": "OK", "RMSSD_stable": 45.0},
+                {"Fecha": "2026-03-04", "Calidad": "OK", "RMSSD_stable": 50.0},
+            ]
+        )
+        weekly = build_weekly_coach_summary(day_df, pd.DataFrame(), dashboard_df, as_of_date=date(2026, 3, 4))
+        self.assertEqual(weekly["week_type"], "insufficient_data")
+        self.assertEqual(weekly["hrv_trend"], "rising")
+        self.assertEqual(weekly["data_quality"], "limited")
+
+    def test_build_weekly_coach_summary_marks_short_dashboard_as_insufficient(self):
+        day_df = pd.DataFrame(
+            [
+                {"Fecha": "2026-03-02", "load_day": 40.0},
+                {"Fecha": "2026-03-03", "load_day": 50.0},
+                {"Fecha": "2026-03-04", "load_day": 60.0},
+            ]
+        )
+        distribution_df = pd.DataFrame(
+            [
+                {
+                    "window_start": "2026-03-02",
+                    "window_end": "2026-03-08",
+                    "sport": "bike",
+                    "n_sessions_total": 3,
+                    "n_sessions_usable": 3,
+                    "total_duration_min": 150.0,
+                    "z1_total_min": 120.0,
+                    "z2_total_min": 20.0,
+                    "z3_total_min": 10.0,
+                    "z1_pct_weighted": 80.0,
+                    "z2_pct_weighted": 13.3,
+                    "z3_pct_weighted": 6.7,
+                    "work_total_min": 25.0,
+                    "work_n_blocks": 2,
+                    "work_longest_min": 15.0,
+                    "work_avg_z3_pct_weighted": 12.0,
+                    "zones_source_mix": "icu=3",
+                    "intensity_category_mix": "easy=2;work_steady=1",
+                    "distribution_pattern": "pyramidal",
+                    "distribution_confidence": "high",
+                    "distribution_notes": "",
+                }
+            ]
+        )
+        dashboard_df = pd.DataFrame(
+            [
+                {"Fecha": "2026-03-02", "Calidad": "OK", "RMSSD_stable": 40.0},
+                {"Fecha": "2026-03-03", "Calidad": "OK", "RMSSD_stable": 45.0},
+            ]
+        )
+        weekly = build_weekly_coach_summary(day_df, distribution_df, dashboard_df, as_of_date=date(2026, 3, 4))
+        self.assertEqual(weekly["hrv_trend"], "insufficient_data")
+        self.assertEqual(weekly["data_quality"], "limited")
+
+    def test_build_weekly_coach_summary_distinguishes_ingest_gap_from_partial_week(self):
+        day_df = pd.DataFrame(
+            [
+                {"Fecha": "2026-03-02", "load_day": 40.0},
+                {"Fecha": "2026-03-04", "load_day": 60.0},
+            ]
+        )
+        weekly = build_weekly_coach_summary(day_df, pd.DataFrame(), pd.DataFrame(), as_of_date=date(2026, 3, 4))
+        self.assertEqual(weekly["anchor_source"], "current_week")
+        self.assertEqual(weekly["week_expected_days"], 3)
+        self.assertEqual(weekly["week_days_present"], 2)
+        self.assertEqual(weekly["week_data_coverage_pct"], 66.7)
+        self.assertEqual(weekly["data_quality"], "limited")
+
+    def test_build_weekly_coach_summary_flags_high_progression_risk(self):
+        day_df = pd.DataFrame(
+            [
+                {"Fecha": "2026-02-23", "load_day": 20.0, "strain_7d_prev": 10.0, "load_ctx_ready": True},
+                {"Fecha": "2026-02-24", "load_day": 20.0, "strain_7d_prev": 20.0, "load_ctx_ready": True},
+                {"Fecha": "2026-02-25", "load_day": 20.0, "strain_7d_prev": 30.0, "load_ctx_ready": True},
+                {"Fecha": "2026-02-26", "load_day": 20.0, "strain_7d_prev": 40.0, "load_ctx_ready": True},
+                {"Fecha": "2026-02-27", "load_day": 20.0, "strain_7d_prev": 50.0, "load_ctx_ready": True},
+                {"Fecha": "2026-02-28", "load_day": 20.0, "strain_7d_prev": 60.0, "load_ctx_ready": True},
+                {"Fecha": "2026-03-01", "load_day": 20.0, "strain_7d_prev": 70.0, "load_ctx_ready": True},
+                {
+                    "Fecha": "2026-03-02",
+                    "load_day": 40.0,
+                    "acwr_simple_prev": 1.10,
+                    "monotony_7d_prev": 1.10,
+                    "strain_7d_prev": 100.0,
+                    "load_ctx_ready": True,
+                },
+                {
+                    "Fecha": "2026-03-03",
+                    "load_day": 50.0,
+                    "acwr_simple_prev": 1.12,
+                    "monotony_7d_prev": 1.15,
+                    "strain_7d_prev": 110.0,
+                    "load_ctx_ready": True,
+                },
+                {
+                    "Fecha": "2026-03-04",
+                    "load_day": 60.0,
+                    "acwr_simple_prev": 1.14,
+                    "monotony_7d_prev": 1.20,
+                    "strain_7d_prev": 130.0,
+                    "load_ctx_ready": True,
+                },
+            ]
+        )
+        distribution_df = pd.DataFrame(
+            [
+                {
+                    "window_start": "2026-03-02",
+                    "window_end": "2026-03-08",
+                    "sport": "bike",
+                    "n_sessions_total": 3,
+                    "n_sessions_usable": 3,
+                    "total_duration_min": 150.0,
+                    "z1_total_min": 120.0,
+                    "z2_total_min": 20.0,
+                    "z3_total_min": 10.0,
+                    "z1_pct_weighted": 80.0,
+                    "z2_pct_weighted": 13.3,
+                    "z3_pct_weighted": 6.7,
+                    "work_total_min": 25.0,
+                    "work_n_blocks": 2,
+                    "work_longest_min": 15.0,
+                    "work_avg_z3_pct_weighted": 12.0,
+                    "zones_source_mix": "icu=3",
+                    "intensity_category_mix": "easy=2;work_steady=1",
+                    "distribution_pattern": "pyramidal",
+                    "distribution_confidence": "high",
+                    "distribution_notes": "",
+                }
+            ]
+        )
+        dashboard_df = pd.DataFrame(
+            [
+                {"Fecha": "2026-03-02", "Calidad": "OK", "RMSSD_stable": 40.0},
+                {"Fecha": "2026-03-03", "Calidad": "OK", "RMSSD_stable": 41.0},
+                {"Fecha": "2026-03-04", "Calidad": "OK", "RMSSD_stable": 42.0},
+                {"Fecha": "2026-03-05", "Calidad": "OK", "RMSSD_stable": 43.0},
+                {"Fecha": "2026-03-06", "Calidad": "OK", "RMSSD_stable": 44.0},
+                {"Fecha": "2026-03-07", "Calidad": "OK", "RMSSD_stable": 45.0},
+                {"Fecha": "2026-03-08", "Calidad": "OK", "RMSSD_stable": 46.0},
+                {"Fecha": "2026-03-09", "Calidad": "OK", "RMSSD_stable": 47.0},
+            ]
+        )
+        weekly = build_weekly_coach_summary(day_df, distribution_df, dashboard_df, as_of_date=date(2026, 3, 4))
+        self.assertEqual(weekly["progression_risk"], "high")
+        self.assertEqual(weekly["data_quality"], "limited")
+        self.assertIn("no abras con pico de carga", weekly["planning_note"])
+
+    def test_build_weekly_planning_note_prefers_fysiologic_state_over_threshold_label(self):
+        note = _build_weekly_planning_note(
+            week_type="threshold",
+            progression_risk="low",
+            hrv_trend="rising",
+            data_quality="good",
+        )
+        self.assertIn("puedes arrancar con progresion normal", note)
+        self.assertNotIn("retoma carga sin concentrar otro bloque medio denso", note)
+
+    def test_build_weekly_planning_note_uses_threshold_fallback_when_state_is_not_green(self):
+        note = _build_weekly_planning_note(
+            week_type="threshold",
+            progression_risk="moderate",
+            hrv_trend="stable",
+            data_quality="limited",
+        )
+        self.assertTrue(note.startswith("Semana con cobertura parcial: "))
+        self.assertIn("retoma carga sin concentrar otro bloque medio denso", note)
+
+    def test_build_weekly_planning_note_uses_sleep_context_when_present(self):
+        note = _build_weekly_planning_note(
+            week_type="mixed",
+            progression_risk="low",
+            hrv_trend="stable",
+            data_quality="good",
+            sleep_context={
+                "sleep_duration_mean_min": 395.0,
+                "sleep_short_nights_pct": 60.0,
+                "sleep_score_mean": 65.0,
+            },
+        )
+        self.assertIn("puedes arrancar con progresion normal", note)
+        self.assertIn("El contexto de sueno apunta a sueno corto sostenido; no invalida la entrada favorable, pero pide vigilancia.", note)
+
+    def test_build_weekly_planning_note_returns_before_sleep_classification_on_insufficient_data(self):
+        with patch("build_sessions._classify_sleep_pressure", side_effect=AssertionError("sleep classifier should not run")):
+            note = _build_weekly_planning_note(
+                week_type="mixed",
+                progression_risk="low",
+                hrv_trend="stable",
+                data_quality="insufficient_data",
+                sleep_context={
+                    "sleep_duration_mean_min": 395.0,
+                    "sleep_short_nights_pct": 20.0,
+                    "sleep_score_mean": 82.0,
+                },
+            )
+
+        self.assertEqual(
+            note,
+            "Sin senal semanal suficiente: decide el arranque con HRV matinal y "
+            "Action/reason_text del primer dia; no metas el primer pico hasta que "
+            "esa entrada salga estable.",
+        )
+
+    def test_build_weekly_planning_note_ignores_isolated_sleep_signal_when_green(self):
+        note = _build_weekly_planning_note(
+            week_type="mixed",
+            progression_risk="low",
+            hrv_trend="stable",
+            data_quality="good",
+            sleep_context={
+                "sleep_duration_mean_min": 395.0,
+                "sleep_short_nights_pct": 20.0,
+                "sleep_score_mean": 82.0,
+            },
+        )
+        self.assertIn("puedes arrancar con progresion normal", note)
+        self.assertNotIn("El contexto de sueno apunta", note)
+
+    def test_build_weekly_planning_note_does_not_embed_z3_budget_summary(self):
+        note = _build_weekly_planning_note(
+            week_type="mixed",
+            progression_risk="low",
+            hrv_trend="stable",
+            data_quality="good",
+        )
+        self.assertIn("puedes arrancar con progresion normal", note)
+        self.assertNotIn("Z3 alto", note)
+        self.assertNotIn("Z3 muy alto", note)
+
+    def test_build_weekly_coach_summary_includes_sleep_context_traceability(self):
+        day_df = pd.DataFrame([{"Fecha": "2026-03-04", "load_day": 20.0, "load_ctx_ready": True}])
+        distribution_df = pd.DataFrame()
+        dashboard_df = pd.DataFrame([{"Fecha": "2026-03-04", "Calidad": "OK", "RMSSD_stable": 45.0}])
+        with TemporaryDirectory() as tmpdir:
+            sleep_path = Path(tmpdir) / "ENDURANCE_HRV_sleep.csv"
+            sleep_path.write_text(
+                "Fecha,polar_sleep_duration_min,polar_deep_pct,polar_sleep_score\n"
+                "2026-03-04,395,12,65\n",
+                encoding="utf-8",
+            )
+            with patch("build_sessions.CONFIG_DATA_DIR", Path(tmpdir)):
+                weekly = build_weekly_coach_summary(day_df, distribution_df, dashboard_df, as_of_date=date(2026, 3, 4))
+        self.assertIsNotNone(weekly["sleep_context"])
+        self.assertEqual(weekly["sleep_context"]["sleep_duration_mean_min"], 395.0)
+        self.assertEqual(weekly["sleep_context"]["sleep_score_mean"], 65.0)
+
+    def test_build_weekly_coach_summary_includes_z3_budget_percentile_by_sport(self):
+        day_df = pd.DataFrame(
+            [
+                {"Fecha": "2026-03-02", "load_day": 40.0, "load_ctx_ready": True},
+                {"Fecha": "2026-03-03", "load_day": 50.0, "load_ctx_ready": True},
+                {"Fecha": "2026-03-04", "load_day": 60.0, "load_ctx_ready": True},
+            ]
+        )
+        distribution_rows = [
+            {
+                "window_start": "2026-03-02",
+                "window_end": "2026-03-08",
+                "sport": "bike",
+                "z1_total_min": 120.0,
+                "z2_total_min": 20.0,
+                "z3_total_min": 10.0,
+                "z3_pct_weighted": 6.7,
+                "distribution_pattern": "pyramidal",
+                "distribution_confidence": "high",
+                "distribution_notes": "",
+            }
+        ]
+        hist_values = [3.0, 4.0, 5.0, 5.5, 6.0, 6.2, 6.5, 7.0]
+        hist_starts = pd.date_range("2025-04-07", periods=len(hist_values), freq="7D")
+        for start, value in zip(hist_starts, hist_values):
+            distribution_rows.append(
+                {
+                    "window_start": start.strftime("%Y-%m-%d"),
+                    "window_end": (start + pd.Timedelta(days=6)).strftime("%Y-%m-%d"),
+                    "sport": "bike",
+                    "z1_total_min": 100.0,
+                    "z2_total_min": 20.0,
+                    "z3_total_min": 10.0,
+                    "z3_pct_weighted": value,
+                    "distribution_pattern": "pyramidal",
+                    "distribution_confidence": "high",
+                    "distribution_notes": "",
+                }
+            )
+        distribution_df = pd.DataFrame(distribution_rows)
+        dashboard_df = pd.DataFrame(
+            [
+                {"Fecha": "2026-03-02", "Calidad": "OK", "RMSSD_stable": 40.0},
+                {"Fecha": "2026-03-03", "Calidad": "OK", "RMSSD_stable": 45.0},
+                {"Fecha": "2026-03-04", "Calidad": "OK", "RMSSD_stable": 50.0},
+            ]
+        )
+
+        weekly = build_weekly_coach_summary(day_df, distribution_df, dashboard_df, as_of_date=date(2026, 3, 4))
+
+        z3_budget = weekly["z3_budget_by_sport"][0]
+        self.assertEqual(z3_budget["sport"], "bike")
+        self.assertEqual(z3_budget["z3_budget_reference_scope"], "sport")
+        self.assertEqual(z3_budget["z3_budget_coverage_weeks"], 8)
+        self.assertEqual(z3_budget["z3_budget_status"], "ok")
+        self.assertEqual(z3_budget["z3_pct_percentile_by_sport"], 87.5)
+        self.assertEqual(z3_budget["z3_budget_band_by_sport"], "high")
+        self.assertEqual(weekly["z3_budget_summary"], "Z3 alto en bike (p87.5).")
+        self.assertNotIn("Z3 alto", weekly["planning_note"])
+
+    def test_build_weekly_coach_summary_falls_back_to_z3_budget_sport_family(self):
+        day_df = pd.DataFrame(
+            [
+                {"Fecha": "2026-03-02", "load_day": 40.0, "load_ctx_ready": True},
+                {"Fecha": "2026-03-03", "load_day": 50.0, "load_ctx_ready": True},
+                {"Fecha": "2026-03-04", "load_day": 60.0, "load_ctx_ready": True},
+            ]
+        )
+        distribution_rows = [
+            {
+                "window_start": "2026-03-02",
+                "window_end": "2026-03-08",
+                "sport": "road_run",
+                "z1_total_min": 110.0,
+                "z2_total_min": 20.0,
+                "z3_total_min": 20.0,
+                "z3_pct_weighted": 13.3,
+                "distribution_pattern": "pyramidal",
+                "distribution_confidence": "high",
+                "distribution_notes": "",
+            }
+        ]
+        road_hist = [5.0, 7.0, 9.0]
+        trail_hist = [6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 22.0]
+        hist_starts = pd.date_range("2025-04-07", periods=len(road_hist) + len(trail_hist), freq="7D")
+        for idx, value in enumerate(road_hist):
+            start = hist_starts[idx]
+            distribution_rows.append(
+                {
+                    "window_start": start.strftime("%Y-%m-%d"),
+                    "window_end": (start + pd.Timedelta(days=6)).strftime("%Y-%m-%d"),
+                    "sport": "road_run",
+                    "z1_total_min": 100.0,
+                    "z2_total_min": 20.0,
+                    "z3_total_min": 10.0,
+                    "z3_pct_weighted": value,
+                    "distribution_pattern": "pyramidal",
+                    "distribution_confidence": "high",
+                    "distribution_notes": "",
+                }
+            )
+        for offset, value in enumerate(trail_hist, start=len(road_hist)):
+            start = hist_starts[offset]
+            distribution_rows.append(
+                {
+                    "window_start": start.strftime("%Y-%m-%d"),
+                    "window_end": (start + pd.Timedelta(days=6)).strftime("%Y-%m-%d"),
+                    "sport": "trail_run",
+                    "z1_total_min": 100.0,
+                    "z2_total_min": 20.0,
+                    "z3_total_min": 10.0,
+                    "z3_pct_weighted": value,
+                    "distribution_pattern": "pyramidal",
+                    "distribution_confidence": "high",
+                    "distribution_notes": "",
+                }
+            )
+        distribution_df = pd.DataFrame(distribution_rows)
+        dashboard_df = pd.DataFrame(
+            [
+                {"Fecha": "2026-03-02", "Calidad": "OK", "RMSSD_stable": 40.0},
+                {"Fecha": "2026-03-03", "Calidad": "OK", "RMSSD_stable": 45.0},
+                {"Fecha": "2026-03-04", "Calidad": "OK", "RMSSD_stable": 50.0},
+            ]
+        )
+
+        weekly = build_weekly_coach_summary(day_df, distribution_df, dashboard_df, as_of_date=date(2026, 3, 4))
+
+        z3_budget = weekly["z3_budget_by_sport"][0]
+        self.assertEqual(z3_budget["sport"], "road_run")
+        self.assertEqual(z3_budget["z3_budget_reference_scope"], "sport_family")
+        self.assertEqual(z3_budget["z3_budget_coverage_weeks"], 12)
+        self.assertEqual(z3_budget["z3_budget_status"], "ok_via_sport_family")
+        self.assertEqual(z3_budget["z3_pct_percentile_by_sport"], 58.3)
+        self.assertEqual(z3_budget["z3_budget_band_by_sport"], "normal")
+        self.assertIsNone(weekly["z3_budget_summary"])
+
+    def test_build_weekly_coach_summary_does_not_fallback_to_sport_family_with_11_weeks(self):
+        day_df = pd.DataFrame(
+            [
+                {"Fecha": "2026-03-02", "load_day": 40.0, "load_ctx_ready": True},
+                {"Fecha": "2026-03-03", "load_day": 50.0, "load_ctx_ready": True},
+                {"Fecha": "2026-03-04", "load_day": 60.0, "load_ctx_ready": True},
+            ]
+        )
+        distribution_rows = [
+            {
+                "window_start": "2026-03-02",
+                "window_end": "2026-03-08",
+                "sport": "road_run",
+                "z1_total_min": 110.0,
+                "z2_total_min": 20.0,
+                "z3_total_min": 20.0,
+                "z3_pct_weighted": 13.3,
+                "distribution_pattern": "pyramidal",
+                "distribution_confidence": "high",
+                "distribution_notes": "",
+            }
+        ]
+        road_hist = [5.0, 7.0, 9.0]
+        trail_hist = [6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0]
+        hist_starts = pd.date_range("2025-04-07", periods=len(road_hist) + len(trail_hist), freq="7D")
+        for idx, value in enumerate(road_hist):
+            start = hist_starts[idx]
+            distribution_rows.append(
+                {
+                    "window_start": start.strftime("%Y-%m-%d"),
+                    "window_end": (start + pd.Timedelta(days=6)).strftime("%Y-%m-%d"),
+                    "sport": "road_run",
+                    "z1_total_min": 100.0,
+                    "z2_total_min": 20.0,
+                    "z3_total_min": 10.0,
+                    "z3_pct_weighted": value,
+                    "distribution_pattern": "pyramidal",
+                    "distribution_confidence": "high",
+                    "distribution_notes": "",
+                }
+            )
+        for offset, value in enumerate(trail_hist, start=len(road_hist)):
+            start = hist_starts[offset]
+            distribution_rows.append(
+                {
+                    "window_start": start.strftime("%Y-%m-%d"),
+                    "window_end": (start + pd.Timedelta(days=6)).strftime("%Y-%m-%d"),
+                    "sport": "trail_run",
+                    "z1_total_min": 100.0,
+                    "z2_total_min": 20.0,
+                    "z3_total_min": 10.0,
+                    "z3_pct_weighted": value,
+                    "distribution_pattern": "pyramidal",
+                    "distribution_confidence": "high",
+                    "distribution_notes": "",
+                }
+            )
+        distribution_df = pd.DataFrame(distribution_rows)
+        dashboard_df = pd.DataFrame(
+            [
+                {"Fecha": "2026-03-02", "Calidad": "OK", "RMSSD_stable": 40.0},
+                {"Fecha": "2026-03-03", "Calidad": "OK", "RMSSD_stable": 45.0},
+                {"Fecha": "2026-03-04", "Calidad": "OK", "RMSSD_stable": 50.0},
+            ]
+        )
+
+        weekly = build_weekly_coach_summary(day_df, distribution_df, dashboard_df, as_of_date=date(2026, 3, 4))
+
+        z3_budget = weekly["z3_budget_by_sport"][0]
+        self.assertEqual(z3_budget["z3_budget_status"], "insufficient_history")
+        self.assertEqual(z3_budget["z3_budget_coverage_weeks"], 11)
+        self.assertIsNone(weekly["z3_budget_summary"])
+
+    def test_z3_budget_band_contract_boundaries(self):
+        self.assertEqual(_z3_budget_band(39.9), "low")
+        self.assertEqual(_z3_budget_band(40.0), "normal")
+        self.assertEqual(_z3_budget_band(74.9), "normal")
+        self.assertEqual(_z3_budget_band(75.0), "high")
+        self.assertEqual(_z3_budget_band(90.0), "high")
+        self.assertEqual(_z3_budget_band(90.1), "very_high")
+
+    def test_percentile_rank_leq_returns_nan_on_empty_or_nan(self):
+        self.assertTrue(np.isnan(_percentile_rank_leq(float("nan"), np.array([1.0, 2.0]))))
+        self.assertTrue(np.isnan(_percentile_rank_leq(5.0, np.array([], dtype=float))))
+
+    def test_build_z3_budget_summary_ignores_low_normal_and_insufficient_history(self):
+        self.assertIsNone(
+            _build_z3_budget_summary(
+                [
+                    {
+                        "sport": "bike",
+                        "z3_budget_status": "ok",
+                        "z3_budget_band_by_sport": "normal",
+                        "z3_pct_percentile_by_sport": 55.0,
+                    },
+                    {
+                        "sport": "road_run",
+                        "z3_budget_status": "insufficient_history",
+                        "z3_budget_band_by_sport": "very_high",
+                        "z3_pct_percentile_by_sport": 99.0,
+                    },
+                ]
+            )
+        )
+
+    def test_classify_progression_risk_flags_high_via_strain_percentile(self):
+        week_days_df = pd.DataFrame(
+            [
+                {"Fecha": "2026-03-02", "load_day": 20.0, "acwr_simple_prev": 1.10, "monotony_7d_prev": 1.10, "strain_7d_prev": 45.0, "load_ctx_ready": True},
+                {"Fecha": "2026-03-03", "load_day": 20.0, "acwr_simple_prev": 1.12, "monotony_7d_prev": 1.15, "strain_7d_prev": 52.0, "load_ctx_ready": True},
+                {"Fecha": "2026-03-04", "load_day": 20.0, "acwr_simple_prev": 1.14, "monotony_7d_prev": 1.20, "strain_7d_prev": 80.0, "load_ctx_ready": True},
+            ]
+        )
+        full_day_df = pd.DataFrame(
+            [
+                {"Fecha": "2026-02-23", "strain_7d_prev": 10.0},
+                {"Fecha": "2026-02-24", "strain_7d_prev": 20.0},
+                {"Fecha": "2026-02-25", "strain_7d_prev": 30.0},
+                {"Fecha": "2026-02-26", "strain_7d_prev": 40.0},
+                {"Fecha": "2026-02-27", "strain_7d_prev": 50.0},
+                {"Fecha": "2026-02-28", "strain_7d_prev": 60.0},
+                {"Fecha": "2026-03-01", "strain_7d_prev": 70.0},
+                {"Fecha": "2026-03-02", "strain_7d_prev": 80.0},
+            ]
+        )
+        risk, context = _classify_progression_risk(week_days_df, full_day_df)
+        self.assertEqual(risk, "high")
+        self.assertIsNotNone(context["strain_p90"])
+        self.assertGreater(context["strain_peak"], context["strain_p90"])
+        self.assertLess(context["acwr_peak"], 1.5)
+        self.assertLess(context["monotony_peak"], 2.0)
 
     def test_resolve_update_oldest_reads_fecha_without_default_na_coercion(self):
         output_dir = Path("tests") / f"_tmp_update_anchor_{uuid4().hex}"

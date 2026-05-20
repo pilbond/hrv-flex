@@ -1,15 +1,15 @@
 # ENDURANCE HRV — Diccionario de Columnas (FINAL/DASHBOARD)
 
-**Revisión:** r2026-04-28 v4.12 (jargon fixes + coverage: intensity_category, effort_vs_*, session_group, late_intensity, decoupling, load_ctx_ready, zones_source fallback, DFA α1, reason_items layers)
+**Revisión:** r2026-05-14 v4.14 (PCV-05 planning_note semanal)
 **Estado:** Producción
 
 **Documentos relacionados:**
 - `ENDURANCE_HRV_Spec_Tecnica.md` — especificación técnica (fórmulas y reglas)
 - `ENDURANCE_HRV_Estructura.md` — contrato de datos (columnas y orden exacto)
-- `ENDURANCE_HRV_Sessions_Schema.md` — contrato del pipeline de sesiones (`sessions.csv`, `sessions_day.csv`, `ENDURANCE_HRV_sessions_metadata.json`), revisión `r2026-04-20 v3.12`
+- `ENDURANCE_HRV_Sessions_Schema.md` — contrato del pipeline de sesiones (`sessions.csv`, `sessions_day.csv`, `ENDURANCE_HRV_weekly_coach.json`, `ENDURANCE_HRV_sessions_metadata.json`), revisión `r2026-05-13 v3.13`
 
 **Límite de alcance de este diccionario:**
-- documenta `CORE`, `FINAL`, `DASHBOARD`, `BETA_AUDIT`, `sleep`, `sessions_day`, `intensity_distribution_weekly`, `wellness_subjective` y la metadata de sesiones,
+- documenta `CORE`, `FINAL`, `DASHBOARD`, `BETA_AUDIT`, `sleep`, `sessions_day`, `intensity_distribution_weekly`, `weekly_coach`, `wellness_subjective` y la metadata de sesiones,
 - para el detalle columna-a-columna de `sessions.csv` (73 cols), la fuente canónica es `ENDURANCE_HRV_Sessions_Schema.md`; aquí sólo se ofrece el mapa,
 - no documenta artefactos locales de `analysis/` como `terrain_context`, `terrain_fit_context`, `terrain_intervals.csv` o `terrain_climbs.csv`,
 - cuando haga falta esa capa de análisis de terreno, la fuente correcta es `analysis/SESSION_ANALYSIS_METHOD.md` y `analysis/ANALYSIS_DICTIONARY.md`.
@@ -28,8 +28,12 @@
 - §5ter. SESSIONS_DAY (carga diaria y clustering) — sidecar CSV
 - §5quater. SESSIONS METADATA / TRAINING_AUDIT (sidecar JSON)
 - §5quinquies. INTENSITY_DISTRIBUTION_WEEKLY (sidecar CSV) — 21 columnas
-- §5sexies. WELLNESS_SUBJECTIVE (sidecar retrospectivo) — 17 columnas
-- §5septies. SESSIONS (histórico de sesiones) — 73 columnas (mapa)
+- §5sexies. WEEKLY_COACH (sidecar JSON)
+- §5septies. WELLNESS_SUBJECTIVE (sidecar retrospectivo) — 17 columnas
+- §5octies. SSM_SHADOW (sidecar técnico SYA-17) — 30 columnas
+- §5nonies. SSM_VALIDATION_REPORT (sidecar JSON + MD)
+- §5decies_bis. SSM_OUTCOME_BATTERY (sidecar exploratorio SYA-17)
+- §5decies. SESSIONS (histórico de sesiones) — 73 columnas (mapa)
 - §6. Valores de gate_razon_base60 (y sombras)
 - §7. Valores de Flags (CORE)
 - §8. decision_path (auditoría de "quién mandó")
@@ -323,14 +327,18 @@ Este bloque cubre el warning de baseline degradado y los flags sistémicos que l
 
 | # | Columna | Qué es |
 |---|---------|--------|
-| 47 | `baseline60_degraded` | ¿Tu capacidad de absorción está reducida respecto a tu mejor momento? True si tu baseline actual (mediana de los últimos 60 días) está por debajo de un umbral de referencia. Es un aviso a medio plazo — no cambia el gate del día, pero sugiere que las decisiones de progresión semanal deberían ser conservadoras. |
-| 48 | `healthy_rmssd` | Tu ancla de RMSSD "sano": la mediana de RMSSD durante un periodo en el que estabas bien entrenado y sin problemas. Sirve como referencia de lo que tu cuerpo puede dar en condiciones óptimas. Se define una vez y se mantiene fija. |
-| 49 | `healthy_hr` | Tu ancla de pulso "sano": la mediana de HR en reposo durante el mismo periodo de referencia. |
-| 50 | `healthy_period` | El rango de fechas usado para calcular las anclas healthy (ej: "2025-07-01 a 2025-09-30"). |
-| 51 | `flag_sistemico` | Campo reservado para información externa al HRV que podría afectar la interpretación: calidad de sueño, viajes, enfermedad, etc. Actualmente no se alimenta automáticamente — está preparado para futuras integraciones. |
-| 52 | `flag_razon` | Texto explicativo del flag sistémico (ej: "sueño <5h", "jet lag"). Vacío si no hay flag activo. |
-| 53 | `warning_threshold` | El umbral concreto (en ms de RMSSD) por debajo del cual se activa el warning. En modo healthy85 es el 85% de tu healthy_rmssd. En modo p20 es el percentil 20 de tu histórico. |
-| 54 | `warning_mode` | Qué método se usó para calcular el umbral de warning. healthy85 = basado en tu mejor periodo × 0.85. p20 = basado en el percentil 20 de tu histórico completo. |
+| 47 | `baseline60_degraded` | Alias legacy del warning de baseline. Mantiene compatibilidad hacia atrás y sigue el umbral seleccionado por `warning_mode`. En modo `adaptive90` (default) equivale a `degraded_vs_current_normal`. En modo `healthy85` equivale a `degraded_vs_best`. Se mantiene por compatibilidad con consumidores antiguos y con DASHBOARD. En consumidores nuevos, preferir `degraded_vs_best` y `degraded_vs_current_normal`. |
+| 48 | `degraded_vs_best` | Señal canónica: True si tu baseline actual (mediana de los últimos 60 días) está por debajo de la referencia de mejor forma histórica (`healthy_rmssd × healthy_factor`). Responde “¿sigues lejos de tu mejor nivel conocido?”. |
+| 49 | `degraded_vs_current_normal` | Señal canónica: True si tu baseline actual está por debajo de tu normal reciente adaptativa (`warning_threshold_current_normal`). Responde “¿estás en caída activa respecto a tu nivel reciente?”. |
+| 50 | `healthy_rmssd` | Tu ancla histórica de RMSSD "sano": la mediana de RMSSD durante un periodo en el que estabas bien entrenado y sin problemas. Sirve como contexto de mejor forma conocida y como base de `degraded_vs_best`. |
+| 51 | `healthy_hr` | Tu ancla histórica de pulso "sano": la mediana de HR en reposo durante el mismo periodo de referencia. |
+| 52 | `healthy_period` | El rango de fechas usado para calcular las anclas healthy (ej: "2025-07-01 a 2025-09-30"). Identifica la referencia histórica de mejor forma. |
+| 53 | `flag_sistemico` | Campo reservado para información externa al HRV que podría afectar la interpretación: calidad de sueño, viajes, enfermedad, etc. Actualmente no se alimenta automáticamente — está preparado para futuras integraciones. |
+| 54 | `flag_razon` | Texto explicativo del flag sistémico (ej: "sueño <5h", "jet lag"). Vacío si no hay flag activo. |
+| 55 | `warning_threshold` | Umbral efectivo usado por el warning legacy `baseline60_degraded`, según `warning_mode`. Se mantiene por compatibilidad y auditoría. |
+| 56 | `warning_threshold_best` | Umbral fijo de mejor forma histórica usado por `degraded_vs_best` (`healthy_factor × healthy_rmssd`). |
+| 57 | `warning_threshold_current_normal` | Umbral dinámico usado por `degraded_vs_current_normal` (`warning_factor × P75 rolling 90D` de `exp(ln_base60)`). |
+| 58 | `warning_mode` | Qué método se usó para calcular el warning legacy `baseline60_degraded`. `adaptive90` = alias de `degraded_vs_current_normal` (default). `healthy85` = alias de la comparación contra mejor forma histórica. `p20` = percentil 20 del histórico completo. |
 
 #### K) v4 Enhancement
 
@@ -343,19 +351,19 @@ Este bloque cubre el warning de baseline degradado y los flags sistémicos que l
 | `recovery_support_class` | Lectura resumida de cómo encajan gate, sueño Polar y carga reciente. `supported` = el contexto externo acompaña la lectura; `neutral` = no añade gran cosa o está mezclado; `fragile` = el gate sale razonable pero sueño/carga meten cautela; `conflicted` = el gate sale mal pero sueño/carga no lo explican bien. No cambia la acción por sí mismo. |
 | `recovery_discordance_flag` | True cuando el análisis de recuperación detecta una tensión entre el gate y el soporte externo (sueño/carga). Se activa en clases `fragile` (contexto débil) y `conflicted` (contexto contradictorio). |
 | `recovery_discordance_reason` | Códigos estructurados que explican la discordancia. Ejemplos: `sleep_basic_poor`, `nightly_rmssd_low`, `load_context_high`, `sleep_score_good`, `recent_load_low`. Pensado para auditoría o análisis posterior. |
-| `reason_text` | Texto explicativo contextual que combina información del gate con datos de sueño y carga. Múltiples razones separadas por ` \| `. Ver tabla de familias de mensajes a continuación. Internamente se renderiza a partir de `reason_items` estructurados (dato medido, proxy, inferencia, acción); no existe columna pública `reason_items_json` en `FINAL` ni en `DASHBOARD`, pero hay un sidecar estructurado `ENDURANCE_HRV_master_FINAL_reason_items.json` (descrito más abajo). El wellness subjetivo de Intervals queda fuera de `reason_text` y se reserva para capas retrospectivas. **No recolorea** el gate — es contexto para tu decisión. |
+| `reason_text` | Texto explicativo contextual que combina información del gate con datos de sueño y carga. Estructura: `{verdicts " · "}. {whys "; "}. Acción: {actions "; "}` (UX-01). Los segmentos se deduplican por igualdad exacta y los echo genéricos de `recovery_support`/`recovery_discordance` se suprimen cuando un emisor más específico (`nightly_discordance`, `green_load_caution`, `acwr`, etc.) ya cubre la señal. Las magnitudes técnicas llevan anchor verbal en paréntesis (`monotonía=1.96, moderada`, `ACWR=0.62, baja`, `strain=917, elevado`). Ver tabla de familias de mensajes a continuación. Internamente se renderiza a partir de `reason_items` estructurados (dato medido, proxy, inferencia, acción) vía `_compose_reason_text` (módulo `build_hrv_final_dashboard`); no existe columna pública `reason_items_json` en `FINAL` ni en `DASHBOARD`, pero hay un sidecar estructurado `ENDURANCE_HRV_master_FINAL_reason_items.json` (descrito más abajo). El wellness subjetivo de Intervals queda fuera de `reason_text` y se reserva para capas retrospectivas. **No recolorea** el gate — es contexto para tu decisión. |
 
 ##### Familias de mensajes que pueden aparecer en `reason_text`
 
 | Familia | Origen de datos | Ejemplos de mensaje |
 |---------|------------------|----------------------|
-| Caída aguda | `veto_agudo = True` | `RMSSD de hoy cayó bruscamente respecto a tu base reciente: superó el umbral de caída aguda` |
+| Caída aguda | `veto_agudo = True` | `RMSSD de hoy cayó bruscamente respecto a tu base reciente (32 ms vs base 42 ms, -25%): superó el umbral de caída aguda` |
 | HRV inusualmente alta | `lnRMSSD_used` fuera del rango habitual de la media móvil 3d | `RMSSD suavizado de 3 días por encima de tu base reciente: posible saturación parasimpática relativa al rango local` |
 | Sueño (duración) | `sleep.csv` (percentiles personales `sleep_dur_p10/p90`) | `Sueño más corto de lo habitual (5h45 vs tu umbral habitual bajo de 6h02)` · `Noche larga atípica` |
 | Sueño (fragmentación) | `sleep.csv` (`sleep_int_p90`) | `Sueño más fragmentado de lo habitual (8 interrupciones largas sobre tu P90)` |
-| Carga aguda | `sessions_day.csv` (`load_3d`) | `Carga acumulada reciente alta (load_3d=237)` |
-| Carga canónica | `sessions_day.csv` (`acwr_simple_prev`, `monotony_7d_prev`, `strain_7d_prev`) | `ACWR muy alto: carga aguda muy por encima de la base crónica (1.69)` · `Monotonía alta` · `Strain semanal elevado` |
-| Convergencia de carga | Convergencia `load_3d` + al menos una canónica | `VERDE con convergencia de carga (load_3d + ACWR/monotonía/strain): conviene prudencia con la intensidad reforzada` |
+| Carga aguda | `sessions_day.csv` (`acute_load_72h_rel`) | `Carga aguda 72h por encima de tu base crónica (acute_load_72h_rel=4.20x; load_3d=237)` |
+| Carga canónica | `sessions_day.csv` (`acwr_simple_prev`, `monotony_7d_prev`, `strain_7d_prev`) | `Carga reciente muy por encima de tu base habitual (ACWR=1.69, muy alta)` · `Semana muy repetitiva, con poca variación de carga (monotonía=2.10, alta)` · `Semana muy exigente y con poca descarga (strain=920, muy elevado)` |
+| Convergencia de carga | Convergencia `acute_load_72h_rel` + al menos una canónica | `VERDE con convergencia de carga (carga 72h + ACWR/monotonía/strain): conviene prudencia con la intensidad reforzada` |
 | Clustering de intensidad | `sessions_day.csv` (`intensity_clustering_*`) | `VERDE pero con 2 días intensos en los últimos 3: conviene prudencia con la intensidad` · `Intensidad reciente muy agrupada: vigilar recuperación` |
 | Resumen de recuperación | `recovery_support_class` | `VERDE con recuperación frágil...` · `ÁMBAR con soporte nocturno aceptable...` · `ROJO con discordancia objetiva...` |
 | Nightly RMSSD discordante | `polar_night_rmssd` vs gate matinal | `Nightly RMSSD bajo pese a gate verde: vigilar` |
@@ -383,14 +391,14 @@ Campos relevantes:
 - `baseline_modifier`: lectura separada cuando `baseline60_degraded = true`; en `analysis/` debe leerse como rebaja de precisión, no como veto operativo por sí sola.
 
 Artefacto complementario:
-- `artifacts/report_sync_status.json`: estado de sincronización del `report.md` humano.
+- `artifacts/report_sync_status.json`: estado de sincronización del `report.md` o `report.ia.md` humano.
   - `status`: `missing`, `unmanaged_legacy`, `stale`, `up_to_date`.
   - `current_token`: token calculado desde `session_payload.json`, `summary.json` y `technical_report.md`.
-  - `report_token`: token encontrado en `report.md`, si existe.
+  - `report_token`: token encontrado en `report.md` o `report.ia.md`, si existe.
 
 Regla de trazabilidad:
 - si `final_reason_items_contract.fallback_to_reason_text = false`, los informes de `analysis/` deben tratar este sidecar como fuente estructurada activa y pueden declararlo explícitamente en `Fuentes`.
-- si `report_sync_status.status != up_to_date`, el `report.md` debe considerarse no alineado con la regeneración técnica más reciente.
+- si `report_sync_status.status != up_to_date`, el `report.md` o `report.ia.md` debe considerarse no alineado con la regeneración técnica más reciente.
 
 ---
 
@@ -408,7 +416,7 @@ Subconjunto de FINAL para mirar en 10 segundos. Solo lo esencial para decidir qu
 | `Action` | **Qué hacer hoy**: INTENSIDAD_OK (adelante), Z2_O_TEMPO_SUAVE (sin intervalos), SUAVE_O_DESCANSO (regenerativo o parar). |
 | `gate_razon_base60` | Por qué salió ese color. 2D_OK = todo dentro de rango. 2D_LN = HRV baja. 2D_HR = pulso alto. 2D_AMBOS = las dos cosas → máxima confianza de fatiga. |
 | `decision_path` | Si el gate fue ajustado por una sombra (BASE28 o BASE42) aparece aquí. Si dice BASE60_ONLY, no hubo override. |
-| `baseline60_degraded` | Warning a medio plazo: True si tu baseline de los últimos 2 meses está por debajo de tu referencia "sano". No cambia el gate de hoy, pero avisa de que tu capacidad de absorción está reducida. |
+| `baseline60_degraded` | Warning a medio plazo legacy. Para lectura nueva, distinguir `degraded_vs_best` (lejos de mejor forma) de `degraded_vs_current_normal` (caída activa reciente). |
 | `reason_text` | Contexto textual del día: por qué el sistema tomó esa decisión y qué factores externos hay (sueño, carga, divergencias). El wellness subjetivo no entra en esta capa. Vacío si no hay nada que reportar. |
 
 ---
@@ -511,7 +519,7 @@ Estas columnas viven en `sessions_day.csv` y alimentan directamente el aviso pro
 
 ### Análisis enriquecido local (capas opcionales de `analysis/`)
 
-Además del clustering básico, cuando el módulo `analysis/` procesa una sesión puede enriquecer el análisis con datos adicionales (terreno, potencia de carrera) y generar capas paralelas. Estos campos viven en `summary.json` (para auditoría) y en `session_payload.json` (para informes de sesión). **Para el significado semántico completo de estas capas experimentales, ver `analysis/ANALYSIS_DICTIONARY.md`:**
+Además del clustering básico, cuando el módulo `analysis/` procesa una sesión puede enriquecer el análisis con datos adicionales (terreno, potencia de carrera) y generar capas paralelas. Estos campos viven en `summary.json` (para auditoría) y en `session_payload.json` (para informes de sesión). De forma separada, `analysis/hrv_rebound_profile.py` genera un sidecar retrospectivo de rebote HRV en `analysis/reports/hrv_rebound_profile/` para lectura semanal, sin afectar el gate ni los contratos canónicos. **Para el significado semántico completo de estas capas experimentales, ver `analysis/ANALYSIS_DICTIONARY.md`:**
 
 | Campo | Qué es | Cómo leerlo |
 |-------|--------|-------------|
@@ -562,9 +570,10 @@ Además del clustering, `sessions_day.csv` sigue siendo la fuente de:
 - `work_7d_sum`
 - `z3_7d_sum`
 - `acwr_simple_prev`
+- `acute_load_72h_rel`
 - `monotony_7d_prev`
 - `strain_7d_prev`
-- `load_ctx_ready` — `True` si hay ≥14 días con datos de carga en la ventana de 28 días; indica que `acwr_simple_prev`, `monotony_7d_prev` y `strain_7d_prev` tienen historial suficiente para ser interpretables y entrar en `reason_text`.
+- `load_ctx_ready` — `True` si hay ≥14 días con datos de carga en la ventana de 28 días; indica que `acwr_simple_prev`, `acute_load_72h_rel`, `monotony_7d_prev` y `strain_7d_prev` tienen historial suficiente para ser interpretables y entrar en `reason_text`.
 
 Estas métricas explican *cuánta* carga hay. La capa de clustering explica si la intensidad reciente está **mal espaciada**.
 
@@ -595,12 +604,12 @@ Estas columnas viven también en `sessions_day.csv` y describen **cómo** se rep
 
 Cuando el día sale `VERDE`, la capa de carga puede cerrar de tres formas:
 
-- `VERDE con carga acumulada (load_3d=X): precaución con la intensidad`
-  Uso: solo la señal aguda de 3 días dispara cautela.
+- `VERDE con carga aguda 72h (acute_load_72h_rel=Xx; load_3d=Y): precaución con la intensidad`
+  Uso: solo la señal aguda relativa de 72h dispara cautela.
 - `VERDE con contexto de carga exigente: precaución con la intensidad`
-  Uso: dispara la capa canónica (`ACWR`, `monotony` o `strain`) sin apoyo de `load_3d`.
-- `VERDE con convergencia de carga (load_3d + ACWR/monotonía/strain): precaución con la intensidad reforzada`
-  Uso: convergen el sidecar agudo y al menos una señal canónica. La conclusión no se repite dos veces; se sintetiza y se refuerza.
+  Uso: dispara la capa canónica (`ACWR`, `monotony` o `strain`) sin apoyo de `acute_load_72h_rel`.
+- `VERDE con convergencia de carga (carga 72h + ACWR/monotonía/strain): precaución con la intensidad reforzada`
+  Uso: convergen la señal aguda relativa y al menos una señal canónica. La conclusión no se repite dos veces; se sintetiza y se refuerza.
 
 ---
 
@@ -753,7 +762,42 @@ Responde preguntas que ni el gate HRV ni `sessions_day.csv` pueden responder por
 
 ---
 
-## 5sexies. WELLNESS_SUBJECTIVE (sidecar retrospectivo) — 17 columnas
+## 5sexies. WEEKLY_COACH (sidecar JSON)
+
+Generado por `build_sessions.py` como `ENDURANCE_HRV_weekly_coach.json`. Resume la semana de referencia con marcas explícitas de corte y cobertura. No afecta al gate HRV ni a `Action`: es un sidecar estructurado para consumo semanal o automatismos posteriores.
+
+### Claves principales
+
+| Clave | Qué es |
+|-------|--------|
+| `iso_week` | Semana ISO de referencia (`YYYY-Www`). |
+| `window_start` / `window_end` | Lunes y domingo de la ventana semanal. |
+| `as_of_date` | Fecha de corte usada para calcular la semana de referencia. |
+| `generated_at` | Timestamp de generación del sidecar. |
+| `anchor_source` | `current_week`, `latest_available` o `no_data`. |
+| `week_expected_days` | Días esperados en la semana ancla. |
+| `week_data_coverage_pct` | Cobertura observada sobre los días esperados, capada a `100.0`. |
+| `week_is_partial` | `True` si la semana no estaba completa o se usó fallback histórico. |
+| `week_days_present` | Días con datos realmente observados en la ventana. |
+| `week_type` | Patrón semanal: `polarized`, `pyramidal`, `threshold`, `mixed` o `insufficient_data`. |
+| `week_type_confidence` | Confianza de la lectura de intensidad semanal. |
+| `week_load` | Suma de `load_day` observados en la semana de referencia. |
+| `progression_risk` | `low`, `moderate`, `high` o `insufficient_data` según `ACWR`, `monotony` y `strain`. |
+| `hrv_trend` | `rising`, `stable`, `falling` o `insufficient_data` según la pendiente semanal de `RMSSD_stable`. |
+| `data_quality` | Calidad e interpretabilidad del sidecar: no equivale a normalidad operativa. |
+| `planning_note` | Orientacion breve, condicional y persistible para el arranque del siguiente microciclo. Se ancla a `HRV matinal` y `Action/reason_text` del primer dia; no prescribe sesiones exactas. |
+| `sleep_context` | Trazabilidad opcional de la lectura semanal de sueño usada para matizar `planning_note`. Puede incluir `sleep_days_present`, `sleep_duration_mean_min`, `sleep_short_nights_pct`, `sleep_deep_pct_mean` y `sleep_score_mean`. Permanece en el JSON del sidecar semanal; no se expone por `GET /api/status` ni en la tarjeta UI. |
+| `z3_budget_by_sport` | Lista opcional de lecturas retrospectivas `per-sport` para `SYA-14`. Cada elemento resume el `sport`, `sport_family`, `z3_pct_weighted_current`, `z3_total_min_current`, el percentil histórico `z3_pct_percentile_by_sport`, la banda `z3_budget_band_by_sport`, el alcance de referencia (`sport` o `sport_family`), semanas comparables usadas y el estado de cobertura. No prescribe sesiones: solo contextualiza si la semana actual cae baja, normal, alta o muy alta en `Z3` respecto al histórico comparable. La salida estructurada conserva las cuatro bandas; el resumen textual visible de la UI/weekly coach solo surfacea `high` y `very_high` en v1. |
+
+### Lo que NO debes hacer
+
+- ❌ Usar `data_quality` como si fuera un semáforo de estado atlético
+- ❌ Interpretar `week_load` como reconstrucción completa si faltan días por ingestión
+- ❌ Mezclar este sidecar con `reason_text` o con el gate diario
+
+---
+
+## 5septies. WELLNESS_SUBJECTIVE (sidecar retrospectivo) — 17 columnas
 
 Generado como `ENDURANCE_HRV_wellness_subjective.csv` a partir del wellness subjetivo reportado en Intervals.icu (capa retrospectiva de análisis). **NO alimenta `reason_text`** ni modifica el gate: es información complementaria reservada para revisiones semanales u offline.
 
@@ -795,13 +839,171 @@ Guarda lo que tú mismo reportaste cada día (fatiga, estrés, ánimo, etc.) jun
 
 ---
 
-## 5septies. SESSIONS (histórico de sesiones) — 73 columnas (mapa)
+## 5octies. SSM_SHADOW (sidecar técnico SYA-17) — 30 columnas
 
-Generado por `build_sessions.py` como `ENDURANCE_HRV_sessions.csv`. Es el **histórico canónico** de sesiones de Intervals.icu con zonas, bloques de trabajo, drift y métricas derivadas. No afecta al gate HRV, pero es la fuente a partir de la cual se construye `sessions_day.csv` (§5ter) y el sidecar semanal (§5quinque).
+Generado por `build_hrv_ssm.py` como `ENDURANCE_HRV_ssm_shadow.csv`, acompañado por `ENDURANCE_HRV_ssm_shadow_metadata.json`. Es una capa sombra diaria para estimar un estado latente de recuperación/autonomía a partir de `lnRMSSD` (`CORE`), `load_day[t-1]` (`sessions_day`) y una observación secundaria nocturna derivada de `ENDURANCE_HRV_sleep.csv`.
+
+Reglas operativas:
+
+- no modifica `ENDURANCE_HRV_master_FINAL.csv`
+- no modifica `gate_final`, `Action` ni `reason_text`
+- no se considera señal visible al usuario final en Fase 1
+- si el histórico de inputs cambia, el sidecar debe regenerarse completo; la metadata guarda `sha256` para auditarlo
+
+| Columna | Significado |
+|---------|-------------|
+| `Fecha` | Día calendario del eje sombra. |
+| `ssm_input_ready` | `true` si el día pudo entrar en el eje diario de trabajo del modelo. |
+| `ssm_warmup_complete` | `true` cuando ya se alcanzó el `warm-up` mínimo exigido para emitir estado maduro. |
+| `ssm_recovery_state` | Estado latente filtrado. Es una señal técnica, no una decisión operativa. |
+| `ssm_state_lo` | Límite inferior del intervalo técnico al 90% para el estado filtrado. |
+| `ssm_state_hi` | Límite superior del intervalo técnico al 90% para el estado filtrado. |
+| `ssm_state_var` | Varianza del estado filtrado. |
+| `ssm_state_sd` | Desviación estándar del estado filtrado. |
+| `ssm_baseline_state` | Componente lento del Banister de dos estados. Se interpreta como la base autonómica/lenta sobre la que actúa la fatiga. |
+| `ssm_fatigue_state` | Componente rápido del Banister de dos estados. Se interpreta como la carga/fatiga aguda acumulada que tira hacia abajo del estado compuesto. |
+| `ssm_baseline_state_var` | Varianza del componente lento. |
+| `ssm_fatigue_state_var` | Varianza del componente rápido. |
+| `ssm_baseline_state_sd` | Desviación estándar del componente lento. |
+| `ssm_fatigue_state_sd` | Desviación estándar del componente rápido. |
+| `sleep_recovery_index` | Observación secundaria nocturna cruzada a escala `lnRMSSD` desde `polar_night_rmssd` y `polar_sleep_score` cuando están disponibles. Alimenta el Banister como medida auxiliar, no como gate. |
+| `sleep_recovery_index_var` | Varianza de la observación nocturna ya calibrada. |
+| `sleep_recovery_index_sd` | Desviación estándar de la observación nocturna ya calibrada. |
+| `sleep_obs_missing` | `true` si no había observación nocturna utilizable para ese día. |
+| `sleep_input_quality` | Calidad operativa de la observación nocturna: `clean`, `degraded` o `suppressed`. |
+| `sleep_obs_var_multiplier` | Multiplicador continuo de la varianza observacional nocturna derivado de calidad/artefactos. |
+| `sleep_innovation` | Resíduo nocturno del Kalman antes del update HRV matinal. Sirve como sidecar de sorpresa nocturna y matiz interpretativo. |
+| `ssm_obs_missing` | `true` si la observación HRV quedó suprimida ese día (`lnRMSSD` ausente, `Calidad=INVALID` o `LAT_NAN`). |
+| `ssm_innovation` | Residuos de observación del Kalman (`lnRMSSD` observado menos predicho) antes del update. Sirven como sidecar de sorpresa del día y base de `reason_text`/lectura diaria, pero no cambian el gate. |
+| `ssm_load_missing` | `true` si hubo fila de `sessions_day` pero `load_day` no era utilizable. |
+| `ssm_load_context_mode` | Contexto de carga usado para modular la confianza del proceso: `session_recorded`, `rest_day_no_session`, `calendar_gap_no_session`, `missing_session_value`. |
+| `ssm_proc_var_multiplier` | Multiplicador aplicado a la varianza de proceso según el contexto de carga. |
+| `ssm_input_quality` | Calidad operativa de la observación HRV: `clean`, `degraded` o `suppressed`. |
+| `ssm_obs_var_multiplier` | Multiplicador continuo de la varianza observacional derivado de calidad/artefactos. `BETA_FROZEN` ya no degrada por sí mismo el peso de la observación en SSM; queda solo como auditoría. |
+| `control_rolling_hrv_7d` | Baseline simple de control: media móvil causal 7d de `lnRMSSD`. |
+| `control_load_7d` | Baseline simple de control para carga: `load_7d` si existe, o suma móvil 7d calculada localmente. |
+
+La metadata JSON añade parámetros fijados, hashes y tamaños de `CORE`, `sessions_day` y `sleep`, diagnóstico de `warm-up`, pre-test de utilidad de carga, calibración de la observación nocturna y auditoría previa de outcomes.
+La sección `kalman_diagnostics` también expone la calibración de bandas al 90%: `interval_scale_factor`, `interval_scale_source` (método de calibración), `interval_calib_n` (n de calibración, 70% del histórico), `interval_holdout_n` (n de evaluación, 30%), `interval_coverage_source` (`holdout_30pct` si hay suficientes datos, `all_warmup_complete_fallback` si no), `interval_coverage_90pct`, `interval_coverage_ci95`, `interval_calibration_delta` e `interval_calibration_status`.
+
+Además, la metadata puede incluir `daily_user_summary`, una lectura diaria simplificada de la última fila válida del shadow:
+
+- `state_label` (`alto`, `medio`, `bajo`)
+- `confidence_label` (`alta`, `media-alta`, `media`, `baja`)
+- `innovation` como sorpresa del día frente a lo predicho por el estado y la carga: positiva si el HRV observado queda por encima de lo esperado, negativa si queda por debajo
+- `sleep_recovery_index` y `sleep_innovation` para la lectura nocturna auxiliar del mismo día
+- `interpretive_text` en castellano llano, pensado para lectura rápida del usuario final. Desde UX-01, expresa magnitudes en ms RMSSD (`exp(estado_en_log)`) con el valor log entre paréntesis como auditoría; `innovation` se renderiza como **sorpresa del modelo** en `%` de HRV respecto a lo predicho; `ssm_fatigue_state` lleva anchor verbal (`baja`/`media`/`alta`) basado en percentiles p33/p66 del histórico propio del atleta (`_fatigue_label_from_history`). La nomenclatura interna `matiz SSM` quedó retirada; se usa `lectura SSM`.
+- `ssm_baseline_state` y `ssm_fatigue_state` para desglosar la lectura en componente lento (tendencia) y rápido (fatiga reciente) del Banister. Cuando `fatigue_state ≤ -0.02` el modelo no detecta fatiga neta y la prosa cambia a lenguaje de compensación (no `descuenta`).
+
+Esta lectura no cambia el gate ni `reason_text`; solo añade matiz interpretativo sobre el estado SSM del día.
+
+Nota Fase 1: en `build_hrv_final_dashboard.py` existe un bloque latente que emitiría un mensaje `ssm_context` en `reason_text` cuando el estado SSM diverge >=0.08 del rolling HRV bajo condiciones de alta confianza (`state_sd<0.08`, `input_quality=clean`, `|innovation|<0.12`). Ese bloque se preserva tras la feature flag `HRV_SSM_REASON_TEXT_ENABLED` (default `0`, deshabilitado). No se activa en Fase 1 por dos razones: (1) la validación principal concluye `no_go`; (2) el bloque no filtra por `sport_family` y el SSM tiene comportamiento dispar entre bike (pierde a rolling) y run (empata). Para promoción real en Fase 2 hay que añadir el filtro por deporte y validar la lectura específicamente para los deportes viables.
+
+---
+
+## 5nonies. SSM_VALIDATION_REPORT (sidecar JSON + MD)
+
+Generado por `build_hrv_ssm_validation.py` como:
+
+- `ENDURANCE_HRV_ssm_validation_report.json`
+- `ENDURANCE_HRV_ssm_validation_report.md`
+
+Es la capa reproducible de validación Fase 1 del shadow SSM. No cambia el gate, no se usa en `/api/status` y no recolorea `FINAL`. Su función es responder si la señal SSM aporta algo frente a comparadores simples.
+
+El JSON incluye al menos:
+
+- `primary_outcome_name`
+- `primary_outcome_selection`
+- `pairing_rule`
+- `sign_semantics_audit`
+- `phase1_conclusion`
+- `structural_comparator`
+- `sleep_comparator`
+- `ewma_comparator`
+- `phi_sensitivity`
+- `discordant_day_analysis`
+- `sport_stratified_analysis`
+- `primary_strict_by_sport`
+- `walk_forward_by_sport`
+- `primary_operational_view`
+- `calibration_check`
+- `baseline_comparison`
+- `n_pairs`
+- `lag_days_mean`, `lag_days_median`
+- `strict_funnel`
+- `outcome_diagnostics`
+- `outcome_normalization`
+- `evaluations` por predictor (`ssm_goodness`, `rolling_hrv_goodness`, `load_badness`, `gate_badness`) con holdout simple y walk-forward temporal
+- `redundancy_check`
+- `uncertainty_slice`
+- `go_no_go`
+- `primary_strict`
+- `primary_lite`
+- `exploratory_broad`
+- `exploratory_window_t1_t3`
+- `metadata_snapshot`
+
+Reglas de lectura:
+
+- `pairing_rule` principal vuelve a usar la siguiente sesión comparable en `t+1..t+7` para preservar soporte estricto
+- `exploratory_pairing_rule` y `exploratory_window_t1_t3` conservan la variante multi-día `t+1..t+3` usando hasta 3 sesiones, solo como diagnóstico exploratorio
+- `primary_strict` gobierna el `go/no-go` de Fase 1: exige `FDS`, excluye `strength_only` y requiere soporte mínimo de baseline comparable
+- dentro de `primary_strict`, `candidate_go` exige además batir a `rolling_hrv_7d` en holdout; mejorar solo a `load_7d` ya no basta para promoción
+- `primary_lite` es diagnóstico intermedio: exige `FDS` o `FDS-lite`, excluye `strength_only` y baja el soporte mínimo a baseline comparable `>=2`; no gobierna promoción
+- `exploratory_broad` conserva todos los pares comparables disponibles, incluyendo `oriented_raw_fallback`; sirve para generar hipótesis, no para promocionar el modelo
+- `strict_funnel` explicita en qué paso se vacía el bloque estricto (`fds_only`, deporte aeróbico, baseline comparable, etc.)
+- `outcome_diagnostics` explica si el problema es falta de historial comparable o degeneración del outcome dentro de familia (por ejemplo `MAD=0`)
+- `outcome_normalization` documenta si el target se reescaló antes del `FDS`; para `cardiac_drift_worst`, la validación puede normalizar por `sport_family` usando la magnitud mediana propia del deporte antes de orientar el outcome
+- `primary_outcome_selection` deja trazabilidad de por qué el validador eligió ese outcome y no otro; si el candidato del audit upstream está degenerado, puede hacer fallback al mejor target validable
+- `sign_semantics_audit` audita directamente si la señal principal soporta lectura `goodness`; reporta `rho_goodness`, `p_value_goodness` y si esa semántica queda soportada por los datos
+- `phase1_conclusion` persiste el cierre operativo de Fase 1 y enlaza explícitamente `go_no_go`, `structural_comparator`, `sleep_comparator` y `ewma_comparator`: resume semántica preferida, si la ventaja aguanta en discordantes, y si la estratificación por deporte obliga a leer el `candidate_go` con cautela; también deja claro si el comparador estructural favorece `HRV-only`, si la observación nocturna de sueño añade o no valor frente a la variante sin sueño, y si un `EWMA` simple ya iguala o supera al Banister. Además expone `sport_go_statuses` y `sport_primary_reading` para que la lectura final pueda priorizar los `no_go` por deporte cuando el agregado global sea más optimista que las validaciones estratificadas
+- `phi_sensitivity` ejecuta una rejilla corta de `phi` y compara holdout en los mismos pares estrictos; sirve para verificar si `phi=0.92` cae en una zona razonable o si hay un valor claramente mejor
+- `discordant_day_analysis` separa el bloque estricto en días concordantes vs discordantes (SSM vs carga, SSM vs HRV, SSM vs gate) para comprobar si la mejora del modelo aparece donde realmente debería desambiguar
+- `sport_stratified_analysis` repite la evaluación del bloque estricto por `sport_family`; sirve para detectar si el outcome o la señal funcionan en un deporte y se degradan al mezclarlos
+- `primary_strict_by_sport` promociona esa misma lectura a bloques primarios por deporte viable (`run`, `bike`, etc.), con su propio `go_no_go`, para que la interpretación no dependa solo del target combinado
+- `walk_forward_by_sport` reexpone el `walk-forward` de cada deporte viable como vista operativa separada, para que la comparación no quede mezclada en el agregado global
+- `primary_operational_view` fija qué lectura debe priorizarse a nivel operativo (`sport_first` o `global_with_sport_context`) para evitar que un `candidate_go` agregado eclipse varios `no_go` por deporte
+- `calibration_check` resume si las bandas técnicas `ssm_state_lo/hi` están calibradas frente a `lnRMSSD` observado y expone cobertura, delta e intervalo de confianza
+- `baseline_comparison` añade un `baseline` trivial (`median_fds`) y un baseline `last_in_family` para saber si el modelo realmente aporta algo más allá de un predictor tonto; además incluye `bootstrap_ci` sobre diferencias de MAE para cuantificar si la brecha frente a `rolling` y los baselines es señal o ruido
+- `ewma_comparator` prueba una baseline EWMA sobre `lnRMSSD` con rejilla de `alpha` y reporta holdout, walk-forward y deltas frente al Banister; sirve como test de degeneración honesto para saber si el filtro aporta más que un suavizado exponencial simple
+- `ssm_goodness` = lectura principal validada de `ssm_recovery_state`; más alto implica mejor outcome funcional orientado
+- `rolling_hrv_goodness` = baseline simple de HRV suavizada leído con la misma semántica de `goodness`
+- `load_badness` sigue siendo baseline de estímulo reciente, no una decisión operativa ni un estado fisiológico equivalente
+- `gate_badness` es referencia informativa, no baseline neutro independiente
+- la comparabilidad del outcome prioriza `route_id` recurrente; si no hay soporte suficiente, cae a `session_group`; si tampoco lo hay, cae a familia `session_family + sport_family`
+- `candidate_go` no significa promoción automática; solo habilita discutir Fase 2, y requiere batir explícitamente a `rolling_hrv_7d` en el bloque correspondiente
+
+El `.md` es un resumen humano del mismo análisis. Si hay discrepancia, manda el `.json`.
+
+---
+
+## 5decies_bis. SSM_OUTCOME_BATTERY (sidecar exploratorio SYA-17)
+
+Generado por `build_hrv_ssm_outcome_battery.py` como `ENDURANCE_HRV_ssm_outcome_battery.json` y `.md`.
+
+Prueba el predictor SSM contra outcomes alternativos a `cardiac_drift_worst`:
+
+- `lnrmssd_next_day`: predice `lnRMSSD[t+1]` desde `ssm_recovery_state[t]`, rolling, AR(1), EWMA grid y `ssm_innovation[t]`.
+- `wellness_next_day`: predice `well_fatigue_raw[t+1]` (u otra columna `_raw` con mejor cobertura) desde los mismos predictores.
+
+Para cada outcome incluye: evaluaciones Spearman + holdout MAE/RMSE + walk-forward, grid EWMA, bootstrap CI90 sobre delta MAE SSM−rolling y veredicto (`ssm_wins`, `rolling_wins`, `tied`, `insufficient_data`).
+
+Hallazgo principal de Fase 1: `ssm_innovation[t]` predice `well_fatigue_raw[t+1]` con CI90 enteramente negativo (MAE innovación 0.55 vs rolling 0.62, `prob_delta_gt_0=0.004`, n=71). Señal incipiente; se fortalecerá con más entradas de wellness.
+
+Reglas de lectura:
+- Este sidecar es exploratorio; no modifica el gate ni recolorea `FINAL`.
+- El veredicto `ssm_wins` no implica promoción; solo indica que el SSM supera al rolling por encima del margen de ruido (0.005 MAE).
+- `ssm_beats_ar1: None` significa que AR(1) no aplica para ese outcome (wellness), no que el SSM pierda.
+
+---
+
+## 5decies. SESSIONS (histórico de sesiones) — 73 columnas (mapa)
+
+Generado por `build_sessions.py` como `ENDURANCE_HRV_sessions.csv`. Es el **histórico canónico** de sesiones de Intervals.icu con zonas, bloques de trabajo, drift y métricas derivadas. No afecta al gate HRV, pero es la fuente a partir de la cual se construye `sessions_day.csv` (§5ter) y los sidecars semanales (§5quinquies y §5sexies).
 
 ### Fuente canónica del detalle columna-a-columna
 
-La especificación completa columna-a-columna vive en **`ENDURANCE_HRV_Sessions_Schema.md`** (revisión `r2026-04-20 v3.12`). Este diccionario no la duplica para evitar desincronizaciones.
+La especificación completa columna-a-columna vive en **`ENDURANCE_HRV_Sessions_Schema.md`** (revisión `r2026-05-13 v3.13`). Este diccionario no la duplica para evitar desincronizaciones.
 
 ### Mapa de bloques (73 columnas)
 
@@ -1034,6 +1236,8 @@ Si no hay override, `override_reason` queda vacío.
                               └───────────────────────────┘
 ```
 
+Nota: `baseline60_degraded` es la señal legacy de lectura rápida. La lectura canónica nueva distingue `degraded_vs_best` (distancia a mejor forma histórica) y `degraded_vs_current_normal` (caída activa respecto a tu normal reciente).
+
 ---
 
 ## 10. Glosario de términos técnicos
@@ -1170,6 +1374,8 @@ Action_detail: EJECUTAR_PLAN
 gate_razon_base60: 2D_OK
 decision_path: BASE60_ONLY
 baseline60_degraded: False
+degraded_vs_best: False
+degraded_vs_current_normal: False
 ```
 
 **Interpretación:** Gate OK, ambos deltas dentro de SWC, residual ligeramente positivo. Ejecutar plan previsto.
@@ -1189,6 +1395,8 @@ decision_path: BASE60_ONLY
 bad_streak: 2
 bad_7d: 3
 baseline60_degraded: True
+degraded_vs_best: True
+degraded_vs_current_normal: True
 ```
 
 **Interpretación:** HR alto + HRV bajo simultáneamente, residual muy negativo, racha de 2 días malos, 3 en 7 días, baseline degradado. Señales claras de fatiga acumulada → descarga.
@@ -1206,6 +1414,8 @@ Action_detail: SIN_HIIT
 gate_razon_base60: 2D_HR
 decision_path: BASE60_ONLY
 baseline60_degraded: False
+degraded_vs_best: False
+degraded_vs_current_normal: False
 ```
 
 **Interpretación:** HR por encima de lo normal pero HRV dentro de rango. Posible sueño malo o estrés puntual. Sin HIIT, pero Z2 permitido.
@@ -1240,7 +1450,7 @@ Action_detail: SUAVE
 gate_razon_base60: 2D_AMBOS
 decision_path: BASE60_ONLY
 veto_agudo: True
-reason_text: RMSSD de hoy cayó bruscamente respecto a tu base reciente: superó el umbral de caída aguda | Sueño más corto de lo habitual (5h45 vs tu umbral habitual bajo de 6h02) | Carga acumulada reciente alta (load_3d=237)
+reason_text: RMSSD de hoy cayó bruscamente respecto a tu base reciente: superó el umbral de caída aguda | Sueño más corto de lo habitual (5h45 vs tu umbral habitual bajo de 6h02) | Carga aguda 72h por encima de tu base crónica (acute_load_72h_rel=4.20x; load_3d=237)
 ```
 
 **Interpretación:** El veto agudo detectó una caída brusca que ROLL3 habría suavizado. El `reason_text` explica tres factores convergentes: la caída fue real, dormiste poco, y acumulaste mucha carga. Alta confianza de que el ROJO es legítimo.
@@ -1258,7 +1468,7 @@ Action_detail: EJECUTAR_PLAN
 gate_razon_base60: 2D_OK
 decision_path: BASE60_ONLY
 veto_agudo: False
-reason_text: ACWR muy alto: carga aguda muy por encima de la base crónica (1.69) | VERDE con convergencia de carga (load_3d + ACWR): precaución con la intensidad reforzada
+reason_text: ACWR muy alto: carga aguda muy por encima de la base crónica (1.69) | VERDE con convergencia de carga (carga 72h + ACWR): precaución con la intensidad reforzada
 ```
 
 **Interpretación:** Tu HRV y pulso están bien (VERDE), pero la lectura operativa no es un verde limpio. La carga aguda de 3 días y el ACWR apuntan en la misma dirección, así que el cierre de `reason_text` escala la cautela: el gate permite intensidad, pero no justifica exprimirla.

@@ -58,6 +58,10 @@ Este archivo manda solo sobre:
 - orden de carga,
 - reglas de adopcion y outputs reproducibles del modulo.
 
+Regla adicional de modulo:
+
+- utilidades semanales locales como `sya15_continuity.py` o `hrv_rebound_profile.py` pertenecen a `analysis/` y pueden producir sidecars reproducibles locales, pero MUST NOT reinterpretarse como parte del pipeline canonico global salvo cambio explicito de alcance.
+
 Reglas criticas:
 
 - los outputs canonicos del proyecto pueden informar contexto, pero no sustituyen a la documentacion normativa,
@@ -79,6 +83,11 @@ En analisis semanal, el modulo debe responder ademas:
 2. que carga util y mecanica dejo
 3. si esa carga parece absorbida o no
 4. que condiciona la decision de la semana siguiente
+
+Para responder esas preguntas, el analisis semanal MAY apoyarse en sidecars retrospectivos locales del propio modulo cuando aporten valor incremental claro:
+
+- `sya15_continuity.py` para continuidad rolling por deporte sobre `ENDURANCE_HRV_intensity_distribution_weekly.csv`,
+- `hrv_rebound_profile.py` para rebote HRV D+1/D+3 por bloque o por semana.
 
 ## 5. Inputs validos
 ### MUST aceptar

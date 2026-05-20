@@ -431,6 +431,32 @@ def _csv_runtime_diagnostics() -> dict:
     }
 
 
+def _weekly_coach_diagnostics() -> dict:
+    weekly_coach_path = DATA_DIR / "ENDURANCE_HRV_weekly_coach.json"
+    payload = {
+        "weekly_coach_exists": weekly_coach_path.exists(),
+        "weekly_coach_iso_week": None,
+        "weekly_coach_window_end": None,
+        "weekly_coach_data_quality": None,
+        "weekly_coach_planning_note": None,
+        "weekly_coach_z3_budget_summary": None,
+    }
+    if not weekly_coach_path.exists():
+        return payload
+
+    try:
+        weekly_coach = json.loads(weekly_coach_path.read_text(encoding="utf-8"))
+    except Exception:
+        return payload
+
+    payload["weekly_coach_iso_week"] = weekly_coach.get("iso_week")
+    payload["weekly_coach_window_end"] = weekly_coach.get("window_end")
+    payload["weekly_coach_data_quality"] = weekly_coach.get("data_quality")
+    payload["weekly_coach_planning_note"] = weekly_coach.get("planning_note")
+    payload["weekly_coach_z3_budget_summary"] = weekly_coach.get("z3_budget_summary")
+    return payload
+
+
 def _dropbox_runtime_diagnostics() -> dict:
     dropbox_script = Path((os.environ.get("HRV_DROPBOX_RR_SCRIPT") or "egc_to_rr.py").strip() or "egc_to_rr.py")
     dropbox_folder_path = (
@@ -457,6 +483,7 @@ def _dropbox_runtime_diagnostics() -> dict:
 def _build_status_payload() -> dict:
     token_info = _token_diagnostics()
     csv_info = _csv_runtime_diagnostics()
+    weekly_coach_info = _weekly_coach_diagnostics()
     dropbox_info = _dropbox_runtime_diagnostics()
     seed_info = _seed_upload_diagnostics()
     rr_info = _latest_rr_diagnostics()
@@ -466,6 +493,7 @@ def _build_status_payload() -> dict:
         "authorized": token_info.get("token_reason") == "ok",
         **token_info,
         **csv_info,
+        **weekly_coach_info,
         **dropbox_info,
         **seed_info,
         **rr_info,
@@ -545,6 +573,69 @@ HTML_TEMPLATE = """
         .status.success { background: var(--ok-bg); color: var(--ok-text); }
         .status.error { background: var(--error-bg); color: var(--error-text); }
         .section-title { font-size: 16px; font-weight: 800; letter-spacing: -0.03em; color: var(--brand-strong); margin-bottom: 12px; }
+        .coach-card {
+            border: 1px solid rgba(15, 118, 110, 0.14);
+            background:
+                linear-gradient(180deg, rgba(227, 243, 234, 0.98), rgba(255, 252, 247, 0.96));
+        }
+        .coach-header {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px 10px;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        .coach-title {
+            font-size: 18px;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            color: var(--brand-strong);
+        }
+        .coach-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .coach-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: rgba(15, 118, 110, 0.09);
+            color: var(--brand-strong);
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.01em;
+        }
+        .coach-label {
+            color: var(--muted);
+            font-weight: 700;
+            margin-right: 4px;
+        }
+        .coach-note {
+            font-size: 15px;
+            line-height: 1.55;
+            color: var(--text);
+            white-space: pre-wrap;
+        }
+        .coach-z3 {
+            margin-top: 10px;
+            font-size: 13px;
+            line-height: 1.45;
+            color: var(--brand-strong);
+            background: rgba(15, 118, 110, 0.08);
+            border: 1px solid rgba(15, 118, 110, 0.12);
+            padding: 8px 10px;
+        }
+        .coach-source {
+            margin-top: 12px;
+            font-size: 12px;
+            line-height: 1.4;
+            color: var(--muted);
+        }
         .raw-output {
             padding: 14px; border-radius: 4px; background: #16353a; color: #eef6f5; font-family: Consolas, "Courier New", monospace;
             font-size: 12px; line-height: 1.5; min-height: 320px; max-height: 60vh; overflow-x: hidden; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word;
@@ -567,6 +658,19 @@ HTML_TEMPLATE = """
             </div>
             <div id="status" class="status"></div>
         </section>
+        <section id="weeklyCoachCard" class="card coach-card" hidden>
+            <div class="coach-header">
+                <div class="coach-title">Coach semanal</div>
+            </div>
+            <div class="coach-meta">
+                <span class="coach-pill"><span class="coach-label">Semana</span><span id="weeklyCoachWeek">-</span></span>
+                <span class="coach-pill"><span class="coach-label">Cierre</span><span id="weeklyCoachWindowEnd">-</span></span>
+                <span class="coach-pill"><span class="coach-label">Calidad</span><span id="weeklyCoachQuality">-</span></span>
+            </div>
+            <div id="weeklyCoachNote" class="coach-note">Esperando disponibilidad del resumen semanal...</div>
+            <div id="weeklyCoachZ3" class="coach-z3" hidden title="Lectura retrospectiva de Z3 respecto al historico comparable por deporte. No es una prescripcion automatica."></div>
+            <div class="coach-source">Fuente visible en UI: <code>ENDURANCE_HRV_weekly_coach.json</code> vía <code>/api/status</code>. Fuentes primarias del método semanal: <code>sessions_day</code>, <code>sessions</code>, <code>FINAL</code>, <code>DASHBOARD</code> y <code>sleep</code>.</div>
+        </section>
         <section class="card">
             <div class="section-title">Detalle técnico</div>
             <pre id="rawOutput" class="raw-output">Esperando ejecución...</pre>
@@ -585,6 +689,33 @@ HTML_TEMPLATE = """
         function renderTechnicalOutput(rawText) {
             const rawOutput = document.getElementById('rawOutput');
             rawOutput.textContent = rawText || 'Esperando ejecución...';
+        }
+        function renderWeeklyCoachPanel(data) {
+            const card = document.getElementById('weeklyCoachCard');
+            const week = document.getElementById('weeklyCoachWeek');
+            const windowEnd = document.getElementById('weeklyCoachWindowEnd');
+            const quality = document.getElementById('weeklyCoachQuality');
+            const note = document.getElementById('weeklyCoachNote');
+            const z3 = document.getElementById('weeklyCoachZ3');
+            const diagnostics = data?.diagnostics || {};
+            const exists = Boolean(diagnostics.weekly_coach_exists);
+            card.hidden = !exists;
+            if (!exists) {
+                week.textContent = '-';
+                windowEnd.textContent = '-';
+                quality.textContent = '-';
+                note.textContent = 'Todavía no hay resumen semanal disponible.';
+                z3.hidden = true;
+                z3.textContent = '';
+                return;
+            }
+            week.textContent = diagnostics.weekly_coach_iso_week || 'Semana no declarada';
+            windowEnd.textContent = diagnostics.weekly_coach_window_end || 'Sin cierre';
+            quality.textContent = diagnostics.weekly_coach_data_quality || 'sin dato';
+            note.textContent = diagnostics.weekly_coach_planning_note || 'Sin planning note disponible.';
+            const z3Summary = diagnostics.weekly_coach_z3_budget_summary || '';
+            z3.hidden = !z3Summary;
+            z3.textContent = z3Summary ? `Contexto Z3 semanal: ${z3Summary}` : '';
         }
         function setButtonState(jobType, state) {
             const mapping = { hrv: ['syncBtn', 'syncBtnText', 'Sincronizar HRV'], sessions: ['sessionsBtn', 'sessionsBtnText', 'Sincronizar sesiones'] };
@@ -621,6 +752,7 @@ HTML_TEMPLATE = """
                 const latestRrPath = data?.diagnostics?.latest_rr_path;
                 deleteLastRrBtn.disabled = Boolean(data.running || !latestRrPath);
             }
+            renderWeeklyCoachPanel(data);
             renderTechnicalOutput(rawText);
         }
         async function refreshDashboard() {

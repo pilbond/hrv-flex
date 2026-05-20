@@ -105,6 +105,16 @@ El usuario MAY anadir:
 ### Auxiliares citable
 - `analysis_only_context` y sidecars locales de una sesion individual
   cuando ayuden a ilustrar un patron semanal concreto,
+- `data/ENDURANCE_HRV_weekly_coach.json` cuando exista, como resumen
+  estructurado de la semana de referencia; `planning_note` puede
+  servir como punto de partida para la Seccion 7, pero no sustituye
+  las fuentes primarias,
+- `weekly_prep_manifest.json` del semanal local, como punto unico de
+  descubrimiento de sidecars reproducibles del modulo,
+- sidecars listados dentro de ese `weekly_prep_manifest.json`, por
+  ejemplo:
+  - `sya15_continuity_<sport>_<min>of<window>w.md`
+  - `sya15_continuity_<sport>_<min>of<window>w.json`
 - `ENDURANCE_HRV_wellness_subjective.csv` cuando aporte contexto
   retrospectivo util.
 
@@ -115,6 +125,12 @@ El usuario MAY anadir:
   sustituyen evidencia estructural del periodo,
 - un informe semanal MUST NOT depender de textos previos del analista
   como base primaria de evidencia.
+- los sidecars semanales locales de `analysis/` sirven para resumir o
+  acelerar lectura retrospectiva; nunca sustituyen la capa canonica
+  semanal ni redefinen su semantica.
+- el informe semanal SHOULD descubrir esos sidecars a traves de
+  `weekly_prep_manifest.json`, no por convenciones ad hoc de nombres
+  de archivo.
 
 ### Exclusiones explicitas del contrato semanal
 Las siguientes fuentes quedan fuera del contrato semanal canonico:
@@ -189,12 +205,62 @@ Si existe `data/ENDURANCE_HRV_sessions_metadata.json` y contiene
 ## 7. Flujo obligatorio
 1. construir el calendario semanal de 7 dias,
 2. integrar sesiones, dashboard, core y sleep por fecha,
-3. describir el perfil del microciclo sin interpretacion,
-4. evaluar carga y estructura semanal,
-5. evaluar recuperacion y absorcion,
-6. revisar divergencias materiales con el sistema,
-7. sintetizar y orientar la semana siguiente,
-8. declarar confianza y limitaciones.
+3. preparar primero el contexto reproducible semanal local con
+   `analysis/run_weekly_analysis_prep.py`,
+4. describir el perfil del microciclo sin interpretacion,
+5. evaluar carga y estructura semanal,
+6. evaluar recuperacion y absorcion,
+7. revisar divergencias materiales con el sistema,
+8. sintetizar y orientar la semana siguiente,
+9. declarar confianza y limitaciones.
+
+### Preparacion local recomendada
+El punto de entrada base del semanal SHOULD ser:
+
+- `python scripts/run_weekly_analysis_prep.py --today YYYY-MM-DD`
+
+Si se quiere generar ya el borrador reproducible del informe, el
+entrypoint superior SHOULD ser:
+
+- `python scripts/analyze_weekly.py --today YYYY-MM-DD`
+
+Salida esperada:
+
+- directorio local bajo `analysis/reports/weekly/<week_start>_<week_end>/`
+- `weekly_prep_manifest.json`
+- `report.auto.md`
+- `report.ia.md`
+- `analyst_prompt.md`
+- `ai_handoff.md`
+- `weekly_analysis_context.json`
+- subdirectorio `artifacts/`
+- `artifacts/report_sync_status.json`
+- `sya15_continuity_<sport>_<min>of<window>w.md`
+- `sya15_continuity_<sport>_<min>of<window>w.json`
+
+Reglas:
+
+- `run_weekly_analysis_prep.py` es el entrypoint reproducible del
+  semanal local de `analysis`,
+- `analyze_weekly.py` es el entrypoint superior cuando el objetivo ya
+  es obtener un borrador semanal reproducible,
+- `weekly_prep_manifest.json` es la fuente unica para descubrir que
+  sidecars existen para esa semana y donde estan sus rutas,
+- `analyst_prompt.md` y `ai_handoff.md` del semanal actuan como
+  contrato operativo de redaccion cuando se quiera producir
+  `report.ia.md`,
+- `report.ia.md` semanal SHOULD incluir `report_sync_token` y su
+  alineacion debe declararse en `artifacts/report_sync_status.json`,
+- los sidecars siguen siendo locales de `analysis/`, no sidecars
+  canonicos del pipeline HRV,
+- su lanzamiento sigue siendo manual respecto al prompt semanal, pero
+  ya no queda disperso en comandos sueltos del modulo,
+- `SYA-15` aporta continuidad rolling por deporte y episodios
+  positivos; puede citarse como apoyo en Seccion 3 o como contexto de
+  decision de la semana siguiente,
+- MUST NOT sustituir la evidencia primaria de
+  `ENDURANCE_HRV_intensity_distribution_weekly.csv`,
+  `sessions_day.csv` o `weekly_coach.json`.
 
 ## 8. Estructura de salida
 

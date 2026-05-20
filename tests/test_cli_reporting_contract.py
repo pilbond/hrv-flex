@@ -55,7 +55,7 @@ class CliReportingContractTests(unittest.TestCase):
                         "recovery_support_class": "supported",
                         "recovery_context_quality": "rich",
                         "recovery_discordance_reason": "",
-                        "reason_text": "VERDE con carga acumulada (load_3d=210): precaución con la intensidad",
+                        "reason_text": "VERDE con carga aguda 72h (acute_load_72h_rel=4.20x; load_3d=210): precaución con la intensidad",
                         "Artifact_pct": 18.4,
                         "Tiempo_Estabilizacion": 72,
                         "HRV_Stability": "Media",
@@ -108,7 +108,7 @@ class CliReportingContractTests(unittest.TestCase):
             self.assertIn("artefactos altos (18.4%)", output)
             self.assertIn("estabilización de 72s", output)
             self.assertIn("estabilidad de señal Media", output)
-            self.assertIn("🧠 Reason text:     VERDE con carga acumulada (load_3d=210): precaución con la intensidad", output)
+            self.assertIn("🧠 Reason text:     VERDE con carga aguda 72h (acute_load_72h_rel=4.20x; load_3d=210): precaución con la intensidad", output)
             self.assertIn("🧪 Contexto recuperación: contexto completo / senales alineadas", output)
             self.assertIn("📐 Base 60d:        42.5 ms (n=41)", output)
             self.assertIn("⚠️  Límite inferior de referencia: 46.1 ms", output)
