@@ -1,5 +1,5 @@
 {
-  "pipeline_version": "v3.10",
+  "pipeline_version": "v3.12",
   "params": {
     "gap_max_s": 60,
     "hr_drop_max_bpm": 10,
@@ -17,39 +17,39 @@
     "effort_anchor_end": "2025-08-31"
   },
   "params_hash": "c1c78a78",
-  "build_time": "2026-04-15T22:05:22.447356",
+  "build_time": "2026-05-20T07:41:51.705846",
   "input_range": {
-    "oldest": "2026-04-14",
-    "newest": "2026-04-16"
+    "oldest": "2026-05-17",
+    "newest": "2026-05-21"
   },
   "counts": {
-    "sessions": 362,
-    "days": 284,
-    "with_streams": 238,
-    "with_notes": 48,
-    "with_subjective_wellness": 54
+    "sessions": 403,
+    "days": 313,
+    "with_streams": 265,
+    "with_notes": 72,
+    "with_subjective_wellness": 80
   },
   "stream_sampling": {
-    "n_streams": 238,
+    "n_streams": 265,
     "dt_mean": 1.0006,
     "dt_min": 0.997,
     "dt_max": 1.04,
     "assumed_1hz": true
   },
   "zones_source_dist": {
-    "icu": 362
+    "icu": 403
   },
   "training_audit": {
     "dataset_level": {
       "sports_seen": 9,
-      "days_with_sessions": 284,
-      "aerobic_sessions": 239,
-      "load_days_ready": 270
+      "days_with_sessions": 313,
+      "aerobic_sessions": 266,
+      "load_days_ready": 299
     },
     "signal_level": {
       "sampling_ok": true,
       "aerobic_stream_coverage_pct": 99.6,
-      "aerobic_drift_coverage_pct": 89.1,
+      "aerobic_drift_coverage_pct": 89.5,
       "zones_fallback_pct": 0.0,
       "fallback_sports": [],
       "interpretability_limits": [

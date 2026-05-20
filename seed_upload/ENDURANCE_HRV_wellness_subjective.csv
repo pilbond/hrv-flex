@@ -330,11 +330,46 @@ Fecha,well_fatigue_raw,well_fatigue_label,well_stress_raw,well_stress_label,well
 2026-04-05,2.0,medio,1.0,bajo,2.0,aceptable,3.0,alto,1.0,bajo,1.0,ninguna,Un poco de madrugón por problemas de agenda. sueño y un poco de pereza para empezar.,6,True,57.1
 2026-04-06,2.0,medio,1.0,bajo,3.0,bueno,3.0,alto,1.0,bajo,1.0,ninguna,Pereza y cierto cansancio.,6,True,57.1
 2026-04-07,3.0,alto,1.0,bajo,2.0,aceptable,3.0,alto,1.0,bajo,1.0,ninguna,Cansancio.,6,True,71.4
-2026-04-08,2.0,medio,1.0,bajo,3.0,bueno,3.0,alto,1.0,bajo,1.0,ninguna,"Cansancio, piernas cansadas aunque menos que ayer. Sensación de no acabar de hacer limpio y necesitar mas horas de descanso.",6,True,100.0
+2026-04-08,2.0,medio,1.0,bajo,3.0,bueno,3.0,alto,1.0,bajo,1.0,ninguna,"Cansancio, piernas cansadas aunque menos que ayer. Sensación de no acabar de hacer limpio y necesitar mas horas de descanso.",6,True,85.7
 2026-04-09,2.0,medio,1.0,bajo,3.0,bueno,3.0,alto,1.0,bajo,1.0,ninguna,Perezoso. Hoy me ha costado ponerme y arrancar en general.,6,True,100.0
-2026-04-10,,,,,,,,,,,,,,0,False,50.0
-2026-04-11,3.0,alto,1.0,bajo,2.0,aceptable,3.0,alto,1.0,bajo,1.0,ninguna,Sigo levantándome cansado.,6,True,100.0
-2026-04-12,2.0,medio,1.0,bajo,2.0,aceptable,3.0,alto,1.0,bajo,1.0,ninguna,"Sensación de cansancio, pero curiosamente menos que en los días anteriores.",6,True,100.0
-2026-04-13,,,,,,,,,,,,,,0,False,50.0
-2026-04-14,1.0,bajo,1.0,bajo,2.0,aceptable,2.0,promedio,1.0,bajo,1.0,ninguna,"Piernas algo cargadas por las pesas de ayer, Rodilla izquierda algo tocada. Hoy no me he sentido cansado al levantarme.",6,True,100.0
-2026-04-15,2.0,medio,1.0,bajo,2.0,aceptable,2.0,promedio,1.0,bajo,1.0,ninguna,"Normal, piernas cansadas.",6,True,100.0
+2026-04-10,,,,,,,,,,,,,,0,False,85.7
+2026-04-11,3.0,alto,1.0,bajo,2.0,aceptable,3.0,alto,1.0,bajo,1.0,ninguna,Sigo levantándome cansado.,6,True,85.7
+2026-04-12,2.0,medio,1.0,bajo,2.0,aceptable,3.0,alto,1.0,bajo,1.0,ninguna,"Sensación de cansancio, pero curiosamente menos que en los días anteriores.",6,True,85.7
+2026-04-13,,,,,,,,,,,,,,0,False,71.4
+2026-04-14,1.0,bajo,1.0,bajo,2.0,aceptable,2.0,promedio,1.0,bajo,1.0,ninguna,"Piernas algo cargadas por las pesas de ayer, Rodilla izquierda algo tocada. Hoy no me he sentido cansado al levantarme.",6,True,71.4
+2026-04-15,2.0,medio,1.0,bajo,2.0,aceptable,2.0,promedio,1.0,bajo,1.0,ninguna,"Normal, piernas cansadas.",6,True,71.4
+2026-04-16,,,,,,,,,,,,,Agujetas en piernas. Dolor de cabeza durante toda la mañana.,0,True,71.4
+2026-04-17,2.0,medio,1.0,bajo,2.0,aceptable,2.0,promedio,1.0,bajo,1.0,ninguna,Hoy es el dia de estos últimos que mejor me despierto. Curiosamente tengo los peores datos de hrv matinal en bastante tiempo. La fisiología es fascinante.,6,True,85.7
+2026-04-18,,,,,,,,,,,,,,0,False,71.4
+2026-04-19,,,,,,,,,,,,,,0,False,57.1
+2026-04-20,3.0,alto,1.0,bajo,3.0,bueno,3.0,alto,1.0,bajo,1.0,ninguna,Fatiga,6,True,71.4
+2026-04-21,3.0,alto,1.0,bajo,3.0,bueno,3.0,alto,1.0,bajo,1.0,ninguna,"Inicialmente bastante mejor que ayer, luego durante de la mañana sigo notando algo de fatiga residual.",6,True,71.4
+2026-04-22,2.0,medio,1.0,bajo,2.0,aceptable,3.0,alto,1.0,bajo,1.0,ninguna,"Hoy me he levantado pronto de forma natural, lo cual me ha restado horas de sueño. La sensación de todas formas es buena, o mejor dicho no es mala. Se nota que poco a poco va haciendo mas calor,",6,True,100.0
+2026-04-23,2.0,medio,1.0,bajo,3.0,bueno,3.0,alto,2.0,promedio,1.0,ninguna,"Molestias en la rodilla izquierda, interior rotula. mas intensas que lo habitual.",6,True,100.0
+2026-04-24,2.0,medio,1.0,bajo,3.0,bueno,3.0,alto,1.0,bajo,1.0,ninguna,"Mala noche, me he desvelado y me ha costado coger el sueño. Será la sesión de ayer? Será que va haciendo mas calor? Las dos? ninguna? Por lo demás bien. La rosilla parece no molestar.",6,True,100.0
+2026-04-25,,,,,,,,,,,,,,0,False,0.0
+2026-04-26,,,,,,,,,,,,,,0,False,0.0
+2026-04-27,2.0,medio,1.0,bajo,2.0,aceptable,2.0,promedio,1.0,bajo,1.0,ninguna,Algo cansado. Cierta sensación de debilidad durante la mañana.,6,True,100.0
+2026-04-28,2.0,medio,1.0,bajo,2.0,aceptable,2.0,promedio,1.0,bajo,1.0,ninguna,Nada que destacar,6,True,100.0
+2026-04-29,2.0,medio,1.0,bajo,2.0,aceptable,2.0,promedio,1.0,bajo,1.0,ninguna,Nada que destacar.,6,True,100.0
+2026-04-30,,,,,,,,,,,,,,0,False,75.0
+2026-05-01,1.0,bajo,1.0,bajo,2.0,aceptable,2.0,promedio,1.0,bajo,1.0,ninguna,Nada descatable.,6,True,100.0
+2026-05-02,1.0,bajo,1.0,bajo,2.0,aceptable,2.0,promedio,1.0,bajo,1.0,ninguna,Algo  de molestia interna en rodilla izquierda. Nada mas a destacar.,6,True,100.0
+2026-05-03,2.0,medio,1.0,bajo,2.0,aceptable,3.0,alto,1.0,bajo,1.0,ninguna,"Mas perezoso hoy y mas cansancio hoy, sin ser extremo. Las piernas mas doloridas hoy, agujetas.",6,True,100.0
+2026-05-04,2.0,medio,1.0,bajo,2.0,aceptable,3.0,alto,1.0,bajo,1.0,ninguna,"Dolor de cabeza matutino. Ninguna molestia destacable y no me noto especialmente cansado, pero si que me siento perezoso y veo que busco escusas para retrasar el entrenamiento de core previsto.",6,True,100.0
+2026-05-05,1.0,bajo,1.0,bajo,2.0,aceptable,2.0,promedio,1.0,bajo,1.0,ninguna,Nada a destacar.,6,True,100.0
+2026-05-06,1.0,bajo,1.0,bajo,2.0,aceptable,2.0,promedio,1.0,bajo,1.0,ninguna,Nada destacable. No estoy especialmente cansado ni tengo molestias relevantes.,6,True,100.0
+2026-05-07,2.0,medio,1.0,bajo,2.0,aceptable,2.0,promedio,3.0,alto,1.0,ninguna,"Me fui a acostar bastante tarde, aunque intenté dormir un mínimo de horas, la noche no fue buena. Eso lo he notado al día siguiente en forma de cansancio. Bastantes agujetas en las piernas y caderas, especialmente en la parte posterior. Rodillas algo cargadas sin mas.",6,True,100.0
+2026-05-08,,,,,,,,,,,,,,0,False,50.0
+2026-05-09,3.0,alto,1.0,bajo,3.0,bueno,3.0,alto,1.0,bajo,1.0,ninguna,Mala noche. Siesta por la tarde.,6,True,100.0
+2026-05-10,3.0,alto,1.0,bajo,2.0,aceptable,2.0,promedio,2.0,promedio,1.0,ninguna,Sensación de cansancio. Tanto interna como muscular. Quizá muscular mas. Dia de descanso. Siesta por la tarde.,6,True,100.0
+2026-05-11,2.0,medio,1.0,bajo,2.0,aceptable,3.0,alto,1.0,bajo,1.0,ninguna,"Algo cansado, sensación de estómago sucio y un poco de pereza.",6,True,100.0
+2026-05-12,2.0,medio,1.0,bajo,2.0,aceptable,2.0,promedio,1.0,bajo,1.0,ninguna,"Algo cansado pero tampoco mucho, sin molestias destacables.",6,True,100.0
+2026-05-13,,,,,,,,,,,,,,0,False,50.0
+2026-05-14,,,,,,,,,,,,,,0,False,33.3
+2026-05-15,1.0,bajo,1.0,bajo,3.0,bueno,3.0,alto,2.0,promedio,2.0,niggle,Molestias en el femoral. sin sesiones hasta el domingo. Visita al fisio + punción seca.,6,True,50.0
+2026-05-16,1.0,bajo,1.0,bajo,3.0,bueno,3.0,alto,2.0,promedio,2.0,niggle,Siguen las molestias en el femoral pero menos que ayer. a ver que tal mañana.,6,True,60.0
+2026-05-17,2.0,medio,1.0,bajo,2.0,aceptable,2.0,promedio,1.0,bajo,2.0,niggle,Noche corta. Seguramente nervios pre carrera.,6,True,100.0
+2026-05-18,3.0,alto,1.0,bajo,3.0,bueno,3.0,alto,3.0,alto,1.0,ninguna,Día post carrera. cansado y con agujetas pero dentro de lo esperado. Dia relax.,6,True,100.0
+2026-05-19,3.0,alto,1.0,bajo,4.0,genial,4.0,extremo,3.0,alto,1.0,ninguna,"Cansado. Un poco de ""depresión post parto"". Pirnas cargadas. Sin dolores articulares.",6,True,100.0
+2026-05-20,,,,,,,,,,,,,,0,False,75.0
