@@ -1904,6 +1904,115 @@ class AnalysisContractTests(unittest.TestCase):
         self.assertTrue(rendered["lines"][0].startswith("- `gate_badge = ÁMBAR+++`"))
         self.assertIn("Si el gate ya es `ÁMBAR` o `ROJO`", rendered["instructions"][3])
 
+    def test_build_final_report_markdown_does_not_treat_low_acwr_as_high_load_fatigue(self):
+        payload = {
+            "meta": {"session_id": "i1", "slug": "s", "date": "2026-05-19", "start_time": "15:30", "sport": "swim", "sport_family": "swim"},
+            "session_row": {
+                "session_id": "i1",
+                "Fecha": "2026-05-19",
+                "start_time": "15:30",
+                "sport": "swim",
+                "moving_min": "59.1",
+                "duration_min": "59.8",
+                "distance_km": "1.85",
+                "hr_mean": "120",
+                "hr_max": "138",
+                "vt1_used": "134",
+                "vt2_used": "149",
+                "zones_source": "icu",
+                "z1_pct": "99.1",
+                "z2_pct": "0.9",
+                "z3_pct": "0.0",
+                "hr_p95": "130",
+                "load": "32",
+                "trimp": "56.2",
+                "work_n_blocks": "0",
+                "work_total_min": "0",
+                "work_longest_min": "0",
+                "work_avg_z3_pct": "0",
+                "late_intensity": "0",
+                "cardiac_drift_pct": "8.3",
+                "session_group": "endurance_easy",
+            },
+            "subjective_context": {},
+            "composite_context": {"durability_context": {"durability_hint": "fade_like", "confidence": "high"}},
+            "durability_context": {"durability_hint": "fade_like", "confidence": "high"},
+            "work_block_context": {},
+            "rr_analysis_summary": {},
+            "analysis_only_context": {},
+            "final_reason_items": [
+                {"type": "sleep_duration", "layer": "proxy", "metric": "polar_sleep_duration_min", "value": 356, "threshold": 361.3, "message": "Sueño más corto de lo habitual (5h56 vs tu umbral habitual bajo de 6h01)"},
+                {"type": "acwr", "layer": "inference", "metric": "acwr_simple_prev", "value": 0.62, "threshold": 0.8, "message": "Carga reciente baja frente a tu base habitual (ACWR=0.62, baja)"},
+            ],
+            "final_reason_flags": {
+                "has_measured_quality_caution": False,
+                "has_load_inference_caution": True,
+                "has_action_constraint": False,
+                "has_recovery_discordance": False,
+                "has_explicit_tension": True,
+            },
+            "final_reason_items_contract": {"fallback_to_reason_text": False, "conformant": True},
+            "terrain_intervals_csv": None,
+            "terrain_climbs_csv": None,
+            "coach_metrics_json": None,
+            "coach_intervals_csv": None,
+            "coach_groups_csv": None,
+            "context": {
+                "sleep": {
+                    "polar_sleep_duration_min": "356",
+                    "polar_sleep_score": "69",
+                    "polar_efficiency_pct": "93.9",
+                    "polar_night_rmssd": "58",
+                },
+                "sessions_day": {
+                    "load_day": "37",
+                    "load_3d": "93",
+                    "load_7d": "243",
+                    "work_7d_sum": "48.1",
+                    "z3_7d_sum": "44.8",
+                },
+                "final": {
+                    "RMSSD_stable": "53.13",
+                    "residual_z": "1.58",
+                    "gate_badge": "VERDE++",
+                    "Action": "INTENSIDAD_OK",
+                    "baseline60_degraded": "False",
+                    "reason_text": "Sueño más corto de lo habitual (5h56 vs tu umbral habitual bajo de 6h01); Carga reciente baja frente a tu base habitual (ACWR=0.62, baja)",
+                },
+                "dashboard": {},
+                "sessions_metadata": {"training_audit": {}},
+                "runaware_context": {},
+            },
+            "narrative_targets": {
+                "final_reason_rendered": build_final_reason_rendered(
+                    final_reason_items=[
+                        {"type": "sleep_duration", "layer": "proxy", "metric": "polar_sleep_duration_min", "value": 356, "threshold": 361.3, "message": "Sueño más corto de lo habitual (5h56 vs tu umbral habitual bajo de 6h01)"},
+                        {"type": "acwr", "layer": "inference", "metric": "acwr_simple_prev", "value": 0.62, "threshold": 0.8, "message": "Carga reciente baja frente a tu base habitual (ACWR=0.62, baja)"},
+                    ],
+                    final_reason_flags={
+                        "has_measured_quality_caution": False,
+                        "has_load_inference_caution": True,
+                        "has_action_constraint": False,
+                        "has_recovery_discordance": False,
+                        "has_explicit_tension": True,
+                    },
+                    final_reason_items_contract={"fallback_to_reason_text": False, "conformant": True},
+                    final_row={"gate_badge": "VERDE++", "Action": "INTENSIDAD_OK", "baseline60_degraded": "False"},
+                )
+            },
+        }
+        summary = {
+            "session_cost_model": {"usable": True, "coste_dominante": "bajo estímulo"},
+            "duration_consistency": "n/d",
+            "hr_source": "stream",
+            "rr_unavailable": True,
+        }
+        report = build_final_report_markdown(payload, summary, "lowacwr123")
+        self.assertIn("Eso no describe sobrecarga: indica que la carga reciente venía baja frente a tu base.", report)
+        self.assertIn("La cautela no venía de una sobrecarga acumulada: la carga reciente estaba baja frente a tu base", report)
+        self.assertNotIn("más fondo de fatiga activo que simple memoria de intensidad", report)
+        self.assertNotIn("carga reciente suficientemente alta como para leer el día con prudencia operativa", report)
+
     def test_build_analyst_prompt_markdown_injects_pre_rendered_final_reason_block(self):
         prompt = build_analyst_prompt_markdown(
             report_dir=Path("analysis/reports/example"),

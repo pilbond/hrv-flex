@@ -9,6 +9,81 @@ from analysis import sya15_continuity
 
 
 class AnalyzeWeeklyTests(unittest.TestCase):
+    def test_render_weekly_report_labels_low_load_week_as_relative_deload(self):
+        week_dates = MODULE.pd.date_range("2026-05-11", periods=7, freq="D")
+        context = {
+            "week_start": MODULE.pd.Timestamp("2026-05-11"),
+            "week_end": MODULE.pd.Timestamp("2026-05-17"),
+            "weekly_coach": {"week_type": "recovery", "week_load": 120},
+            "calendar": MODULE.pd.DataFrame({"Fecha": week_dates}),
+            "sessions_week": MODULE.pd.DataFrame(
+                [{"Fecha": MODULE.pd.Timestamp("2026-05-13"), "sport": "swim"}]
+            ),
+            "sessions_day_week": MODULE.pd.DataFrame(
+                [
+                    {"Fecha": MODULE.pd.Timestamp("2026-05-11"), "load_day": 10, "work_total_min_day": 0, "z3_min_day": 0},
+                    {"Fecha": MODULE.pd.Timestamp("2026-05-12"), "load_day": 15, "work_total_min_day": 0, "z3_min_day": 0},
+                    {"Fecha": MODULE.pd.Timestamp("2026-05-13"), "load_day": 12, "work_total_min_day": 0, "z3_min_day": 0},
+                    {"Fecha": MODULE.pd.Timestamp("2026-05-14"), "load_day": 9, "work_total_min_day": 0, "z3_min_day": 0},
+                    {"Fecha": MODULE.pd.Timestamp("2026-05-15"), "load_day": 11, "work_total_min_day": 0, "z3_min_day": 0},
+                    {"Fecha": MODULE.pd.Timestamp("2026-05-16"), "load_day": 8, "work_total_min_day": 0, "z3_min_day": 0},
+                    {"Fecha": MODULE.pd.Timestamp("2026-05-17"), "load_day": 10, "work_total_min_day": 0, "z3_min_day": 0},
+                ]
+            ),
+            "dashboard_week": MODULE.pd.DataFrame(
+                [{"Fecha": d, "gate_badge": "green", "Action": "GO"} for d in week_dates]
+            ),
+            "sleep_week": MODULE.pd.DataFrame(
+                [
+                    {
+                        "Fecha": d,
+                        "polar_sleep_duration_min": 420,
+                        "polar_deep_pct": 18,
+                        "polar_sleep_score": 78,
+                        "polar_efficiency_pct": 92.5,
+                    }
+                    for d in week_dates
+                ]
+            ),
+            "distribution_week": MODULE.pd.DataFrame(),
+            "core": MODULE.pd.DataFrame(
+                {
+                    "Fecha": MODULE.pd.to_datetime(["2026-05-11", "2026-05-13", "2026-05-15"]),
+                    "Calidad": ["OK", "OK", "OK"],
+                    "RMSSD_stable": [52, 51, 53],
+                    "HR_stable": [42, 43, 41],
+                }
+            ),
+        }
+        manifest = {
+            "manifest_path": "C:/tmp/weekly_prep_manifest.json",
+            "sidecars": [],
+        }
+
+        with mock.patch.object(
+            MODULE,
+            "_build_load_comparison",
+            return_value=(
+                MODULE.pd.DataFrame(
+                    [
+                        {"week_start": "2026-04-20", "load_total": 210.0},
+                        {"week_start": "2026-04-27", "load_total": 205.0},
+                        {"week_start": "2026-05-04", "load_total": 215.0},
+                        {"week_start": "2026-05-11", "load_total": 75.0},
+                    ]
+                ),
+                210.0,
+            ),
+        ):
+            report = MODULE.render_weekly_report(
+                today=sya15_continuity.resolve_today("2026-05-15"),
+                manifest=manifest,
+                context=context,
+            )
+
+        self.assertIn("Semana reducida o de descarga relativa.", report)
+        self.assertNotIn("Semana exigente con pico de carga relativo.", report)
+
     def test_build_hrv_weekly_trend_builds_eight_weeks(self):
         core = MODULE.pd.DataFrame(
             {

@@ -664,6 +664,25 @@ def _reason_signal_kind(type_name: str, layer: str | None) -> str:
     return "other"
 
 
+def _load_reason_polarity(item: dict[str, Any]) -> str:
+    type_name = str(item.get("type") or "").strip()
+    message = str(item.get("message") or "").strip().lower()
+    value = _float_or_none(item.get("value"))
+    if type_name == "acwr":
+        if value is not None:
+            if value <= 0.8:
+                return "low"
+            if value >= 1.3:
+                return "high"
+        if "baja" in message or "no parece alta" in message:
+            return "low"
+        if "alta" in message or "muy alta" in message or "por encima de tu base" in message:
+            return "high"
+    if type_name in {"acute_load_72h_rel", "work_7d", "monotony", "strain", "green_load_caution", "green_load_convergence"}:
+        return "high"
+    return "neutral"
+
+
 def build_final_reason_rendered(
     final_reason_items: list[dict[str, Any]],
     final_reason_flags: dict[str, Any],
@@ -4356,7 +4375,12 @@ def _build_tension_synthesis(
 ) -> str | None:
     items = final_reason_rendered.get("reason_items") or final_reason_rendered.get("items") or []
     has_density = any(str(item.get("signal_kind") or "") == "temporal_density" for item in items if isinstance(item, dict))
-    has_load = any(str(item.get("signal_kind") or "") == "accumulated_load" for item in items if isinstance(item, dict))
+    load_items = [
+        item for item in items
+        if isinstance(item, dict) and str(item.get("signal_kind") or "") == "accumulated_load"
+    ]
+    has_high_load = any(_load_reason_polarity(item) == "high" for item in load_items)
+    has_low_load = any(_load_reason_polarity(item) == "low" for item in load_items)
     climb_count = _report_terrain_climb_count(session_row, terrain_fit_context)
     climb_phrase = _climb_phrase(climb_count, fallback="tramos duros")
     if reporting_mode == "gate_first":
@@ -4369,7 +4393,7 @@ def _build_tension_synthesis(
             f"En la práctica esto significaba que el día ya no era verde antes de empezar: `{gate_badge}` marcaba prudencia de base "
             f"y `Action = {action_label}` acotaba el tipo de estímulo razonable."
         )
-    if has_density and has_load:
+    if has_density and has_high_load:
         return (
             "En conjunto no describen la misma cautela repetida: una habla de densidad de días duros recientes y la otra de fatiga acumulada. "
             "La combinación autoriza calidad, pero con margen reducido."
@@ -4379,9 +4403,14 @@ def _build_tension_synthesis(
             "La cautela principal no era de volumen bruto, sino de densidad reciente de estímulos duros. "
             "Eso deja menos margen para tolerar otra sesión exigente sin peaje."
         )
-    if has_load:
+    if has_high_load:
         return (
             "La cautela principal no era táctica sino de fondo: carga reciente suficientemente alta como para leer el día con prudencia operativa."
+        )
+    if has_low_load:
+        return (
+            "La cautela no venía de una sobrecarga acumulada: la carga reciente estaba baja frente a tu base, "
+            "así que el matiz era más de contexto que de fatiga activa."
         )
     return None
 
@@ -6421,7 +6450,11 @@ def build_final_report_markdown(
             if signal_kind == "temporal_density":
                 lines.append("  Eso describe densidad temporal de días duros recientes, no volumen bruto por sí solo.")
             elif signal_kind == "accumulated_load":
-                lines.append("  Eso describe carga acumulada reciente: más fondo de fatiga activo que simple memoria de intensidad.")
+                load_polarity = _load_reason_polarity(item) if isinstance(item, dict) else "neutral"
+                if load_polarity == "high":
+                    lines.append("  Eso describe carga acumulada reciente: más fondo de fatiga activo que simple memoria de intensidad.")
+                elif load_polarity == "low":
+                    lines.append("  Eso no describe sobrecarga: indica que la carga reciente venía baja frente a tu base.")
         if final_reason_rendered.get("action_readout"):
             lines.append(
                 "Operativamente, "
