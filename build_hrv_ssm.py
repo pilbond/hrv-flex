@@ -948,10 +948,10 @@ _LOAD_TEXT: Dict[str, str] = {
     "missing_session_value": "Había fila de sesión pero con carga no utilizable, así que el modelo añade prudencia.",
 }
 _CONFIDENCE_TEXT: Dict[str, str] = {
-    "alta": "La confianza del matiz SSM es alta.",
-    "media-alta": "La confianza del matiz SSM es razonablemente buena, aunque no perfecta.",
-    "media": "La confianza del matiz SSM es media: orienta, pero conviene no sobreinterpretarlo.",
-    "baja": "La confianza del matiz SSM es baja y hoy conviene leerlo con bastante prudencia.",
+    "alta": "La confianza de la lectura SSM es alta.",
+    "media-alta": "La confianza de la lectura SSM es razonablemente buena, aunque no perfecta.",
+    "media": "La confianza de la lectura SSM es media: orienta, pero conviene no sobreinterpretarlo.",
+    "baja": "La confianza de la lectura SSM es baja y hoy conviene leerlo con bastante prudencia.",
 }
 
 
@@ -975,43 +975,126 @@ def _confidence_label_from_obs(input_quality: str, state_sd: float, obs_mult: fl
     return "media-alta"
 
 
+def _component_text(baseline_state: float, fatigue_state: float, valid_df) -> str:
+    """Renderiza el desglose tendencia lenta + fatiga aguda.
+
+    Maneja fatigue_state negativo (boost) y muy pequeño sin sonar absurdo.
+    """
+    baseline_ms = _ms_from_log(baseline_state)
+    fatigue_label = (
+        _fatigue_label_from_history(fatigue_state, valid_df["ssm_fatigue_state"])
+        if hasattr(valid_df, "columns") and "ssm_fatigue_state" in valid_df.columns
+        else "indeterminada"
+    )
+    label_clause = (
+        f", nivel {fatigue_label} en tu histórico"
+        if fatigue_label not in ("indeterminada", "") else ""
+    )
+    base_clause = (
+        f"Tu HRV de fondo (tendencia lenta) está en ≈{baseline_ms:.0f} ms "
+        f"({baseline_state:.2f} en log)"
+    )
+    if fatigue_state > 0.02:
+        fatigue_pct = (1.0 - float(np.exp(-fatigue_state))) * 100.0
+        fatigue_ms_cost = baseline_ms - _ms_from_log(baseline_state - fatigue_state)
+        return (
+            f"{base_clause} y la fatiga reciente te descuenta "
+            f"≈{fatigue_pct:.0f}% (≈{fatigue_ms_cost:.0f} ms, "
+            f"{fatigue_state:.2f} en log{label_clause})."
+        )
+    if fatigue_state < -0.02:
+        boost_pct = (float(np.exp(-fatigue_state)) - 1.0) * 100.0
+        return (
+            f"{base_clause} y el modelo no detecta fatiga neta — incluso compensa "
+            f"≈+{boost_pct:.0f}% sobre tu base ({fatigue_state:+.2f} en log{label_clause})."
+        )
+    return (
+        f"{base_clause} y la fatiga aguda hoy es prácticamente nula "
+        f"({fatigue_state:+.2f} en log{label_clause})."
+    )
+
+
+def _fatigue_label_from_history(fatigue: float, valid_series: "pd.Series[float]") -> str:
+    """Etiqueta personal (baja/media/alta) de fatiga aguda vs percentiles propios."""
+    series = valid_series.dropna()
+    if not np.isfinite(fatigue) or len(series) < 5:
+        return "indeterminada"
+    q33 = float(series.quantile(0.33))
+    q66 = float(series.quantile(0.66))
+    if fatigue >= q66:
+        return "alta"
+    if fatigue <= q33:
+        return "baja"
+    return "media"
+
+
+def _ms_from_log(x: float) -> float:
+    return float(np.exp(x)) if np.isfinite(x) else float("nan")
+
+
 def _relation_text(state: float, rolling: float, delta: float) -> str:
     if not np.isfinite(delta):
         return "No puedo compararlo bien con tu rolling HRV de 7 días."
+    state_ms = _ms_from_log(state)
+    rolling_ms = _ms_from_log(rolling)
+    pair = (
+        f"tu rolling HRV 7d ({rolling:.2f} ≈ {rolling_ms:.0f} ms) "
+        f"y el estado de hoy ({state:.2f} ≈ {state_ms:.0f} ms)"
+    )
     if delta >= 0.08:
         return (
-            f"Frente a tu rolling HRV 7d ({rolling:.2f}), el estado de hoy ({state:.2f}) queda por encima, "
+            f"Frente a {pair}, hoy queda por encima, "
             "lo que apunta a una recuperación algo mejor de lo habitual reciente."
         )
     if delta <= -0.08:
         return (
-            f"Frente a tu rolling HRV 7d ({rolling:.2f}), el estado de hoy ({state:.2f}) queda por debajo, "
+            f"Frente a {pair}, hoy queda por debajo, "
             "así que el modelo lo lee como bueno o normal, pero sin interpretarlo como una mejora clara."
         )
     return (
-        f"Frente a tu rolling HRV 7d ({rolling:.2f}), el estado de hoy ({state:.2f}) está muy cerca, "
+        f"Frente a {pair}, hoy está muy cerca, "
         "así que el modelo lo interpreta como continuidad de tu línea reciente."
     )
 
 
 def _innovation_text(innovation: float) -> str:
     if not np.isfinite(innovation):
-        return "La innovación de hoy no es interpretable."
+        return "La sorpresa del modelo no es interpretable hoy."
+    pct = (float(np.exp(innovation)) - 1.0) * 100.0
     if innovation >= 0.12:
-        return f"La innovación de hoy es positiva ({innovation:.2f}): el HRV observado quedó por encima de lo que el estado y la carga esperaban."
+        return (
+            f"La sorpresa del modelo es positiva: el HRV observado quedó +{pct:.0f}% "
+            f"por encima de lo predicho por estado y carga (innovation={innovation:+.2f} en log)."
+        )
     if innovation <= -0.12:
-        return f"La innovación de hoy es negativa ({innovation:.2f}): el HRV observado quedó por debajo de lo esperado por el estado y la carga."
-    return f"La innovación de hoy es pequeña ({innovation:.2f}): el dato observado encaja bastante con lo que el modelo esperaba."
+        return (
+            f"La sorpresa del modelo es negativa: el HRV observado quedó {pct:+.0f}% "
+            f"respecto a lo predicho por estado y carga (innovation={innovation:+.2f} en log)."
+        )
+    return (
+        f"La sorpresa del modelo es pequeña ({pct:+.0f}%, innovation={innovation:+.2f} en log): "
+        "el dato observado encaja bastante con lo que esperaba."
+    )
 
 
 def _sleep_obs_text(sleep_recovery_index: float, sleep_innovation: float) -> str:
     if not np.isfinite(sleep_recovery_index):
         return "Hoy no hay observación nocturna de sueño utilizable, así que el modelo se apoya más en el HRV matinal."
+    sleep_ms = _ms_from_log(sleep_recovery_index)
     if np.isfinite(sleep_innovation) and sleep_innovation >= 0.12:
-        return f"La observación nocturna de sueño queda alta ({sleep_recovery_index:.2f}), así que también empuja la lectura hacia mejor recuperación."
+        return (
+            f"La observación nocturna de sueño queda alta (≈{sleep_ms:.0f} ms, "
+            f"{sleep_recovery_index:.2f} en log), así que también empuja la lectura hacia mejor recuperación."
+        )
     if np.isfinite(sleep_innovation) and sleep_innovation <= -0.12:
-        return f"La observación nocturna de sueño queda baja ({sleep_recovery_index:.2f}), así que añade prudencia antes de tomar el día como un pico."
-    return f"La observación nocturna de sueño aporta {sleep_recovery_index:.2f} y se usa como apoyo adicional al HRV matinal."
+        return (
+            f"La observación nocturna de sueño queda baja (≈{sleep_ms:.0f} ms, "
+            f"{sleep_recovery_index:.2f} en log), así que añade prudencia antes de tomar el día como un pico."
+        )
+    return (
+        f"La observación nocturna de sueño aporta ≈{sleep_ms:.0f} ms "
+        f"({sleep_recovery_index:.2f} en log) y se usa como apoyo al HRV matinal."
+    )
 
 
 def _build_daily_user_summary(shadow_df: pd.DataFrame) -> Dict[str, object]:
@@ -1050,17 +1133,16 @@ def _build_daily_user_summary(shadow_df: pd.DataFrame) -> Dict[str, object]:
     state_label = _state_label_from_history(state, valid["ssm_recovery_state"])
     confidence = _confidence_label_from_obs(input_quality, state_sd, obs_mult)
 
-    component_text = (
-        f"El bloque lento va en {baseline_state:.2f} y la fatiga aguda en {fatigue_state:.2f}."
-        if np.isfinite(baseline_state) and np.isfinite(fatigue_state)
-        else "No puedo desglosar bien los componentes lento y rápido de hoy."
-    )
+    if np.isfinite(baseline_state) and np.isfinite(fatigue_state):
+        component_text = _component_text(baseline_state, fatigue_state, valid)
+    else:
+        component_text = "No puedo desglosar bien los componentes lento y rápido de hoy."
 
     interpretive_text = " ".join([
         f"Respecto a tu histórico del SSM, hoy quedas en zona {state_label}.",
         component_text,
         _sleep_obs_text(sleep_recovery_index, sleep_innovation),
-        f"Confianza del matiz SSM: {confidence}.",
+        f"Confianza de la lectura SSM: {confidence}.",
         _relation_text(state, rolling, delta_vs_rolling),
         _innovation_text(innovation),
         _QUALITY_TEXT.get(input_quality, "La calidad de observación de hoy no es plenamente clasificable."),

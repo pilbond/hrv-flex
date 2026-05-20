@@ -749,6 +749,119 @@ def _recovery_discordance_message(gate: str, recovery_class: str, coverage: str,
     return f"Discordancia de recuperación ({gate}, {recovery_class}, cobertura={coverage})"
 
 
+# =============================================================================
+# reason_text composition (UX-01)
+# =============================================================================
+
+# Tipos cuya semántica es matizar el verdict del gate (no datos crudos).
+_VERDICT_TYPES = frozenset({
+    "contradiction",
+    "green_load_caution",
+    "green_load_convergence",
+    "nightly_discordance",
+    "recovery_discordance",
+    "recovery_support",
+    "ssm_context",
+})
+_ACTION_TYPES = frozenset({"action_constraint"})
+
+# Tabla de redundancia: cuando recovery_support|recovery_discordance carga la
+# frase clave Y otro emisor más específico está presente, suprimir el eco genérico.
+# El matching por frase es frágil; cuando el emisor pase a estructura con `codes`
+# o `variant` explícito, migrar a comparación estructurada.
+_RECOVERY_SUPPORT_REDUNDANT = (
+    ("señal nocturna sale mejor", frozenset({"nightly_discordance"})),
+    ("el sueño no acompaña", frozenset({"sleep_duration", "sleep_fragmentation"})),
+    (
+        "la carga reciente pide prudencia",
+        frozenset({
+            "green_load_caution", "green_load_convergence",
+            "acwr", "monotony", "strain", "work_7d", "acute_load_72h_rel",
+        }),
+    ),
+    ("carga reciente no parece alta", frozenset({"acwr"})),
+)
+_RECOVERY_ECHO_TYPES = frozenset({"recovery_support", "recovery_discordance"})
+
+
+def _empty_reason_text(gate: str) -> str:
+    if gate == VERDE:
+        return "VERDE: HRV en rango, sin señales que matizar"
+    if gate == AMBAR:
+        return f"{AMBAR}: sin señales individuales destacables"
+    if gate == ROJO:
+        return f"{ROJO}: sin señales individuales destacables"
+    return "sin señales que añadir"
+
+
+def _strip_action_prefix(msg: str) -> str:
+    for prefix in (
+        "Acción sugerida: ", "Acción recomendada: ",
+        "Acción: ", "Acción:",
+        "Accion sugerida: ", "Accion recomendada: ",
+        "Accion: ", "Accion:",
+    ):
+        if msg.startswith(prefix):
+            return msg[len(prefix):].lstrip()
+    return msg
+
+
+def _filter_redundant_recovery_support(items: List[dict]) -> List[dict]:
+    """Filtra echo genéricos de recovery_support|recovery_discordance cuando
+    un emisor específico (nightly_discordance, sleep_*, green_load_*, acwr...)
+    ya cubre la misma información."""
+    types_present = {str(it.get("type", "")) for it in items}
+    out: List[dict] = []
+    for it in items:
+        if str(it.get("type", "")) in _RECOVERY_ECHO_TYPES:
+            msg = str(it.get("message", "")).lower()
+            if any(
+                phrase in msg and (types_present & redundant_with)
+                for phrase, redundant_with in _RECOVERY_SUPPORT_REDUNDANT
+            ):
+                continue
+        out.append(it)
+    return out
+
+
+def _compose_reason_text(items: List[dict], gate: str) -> str:
+    """Ensamble final del reason_text a partir de reason_items tipados.
+
+    Estructura: `{verdicts " · "}. {whys "; "}. Acción: {actions "; "}`.
+    Deduplica por igualdad exacta de mensaje y suprime recovery_support
+    cuando un emisor más específico cubre la misma señal.
+    """
+    if not items:
+        return _empty_reason_text(gate)
+    items = _filter_redundant_recovery_support(items)
+    verdicts: List[str] = []
+    whys: List[str] = []
+    actions: List[str] = []
+    seen: set = set()
+    for it in items:
+        msg = str(it.get("message", "") or "").strip()
+        if not msg or msg in seen:
+            continue
+        seen.add(msg)
+        t = str(it.get("type", ""))
+        if t in _ACTION_TYPES:
+            actions.append(_strip_action_prefix(msg))
+        elif t in _VERDICT_TYPES:
+            verdicts.append(msg)
+        else:
+            whys.append(msg)
+    segments: List[str] = []
+    if verdicts:
+        segments.append(" · ".join(verdicts))
+    if whys:
+        segments.append("; ".join(whys))
+    if actions:
+        segments.append("Acción: " + "; ".join(actions))
+    if not segments:
+        return _empty_reason_text(gate)
+    return ". ".join(segments)
+
+
 def parse_args(argv: List[str]) -> Dict[str, str]:
     out: Dict[str, str] = {}
     i = 0
@@ -948,6 +1061,16 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                 ln_pre_veto[i] = ln_used[i]
                 ln_used[i] = ln_today[i]
                 hr_used[i] = hr_today[i]
+                rmssd_today_val = float(np.exp(ln_today[i]))
+                rmssd_base_val = float(np.exp(b_ln))
+                drop_pct = (
+                    (rmssd_today_val - rmssd_base_val) / rmssd_base_val * 100.0
+                    if rmssd_base_val > 0 else float("nan")
+                )
+                drop_suffix = (
+                    f" ({rmssd_today_val:.0f} ms vs base {rmssd_base_val:.0f} ms, {drop_pct:+.0f}%)"
+                    if np.isfinite(drop_pct) else ""
+                )
                 _emit_reason(
                     reason_items,
                     reason_parts,
@@ -958,7 +1081,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                     metric="lnRMSSD",
                     value=float(ln_today[i]),
                     threshold=float(b_ln - VETO_MULT * swc_v4),
-                    message="RMSSD de hoy cayó bruscamente respecto a tu base reciente: superó el umbral de caída aguda",
+                    message=f"RMSSD de hoy cayó bruscamente respecto a tu base reciente{drop_suffix}: superó el umbral de caída aguda",
                 )
 
             dln = float(ln_used[i] - b_ln)
@@ -1415,7 +1538,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                     metric="work_7d_sum",
                     value=float(work_7d),
                     threshold=float(WORK_7D_HIGH),
-                    message=f"Volumen de trabajo semanal alto (work_7d={work_7d:.0f}min)",
+                    message=f"Volumen de trabajo semanal alto (work_7d={work_7d:.0f}min, alto)",
                 )
             if z3_7d is not None and z3_7d > Z3_7D_HIGH:
                 _emit_reason(
@@ -1546,7 +1669,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         threshold=1.5,
                         message=(
                             "Carga reciente muy por encima de tu base habitual "
-                            f"(ACWR={acwr_simple_prev:.2f})"
+                            f"(ACWR={acwr_simple_prev:.2f}, muy alta)"
                         ),
                     )
                     load_ctx_caution = True
@@ -1567,7 +1690,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         threshold=1.3,
                         message=(
                             "Carga reciente por encima de tu base habitual "
-                            f"(ACWR={acwr_simple_prev:.2f})"
+                            f"(ACWR={acwr_simple_prev:.2f}, alta)"
                         ),
                     )
                     load_ctx_caution = True
@@ -1587,7 +1710,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         threshold=0.8,
                         message=(
                             "Carga reciente baja frente a tu base habitual "
-                            f"(ACWR={acwr_simple_prev:.2f})"
+                            f"(ACWR={acwr_simple_prev:.2f}, baja)"
                         ),
                     )
 
@@ -1607,7 +1730,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         threshold=2.0,
                         message=(
                             "Semana muy repetitiva, con poca variación de carga "
-                            f"(monotonía={monotony_7d_prev:.2f})"
+                            f"(monotonía={monotony_7d_prev:.2f}, alta)"
                         ),
                     )
                     load_ctx_caution = True
@@ -1628,7 +1751,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         threshold=1.8,
                         message=(
                             "Semana algo repetitiva; conviene variar más la carga "
-                            f"(monotonía={monotony_7d_prev:.2f})"
+                            f"(monotonía={monotony_7d_prev:.2f}, moderada)"
                         ),
                     )
                     load_ctx_caution = True
@@ -1653,7 +1776,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         threshold=float(strain_p90),
                         message=(
                             "Semana muy exigente y con poca descarga "
-                            f"(strain={strain_7d_prev:.0f})"
+                            f"(strain={strain_7d_prev:.0f}, muy elevado)"
                         ),
                     )
                     load_ctx_caution = True
@@ -1674,7 +1797,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         threshold=float(strain_p75),
                         message=(
                             "Semana exigente y algo cargada "
-                            f"(strain={strain_7d_prev:.0f})"
+                            f"(strain={strain_7d_prev:.0f}, elevado)"
                         ),
                     )
                     load_ctx_caution = True
@@ -1909,7 +2032,13 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
         recovery_discordance_flag[i] = recovery_is_discordant
         recovery_discordance_reason[i] = "|".join(discordance_codes if recovery_is_discordant else [])
 
-    reason_text = np.array([" | ".join(p) if p else "nada que añadir" for p in reason_parts], dtype=object)
+    reason_text = np.array(
+        [
+            _compose_reason_text(reason_items[i], str(gate_final[i]))
+            for i in range(len(reason_parts))
+        ],
+        dtype=object,
+    )
 
     # =============================================================================
     # Warning baseline60_degraded (informativo)

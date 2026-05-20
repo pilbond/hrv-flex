@@ -351,18 +351,18 @@ Este bloque cubre el warning de baseline degradado y los flags sistémicos que l
 | `recovery_support_class` | Lectura resumida de cómo encajan gate, sueño Polar y carga reciente. `supported` = el contexto externo acompaña la lectura; `neutral` = no añade gran cosa o está mezclado; `fragile` = el gate sale razonable pero sueño/carga meten cautela; `conflicted` = el gate sale mal pero sueño/carga no lo explican bien. No cambia la acción por sí mismo. |
 | `recovery_discordance_flag` | True cuando el análisis de recuperación detecta una tensión entre el gate y el soporte externo (sueño/carga). Se activa en clases `fragile` (contexto débil) y `conflicted` (contexto contradictorio). |
 | `recovery_discordance_reason` | Códigos estructurados que explican la discordancia. Ejemplos: `sleep_basic_poor`, `nightly_rmssd_low`, `load_context_high`, `sleep_score_good`, `recent_load_low`. Pensado para auditoría o análisis posterior. |
-| `reason_text` | Texto explicativo contextual que combina información del gate con datos de sueño y carga. Múltiples razones separadas por ` \| `. Ver tabla de familias de mensajes a continuación. Internamente se renderiza a partir de `reason_items` estructurados (dato medido, proxy, inferencia, acción); no existe columna pública `reason_items_json` en `FINAL` ni en `DASHBOARD`, pero hay un sidecar estructurado `ENDURANCE_HRV_master_FINAL_reason_items.json` (descrito más abajo). El wellness subjetivo de Intervals queda fuera de `reason_text` y se reserva para capas retrospectivas. **No recolorea** el gate — es contexto para tu decisión. |
+| `reason_text` | Texto explicativo contextual que combina información del gate con datos de sueño y carga. Estructura: `{verdicts " · "}. {whys "; "}. Acción: {actions "; "}` (UX-01). Los segmentos se deduplican por igualdad exacta y los echo genéricos de `recovery_support`/`recovery_discordance` se suprimen cuando un emisor más específico (`nightly_discordance`, `green_load_caution`, `acwr`, etc.) ya cubre la señal. Las magnitudes técnicas llevan anchor verbal en paréntesis (`monotonía=1.96, moderada`, `ACWR=0.62, baja`, `strain=917, elevado`). Ver tabla de familias de mensajes a continuación. Internamente se renderiza a partir de `reason_items` estructurados (dato medido, proxy, inferencia, acción) vía `_compose_reason_text` (módulo `build_hrv_final_dashboard`); no existe columna pública `reason_items_json` en `FINAL` ni en `DASHBOARD`, pero hay un sidecar estructurado `ENDURANCE_HRV_master_FINAL_reason_items.json` (descrito más abajo). El wellness subjetivo de Intervals queda fuera de `reason_text` y se reserva para capas retrospectivas. **No recolorea** el gate — es contexto para tu decisión. |
 
 ##### Familias de mensajes que pueden aparecer en `reason_text`
 
 | Familia | Origen de datos | Ejemplos de mensaje |
 |---------|------------------|----------------------|
-| Caída aguda | `veto_agudo = True` | `RMSSD de hoy cayó bruscamente respecto a tu base reciente: superó el umbral de caída aguda` |
+| Caída aguda | `veto_agudo = True` | `RMSSD de hoy cayó bruscamente respecto a tu base reciente (32 ms vs base 42 ms, -25%): superó el umbral de caída aguda` |
 | HRV inusualmente alta | `lnRMSSD_used` fuera del rango habitual de la media móvil 3d | `RMSSD suavizado de 3 días por encima de tu base reciente: posible saturación parasimpática relativa al rango local` |
 | Sueño (duración) | `sleep.csv` (percentiles personales `sleep_dur_p10/p90`) | `Sueño más corto de lo habitual (5h45 vs tu umbral habitual bajo de 6h02)` · `Noche larga atípica` |
 | Sueño (fragmentación) | `sleep.csv` (`sleep_int_p90`) | `Sueño más fragmentado de lo habitual (8 interrupciones largas sobre tu P90)` |
 | Carga aguda | `sessions_day.csv` (`acute_load_72h_rel`) | `Carga aguda 72h por encima de tu base crónica (acute_load_72h_rel=4.20x; load_3d=237)` |
-| Carga canónica | `sessions_day.csv` (`acwr_simple_prev`, `monotony_7d_prev`, `strain_7d_prev`) | `ACWR muy alto: carga aguda muy por encima de la base crónica (1.69)` · `Monotonía alta` · `Strain semanal elevado` |
+| Carga canónica | `sessions_day.csv` (`acwr_simple_prev`, `monotony_7d_prev`, `strain_7d_prev`) | `Carga reciente muy por encima de tu base habitual (ACWR=1.69, muy alta)` · `Semana muy repetitiva, con poca variación de carga (monotonía=2.10, alta)` · `Semana muy exigente y con poca descarga (strain=920, muy elevado)` |
 | Convergencia de carga | Convergencia `acute_load_72h_rel` + al menos una canónica | `VERDE con convergencia de carga (carga 72h + ACWR/monotonía/strain): conviene prudencia con la intensidad reforzada` |
 | Clustering de intensidad | `sessions_day.csv` (`intensity_clustering_*`) | `VERDE pero con 2 días intensos en los últimos 3: conviene prudencia con la intensidad` · `Intensidad reciente muy agrupada: vigilar recuperación` |
 | Resumen de recuperación | `recovery_support_class` | `VERDE con recuperación frágil...` · `ÁMBAR con soporte nocturno aceptable...` · `ROJO con discordancia objetiva...` |
@@ -892,8 +892,8 @@ Además, la metadata puede incluir `daily_user_summary`, una lectura diaria simp
 - `confidence_label` (`alta`, `media-alta`, `media`, `baja`)
 - `innovation` como sorpresa del día frente a lo predicho por el estado y la carga: positiva si el HRV observado queda por encima de lo esperado, negativa si queda por debajo
 - `sleep_recovery_index` y `sleep_innovation` para la lectura nocturna auxiliar del mismo día
-- `interpretive_text` en castellano llano, pensado para lectura rápida del usuario final
-- `ssm_baseline_state` y `ssm_fatigue_state` para desglosar la lectura en componente lento y rápido del Banister
+- `interpretive_text` en castellano llano, pensado para lectura rápida del usuario final. Desde UX-01, expresa magnitudes en ms RMSSD (`exp(estado_en_log)`) con el valor log entre paréntesis como auditoría; `innovation` se renderiza como **sorpresa del modelo** en `%` de HRV respecto a lo predicho; `ssm_fatigue_state` lleva anchor verbal (`baja`/`media`/`alta`) basado en percentiles p33/p66 del histórico propio del atleta (`_fatigue_label_from_history`). La nomenclatura interna `matiz SSM` quedó retirada; se usa `lectura SSM`.
+- `ssm_baseline_state` y `ssm_fatigue_state` para desglosar la lectura en componente lento (tendencia) y rápido (fatiga reciente) del Banister. Cuando `fatigue_state ≤ -0.02` el modelo no detecta fatiga neta y la prosa cambia a lenguaje de compensación (no `descuenta`).
 
 Esta lectura no cambia el gate ni `reason_text`; solo añade matiz interpretativo sobre el estado SSM del día.
 

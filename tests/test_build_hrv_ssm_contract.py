@@ -160,5 +160,84 @@ class BuildHRVSSMContractTests(unittest.TestCase):
             self.assertIn("innovation", metadata["daily_user_summary"])
 
 
+    # --- Unit tests sobre helpers de la lectura SSM (UX-01 follow-up) ---
+
+    def test_innovation_text_negative_expresses_percentage_hrv(self):
+        text = ssm_builder._innovation_text(-0.26)
+        self.assertIn("sorpresa", text.lower())
+        self.assertRegex(text, r"-\d+%")
+        self.assertIn("-0.26", text)
+
+    def test_innovation_text_positive_expresses_percentage_hrv(self):
+        text = ssm_builder._innovation_text(0.20)
+        self.assertIn("sorpresa", text.lower())
+        self.assertIn("positiva", text)
+        self.assertRegex(text, r"\+\d+%")
+
+    def test_innovation_text_small_falls_back_to_close_fit(self):
+        text = ssm_builder._innovation_text(0.05)
+        self.assertIn("encaja", text)
+        self.assertIn("pequeña", text)
+
+    def test_innovation_text_nan_is_safe(self):
+        self.assertIn("no es interpretable", ssm_builder._innovation_text(float("nan")))
+
+    def test_relation_text_includes_ms_equivalents(self):
+        text = ssm_builder._relation_text(3.70, 3.65, 0.05)
+        self.assertIn("rolling HRV 7d", text)
+        self.assertRegex(text, r"≈\s?\d+\s?ms")
+        self.assertIn("continuidad", text)
+
+    def test_relation_text_negative_delta_marks_below(self):
+        text = ssm_builder._relation_text(3.50, 3.70, -0.20)
+        self.assertIn("por debajo", text)
+
+    def test_relation_text_nan_delta_is_safe(self):
+        self.assertIn("No puedo compararlo", ssm_builder._relation_text(3.70, float("nan"), float("nan")))
+
+    def test_sleep_obs_text_renders_ms_when_present(self):
+        text = ssm_builder._sleep_obs_text(3.71, 0.0)
+        self.assertRegex(text, r"≈\s?\d+\s?ms")
+        self.assertIn("apoyo", text)
+
+    def test_sleep_obs_text_handles_missing_observation(self):
+        text = ssm_builder._sleep_obs_text(float("nan"), float("nan"))
+        self.assertIn("no hay observación nocturna", text)
+
+    def test_ms_from_log_roundtrip(self):
+        self.assertAlmostEqual(ssm_builder._ms_from_log(3.98), 53.51, places=1)
+        self.assertTrue(np.isnan(ssm_builder._ms_from_log(float("nan"))))
+
+    def test_fatigue_label_from_history_percentiles(self):
+        series = pd.Series([0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50])
+        self.assertEqual(ssm_builder._fatigue_label_from_history(0.45, series), "alta")
+        self.assertEqual(ssm_builder._fatigue_label_from_history(0.08, series), "baja")
+        self.assertEqual(ssm_builder._fatigue_label_from_history(0.25, series), "media")
+
+    def test_fatigue_label_indeterminada_with_short_series(self):
+        short = pd.Series([0.1, 0.2])
+        self.assertEqual(ssm_builder._fatigue_label_from_history(0.15, short), "indeterminada")
+
+    def test_component_text_positive_fatigue_renders_discount(self):
+        valid = pd.DataFrame({"ssm_fatigue_state": [0.05, 0.10, 0.15, 0.20, 0.25, 0.30]})
+        text = ssm_builder._component_text(3.98, 0.29, valid)
+        self.assertIn("descuenta", text)
+        self.assertRegex(text, r"≈\d+%")
+        self.assertIn("0.29", text)
+
+    def test_component_text_negative_fatigue_uses_boost_language(self):
+        valid = pd.DataFrame({"ssm_fatigue_state": [-0.20, -0.10, 0.0, 0.10, 0.20]})
+        text = ssm_builder._component_text(3.98, -0.15, valid)
+        self.assertIn("compensa", text)
+        self.assertNotIn("descuenta", text)
+        self.assertRegex(text, r"≈\+\d+%")
+
+    def test_component_text_near_zero_fatigue_uses_neutral_language(self):
+        valid = pd.DataFrame({"ssm_fatigue_state": [0.0, 0.01, -0.01]})
+        text = ssm_builder._component_text(3.98, 0.01, valid)
+        self.assertIn("prácticamente nula", text)
+        self.assertNotIn("descuenta", text)
+
+
 if __name__ == "__main__":
     unittest.main()
