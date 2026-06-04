@@ -955,6 +955,48 @@ _CONFIDENCE_TEXT: Dict[str, str] = {
 }
 
 
+def _load_context_text(latest: pd.Series, valid_df: pd.DataFrame) -> str:
+    load_mode = str(latest.get("ssm_load_context_mode", "unknown"))
+    if load_mode != "rest_day_no_session":
+        return _LOAD_TEXT.get(load_mode, "El contexto reciente de carga no añade una lectura fuerte.")
+
+    if len(valid_df) < 2:
+        return (
+            "Hoy aún no hay sesión registrada y, para la lectura matinal, "
+            "el modelo se apoya en la carga previa disponible."
+        )
+
+    prev = valid_df.iloc[-2]
+    prev_mode = str(prev.get("ssm_load_context_mode", "unknown"))
+    prev_load = prev.get("load_day", np.nan)
+    prev_load_float = float(prev_load) if not pd.isna(prev_load) else float("nan")
+
+    if np.isfinite(prev_load_float) and prev_load_float > 0:
+        return (
+            "Hoy aún no hay sesión registrada; para la lectura matinal, "
+            "el contexto reciente venía de una sesión registrada."
+        )
+    if prev_mode == "session_recorded":
+        return (
+            "Hoy aún no hay sesión registrada; para la lectura matinal, "
+            "el modelo se apoya en la carga previa ya consolidada."
+        )
+    if prev_mode == "calendar_gap_no_session":
+        return (
+            "Hoy aún no hay sesión registrada y además vienes de varios días sin sesiones "
+            "consolidadas, así que el modelo asume algo más de incertidumbre."
+        )
+    if prev_mode == "missing_session_value":
+        return (
+            "Hoy aún no hay sesión registrada y la última carga disponible no era plenamente "
+            "utilizable, así que el modelo añade prudencia."
+        )
+    return (
+        "Hoy aún no hay sesión registrada; para la lectura matinal, "
+        "el modelo se apoya en la carga previa disponible."
+    )
+
+
 def _state_label_from_history(state: float, valid_series: "pd.Series[float]") -> str:
     q33 = float(valid_series.quantile(0.33))
     q66 = float(valid_series.quantile(0.66))
@@ -1147,7 +1189,7 @@ def _build_daily_user_summary(shadow_df: pd.DataFrame) -> Dict[str, object]:
         _innovation_text(innovation),
         _QUALITY_TEXT.get(input_quality, "La calidad de observación de hoy no es plenamente clasificable."),
         _SLEEP_QUALITY_TEXT.get(sleep_input_quality, "La calidad de sueño de hoy no es plenamente clasificable."),
-        _LOAD_TEXT.get(load_mode, "El contexto reciente de carga no añade una lectura fuerte."),
+        _load_context_text(latest, valid),
         _CONFIDENCE_TEXT.get(confidence, ""),
     ])
 

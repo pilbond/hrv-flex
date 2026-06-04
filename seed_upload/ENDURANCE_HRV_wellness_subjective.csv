@@ -372,4 +372,19 @@ Fecha,well_fatigue_raw,well_fatigue_label,well_stress_raw,well_stress_label,well
 2026-05-17,2.0,medio,1.0,bajo,2.0,aceptable,2.0,promedio,1.0,bajo,2.0,niggle,Noche corta. Seguramente nervios pre carrera.,6,True,100.0
 2026-05-18,3.0,alto,1.0,bajo,3.0,bueno,3.0,alto,3.0,alto,1.0,ninguna,Día post carrera. cansado y con agujetas pero dentro de lo esperado. Dia relax.,6,True,100.0
 2026-05-19,3.0,alto,1.0,bajo,4.0,genial,4.0,extremo,3.0,alto,1.0,ninguna,"Cansado. Un poco de ""depresión post parto"". Pirnas cargadas. Sin dolores articulares.",6,True,100.0
-2026-05-20,,,,,,,,,,,,,,0,False,75.0
+2026-05-20,2.0,medio,1.0,bajo,2.0,aceptable,3.0,alto,2.0,promedio,1.0,ninguna,Menos cansancio que ayer aunque aún lo noto. Piernas aún cargadas pero menos que ayer. Sesión de tortura en el fisio esta mañana.,6,True,100.0
+2026-05-21,3.0,alto,1.0,bajo,2.0,aceptable,4.0,extremo,3.0,alto,1.0,ninguna,Aun cansado. Alguna molestia en el femoral. Ligera faringitis.,6,True,100.0
+2026-05-22,,,,,,,,,,,,,,0,False,75.0
+2026-05-23,,,,,,,,,,,,,,0,False,60.0
+2026-05-24,,,,,,,,,,,,,,0,False,50.0
+2026-05-25,,,,,,,,,,,,,,0,False,0.0
+2026-05-26,2.0,medio,1.0,bajo,2.0,aceptable,2.0,promedio,1.0,bajo,1.0,ninguna,Sigue las molestias en la garganta. Por lo demas nada a destacar.,6,True,100.0
+2026-05-27,1.0,bajo,1.0,bajo,2.0,aceptable,2.0,promedio,1.0,bajo,1.0,ninguna,Sin nada que comentar.,6,True,100.0
+2026-05-28,2.0,medio,1.0,bajo,2.0,aceptable,3.0,alto,1.0,bajo,1.0,ninguna,Nada que comentar. Calor. Agujetas en las piernas de los días anteriores.,6,True,100.0
+2026-05-29,,,,,,,,,,,,,,0,False,50.0
+2026-05-30,,,,,,,,,,,,,,0,False,33.3
+2026-05-31,2.0,medio,1.0,bajo,2.0,aceptable,2.0,promedio,2.0,promedio,1.0,ninguna,"Noto en las piernas, cadera y lumbares la salida de asfalto de ayer. Nada relevante pero lo noto.",6,True,50.0
+2026-06-01,1.0,bajo,1.0,bajo,3.0,bueno,3.0,alto,1.0,bajo,1.0,ninguna,Mala noche por calor nocturno. A pesar de ello tampoco me siento especialmente peor que otros días. De todas formas me todo el día off en lo relacionado con lo cardiovascular.,6,True,100.0
+2026-06-02,2.0,medio,1.0,bajo,2.0,aceptable,2.0,promedio,1.0,bajo,1.0,ninguna,Calor por la noche.,6,True,100.0
+2026-06-03,2.0,medio,1.0,bajo,2.0,aceptable,2.0,promedio,1.0,bajo,1.0,ninguna,Nada a destacar.,6,True,100.0
+2026-06-04,,,,,,,,,,,,,,0,False,50.0

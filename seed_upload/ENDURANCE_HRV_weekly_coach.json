@@ -1,28 +1,51 @@
 {
-  "iso_week": "2026-W21",
-  "window_start": "2026-05-18",
-  "window_end": "2026-05-24",
-  "as_of_date": "2026-05-20",
-  "generated_at": "2026-05-20T07:41:51.678801",
+  "iso_week": "2026-W23",
+  "window_start": "2026-06-01",
+  "window_end": "2026-06-07",
+  "as_of_date": "2026-06-04",
+  "generated_at": "2026-06-04T20:26:29.268925",
   "anchor_source": "current_week",
   "week_is_partial": true,
-  "week_days_present": 1,
-  "week_expected_days": 3,
-  "week_data_coverage_pct": 33.3,
-  "week_type": "insufficient_data",
+  "week_days_present": 4,
+  "week_expected_days": 4,
+  "week_data_coverage_pct": 100.0,
+  "week_type": "pyramidal",
   "week_type_confidence": "low",
-  "week_load": 37.0,
-  "progression_risk": "low",
-  "hrv_trend": "insufficient_data",
+  "week_load": 321.0,
+  "progression_risk": "high",
+  "hrv_trend": "falling",
   "data_quality": "limited",
-  "planning_note": "Semana con cobertura parcial: abre la semana con lectura conservadora: usa HRV matinal y Action/reason_text del primer dia para decidir el primer pico; si la entrada no es clara, no fuerces carga alta en las primeras 24-48h. El contexto de sueno apunta a sueno corto sostenido; no invalida la entrada favorable, pero pide vigilancia.",
+  "planning_note": "Semana con cobertura parcial: no abras con pico de carga; el primer estimulo fuerte solo entra si la HRV matinal abre estable y Action/reason_text no piden contencion; si no, extiende recuperacion 24-48h. El contexto de sueno apunta a sueno corto sostenido; no invalida la entrada favorable, pero pide vigilancia.",
   "sleep_context": {
-    "sleep_days_present": 2,
-    "sleep_duration_mean_min": 367.2,
+    "sleep_days_present": 4,
+    "sleep_duration_mean_min": 366.2,
     "sleep_short_nights_pct": 100.0,
-    "sleep_deep_pct_mean": 20.3,
-    "sleep_score_mean": 73.0
+    "sleep_deep_pct_mean": 36.0,
+    "sleep_score_mean": 50.8
   },
-  "z3_budget_by_sport": [],
-  "z3_budget_summary": null
+  "z3_budget_by_sport": [
+    {
+      "sport": "bike",
+      "sport_family": "bike_family",
+      "z3_pct_weighted_current": 0.0,
+      "z3_total_min_current": 0.0,
+      "z3_pct_percentile_by_sport": null,
+      "z3_budget_band_by_sport": null,
+      "z3_budget_reference_scope": null,
+      "z3_budget_coverage_weeks": 0,
+      "z3_budget_status": "insufficient_current_week_data"
+    },
+    {
+      "sport": "trail_run",
+      "sport_family": "run_family",
+      "z3_pct_weighted_current": 13.7,
+      "z3_total_min_current": 31.0,
+      "z3_pct_percentile_by_sport": 100.0,
+      "z3_budget_band_by_sport": "very_high",
+      "z3_budget_reference_scope": "sport",
+      "z3_budget_coverage_weeks": 18,
+      "z3_budget_status": "ok"
+    }
+  ],
+  "z3_budget_summary": "Z3 muy alto en trail run (p100.0)."
 }

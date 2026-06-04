@@ -35,7 +35,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.318,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "acwr",
@@ -97,7 +97,7 @@
         "message": "Sueño más corto de lo habitual (5h45 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 345.0,
-        "threshold": 361.3
+        "threshold": 361.05
       }
     ],
     "2025-06-02": [
@@ -110,7 +110,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.012,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "monotony",
@@ -132,7 +132,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 983.0,
-        "threshold": 863.2
+        "threshold": 870.0
       }
     ],
     "2025-06-03": [
@@ -178,7 +178,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 870.0,
-        "threshold": 863.2
+        "threshold": 870.0
       }
     ],
     "2025-06-05": [
@@ -192,17 +192,6 @@
         "metric": "monotony_7d_prev",
         "value": 2.375,
         "threshold": 2.0
-      },
-      {
-        "type": "strain",
-        "layer": "inference",
-        "source": "sessions_day",
-        "message": "Semana exigente y algo cargada (strain=869, elevado)",
-        "variant": "high",
-        "severity": "high",
-        "metric": "strain_7d_prev",
-        "value": 869.4,
-        "threshold": 863.2
       }
     ],
     "2025-06-06": [
@@ -216,17 +205,6 @@
         "metric": "monotony_7d_prev",
         "value": 2.375,
         "threshold": 2.0
-      },
-      {
-        "type": "strain",
-        "layer": "inference",
-        "source": "sessions_day",
-        "message": "Semana exigente y algo cargada (strain=869, elevado)",
-        "variant": "high",
-        "severity": "high",
-        "metric": "strain_7d_prev",
-        "value": 869.4,
-        "threshold": 863.2
       }
     ],
     "2025-06-07": [
@@ -240,17 +218,6 @@
         "metric": "monotony_7d_prev",
         "value": 2.375,
         "threshold": 2.0
-      },
-      {
-        "type": "strain",
-        "layer": "inference",
-        "source": "sessions_day",
-        "message": "Semana exigente y algo cargada (strain=869, elevado)",
-        "variant": "high",
-        "severity": "high",
-        "metric": "strain_7d_prev",
-        "value": 869.4,
-        "threshold": 863.2
       }
     ],
     "2025-06-09": [
@@ -264,17 +231,6 @@
         "metric": "monotony_7d_prev",
         "value": 2.375,
         "threshold": 2.0
-      },
-      {
-        "type": "strain",
-        "layer": "inference",
-        "source": "sessions_day",
-        "message": "Semana exigente y algo cargada (strain=869, elevado)",
-        "variant": "high",
-        "severity": "high",
-        "metric": "strain_7d_prev",
-        "value": 869.4,
-        "threshold": 863.2
       }
     ],
     "2025-06-10": [
@@ -381,7 +337,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 3.876,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       }
     ],
     "2025-06-20": [],
@@ -425,7 +381,7 @@
         "severity": "very_high",
         "metric": "acute_load_72h_rel",
         "value": 4.967,
-        "threshold": 4.7578
+        "threshold": 4.682799999999999
       }
     ],
     "2025-06-25": [
@@ -438,7 +394,7 @@
         "severity": "very_high",
         "metric": "acute_load_72h_rel",
         "value": 6.009,
-        "threshold": 4.7578
+        "threshold": 4.682799999999999
       },
       {
         "type": "acwr",
@@ -474,7 +430,7 @@
         "message": "Sueño más corto de lo habitual (5h56 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 356.5,
-        "threshold": 361.3
+        "threshold": 361.05
       },
       {
         "type": "recovery_support",
@@ -529,7 +485,7 @@
         "severity": "very_high",
         "metric": "acute_load_72h_rel",
         "value": 7.006,
-        "threshold": 4.7578
+        "threshold": 4.682799999999999
       },
       {
         "type": "acwr",
@@ -551,7 +507,7 @@
         "message": "Sueño más corto de lo habitual (4h52 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 292.5,
-        "threshold": 361.3
+        "threshold": 361.05
       },
       {
         "type": "acwr",
@@ -610,7 +566,7 @@
         "severity": "very_high",
         "metric": "acute_load_72h_rel",
         "value": 10.011,
-        "threshold": 4.7578
+        "threshold": 4.682799999999999
       },
       {
         "type": "acwr",
@@ -645,7 +601,7 @@
         "severity": "very_high",
         "metric": "acute_load_72h_rel",
         "value": 4.987,
-        "threshold": 4.7578
+        "threshold": 4.682799999999999
       },
       {
         "type": "acwr",
@@ -687,7 +643,7 @@
         "message": "Sueño más corto de lo habitual (4h18 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 258.5,
-        "threshold": 361.3
+        "threshold": 361.05
       },
       {
         "type": "acwr",
@@ -809,7 +765,7 @@
         "message": "Sueño más corto de lo habitual (5h13 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 313.0,
-        "threshold": 361.3
+        "threshold": 361.05
       },
       {
         "type": "acwr",
@@ -908,7 +864,7 @@
         "message": "Sueño más corto de lo habitual (5h37 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 337.0,
-        "threshold": 361.3
+        "threshold": 361.05
       },
       {
         "type": "monotony",
@@ -987,7 +943,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.208,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "green_load_caution",
@@ -996,7 +952,7 @@
         "message": "VERDE con carga aguda 72h (acute_load_72h_rel=4.21x; load_3d=228): precaución con la intensidad",
         "metric": "acute_load_72h_rel",
         "value": 4.208,
-        "threshold": 3.8577500000000002,
+        "threshold": 3.848,
         "gate_scope": "green"
       }
     ],
@@ -1011,7 +967,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 3.879,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "green_load_caution",
@@ -1020,7 +976,7 @@
         "message": "VERDE con carga aguda 72h (acute_load_72h_rel=3.88x; load_3d=216): precaución con la intensidad",
         "metric": "acute_load_72h_rel",
         "value": 3.879,
-        "threshold": 3.8577500000000002,
+        "threshold": 3.848,
         "gate_scope": "green"
       }
     ],
@@ -1033,7 +989,7 @@
         "message": "Sueño más corto de lo habitual (5h32 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 332.0,
-        "threshold": 361.3
+        "threshold": 361.05
       }
     ],
     "2025-07-14": [],
@@ -1054,7 +1010,7 @@
         "message": "Sueño más corto de lo habitual (5h54 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 354.5,
-        "threshold": 361.3
+        "threshold": 361.05
       },
       {
         "type": "recovery_support",
@@ -1083,7 +1039,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 3.967,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "contradiction",
@@ -1159,7 +1115,7 @@
         "message": "Sueño más corto de lo habitual (5h28 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 328.0,
-        "threshold": 361.3
+        "threshold": 361.05
       },
       {
         "type": "acute_load_72h_rel",
@@ -1170,7 +1126,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.009,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "green_load_caution",
@@ -1179,7 +1135,7 @@
         "message": "VERDE con carga aguda 72h (acute_load_72h_rel=4.01x; load_3d=242): precaución con la intensidad",
         "metric": "acute_load_72h_rel",
         "value": 4.009,
-        "threshold": 3.8577500000000002,
+        "threshold": 3.848,
         "gate_scope": "green"
       },
       {
@@ -1235,7 +1191,7 @@
         "message": "Sueño más corto de lo habitual (4h42 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 282.0,
-        "threshold": 361.3
+        "threshold": 361.05
       },
       {
         "type": "acute_load_72h_rel",
@@ -1246,7 +1202,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 3.995,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "recovery_support",
@@ -1274,7 +1230,7 @@
         "message": "Sueño más corto de lo habitual (5h02 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 302.5,
-        "threshold": 361.3
+        "threshold": 361.05
       }
     ],
     "2025-07-26": [
@@ -1285,7 +1241,7 @@
         "message": "Sueño más corto de lo habitual (5h38 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 338.5,
-        "threshold": 361.3
+        "threshold": 361.05
       },
       {
         "type": "strain",
@@ -1296,7 +1252,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 964.5,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "green_load_caution",
@@ -1366,7 +1322,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 918.1,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "green_load_caution",
@@ -1604,7 +1560,7 @@
         "message": "Sueño más corto de lo habitual (4h30 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 270.0,
-        "threshold": 361.3
+        "threshold": 361.05
       },
       {
         "type": "monotony",
@@ -1667,7 +1623,7 @@
         "message": "Sueño más corto de lo habitual (5h30 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 329.5,
-        "threshold": 361.3
+        "threshold": 361.05
       },
       {
         "type": "recovery_support",
@@ -1837,7 +1793,7 @@
         "message": "Sueño más corto de lo habitual (3h56 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 236.5,
-        "threshold": 361.3
+        "threshold": 361.05
       }
     ],
     "2025-08-26": [],
@@ -1859,7 +1815,7 @@
         "message": "Sueño más corto de lo habitual (5h54 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 353.5,
-        "threshold": 361.3
+        "threshold": 361.05
       },
       {
         "type": "monotony",
@@ -1899,7 +1855,7 @@
         "severity": "very_high",
         "metric": "acute_load_72h_rel",
         "value": 4.959,
-        "threshold": 4.7578
+        "threshold": 4.682799999999999
       },
       {
         "type": "green_load_caution",
@@ -1908,7 +1864,7 @@
         "message": "VERDE con carga aguda 72h (acute_load_72h_rel=4.96x; load_3d=246): precaución con la intensidad",
         "metric": "acute_load_72h_rel",
         "value": 4.959,
-        "threshold": 3.8577500000000002,
+        "threshold": 3.848,
         "gate_scope": "green"
       }
     ],
@@ -1922,7 +1878,7 @@
         "severity": "very_high",
         "metric": "acute_load_72h_rel",
         "value": 5.272,
-        "threshold": 4.7578
+        "threshold": 4.682799999999999
       },
       {
         "type": "recovery_support",
@@ -1966,7 +1922,7 @@
         "severity": "very_high",
         "metric": "acute_load_72h_rel",
         "value": 7.287,
-        "threshold": 4.7578
+        "threshold": 4.682799999999999
       },
       {
         "type": "recent_load_absence",
@@ -2013,7 +1969,7 @@
         "severity": "very_high",
         "metric": "acute_load_72h_rel",
         "value": 5.249,
-        "threshold": 4.7578
+        "threshold": 4.682799999999999
       },
       {
         "type": "acwr",
@@ -2037,7 +1993,7 @@
         "severity": "very_high",
         "metric": "acute_load_72h_rel",
         "value": 5.469,
-        "threshold": 4.7578
+        "threshold": 4.682799999999999
       },
       {
         "type": "intensity_clustering",
@@ -2063,12 +2019,12 @@
         "type": "strain",
         "layer": "inference",
         "source": "sessions_day",
-        "message": "Semana muy exigente y con poca descarga (strain=1118, muy elevado)",
+        "message": "Semana exigente y algo cargada (strain=1118, elevado)",
         "variant": "high",
-        "severity": "very_high",
+        "severity": "high",
         "metric": "strain_7d_prev",
         "value": 1117.5,
-        "threshold": 1088.1000000000001
+        "threshold": 870.0
       }
     ],
     "2025-09-03": [
@@ -2112,7 +2068,7 @@
         "severity": "very_high",
         "metric": "strain_7d_prev",
         "value": 1173.8,
-        "threshold": 1088.1000000000001
+        "threshold": 1121.3600000000001
       },
       {
         "type": "green_load_caution",
@@ -2137,7 +2093,7 @@
         "severity": "very_high",
         "metric": "acute_load_72h_rel",
         "value": 4.905,
-        "threshold": 4.7578
+        "threshold": 4.682799999999999
       },
       {
         "type": "intensity_clustering",
@@ -2179,7 +2135,7 @@
         "severity": "very_high",
         "metric": "strain_7d_prev",
         "value": 1311.1,
-        "threshold": 1088.1000000000001
+        "threshold": 1121.3600000000001
       },
       {
         "type": "green_load_convergence",
@@ -2208,25 +2164,13 @@
         "threshold": 1.3
       },
       {
-        "type": "strain",
-        "layer": "inference",
-        "source": "sessions_day",
-        "message": "Semana exigente y algo cargada (strain=864, elevado)",
-        "variant": "high",
-        "severity": "high",
-        "metric": "strain_7d_prev",
-        "value": 863.5,
-        "threshold": 863.2
-      },
-      {
         "type": "green_load_caution",
         "layer": "inference",
         "source": "sessions_day",
-        "message": "VERDE con contexto de carga exigente (ACWR + strain): conviene prudencia con la intensidad",
+        "message": "VERDE con contexto de carga exigente (ACWR): conviene prudencia con la intensidad",
         "gate_scope": "green",
         "codes": [
-          "ACWR",
-          "strain"
+          "ACWR"
         ]
       }
     ],
@@ -2261,7 +2205,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 883.6,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "green_load_caution",
@@ -2310,7 +2254,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.274,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "work_7d",
@@ -2353,7 +2297,7 @@
         "severity": "very_high",
         "metric": "strain_7d_prev",
         "value": 1540.3,
-        "threshold": 1088.1000000000001
+        "threshold": 1121.3600000000001
       },
       {
         "type": "green_load_convergence",
@@ -2390,7 +2334,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 882.3,
-        "threshold": 863.2
+        "threshold": 870.0
       }
     ],
     "2025-09-10": [
@@ -2423,7 +2367,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 895.0,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "recovery_support",
@@ -2466,7 +2410,7 @@
         "message": "Sueño más corto de lo habitual (5h38 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 338.0,
-        "threshold": 361.3
+        "threshold": 361.05
       },
       {
         "type": "monotony",
@@ -2488,7 +2432,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 901.8,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "green_load_caution",
@@ -2547,7 +2491,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.577,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "monotony",
@@ -2569,7 +2513,7 @@
         "severity": "very_high",
         "metric": "strain_7d_prev",
         "value": 1413.3,
-        "threshold": 1088.1000000000001
+        "threshold": 1121.3600000000001
       }
     ],
     "2025-09-13": [
@@ -2593,7 +2537,7 @@
         "severity": "very_high",
         "metric": "strain_7d_prev",
         "value": 1413.3,
-        "threshold": 1088.1000000000001
+        "threshold": 1121.3600000000001
       }
     ],
     "2025-09-14": [
@@ -2668,7 +2612,7 @@
         "message": "Sueño más corto de lo habitual (5h36 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 335.5,
-        "threshold": 361.3
+        "threshold": 361.05
       },
       {
         "type": "intensity_clustering",
@@ -2898,7 +2842,7 @@
         "severity": "very_high",
         "metric": "acute_load_72h_rel",
         "value": 6.139,
-        "threshold": 4.7578
+        "threshold": 4.682799999999999
       },
       {
         "type": "recovery_support",
@@ -2938,7 +2882,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 904.5,
-        "threshold": 863.2
+        "threshold": 870.0
       }
     ],
     "2025-09-27": [
@@ -2962,7 +2906,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 1065.0,
-        "threshold": 863.2
+        "threshold": 870.0
       }
     ],
     "2025-09-29": [
@@ -3092,7 +3036,7 @@
         "severity": "very_high",
         "metric": "strain_7d_prev",
         "value": 1560.7,
-        "threshold": 1088.1000000000001
+        "threshold": 1121.3600000000001
       },
       {
         "type": "green_load_caution",
@@ -3145,7 +3089,7 @@
         "severity": "very_high",
         "metric": "strain_7d_prev",
         "value": 2233.8,
-        "threshold": 1088.1000000000001
+        "threshold": 1121.3600000000001
       },
       {
         "type": "recovery_support",
@@ -3210,7 +3154,7 @@
         "severity": "very_high",
         "metric": "strain_7d_prev",
         "value": 2277.4,
-        "threshold": 1088.1000000000001
+        "threshold": 1121.3600000000001
       }
     ],
     "2025-10-07": [
@@ -3234,7 +3178,7 @@
         "severity": "very_high",
         "metric": "strain_7d_prev",
         "value": 2277.4,
-        "threshold": 1088.1000000000001
+        "threshold": 1121.3600000000001
       },
       {
         "type": "green_load_caution",
@@ -3269,7 +3213,7 @@
         "severity": "very_high",
         "metric": "strain_7d_prev",
         "value": 2292.6,
-        "threshold": 1088.1000000000001
+        "threshold": 1121.3600000000001
       },
       {
         "type": "recovery_support",
@@ -3325,7 +3269,7 @@
         "severity": "very_high",
         "metric": "strain_7d_prev",
         "value": 2235.3,
-        "threshold": 1088.1000000000001
+        "threshold": 1121.3600000000001
       },
       {
         "type": "green_load_caution",
@@ -3360,7 +3304,7 @@
         "severity": "very_high",
         "metric": "strain_7d_prev",
         "value": 1903.6,
-        "threshold": 1088.1000000000001
+        "threshold": 1121.3600000000001
       },
       {
         "type": "green_load_caution",
@@ -3404,7 +3348,7 @@
         "severity": "very_high",
         "metric": "strain_7d_prev",
         "value": 2137.6,
-        "threshold": 1088.1000000000001
+        "threshold": 1121.3600000000001
       },
       {
         "type": "green_load_caution",
@@ -3474,7 +3418,7 @@
         "severity": "very_high",
         "metric": "strain_7d_prev",
         "value": 2137.6,
-        "threshold": 1088.1000000000001
+        "threshold": 1121.3600000000001
       },
       {
         "type": "green_load_caution",
@@ -3509,7 +3453,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 886.7,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "green_load_caution",
@@ -3590,7 +3534,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 889.1,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "green_load_caution",
@@ -3714,7 +3658,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 891.2,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "recovery_support",
@@ -4257,6 +4201,17 @@
     ],
     "2025-11-09": [
       {
+        "type": "acute_load_72h_rel",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "Carga aguda 72h por encima de tu base crónica (acute_load_72h_rel=3.85x; load_3d=192)",
+        "variant": "high",
+        "severity": "high",
+        "metric": "acute_load_72h_rel",
+        "value": 3.848,
+        "threshold": 3.848
+      },
+      {
         "type": "intensity_clustering",
         "layer": "inference",
         "source": "sessions_day",
@@ -4264,6 +4219,16 @@
         "variant": "high",
         "metric": "intensity_clustering_flag",
         "value": 1
+      },
+      {
+        "type": "green_load_caution",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "VERDE con carga aguda 72h (acute_load_72h_rel=3.85x; load_3d=192): precaución con la intensidad",
+        "metric": "acute_load_72h_rel",
+        "value": 3.848,
+        "threshold": 3.848,
+        "gate_scope": "green"
       }
     ],
     "2025-11-10": [
@@ -4276,7 +4241,7 @@
         "severity": "very_high",
         "metric": "acute_load_72h_rel",
         "value": 5.406,
-        "threshold": 4.7578
+        "threshold": 4.682799999999999
       },
       {
         "type": "intensity_clustering",
@@ -4294,7 +4259,7 @@
         "message": "VERDE con carga aguda 72h (acute_load_72h_rel=5.41x; load_3d=295): precaución con la intensidad",
         "metric": "acute_load_72h_rel",
         "value": 5.406,
-        "threshold": 3.8577500000000002,
+        "threshold": 3.848,
         "gate_scope": "green"
       }
     ],
@@ -4319,7 +4284,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.453,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "intensity_clustering",
@@ -4337,7 +4302,7 @@
         "message": "VERDE con carga aguda 72h (acute_load_72h_rel=4.45x; load_3d=236): precaución con la intensidad",
         "metric": "acute_load_72h_rel",
         "value": 4.453,
-        "threshold": 3.8577500000000002,
+        "threshold": 3.848,
         "gate_scope": "green"
       }
     ],
@@ -4371,7 +4336,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 912.5,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "green_load_caution",
@@ -4408,7 +4373,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.021,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "acwr",
@@ -4436,12 +4401,12 @@
         "type": "strain",
         "layer": "inference",
         "source": "sessions_day",
-        "message": "Semana muy exigente y con poca descarga (strain=1088, muy elevado)",
+        "message": "Semana exigente y algo cargada (strain=1088, elevado)",
         "variant": "high",
-        "severity": "very_high",
+        "severity": "high",
         "metric": "strain_7d_prev",
         "value": 1088.4,
-        "threshold": 1088.1000000000001
+        "threshold": 870.0
       },
       {
         "type": "green_load_convergence",
@@ -4490,7 +4455,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 973.0,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "green_load_caution",
@@ -4533,7 +4498,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.207,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "monotony",
@@ -4555,7 +4520,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 924.7,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "recovery_support",
@@ -4584,7 +4549,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.145,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "monotony",
@@ -4606,7 +4571,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 915.6,
-        "threshold": 863.2
+        "threshold": 870.0
       }
     ],
     "2025-11-19": [
@@ -4639,7 +4604,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 913.4,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "recovery_support",
@@ -4703,7 +4668,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 892.0,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "recovery_support",
@@ -4774,7 +4739,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 897.3,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "recovery_support",
@@ -4810,17 +4775,6 @@
         "metric": "monotony_7d_prev",
         "value": 1.923,
         "threshold": 1.8
-      },
-      {
-        "type": "strain",
-        "layer": "inference",
-        "source": "sessions_day",
-        "message": "Semana exigente y algo cargada (strain=864, elevado)",
-        "variant": "high",
-        "severity": "high",
-        "metric": "strain_7d_prev",
-        "value": 863.5,
-        "threshold": 863.2
       },
       {
         "type": "recovery_support",
@@ -4866,7 +4820,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 947.2,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "recovery_support",
@@ -4910,7 +4864,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 3.93,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "monotony",
@@ -4932,7 +4886,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 955.8,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "recovery_support",
@@ -4967,7 +4921,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.354,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "monotony",
@@ -4984,12 +4938,12 @@
         "type": "strain",
         "layer": "inference",
         "source": "sessions_day",
-        "message": "Semana muy exigente y con poca descarga (strain=1119, muy elevado)",
+        "message": "Semana exigente y algo cargada (strain=1119, elevado)",
         "variant": "high",
-        "severity": "very_high",
+        "severity": "high",
         "metric": "strain_7d_prev",
         "value": 1118.6,
-        "threshold": 1088.1000000000001
+        "threshold": 870.0
       },
       {
         "type": "recovery_support",
@@ -5042,7 +4996,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 1068.8,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "recovery_support",
@@ -5209,7 +5163,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 1003.0,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "green_load_caution",
@@ -5262,7 +5216,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 1019.1,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "recovery_support",
@@ -5303,12 +5257,12 @@
         "type": "strain",
         "layer": "inference",
         "source": "sessions_day",
-        "message": "Semana muy exigente y con poca descarga (strain=1121, muy elevado)",
+        "message": "Semana exigente y algo cargada (strain=1121, elevado)",
         "variant": "high",
-        "severity": "very_high",
+        "severity": "high",
         "metric": "strain_7d_prev",
         "value": 1120.9,
-        "threshold": 1088.1000000000001
+        "threshold": 870.0
       }
     ],
     "2025-12-02": [
@@ -5341,7 +5295,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 1052.1,
-        "threshold": 863.2
+        "threshold": 870.0
       }
     ],
     "2025-12-03": [
@@ -5391,7 +5345,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 945.9,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "recovery_support",
@@ -6041,7 +5995,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 3.878,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "contradiction",
@@ -6070,7 +6024,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 947.7,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "recovery_support",
@@ -6125,7 +6079,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 947.7,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "recovery_support",
@@ -6217,7 +6171,7 @@
         "message": "Sueño más corto de lo habitual (4h12 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 252.5,
-        "threshold": 361.3
+        "threshold": 361.05
       }
     ],
     "2025-12-27": [
@@ -6378,7 +6332,7 @@
         "severity": "very_high",
         "metric": "acute_load_72h_rel",
         "value": 6.093,
-        "threshold": 4.7578
+        "threshold": 4.682799999999999
       }
     ],
     "2026-01-01": [
@@ -6426,7 +6380,7 @@
         "message": "Sueño más corto de lo habitual (5h28 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 328.5,
-        "threshold": 361.3
+        "threshold": 361.05
       },
       {
         "type": "recovery_support",
@@ -6504,7 +6458,7 @@
         "message": "Sueño más corto de lo habitual (3h43 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 223.0,
-        "threshold": 361.3
+        "threshold": 361.05
       },
       {
         "type": "recovery_support",
@@ -6909,7 +6863,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.17,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "contradiction",
@@ -7064,7 +7018,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.536,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "acwr",
@@ -7158,7 +7112,7 @@
         "severity": "very_high",
         "metric": "acute_load_72h_rel",
         "value": 5.628,
-        "threshold": 4.7578
+        "threshold": 4.682799999999999
       },
       {
         "type": "recovery_support",
@@ -7204,7 +7158,7 @@
         "severity": "very_high",
         "metric": "acute_load_72h_rel",
         "value": 6.015,
-        "threshold": 4.7578
+        "threshold": 4.682799999999999
       },
       {
         "type": "acwr",
@@ -7250,7 +7204,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.421,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "acwr",
@@ -7283,7 +7237,7 @@
         "severity": "very_high",
         "metric": "acute_load_72h_rel",
         "value": 5.137,
-        "threshold": 4.7578
+        "threshold": 4.682799999999999
       },
       {
         "type": "acwr",
@@ -7333,7 +7287,7 @@
         "severity": "very_high",
         "metric": "acute_load_72h_rel",
         "value": 5.128,
-        "threshold": 4.7578
+        "threshold": 4.682799999999999
       },
       {
         "type": "acwr",
@@ -7368,7 +7322,7 @@
         "severity": "very_high",
         "metric": "acute_load_72h_rel",
         "value": 5.938,
-        "threshold": 4.7578
+        "threshold": 4.682799999999999
       },
       {
         "type": "acwr",
@@ -7392,7 +7346,7 @@
         "severity": "very_high",
         "metric": "acute_load_72h_rel",
         "value": 7.517,
-        "threshold": 4.7578
+        "threshold": 4.682799999999999
       },
       {
         "type": "acwr",
@@ -7427,7 +7381,7 @@
         "severity": "very_high",
         "metric": "acute_load_72h_rel",
         "value": 6.86,
-        "threshold": 4.7578
+        "threshold": 4.682799999999999
       },
       {
         "type": "acwr",
@@ -7460,7 +7414,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 898.4,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "green_load_convergence",
@@ -7486,7 +7440,7 @@
         "severity": "very_high",
         "metric": "acute_load_72h_rel",
         "value": 6.377,
-        "threshold": 4.7578
+        "threshold": 4.682799999999999
       },
       {
         "type": "acwr",
@@ -7519,7 +7473,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 898.6,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "green_load_convergence",
@@ -7567,7 +7521,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 898.6,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "green_load_caution",
@@ -7605,7 +7559,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.368,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "acwr",
@@ -7676,7 +7630,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 3.904,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "acwr",
@@ -7723,7 +7677,7 @@
         "severity": "very_high",
         "metric": "acute_load_72h_rel",
         "value": 5.562,
-        "threshold": 4.7578
+        "threshold": 4.682799999999999
       },
       {
         "type": "acwr",
@@ -7756,7 +7710,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 916.9,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "green_load_convergence",
@@ -7782,7 +7736,7 @@
         "severity": "very_high",
         "metric": "acute_load_72h_rel",
         "value": 5.977,
-        "threshold": 4.7578
+        "threshold": 4.682799999999999
       },
       {
         "type": "acwr",
@@ -7815,7 +7769,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 932.3,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "green_load_convergence",
@@ -7841,7 +7795,7 @@
         "severity": "very_high",
         "metric": "acute_load_72h_rel",
         "value": 4.768,
-        "threshold": 4.7578
+        "threshold": 4.682799999999999
       },
       {
         "type": "acwr",
@@ -7888,7 +7842,7 @@
         "severity": "very_high",
         "metric": "acute_load_72h_rel",
         "value": 4.824,
-        "threshold": 4.7578
+        "threshold": 4.682799999999999
       },
       {
         "type": "acwr",
@@ -7935,7 +7889,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.168,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "acwr",
@@ -7968,7 +7922,7 @@
         "severity": "very_high",
         "metric": "strain_7d_prev",
         "value": 2047.6,
-        "threshold": 1088.1000000000001
+        "threshold": 1121.3600000000001
       },
       {
         "type": "green_load_convergence",
@@ -7994,7 +7948,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.304,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "acwr",
@@ -8027,7 +7981,7 @@
         "severity": "very_high",
         "metric": "strain_7d_prev",
         "value": 2135.5,
-        "threshold": 1088.1000000000001
+        "threshold": 1121.3600000000001
       },
       {
         "type": "green_load_convergence",
@@ -8064,7 +8018,7 @@
         "severity": "very_high",
         "metric": "strain_7d_prev",
         "value": 1346.9,
-        "threshold": 1088.1000000000001
+        "threshold": 1121.3600000000001
       },
       {
         "type": "green_load_caution",
@@ -8086,7 +8040,7 @@
         "message": "Sueño más corto de lo habitual (5h14 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 314.5,
-        "threshold": 361.3
+        "threshold": 361.05
       },
       {
         "type": "monotony",
@@ -8108,7 +8062,7 @@
         "severity": "very_high",
         "metric": "strain_7d_prev",
         "value": 1341.8,
-        "threshold": 1088.1000000000001
+        "threshold": 1121.3600000000001
       },
       {
         "type": "green_load_caution",
@@ -8178,7 +8132,7 @@
         "severity": "very_high",
         "metric": "strain_7d_prev",
         "value": 1334.2,
-        "threshold": 1088.1000000000001
+        "threshold": 1121.3600000000001
       },
       {
         "type": "green_load_caution",
@@ -8248,7 +8202,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 906.2,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "green_load_caution",
@@ -8283,7 +8237,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 906.2,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "green_load_caution",
@@ -8318,7 +8272,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 906.2,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "green_load_caution",
@@ -8366,7 +8320,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 906.2,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "green_load_caution",
@@ -8439,7 +8393,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.266,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "acwr",
@@ -8458,7 +8412,7 @@
         "message": "VERDE con carga aguda 72h (acute_load_72h_rel=4.27x; load_3d=220): precaución con la intensidad",
         "metric": "acute_load_72h_rel",
         "value": 4.266,
-        "threshold": 3.8577500000000002,
+        "threshold": 3.848,
         "gate_scope": "green"
       },
       {
@@ -8526,7 +8480,7 @@
         "message": "Sueño más corto de lo habitual (5h06 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 306.5,
-        "threshold": 361.3
+        "threshold": 361.05
       },
       {
         "type": "acwr",
@@ -8648,7 +8602,7 @@
         "message": "Sueño más corto de lo habitual (5h48 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 348.0,
-        "threshold": 361.3
+        "threshold": 361.05
       },
       {
         "type": "recovery_support",
@@ -8815,7 +8769,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.079,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "green_load_caution",
@@ -8824,7 +8778,7 @@
         "message": "VERDE con carga aguda 72h (acute_load_72h_rel=4.08x; load_3d=177): precaución con la intensidad",
         "metric": "acute_load_72h_rel",
         "value": 4.079,
-        "threshold": 3.8577500000000002,
+        "threshold": 3.848,
         "gate_scope": "green"
       }
     ],
@@ -8885,7 +8839,7 @@
         "severity": "very_high",
         "metric": "acute_load_72h_rel",
         "value": 4.922,
-        "threshold": 4.7578
+        "threshold": 4.682799999999999
       },
       {
         "type": "green_load_caution",
@@ -8894,7 +8848,7 @@
         "message": "VERDE con carga aguda 72h (acute_load_72h_rel=4.92x; load_3d=228): precaución con la intensidad",
         "metric": "acute_load_72h_rel",
         "value": 4.922,
-        "threshold": 3.8577500000000002,
+        "threshold": 3.848,
         "gate_scope": "green"
       }
     ],
@@ -8908,7 +8862,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.521,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "acwr",
@@ -8936,12 +8890,12 @@
         "type": "strain",
         "layer": "inference",
         "source": "sessions_day",
-        "message": "Semana muy exigente y con poca descarga (strain=1090, muy elevado)",
+        "message": "Semana exigente y algo cargada (strain=1090, elevado)",
         "variant": "high",
-        "severity": "very_high",
+        "severity": "high",
         "metric": "strain_7d_prev",
         "value": 1089.5,
-        "threshold": 1088.1000000000001
+        "threshold": 870.0
       }
     ],
     "2026-03-12": [
@@ -8967,7 +8921,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.285,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "acwr",
@@ -9000,7 +8954,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 1047.6,
-        "threshold": 863.2
+        "threshold": 870.0
       }
     ],
     "2026-03-13": [
@@ -9036,7 +8990,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.048,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "acwr",
@@ -9069,7 +9023,7 @@
         "severity": "very_high",
         "metric": "strain_7d_prev",
         "value": 1641.0,
-        "threshold": 1088.1000000000001
+        "threshold": 1121.3600000000001
       },
       {
         "type": "green_load_convergence",
@@ -9095,7 +9049,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.204,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "acwr",
@@ -9128,7 +9082,7 @@
         "severity": "very_high",
         "metric": "strain_7d_prev",
         "value": 1645.3,
-        "threshold": 1088.1000000000001
+        "threshold": 1121.3600000000001
       },
       {
         "type": "green_load_convergence",
@@ -9163,7 +9117,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.67,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "monotony",
@@ -9185,7 +9139,7 @@
         "severity": "very_high",
         "metric": "strain_7d_prev",
         "value": 1565.9,
-        "threshold": 1088.1000000000001
+        "threshold": 1121.3600000000001
       },
       {
         "type": "green_load_convergence",
@@ -9244,7 +9198,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 886.2,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "green_load_caution",
@@ -9288,7 +9242,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 927.8,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "green_load_caution",
@@ -9316,12 +9270,12 @@
         "type": "acute_load_72h_rel",
         "layer": "inference",
         "source": "sessions_day",
-        "message": "Carga aguda 72h por encima de tu base crónica (acute_load_72h_rel=4.73x; load_3d=257)",
+        "message": "Carga aguda 72h muy alta respecto a tu base crónica (acute_load_72h_rel=4.73x; load_3d=257)",
         "variant": "high",
-        "severity": "high",
+        "severity": "very_high",
         "metric": "acute_load_72h_rel",
         "value": 4.734,
-        "threshold": 3.8577500000000002
+        "threshold": 4.682799999999999
       },
       {
         "type": "acwr",
@@ -9354,7 +9308,7 @@
         "severity": "very_high",
         "metric": "strain_7d_prev",
         "value": 1301.8,
-        "threshold": 1088.1000000000001
+        "threshold": 1121.3600000000001
       },
       {
         "type": "green_load_convergence",
@@ -9432,7 +9386,7 @@
         "message": "Sueño más corto de lo habitual (5h56 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 356.0,
-        "threshold": 361.3
+        "threshold": 361.05
       },
       {
         "type": "acute_load_72h_rel",
@@ -9443,7 +9397,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 3.993,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "green_load_caution",
@@ -9452,7 +9406,7 @@
         "message": "VERDE con carga aguda 72h (acute_load_72h_rel=3.99x; load_3d=230): precaución con la intensidad",
         "metric": "acute_load_72h_rel",
         "value": 3.993,
-        "threshold": 3.8577500000000002,
+        "threshold": 3.848,
         "gate_scope": "green"
       },
       {
@@ -9543,7 +9497,7 @@
         "message": "Sueño más corto de lo habitual (5h08 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 308.5,
-        "threshold": 361.3
+        "threshold": 361.05
       },
       {
         "type": "intensity_clustering",
@@ -9718,7 +9672,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 3.953,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "acwr",
@@ -9737,7 +9691,7 @@
         "message": "VERDE con carga aguda 72h (acute_load_72h_rel=3.95x; load_3d=215): precaución con la intensidad",
         "metric": "acute_load_72h_rel",
         "value": 3.953,
-        "threshold": 3.8577500000000002,
+        "threshold": 3.848,
         "gate_scope": "green"
       }
     ],
@@ -9749,7 +9703,7 @@
         "message": "Sueño más corto de lo habitual (5h14 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 314.5,
-        "threshold": 361.3
+        "threshold": 361.05
       },
       {
         "type": "intensity_clustering",
@@ -9815,7 +9769,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.456,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "intensity_clustering",
@@ -9837,7 +9791,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.064,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "intensity_clustering",
@@ -9855,7 +9809,7 @@
         "message": "VERDE con carga aguda 72h (acute_load_72h_rel=4.06x; load_3d=217): precaución con la intensidad",
         "metric": "acute_load_72h_rel",
         "value": 4.064,
-        "threshold": 3.8577500000000002,
+        "threshold": 3.848,
         "gate_scope": "green"
       }
     ],
@@ -9869,7 +9823,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.123,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "intensity_clustering",
@@ -9887,7 +9841,7 @@
         "message": "VERDE con carga aguda 72h (acute_load_72h_rel=4.12x; load_3d=221): precaución con la intensidad",
         "metric": "acute_load_72h_rel",
         "value": 4.123,
-        "threshold": 3.8577500000000002,
+        "threshold": 3.848,
         "gate_scope": "green"
       }
     ],
@@ -9970,7 +9924,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 3.861,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "recovery_support",
@@ -10052,7 +10006,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 3.95,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "monotony",
@@ -10207,7 +10161,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.102,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "monotony",
@@ -10251,7 +10205,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.195,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "monotony",
@@ -10295,7 +10249,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 3.972,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "monotony",
@@ -10317,7 +10271,7 @@
         "severity": "very_high",
         "metric": "strain_7d_prev",
         "value": 1600.2,
-        "threshold": 1088.1000000000001
+        "threshold": 1121.3600000000001
       },
       {
         "type": "green_load_convergence",
@@ -10362,7 +10316,7 @@
         "severity": "very_high",
         "metric": "strain_7d_prev",
         "value": 1428.5,
-        "threshold": 1088.1000000000001
+        "threshold": 1121.3600000000001
       },
       {
         "type": "green_load_caution",
@@ -10397,7 +10351,7 @@
         "severity": "very_high",
         "metric": "strain_7d_prev",
         "value": 1428.5,
-        "threshold": 1088.1000000000001
+        "threshold": 1121.3600000000001
       },
       {
         "type": "green_load_caution",
@@ -10432,7 +10386,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 962.6,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "green_load_caution",
@@ -10467,7 +10421,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 966.0,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "green_load_caution",
@@ -10502,7 +10456,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 946.9,
-        "threshold": 863.2
+        "threshold": 870.0
       }
     ],
     "2026-05-04": [
@@ -10515,7 +10469,7 @@
         "severity": "high",
         "metric": "acute_load_72h_rel",
         "value": 4.017,
-        "threshold": 3.8577500000000002
+        "threshold": 3.848
       },
       {
         "type": "monotony",
@@ -10557,7 +10511,7 @@
         "message": "Sueño más corto de lo habitual (5h56 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 356.5,
-        "threshold": 361.3
+        "threshold": 361.05
       }
     ],
     "2026-05-06": [
@@ -10593,7 +10547,7 @@
         "severity": "very_high",
         "metric": "strain_7d_prev",
         "value": 1511.9,
-        "threshold": 1088.1000000000001
+        "threshold": 1121.3600000000001
       },
       {
         "type": "green_load_caution",
@@ -10628,7 +10582,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 1087.4,
-        "threshold": 863.2
+        "threshold": 870.0
       }
     ],
     "2026-05-10": [
@@ -10652,7 +10606,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 1087.4,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "green_load_caution",
@@ -10674,7 +10628,7 @@
         "message": "Sueño más corto de lo habitual (4h12 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 251.5,
-        "threshold": 361.3
+        "threshold": 361.05
       },
       {
         "type": "recovery_support",
@@ -10720,7 +10674,7 @@
         "message": "Sueño más corto de lo habitual (5h38 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 337.5,
-        "threshold": 361.3
+        "threshold": 361.05
       },
       {
         "type": "monotony",
@@ -10742,7 +10696,7 @@
         "severity": "high",
         "metric": "strain_7d_prev",
         "value": 916.7,
-        "threshold": 863.2
+        "threshold": 870.0
       },
       {
         "type": "green_load_caution",
@@ -10857,7 +10811,7 @@
         "message": "Sueño más corto de lo habitual (5h21 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 321.0,
-        "threshold": 361.3
+        "threshold": 361.05
       },
       {
         "type": "acwr",
@@ -10947,7 +10901,7 @@
         "message": "Sueño más corto de lo habitual (5h56 vs tu umbral habitual bajo de 6h01)",
         "metric": "polar_sleep_duration_min",
         "value": 356.0,
-        "threshold": 361.3
+        "threshold": 361.05
       },
       {
         "type": "acwr",
@@ -10969,6 +10923,16 @@
         "metric": "lnRMSSD",
         "value": 3.491304444952364,
         "threshold": 3.504738848214451
+      },
+      {
+        "type": "acwr",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "Carga reciente baja frente a tu base habitual (ACWR=0.62, baja)",
+        "variant": "low",
+        "metric": "acwr_simple_prev",
+        "value": 0.62,
+        "threshold": 0.8
       },
       {
         "type": "recovery_support",
@@ -10994,6 +10958,512 @@
           "nightly_rmssd_good"
         ]
       }
-    ]
+    ],
+    "2026-05-21": [
+      {
+        "type": "acwr",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "Carga reciente baja frente a tu base habitual (ACWR=0.49, baja)",
+        "variant": "low",
+        "metric": "acwr_simple_prev",
+        "value": 0.486,
+        "threshold": 0.8
+      }
+    ],
+    "2026-05-22": [
+      {
+        "type": "acwr",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "Carga reciente baja frente a tu base habitual (ACWR=0.65, baja)",
+        "variant": "low",
+        "metric": "acwr_simple_prev",
+        "value": 0.649,
+        "threshold": 0.8
+      },
+      {
+        "type": "recovery_support",
+        "layer": "inference",
+        "source": "sleep+sessions_day",
+        "message": "ÁMBAR con señales nocturnas favorables",
+        "variant": "supported",
+        "gate_scope": "ámbar",
+        "codes": [
+          "sleep_basic_ok",
+          "sleep_score_good",
+          "nightly_rmssd_good"
+        ]
+      },
+      {
+        "type": "action_constraint",
+        "layer": "action",
+        "source": "gate_final",
+        "message": "Acción: Z2 controlado es razonable si sensaciones normales",
+        "variant": "supported",
+        "gate_scope": "ámbar",
+        "codes": [
+          "sleep_basic_ok",
+          "sleep_score_good",
+          "nightly_rmssd_good"
+        ]
+      }
+    ],
+    "2026-05-23": [],
+    "2026-05-25": [
+      {
+        "type": "acute_load_72h_rel",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "Carga aguda 72h por encima de tu base crónica (acute_load_72h_rel=4.18x; load_3d=234)",
+        "variant": "high",
+        "severity": "high",
+        "metric": "acute_load_72h_rel",
+        "value": 4.176,
+        "threshold": 3.848
+      },
+      {
+        "type": "monotony",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "Semana muy repetitiva, con poca variación de carga (monotonía=2.05, alta)",
+        "variant": "high",
+        "severity": "high",
+        "metric": "monotony_7d_prev",
+        "value": 2.052,
+        "threshold": 2.0
+      }
+    ],
+    "2026-05-26": [
+      {
+        "type": "monotony",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "Semana muy repetitiva, con poca variación de carga (monotonía=4.12, alta)",
+        "variant": "high",
+        "severity": "high",
+        "metric": "monotony_7d_prev",
+        "value": 4.123,
+        "threshold": 2.0
+      },
+      {
+        "type": "strain",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "Semana muy exigente y con poca descarga (strain=1810, muy elevado)",
+        "variant": "high",
+        "severity": "very_high",
+        "metric": "strain_7d_prev",
+        "value": 1810.1,
+        "threshold": 1121.3600000000001
+      },
+      {
+        "type": "green_load_caution",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "VERDE con contexto de carga exigente (monotonía + strain): conviene prudencia con la intensidad",
+        "gate_scope": "green",
+        "codes": [
+          "monotonía",
+          "strain"
+        ]
+      }
+    ],
+    "2026-05-27": [
+      {
+        "type": "monotony",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "Semana muy repetitiva, con poca variación de carga (monotonía=4.67, alta)",
+        "variant": "high",
+        "severity": "high",
+        "metric": "monotony_7d_prev",
+        "value": 4.673,
+        "threshold": 2.0
+      },
+      {
+        "type": "strain",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "Semana muy exigente y con poca descarga (strain=2084, muy elevado)",
+        "variant": "high",
+        "severity": "very_high",
+        "metric": "strain_7d_prev",
+        "value": 2084.1,
+        "threshold": 1121.3600000000001
+      },
+      {
+        "type": "green_load_caution",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "VERDE con contexto de carga exigente (monotonía + strain): conviene prudencia con la intensidad",
+        "gate_scope": "green",
+        "codes": [
+          "monotonía",
+          "strain"
+        ]
+      }
+    ],
+    "2026-05-28": [
+      {
+        "type": "monotony",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "Semana muy repetitiva, con poca variación de carga (monotonía=4.12, alta)",
+        "variant": "high",
+        "severity": "high",
+        "metric": "monotony_7d_prev",
+        "value": 4.118,
+        "threshold": 2.0
+      },
+      {
+        "type": "strain",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "Semana muy exigente y con poca descarga (strain=2034, muy elevado)",
+        "variant": "high",
+        "severity": "very_high",
+        "metric": "strain_7d_prev",
+        "value": 2034.3,
+        "threshold": 1121.3600000000001
+      },
+      {
+        "type": "green_load_caution",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "VERDE con contexto de carga exigente (monotonía + strain): conviene prudencia con la intensidad",
+        "gate_scope": "green",
+        "codes": [
+          "monotonía",
+          "strain"
+        ]
+      }
+    ],
+    "2026-05-29": [
+      {
+        "type": "parasympathetic_saturation",
+        "layer": "inference",
+        "source": "hrv_pipeline",
+        "message": "RMSSD suavizado de 3 días por encima de tu base reciente: posible saturación parasimpática relativa al rango local",
+        "metric": "d_ln",
+        "value": 0.24086859015369377,
+        "threshold": 0.2321077095806292
+      },
+      {
+        "type": "monotony",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "Semana muy repetitiva, con poca variación de carga (monotonía=2.56, alta)",
+        "variant": "high",
+        "severity": "high",
+        "metric": "monotony_7d_prev",
+        "value": 2.563,
+        "threshold": 2.0
+      },
+      {
+        "type": "strain",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "Semana muy exigente y con poca descarga (strain=1151, muy elevado)",
+        "variant": "high",
+        "severity": "very_high",
+        "metric": "strain_7d_prev",
+        "value": 1151.0,
+        "threshold": 1121.3600000000001
+      },
+      {
+        "type": "green_load_caution",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "VERDE con contexto de carga exigente (monotonía + strain): conviene prudencia con la intensidad",
+        "gate_scope": "green",
+        "codes": [
+          "monotonía",
+          "strain"
+        ]
+      }
+    ],
+    "2026-05-30": [
+      {
+        "type": "parasympathetic_saturation",
+        "layer": "inference",
+        "source": "hrv_pipeline",
+        "message": "RMSSD suavizado de 3 días por encima de tu base reciente: posible saturación parasimpática relativa al rango local",
+        "metric": "d_ln",
+        "value": 0.2480371903214138,
+        "threshold": 0.24020348551198287
+      },
+      {
+        "type": "monotony",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "Semana muy repetitiva, con poca variación de carga (monotonía=2.58, alta)",
+        "variant": "high",
+        "severity": "high",
+        "metric": "monotony_7d_prev",
+        "value": 2.576,
+        "threshold": 2.0
+      },
+      {
+        "type": "strain",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "Semana muy exigente y con poca descarga (strain=1134, muy elevado)",
+        "variant": "high",
+        "severity": "very_high",
+        "metric": "strain_7d_prev",
+        "value": 1133.6,
+        "threshold": 1121.3600000000001
+      },
+      {
+        "type": "green_load_caution",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "VERDE con contexto de carga exigente (monotonía + strain): conviene prudencia con la intensidad",
+        "gate_scope": "green",
+        "codes": [
+          "monotonía",
+          "strain"
+        ]
+      },
+      {
+        "type": "recovery_support",
+        "layer": "inference",
+        "source": "sleep+sessions_day",
+        "message": "VERDE, pero sueño y carga reciente piden prudencia",
+        "variant": "fragile",
+        "gate_scope": "verde",
+        "codes": [
+          "sleep_score_low",
+          "load_context_high"
+        ]
+      },
+      {
+        "type": "action_constraint",
+        "layer": "action",
+        "source": "gate_final",
+        "message": "Acción: contener la intensidad",
+        "variant": "fragile",
+        "gate_scope": "verde",
+        "codes": [
+          "sleep_score_low",
+          "load_context_high"
+        ]
+      },
+      {
+        "type": "recovery_discordance",
+        "layer": "inference",
+        "source": "sleep+sessions_day",
+        "message": "VERDE, pero sueño y carga reciente piden prudencia",
+        "variant": "fragile",
+        "codes": [
+          "sleep_score_low",
+          "load_context_high"
+        ]
+      }
+    ],
+    "2026-05-31": [
+      {
+        "type": "parasympathetic_saturation",
+        "layer": "inference",
+        "source": "hrv_pipeline",
+        "message": "RMSSD suavizado de 3 días por encima de tu base reciente: posible saturación parasimpática relativa al rango local",
+        "metric": "d_ln",
+        "value": 0.2955460319621266,
+        "threshold": 0.2528177578460798
+      },
+      {
+        "type": "monotony",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "Semana muy repetitiva, con poca variación de carga (monotonía=2.60, alta)",
+        "variant": "high",
+        "severity": "high",
+        "metric": "monotony_7d_prev",
+        "value": 2.599,
+        "threshold": 2.0
+      },
+      {
+        "type": "strain",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "Semana exigente y algo cargada (strain=1118, elevado)",
+        "variant": "high",
+        "severity": "high",
+        "metric": "strain_7d_prev",
+        "value": 1117.7,
+        "threshold": 870.0
+      },
+      {
+        "type": "green_load_caution",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "VERDE con contexto de carga exigente (monotonía + strain): conviene prudencia con la intensidad",
+        "gate_scope": "green",
+        "codes": [
+          "monotonía",
+          "strain"
+        ]
+      }
+    ],
+    "2026-06-01": [
+      {
+        "type": "acute_load_72h_rel",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "Carga aguda 72h por encima de tu base crónica (acute_load_72h_rel=3.98x; load_3d=224)",
+        "variant": "high",
+        "severity": "high",
+        "metric": "acute_load_72h_rel",
+        "value": 3.985,
+        "threshold": 3.848
+      },
+      {
+        "type": "monotony",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "Semana muy repetitiva, con poca variación de carga (monotonía=2.56, alta)",
+        "variant": "high",
+        "severity": "high",
+        "metric": "monotony_7d_prev",
+        "value": 2.559,
+        "threshold": 2.0
+      },
+      {
+        "type": "strain",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "Semana muy exigente y con poca descarga (strain=1123, muy elevado)",
+        "variant": "high",
+        "severity": "very_high",
+        "metric": "strain_7d_prev",
+        "value": 1123.2,
+        "threshold": 1121.3600000000001
+      },
+      {
+        "type": "green_load_convergence",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "VERDE con convergencia de carga (carga 72h + monotonía + strain): precaución con la intensidad reforzada",
+        "gate_scope": "green",
+        "codes": [
+          "carga 72h",
+          "monotonía",
+          "strain"
+        ]
+      }
+    ],
+    "2026-06-02": [
+      {
+        "type": "parasympathetic_saturation",
+        "layer": "inference",
+        "source": "hrv_pipeline",
+        "message": "RMSSD suavizado de 3 días por encima de tu base reciente: posible saturación parasimpática relativa al rango local",
+        "metric": "d_ln",
+        "value": 0.2723734704351557,
+        "threshold": 0.2573172873525652
+      },
+      {
+        "type": "sleep_duration",
+        "layer": "inference",
+        "source": "sleep",
+        "message": "Sueño más corto de lo habitual (4h31 vs tu umbral habitual bajo de 6h01)",
+        "metric": "polar_sleep_duration_min",
+        "value": 271.0,
+        "threshold": 361.05
+      },
+      {
+        "type": "monotony",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "Semana algo repetitiva; conviene variar más la carga (monotonía=1.84, moderada)",
+        "variant": "elevated",
+        "severity": "medium",
+        "metric": "monotony_7d_prev",
+        "value": 1.839,
+        "threshold": 1.8
+      },
+      {
+        "type": "green_load_caution",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "VERDE con contexto de carga exigente (monotonía): conviene prudencia con la intensidad",
+        "gate_scope": "green",
+        "codes": [
+          "monotonía"
+        ]
+      },
+      {
+        "type": "recovery_support",
+        "layer": "inference",
+        "source": "sleep+sessions_day",
+        "message": "VERDE, pero sueño y carga reciente piden prudencia",
+        "variant": "fragile",
+        "gate_scope": "verde",
+        "codes": [
+          "sleep_basic_poor",
+          "sleep_score_low",
+          "load_context_high"
+        ]
+      },
+      {
+        "type": "action_constraint",
+        "layer": "action",
+        "source": "gate_final",
+        "message": "Acción: contener la intensidad",
+        "variant": "fragile",
+        "gate_scope": "verde",
+        "codes": [
+          "sleep_basic_poor",
+          "sleep_score_low",
+          "load_context_high"
+        ]
+      },
+      {
+        "type": "recovery_discordance",
+        "layer": "inference",
+        "source": "sleep+sessions_day",
+        "message": "VERDE, pero sueño y carga reciente piden prudencia",
+        "variant": "fragile",
+        "codes": [
+          "sleep_basic_poor",
+          "sleep_score_low",
+          "load_context_high"
+        ]
+      }
+    ],
+    "2026-06-03": [
+      {
+        "type": "parasympathetic_saturation",
+        "layer": "inference",
+        "source": "hrv_pipeline",
+        "message": "RMSSD suavizado de 3 días por encima de tu base reciente: posible saturación parasimpática relativa al rango local",
+        "metric": "d_ln",
+        "value": 0.2544794135288835,
+        "threshold": 0.24119898727994007
+      },
+      {
+        "type": "monotony",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "Semana algo repetitiva; conviene variar más la carga (monotonía=1.84, moderada)",
+        "variant": "elevated",
+        "severity": "medium",
+        "metric": "monotony_7d_prev",
+        "value": 1.844,
+        "threshold": 1.8
+      },
+      {
+        "type": "green_load_caution",
+        "layer": "inference",
+        "source": "sessions_day",
+        "message": "VERDE con contexto de carga exigente (monotonía): conviene prudencia con la intensidad",
+        "gate_scope": "green",
+        "codes": [
+          "monotonía"
+        ]
+      }
+    ],
+    "2026-06-04": []
   }
 }

@@ -139,3 +139,9 @@ window_start,window_end,sport,n_sessions_total,n_sessions_usable,total_duration_
 2026-05-04,2026-05-10,road_run,2,2,149.4,80.5,43.3,25.5,53.9,29.0,17.1,75.4,8,20.0,33.9,icu=2,work_intense=1;work_steady=1,pyramidal,moderate,minimum_weekly_support
 2026-05-11,2026-05-17,bike,1,1,151.2,148.7,2.4,0.0,98.4,1.6,0.0,0.0,0,0.0,0.0,icu=1,easy=1,pyramidal,low,too_few_sessions;too_few_usable_sessions
 2026-05-11,2026-05-17,road_run,2,2,128.9,28.5,29.2,71.2,22.1,22.7,55.2,103.5,6,48.1,68.9,icu=2,work_intense=2,mixed,moderate,minimum_weekly_support
+2026-05-18,2026-05-24,bike,3,3,413.0,402.6,9.4,0.8,97.5,2.3,0.2,0.0,0,0.0,0.0,icu=3,easy=3,pyramidal,high,
+2026-05-18,2026-05-24,trail_run,1,1,93.5,84.8,8.8,0.0,90.6,9.4,0.0,7.1,1,7.1,0.0,icu=1,work_moderate=1,pyramidal,low,too_few_sessions;too_few_usable_sessions
+2026-05-25,2026-05-31,bike,2,2,297.5,261.6,34.2,1.5,88.0,11.5,0.5,34.5,3,15.6,4.0,icu=2,work_steady=1;easy=1,pyramidal,moderate,minimum_weekly_support
+2026-05-25,2026-05-31,road_run,3,3,247.7,191.7,46.2,9.7,77.4,18.7,3.9,51.8,6,14.6,17.1,icu=3,work_moderate=1;work_intense=1;easy=1,pyramidal,high,
+2026-06-01,2026-06-07,bike,1,1,154.6,147.5,7.1,0.0,95.4,4.6,0.0,3.8,1,3.8,0.0,icu=1,easy=1,pyramidal,low,too_few_sessions;too_few_usable_sessions
+2026-06-01,2026-06-07,trail_run,2,2,227.2,136.3,59.8,31.0,60.0,26.3,13.7,75.7,13,14.8,30.1,icu=2,work_intense=2,pyramidal,moderate,minimum_weekly_support
