@@ -201,9 +201,7 @@ class HrvSyncFlowContractTests(unittest.TestCase):
                 hrv_sync_flow, "run_build_hrv_final_dashboard_only"
             ) as final_mock, patch.object(
                 hrv_sync_flow, "run_build_hrv_ssm_shadow_only", return_value=True
-            ) as ssm_mock, patch.object(
-                hrv_sync_flow, "run_build_hrv_ssm_validation_only", return_value=True
-            ) as validation_mock, patch.object(hrv_sync_flow, "_update_sleep_for_dates") as sleep_mock, patch.object(
+            ) as ssm_mock, patch.object(hrv_sync_flow, "_update_sleep_for_dates") as sleep_mock, patch.object(
                 hrv_sync_flow, "_send_intervals_wellness_from_master"
             ) as intervals_mock, patch.object(hrv_sync_flow, "show_latest_hrv_summaries") as summary_mock:
                 hrv_sync_flow.sync_hrv_range(args, "token", "user", exercises)
@@ -212,7 +210,6 @@ class HrvSyncFlowContractTests(unittest.TestCase):
         run_core_mock.assert_called_once()
         final_mock.assert_called_once()
         ssm_mock.assert_called_once()
-        validation_mock.assert_called_once()
         sleep_mock.assert_called_once()
         intervals_mock.assert_called_once()
         summary_mock.assert_called_once()
@@ -304,8 +301,6 @@ class HrvSyncFlowContractTests(unittest.TestCase):
             ) as final_mock, patch.object(
                 hrv_sync_flow, "run_build_hrv_ssm_shadow_only", return_value=True
             ) as ssm_mock, patch.object(
-                hrv_sync_flow, "run_build_hrv_ssm_validation_only", return_value=True
-            ) as validation_mock, patch.object(
                 hrv_sync_flow, "_update_sleep_for_dates"
             ) as sleep_mock, patch.object(
                 hrv_sync_flow, "_send_intervals_wellness_from_master"
@@ -319,7 +314,6 @@ class HrvSyncFlowContractTests(unittest.TestCase):
         run_core_mock.assert_called_once_with([rr_path])
         final_mock.assert_called_once()
         ssm_mock.assert_called_once()
-        validation_mock.assert_called_once()
         sleep_mock.assert_called_once()
         intervals_mock.assert_called_once()
         summary_mock.assert_called_once()
@@ -405,16 +399,13 @@ class HrvSyncFlowContractTests(unittest.TestCase):
                 hrv_sync_flow, "run_build_hrv_final_dashboard_only"
             ) as final_mock, patch.object(
                 hrv_sync_flow, "run_build_hrv_ssm_shadow_only", return_value=True
-            ) as ssm_mock, patch.object(
-                hrv_sync_flow, "run_build_hrv_ssm_validation_only", return_value=True
-            ) as validation_mock, patch.object(hrv_sync_flow, "_update_sleep_for_dates") as sleep_mock, patch.object(
+            ) as ssm_mock, patch.object(hrv_sync_flow, "_update_sleep_for_dates") as sleep_mock, patch.object(
                 hrv_sync_flow, "_send_intervals_wellness_from_master"
             ) as intervals_mock, patch.object(hrv_sync_flow, "show_latest_hrv_summaries") as summary_mock:
                 hrv_sync_flow.sync_hrv_range(args, "token", "user", exercises)
 
         final_mock.assert_not_called()
         ssm_mock.assert_not_called()
-        validation_mock.assert_not_called()
         sleep_mock.assert_called_once()
         intervals_mock.assert_called_once()
         summary_mock.assert_called_once()
@@ -456,67 +447,13 @@ class HrvSyncFlowContractTests(unittest.TestCase):
                 hrv_sync_flow, "run_build_hrv_final_dashboard_only"
             ) as final_mock, patch.object(
                 hrv_sync_flow, "run_build_hrv_ssm_shadow_only", return_value=False
-            ) as ssm_mock, patch.object(
-                hrv_sync_flow, "run_build_hrv_ssm_validation_only", return_value=True
-            ) as validation_mock, patch.object(hrv_sync_flow, "_update_sleep_for_dates") as sleep_mock, patch.object(
+            ) as ssm_mock, patch.object(hrv_sync_flow, "_update_sleep_for_dates") as sleep_mock, patch.object(
                 hrv_sync_flow, "_send_intervals_wellness_from_master"
             ) as intervals_mock, patch.object(hrv_sync_flow, "show_latest_hrv_summaries") as summary_mock:
                 hrv_sync_flow.sync_hrv_range(args, "token", "user", exercises)
 
         final_mock.assert_called_once()
         ssm_mock.assert_called_once()
-        validation_mock.assert_not_called()
-        sleep_mock.assert_called_once()
-        intervals_mock.assert_called_once()
-        summary_mock.assert_called_once()
-
-    def test_validation_failure_does_not_abort_successful_ssm_processing(self):
-        args = argparse.Namespace(
-            all=False,
-            auto=False,
-            days=1,
-            process=True,
-            debug_sports=False,
-            verbose=False,
-        )
-        exercises = [
-            {
-                "id": "abc123",
-                "start-time": "2026-04-13T07:00:00",
-                "duration": "PT5M",
-                "detailed-sport-info": "BODY_AND_MIND",
-            }
-        ]
-
-        class _Result:
-            stdout = "core ok"
-
-        sample_session = {
-            "id": "abc123",
-            "start-time": "2026-04-13T07:00:00",
-            "samples": [{"sample-type": "11", "data": "800,810,820"}],
-        }
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with patch.object(hrv_sync_flow, "OUTDIR", Path(tmpdir)), patch.object(
-                hrv_sync_flow, "get_existing_dates_from_master", return_value=set()
-            ), patch.object(hrv_sync_flow, "_run_dropbox_rr_import_for_dates", return_value=({}, 0)), patch.object(
-                hrv_sync_flow, "get_exercise_with_samples", return_value=sample_session
-            ), patch.object(hrv_sync_flow, "build_hrv_core_cmd", return_value=["python", "build_hrv_core.py", "rr.csv"]
-            ), patch.object(hrv_sync_flow, "run_build_hrv_core", return_value=_Result()), patch.object(
-                hrv_sync_flow, "run_build_hrv_final_dashboard_only"
-            ) as final_mock, patch.object(
-                hrv_sync_flow, "run_build_hrv_ssm_shadow_only", return_value=True
-            ) as ssm_mock, patch.object(
-                hrv_sync_flow, "run_build_hrv_ssm_validation_only", return_value=False
-            ) as validation_mock, patch.object(hrv_sync_flow, "_update_sleep_for_dates") as sleep_mock, patch.object(
-                hrv_sync_flow, "_send_intervals_wellness_from_master"
-            ) as intervals_mock, patch.object(hrv_sync_flow, "show_latest_hrv_summaries") as summary_mock:
-                hrv_sync_flow.sync_hrv_range(args, "token", "user", exercises)
-
-        final_mock.assert_called_once()
-        ssm_mock.assert_called_once()
-        validation_mock.assert_called_once()
         sleep_mock.assert_called_once()
         intervals_mock.assert_called_once()
         summary_mock.assert_called_once()

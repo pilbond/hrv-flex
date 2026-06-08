@@ -218,6 +218,65 @@ class BuildHRVSSMContractTests(unittest.TestCase):
         short = pd.Series([0.1, 0.2])
         self.assertEqual(ssm_builder._fatigue_label_from_history(0.15, short), "indeterminada")
 
+    def test_load_context_text_rest_day_after_positive_prev_load(self):
+        valid = pd.DataFrame(
+            [
+                {"ssm_load_context_mode": "session_recorded", "load_day": 75.0},
+                {"ssm_load_context_mode": "rest_day_no_session", "load_day": np.nan},
+            ]
+        )
+        text = ssm_builder._load_context_text(valid.iloc[-1], valid)
+        self.assertIn("contexto reciente venía de una sesión registrada", text)
+
+    def test_load_context_text_rest_day_after_session_recorded_without_load_value(self):
+        valid = pd.DataFrame(
+            [
+                {"ssm_load_context_mode": "session_recorded", "load_day": np.nan},
+                {"ssm_load_context_mode": "rest_day_no_session", "load_day": np.nan},
+            ]
+        )
+        text = ssm_builder._load_context_text(valid.iloc[-1], valid)
+        self.assertIn("carga previa ya consolidada", text)
+
+    def test_load_context_text_rest_day_after_calendar_gap(self):
+        valid = pd.DataFrame(
+            [
+                {"ssm_load_context_mode": "calendar_gap_no_session", "load_day": 0.0},
+                {"ssm_load_context_mode": "rest_day_no_session", "load_day": np.nan},
+            ]
+        )
+        text = ssm_builder._load_context_text(valid.iloc[-1], valid)
+        self.assertIn("varios días sin sesiones consolidadas", text)
+
+    def test_load_context_text_rest_day_after_missing_session_value(self):
+        valid = pd.DataFrame(
+            [
+                {"ssm_load_context_mode": "missing_session_value", "load_day": np.nan},
+                {"ssm_load_context_mode": "rest_day_no_session", "load_day": np.nan},
+            ]
+        )
+        text = ssm_builder._load_context_text(valid.iloc[-1], valid)
+        self.assertIn("no era plenamente utilizable", text)
+
+    def test_load_context_text_falls_back_for_first_rest_day(self):
+        valid = pd.DataFrame(
+            [
+                {"ssm_load_context_mode": "rest_day_no_session", "load_day": np.nan},
+            ]
+        )
+        text = ssm_builder._load_context_text(valid.iloc[-1], valid)
+        self.assertIn("carga previa disponible", text)
+
+    def test_load_context_text_falls_back_for_unknown_previous_mode(self):
+        valid = pd.DataFrame(
+            [
+                {"ssm_load_context_mode": "unknown_mode", "load_day": 0.0},
+                {"ssm_load_context_mode": "rest_day_no_session", "load_day": np.nan},
+            ]
+        )
+        text = ssm_builder._load_context_text(valid.iloc[-1], valid)
+        self.assertIn("carga previa disponible", text)
+
     def test_component_text_positive_fatigue_renders_discount(self):
         valid = pd.DataFrame({"ssm_fatigue_state": [0.05, 0.10, 0.15, 0.20, 0.25, 0.30]})
         text = ssm_builder._component_text(3.98, 0.29, valid)

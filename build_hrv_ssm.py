@@ -83,6 +83,7 @@ SIDE_CAR_COLUMNS = [
 ]
 
 Z_90 = 1.6448536269514722
+DATE_FORMAT = "%Y-%m-%d"
 
 
 @dataclass(frozen=True)
@@ -128,7 +129,7 @@ def _read_csv_required(path: Path, required_columns: List[str]) -> pd.DataFrame:
 
 def _normalize_date_column(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
-    out["Fecha"] = pd.to_datetime(out["Fecha"], errors="coerce")
+    out["Fecha"] = pd.to_datetime(out["Fecha"], format=DATE_FORMAT, errors="coerce")
     out = out[out["Fecha"].notna()].copy()
     out["Fecha"] = out["Fecha"].dt.normalize()
     return out.sort_values("Fecha").drop_duplicates(subset=["Fecha"], keep="last").reset_index(drop=True)

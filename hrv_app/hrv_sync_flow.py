@@ -42,9 +42,7 @@ from .pipeline_runner import (
     build_hrv_core_cmd,
     run_build_hrv_core,
     run_build_hrv_final_dashboard_only,
-    run_build_hrv_ssm_outcome_battery_only,
     run_build_hrv_ssm_shadow_only,
-    run_build_hrv_ssm_validation_only,
 )
 from .polar_client import get_exercise_with_samples
 from .polar_utils import _iso_to_dt, get_field_variant, parse_duration_to_minutes
@@ -624,20 +622,6 @@ def sync_hrv_range(args, access_token: str, x_user_id: Optional[str], exercises:
         ssm_ok = run_build_hrv_ssm_shadow_only()
         if not ssm_ok:
             print("⚠️  build_hrv_ssm.py falló; FINAL/DASHBOARD se mantienen actualizados, pero no se regenera SSM shadow.")
-        else:
-            _qprint("")
-            _qprint("▶️  Ejecutando build_hrv_ssm_validation.py...")
-            _qprint("")
-            validation_ok = run_build_hrv_ssm_validation_only()
-            if not validation_ok:
-                print("⚠️  build_hrv_ssm_validation.py falló; SSM shadow se mantiene actualizado, pero no se regenera el reporte de validación.")
-            else:
-                _qprint("")
-                _qprint("▶️  Ejecutando build_hrv_ssm_outcome_battery.py...")
-                _qprint("")
-                battery_ok = run_build_hrv_ssm_outcome_battery_only()
-                if not battery_ok:
-                    print("⚠️  build_hrv_ssm_outcome_battery.py falló; validación se mantiene actualizada.")
 
         if not QUIET:
             print("")
@@ -649,8 +633,6 @@ def sync_hrv_range(args, access_token: str, x_user_id: Optional[str], exercises:
             print("   - ENDURANCE_HRV_master_FINAL.csv")
             print("   - ENDURANCE_HRV_master_DASHBOARD.csv")
             print("   - ENDURANCE_HRV_ssm_shadow.csv")
-            print("   - ENDURANCE_HRV_ssm_validation_report.json")
-            print("   - ENDURANCE_HRV_ssm_outcome_battery.json")
         _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
         show_latest_hrv_summaries()
     else:

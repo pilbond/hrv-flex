@@ -909,6 +909,7 @@ Generado por `build_hrv_ssm_validation.py` como:
 - `ENDURANCE_HRV_ssm_validation_report.md`
 
 Es la capa reproducible de validación Fase 1 del shadow SSM. No cambia el gate, no se usa en `/api/status` y no recolorea `FINAL`. Su función es responder si la señal SSM aporta algo frente a comparadores simples.
+Se regenera solo bajo demanda; no forma parte del sync HRV diario.
 
 El JSON incluye al menos:
 
@@ -980,6 +981,7 @@ El `.md` es un resumen humano del mismo análisis. Si hay discrepancia, manda el
 ## 5decies_bis. SSM_OUTCOME_BATTERY (sidecar exploratorio SYA-17)
 
 Generado por `build_hrv_ssm_outcome_battery.py` como `ENDURANCE_HRV_ssm_outcome_battery.json` y `.md`.
+Se regenera solo bajo demanda, normalmente despues de ejecutar manualmente la validacion SSM.
 
 Prueba el predictor SSM contra outcomes alternativos a `cardiac_drift_worst`:
 

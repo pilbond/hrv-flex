@@ -82,6 +82,7 @@ Estado actual de implementacion observado:
   - condicionales si `device_watts=true`: `icu_weighted_avg_watts`, `icu_joules_above_ftp`, `icu_max_wbal_depletion`, `decoupling`
 - el flujo recomendado de cobertura RR es Dropbox primero y Polar como fallback,
 - `ENDURANCE_HRV_sleep.csv` es el unico archivo canonico de sueno,
+- `build_hrv_ssm.py` ya se ejecuta en el sync diario para regenerar `ENDURANCE_HRV_ssm_shadow.csv`, mientras que `build_hrv_ssm_validation.py` y `build_hrv_ssm_outcome_battery.py` quedan como auditorias manuales bajo demanda,
 - la UI no debe permitir ejecutar `sync` HRV y `sync-sessions` al mismo tiempo,
 - `analysis/` ya consume `training_audit` y la capa mecanica minima como contexto reproducible del informe,
 - `analysis/` ya expone una capa analitica de terreno para sesiones a pie:
@@ -110,7 +111,8 @@ Si este bloque queda desactualizado, debe actualizarse o reducirse.
   Intenta cubrir RR faltantes desde Dropbox.
   Si no es posible, usa Polar como fallback.
   Actualiza `ENDURANCE_HRV_sleep.csv`.
-  Ejecuta `build_hrv_core.py` y `build_hrv_final_dashboard.py` cuando corresponde.
+  Ejecuta `build_hrv_core.py`, `build_hrv_final_dashboard.py` y `build_hrv_ssm.py` cuando corresponde.
+  La validacion SSM y la battery de outcomes quedan fuera del sync diario y se lanzan solo bajo demanda.
   Puede sincronizar wellness a Intervals.icu.
 
 - `egc_to_rr.py`
@@ -282,10 +284,15 @@ Windows:
 
 - `scripts\\run-web-ui.bat`
 - `scripts\\run-python.bat`
+- `scripts\\run-ssm-audit.bat`
 
 Pipeline de sesiones:
 
 - `python build_sessions.py --update`
+
+Auditoria SSM manual:
+
+- `python polar_hrv_automation.py --ssm-audit`
 
 Conversion manual cloud -> RR:
 

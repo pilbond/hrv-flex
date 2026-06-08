@@ -32,6 +32,7 @@ IN_WELLNESS = DATA_DIR / "ENDURANCE_HRV_wellness_subjective.csv"
 IN_FINAL = DATA_DIR / "ENDURANCE_HRV_master_FINAL.csv"
 OUT_REPORT_JSON = DATA_DIR / "ENDURANCE_HRV_ssm_validation_report.json"
 OUT_REPORT_MD = DATA_DIR / "ENDURANCE_HRV_ssm_validation_report.md"
+DATE_FORMAT = "%Y-%m-%d"
 
 PRIMARY_CANDIDATES = [
     "cardiac_drift_worst",
@@ -102,7 +103,7 @@ def _load_csv(path: Path, required_columns: List[str]) -> pd.DataFrame:
     if missing:
         raise ValueError(f"{path.name} no contiene columnas requeridas: {missing}")
     if "Fecha" in df.columns:
-        df["Fecha"] = pd.to_datetime(df["Fecha"], errors="coerce").dt.normalize()
+        df["Fecha"] = pd.to_datetime(df["Fecha"], format=DATE_FORMAT, errors="coerce").dt.normalize()
         df = df[df["Fecha"].notna()].copy()
     return df.sort_values("Fecha").reset_index(drop=True)
 
@@ -229,7 +230,7 @@ def _build_daily_sport_projection(sessions_df: pd.DataFrame) -> pd.DataFrame:
     if sessions_df.empty:
         return pd.DataFrame(columns=["Fecha", "dominant_sport", "sport_family", "dominant_session_group", "dominant_route_id"])
     df = sessions_df.copy()
-    df["Fecha"] = pd.to_datetime(df["Fecha"], errors="coerce").dt.normalize()
+    df["Fecha"] = pd.to_datetime(df["Fecha"], format=DATE_FORMAT, errors="coerce").dt.normalize()
     df = df[df["Fecha"].notna()].copy()
     if "duration_min" not in df.columns:
         df["duration_min"] = 0.0
@@ -912,8 +913,12 @@ def _build_ewma_comparator(
         return {"status": "insufficient_data", "grid": []}
 
     current_pairs = current_primary_pairs.copy()
-    current_pairs["Fecha"] = pd.to_datetime(current_pairs["Fecha"], errors="coerce")
-    current_pairs["outcome_date"] = pd.to_datetime(current_pairs.get("outcome_date", current_pairs["Fecha"]), errors="coerce")
+    current_pairs["Fecha"] = pd.to_datetime(current_pairs["Fecha"], format=DATE_FORMAT, errors="coerce")
+    current_pairs["outcome_date"] = pd.to_datetime(
+        current_pairs.get("outcome_date", current_pairs["Fecha"]),
+        format=DATE_FORMAT,
+        errors="coerce",
+    )
     current_pairs = current_pairs[current_pairs["Fecha"].notna()].copy().sort_values(["Fecha", "outcome_date"]).reset_index(drop=True)
 
     current_eval = _evaluate_single_predictor(current_pairs, "ssm_goodness")
@@ -927,7 +932,7 @@ def _build_ewma_comparator(
         }
 
     ewma_source = core_df[["Fecha", "lnRMSSD"]].copy()
-    ewma_source["Fecha"] = pd.to_datetime(ewma_source["Fecha"], errors="coerce")
+    ewma_source["Fecha"] = pd.to_datetime(ewma_source["Fecha"], format=DATE_FORMAT, errors="coerce")
     ewma_source = ewma_source[ewma_source["Fecha"].notna()].sort_values("Fecha").reset_index(drop=True)
     if ewma_source.empty:
         return {
@@ -1173,7 +1178,7 @@ def _build_structural_comparator(
     current_sidecar, current_detail = ssm_builder.run_ssm_from_base(base, sessions_day, empty_wellness, cfg=current_cfg)
     alternative_sidecar, alternative_detail = ssm_builder.run_ssm_from_base(base, sessions_day, empty_wellness, cfg=alternative_cfg)
     alternative_sidecar = alternative_sidecar.copy()
-    alternative_sidecar["Fecha"] = pd.to_datetime(alternative_sidecar["Fecha"], errors="coerce")
+    alternative_sidecar["Fecha"] = pd.to_datetime(alternative_sidecar["Fecha"], format=DATE_FORMAT, errors="coerce")
     alternative_pairs = _find_next_outcome_pairs(alternative_sidecar, outcome_rows, outcome_col, final_df)
     alternative_primary_pairs = _filter_primary_strict_pairs(alternative_pairs)
     aligned = _align_structural_pairs(current_primary_pairs, alternative_primary_pairs)
@@ -1237,7 +1242,7 @@ def _build_sleep_comparator(
         cfg=ssm_builder.CFG,
     )
     sleep_free_sidecar = sleep_free_sidecar.copy()
-    sleep_free_sidecar["Fecha"] = pd.to_datetime(sleep_free_sidecar["Fecha"], errors="coerce")
+    sleep_free_sidecar["Fecha"] = pd.to_datetime(sleep_free_sidecar["Fecha"], format=DATE_FORMAT, errors="coerce")
     sleep_free_pairs = _find_next_outcome_pairs(sleep_free_sidecar, outcome_rows, outcome_col, final_df)
     sleep_free_primary_pairs = _filter_primary_strict_pairs(sleep_free_pairs)
     aligned = _align_structural_pairs(current_primary_pairs, sleep_free_primary_pairs)
@@ -1292,7 +1297,7 @@ def _build_phi_sensitivity(
         phi_cfg = replace(ssm_builder.CFG, phi_slow=phi)
         phi_sidecar, _ = ssm_builder.run_ssm_from_base(base, sessions_day, empty_wellness, cfg=phi_cfg)
         phi_sidecar = phi_sidecar.copy()
-        phi_sidecar["Fecha"] = pd.to_datetime(phi_sidecar["Fecha"], errors="coerce")
+        phi_sidecar["Fecha"] = pd.to_datetime(phi_sidecar["Fecha"], format=DATE_FORMAT, errors="coerce")
         phi_pairs = _find_next_outcome_pairs(phi_sidecar, outcome_rows, outcome_col, final_df)
         phi_primary_pairs = _filter_primary_strict_pairs(phi_pairs)
         aligned_phi = current_primary_pairs.merge(

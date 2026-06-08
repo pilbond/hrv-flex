@@ -64,6 +64,7 @@ IN_CORE = DATA_DIR / "ENDURANCE_HRV_master_CORE.csv"
 OUT_FINAL = DATA_DIR / "ENDURANCE_HRV_master_FINAL.csv"
 OUT_DASHBOARD = DATA_DIR / "ENDURANCE_HRV_master_DASHBOARD.csv"
 OUT_FINAL_REASON_ITEMS = DATA_DIR / "ENDURANCE_HRV_master_FINAL_reason_items.json"
+DATE_FORMAT = "%Y-%m-%d"
 
 
 @dataclass(frozen=True)
@@ -253,7 +254,7 @@ def compute_healthy_anchors(core: pd.DataFrame, cfg: Config) -> Tuple[float, flo
     - Se calculan sobre días clean (Calidad == OK) usando mediana móvil 7d.
     """
     df = core.copy()
-    df["Fecha_dt"] = pd.to_datetime(df["Fecha"], errors="coerce")
+    df["Fecha_dt"] = pd.to_datetime(df["Fecha"], format=DATE_FORMAT, errors="coerce")
     is_clean = (df["Calidad"] == "OK") & df["lnRMSSD"].notna() & df["HR_stable"].notna() & df["RMSSD_stable"].notna()
     sub = df.loc[is_clean, ["Fecha_dt", "RMSSD_stable", "HR_stable"]].sort_values("Fecha_dt").copy()
     if sub.empty:
@@ -262,8 +263,8 @@ def compute_healthy_anchors(core: pd.DataFrame, cfg: Config) -> Tuple[float, flo
     sub["RMSSD_med7"] = sub["RMSSD_stable"].rolling(7, min_periods=3).median()
     sub["HR_med7"] = sub["HR_stable"].rolling(7, min_periods=3).median()
 
-    hs = pd.to_datetime(cfg.healthy_start, errors="coerce")
-    he = pd.to_datetime(cfg.healthy_end, errors="coerce")
+    hs = pd.to_datetime(cfg.healthy_start, format=DATE_FORMAT, errors="coerce")
+    he = pd.to_datetime(cfg.healthy_end, format=DATE_FORMAT, errors="coerce")
     if pd.isna(hs) or pd.isna(he):
         return (float(np.nanmedian(sub["RMSSD_med7"])), float(np.nanmedian(sub["HR_med7"])), "invalid_period(fallback)")
 
@@ -281,7 +282,7 @@ def compute_dual_baseline_signals(
     cfg: Config,
 ) -> Dict[str, np.ndarray]:
     """Compute the two canonical long-term baseline warnings plus their thresholds."""
-    fecha_index = pd.to_datetime(fechas, errors="coerce")
+    fecha_index = pd.to_datetime(fechas, format=DATE_FORMAT, errors="coerce")
     values = rmssd_base60_equiv.astype(float)
     mask = np.isfinite(values.to_numpy(dtype=float))
 
@@ -435,7 +436,7 @@ def _build_sessions_day_lookups(
 
     if present_ctx_cols:
         ctx_df = base_df[["Fecha"] + present_ctx_cols].copy()
-        ctx_df["Fecha_dt"] = pd.to_datetime(ctx_df["Fecha"], errors="coerce")
+        ctx_df["Fecha_dt"] = pd.to_datetime(ctx_df["Fecha"], format=DATE_FORMAT, errors="coerce")
         ctx_df = ctx_df.dropna(subset=["Fecha_dt"]).sort_values("Fecha_dt")
         if not ctx_df.empty:
             ctx_lookup = ctx_df.set_index("Fecha_dt")[present_ctx_cols]
@@ -454,7 +455,7 @@ def _build_sessions_day_lookups(
     clustering_lookup: Optional[pd.DataFrame] = None
     if present_clustering_cols:
         clustering_df = base_df[["Fecha"] + present_clustering_cols].copy()
-        clustering_df["Fecha_dt"] = pd.to_datetime(clustering_df["Fecha"], errors="coerce")
+        clustering_df["Fecha_dt"] = pd.to_datetime(clustering_df["Fecha"], format=DATE_FORMAT, errors="coerce")
         clustering_df = clustering_df.dropna(subset=["Fecha_dt"]).sort_values("Fecha_dt")
         if not clustering_df.empty:
             clustering_lookup = clustering_df.set_index("Fecha_dt")[present_clustering_cols]
@@ -886,7 +887,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
     df = core.copy()
 
     # Orden y fechas
-    df["Fecha_dt"] = pd.to_datetime(df["Fecha"], errors="coerce")
+    df["Fecha_dt"] = pd.to_datetime(df["Fecha"], format=DATE_FORMAT, errors="coerce")
     df = df.sort_values("Fecha_dt").reset_index(drop=True)
     dates = df["Fecha_dt"].to_numpy(dtype="datetime64[ns]")
     window_start_60 = _window_start_indices(dates, cfg.base60_days)

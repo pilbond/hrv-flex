@@ -58,6 +58,7 @@ def _qprint(*args, **kwargs):
 # Directorios
 DATA_DIR = CONFIG_DATA_DIR
 RR_BASE_DIR = CONFIG_RR_DIR
+DATE_FORMAT = "%Y-%m-%d"
 
 # Archivos de salida (nombres canónicos, sin fechas)
 OUT_CORE = DATA_DIR / "ENDURANCE_HRV_master_CORE.csv"
@@ -439,11 +440,11 @@ def compute_day_from_rr(rr_path: Path, history_df: pd.DataFrame, C: dict) -> Tup
     # BETA / cRMSSD (90d shift-1) - Para BETA_AUDIT legacy
     # ========================================================================
     fecha_str = parse_date_from_name(rr_path.name)
-    d = pd.to_datetime(fecha_str)
+    d = pd.to_datetime(fecha_str, format=DATE_FORMAT)
 
     hist = history_df.copy()
     if not hist.empty and "Fecha" in hist.columns:
-        hist["Fecha_dt"] = pd.to_datetime(hist["Fecha"])
+        hist["Fecha_dt"] = pd.to_datetime(hist["Fecha"], format=DATE_FORMAT, errors="coerce")
         win90 = hist[(hist["Fecha_dt"] >= d - pd.Timedelta(days=90)) & (hist["Fecha_dt"] <= d - pd.Timedelta(days=1))]
         win90 = win90[win90["Calidad"] != "INVALID"]
     else:
@@ -499,9 +500,10 @@ def compute_day_from_rr(rr_path: Path, history_df: pd.DataFrame, C: dict) -> Tup
     # ========================================================================
     if not hist.empty and "Fecha_dt" in hist.columns:
         valid = hist[hist["Calidad"] != "INVALID"]
-        win14 = valid[(pd.to_datetime(valid["Fecha"]) >= d - pd.Timedelta(days=14)) & (pd.to_datetime(valid["Fecha"]) <= d - pd.Timedelta(days=1))]
-        win30 = valid[(pd.to_datetime(valid["Fecha"]) >= d - pd.Timedelta(days=30)) & (pd.to_datetime(valid["Fecha"]) <= d - pd.Timedelta(days=1))]
-        win28 = valid[(pd.to_datetime(valid["Fecha"]) >= d - pd.Timedelta(days=28)) & (pd.to_datetime(valid["Fecha"]) <= d - pd.Timedelta(days=1))]
+        valid_dates = pd.to_datetime(valid["Fecha"], format=DATE_FORMAT, errors="coerce")
+        win14 = valid[(valid_dates >= d - pd.Timedelta(days=14)) & (valid_dates <= d - pd.Timedelta(days=1))]
+        win30 = valid[(valid_dates >= d - pd.Timedelta(days=30)) & (valid_dates <= d - pd.Timedelta(days=1))]
+        win28 = valid[(valid_dates >= d - pd.Timedelta(days=28)) & (valid_dates <= d - pd.Timedelta(days=1))]
     else:
         win14 = win30 = win28 = pd.DataFrame()
 

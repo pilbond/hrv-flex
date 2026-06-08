@@ -1,4 +1,3 @@
-# FP-03 Coste cardiovascular de subidas en ciclismo
 
 ## Objetivo
 

@@ -1,7 +1,7 @@
 Genera el informe semanal de entrenamiento del atleta en formato Markdown y guárdalo en disco.
 
-{{WEEK_START}} = 2026-03-23
-{{WEEK_END}} = 2026-03-29
+{{WEEK_START}} = 2026-05-18
+{{WEEK_END}} = 2026-05-24
 {{PHASE}} = sin plan formal
 {{BLOCK_CONTEXT}} = bloque de base aerobica
 {{EVENTS}} = nada relevante

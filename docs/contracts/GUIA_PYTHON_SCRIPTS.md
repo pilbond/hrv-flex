@@ -396,14 +396,15 @@ Importante:
   - Resultado actual: `no_go`; el SSM no gana de forma robusta al rolling HRV ni al EWMA en este outcome.
   - No modifica el gate.
 - Cuando usarlo:
-  - Automaticamente tras `build_hrv_ssm.py` en cada sync via `hrv_app.hrv_sync_flow`.
   - Manualmente: `python build_hrv_ssm_validation.py [--data-dir <dir>]`.
+  - Bajo demanda cuando se quiera reevaluar si el SSM aporta valor; no forma parte del sync HRV diario.
+  - O de forma agrupada via `python polar_hrv_automation.py --ssm-audit`, que primero regenera `ssm_shadow`.
 - Entradas:
   - `ENDURANCE_HRV_ssm_shadow.csv`, `ENDURANCE_HRV_ssm_shadow_metadata.json`, `ENDURANCE_HRV_master_CORE.csv`, `ENDURANCE_HRV_sessions_day.csv`, `ENDURANCE_HRV_sessions.csv`, `ENDURANCE_HRV_sleep.csv`, `ENDURANCE_HRV_master_FINAL.csv`.
 - Salidas:
   - `ENDURANCE_HRV_ssm_validation_report.json`, `ENDURANCE_HRV_ssm_validation_report.md`.
 - Automatico o manual:
-  - Automatico en cada sync HRV. Manual disponible.
+  - Manual bajo demanda.
 
 ## `build_hrv_ssm_outcome_battery.py`
 - Que hace:
@@ -412,14 +413,15 @@ Importante:
   - Hallazgo principal: la innovacion SSM (`ssm_innovation`) predice bienestar subjetivo del dia siguiente mejor que rolling con CI90 enteramente negativo (n=71, incipiente).
   - No modifica el gate.
 - Cuando usarlo:
-  - Automaticamente tras `build_hrv_ssm_validation.py` en cada sync via `hrv_app.hrv_sync_flow`.
   - Manualmente: `python build_hrv_ssm_outcome_battery.py [--data-dir <dir>]`.
+  - Bajo demanda, normalmente despues de lanzar la validacion SSM manual.
+  - O de forma agrupada via `python polar_hrv_automation.py --ssm-audit`.
 - Entradas:
   - `ENDURANCE_HRV_master_CORE.csv`, `ENDURANCE_HRV_ssm_shadow.csv`, `ENDURANCE_HRV_wellness_subjective.csv`.
 - Salidas:
   - `ENDURANCE_HRV_ssm_outcome_battery.json`, `ENDURANCE_HRV_ssm_outcome_battery.md`.
 - Automatico o manual:
-  - Automatico en cada sync HRV. Manual disponible.
+  - Manual bajo demanda.
 
 ## 3) Resumen practico
 
@@ -434,7 +436,8 @@ Si tu pregunta es "que scripts importan para operar dia a dia":
 Y aparte, opcionales recomendados:
 
 1. `build_sessions.py` para mantener al dia `sessions.csv`, `sessions_day.csv`, `ENDURANCE_HRV_weekly_coach.json`, `sessions_metadata.json` y `wellness_subjective.csv`, y asi habilitar AP-01, AP-02, CDC-01, ADC-01, RE-02 y PCV-04 en el contexto del sistema.
-2. Los tres scripts SSM (`build_hrv_ssm.py`, `build_hrv_ssm_validation.py`, `build_hrv_ssm_outcome_battery.py`) se ejecutan automaticamente en cadena tras cada sync HRV. Son sombra pura: no tocan `FINAL`, no recoloran el gate y son defensivos (un fallo en cualquiera no aborta el resto). El resultado actual de la validacion es `no_go`; los sidecars se regeneran igual como base para Fase 2 cuando haya mas datos.
+2. `build_hrv_ssm.py` se ejecuta automaticamente tras cada sync HRV para regenerar `ENDURANCE_HRV_ssm_shadow.csv`. `build_hrv_ssm_validation.py` y `build_hrv_ssm_outcome_battery.py` quedan como herramientas manuales bajo demanda: son sombra pura, no tocan `FINAL`, no recoloran el gate y sirven para reevaluar si el SSM aporta valor cuando se quiera abrir esa auditoria. El resultado actual de la validacion es `no_go`.
+   - Entry point recomendado: `python polar_hrv_automation.py --ssm-audit`
 3. `analysis\\analyze_session.py` o `analysis\\run_session_analysis.py` cuando quieras explotar la capa analitica local sin tocar contratos canonicos:
    - terreno (`GAP`, `VAM`, potencia por split y climbs FIT`; en `bike`, la capa FIT puede anadir potencia estimada local por subida)
    - `composite_context` de `SYA-07` (`subjective_coherence`, `thermal_context`, `durability_context`)
