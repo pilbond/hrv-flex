@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Sessions Schema
 
-**Revisión:** r2026-05-18 v3.15 (SYA-14 resumen weekly coach y consumo real /api/status)
+**Revisión:** r2026-05-18 v3.15 (resumen weekly coach y consumo real /api/status)
 **Estado:** Producción
 
 **Documentos relacionados:**
@@ -8,7 +8,7 @@
 - `ENDURANCE_HRV_Spec_Tecnica.md` — fórmulas y algoritmos del gate HRV
 - `ENDURANCE_HRV_Diccionario.md` — diccionario de columnas del gate HRV y sidecars
 
-**Convención de versión:** esta cabecera identifica la revisión del pipeline de sesiones (`r2026-05-13 v3.13`), no la versión global del sistema HRV. La versión de sistema vigente se declara en `ENDURANCE_HRV_Spec_Tecnica.md`.
+**Convención de versión:** esta cabecera identifica la revisión documental del contrato de sesiones (`r2026-05-18 v3.15`), no la versión operativa del pipeline ni la versión global del sistema HRV. La versión operativa se declara en el historial de este documento y en `build_sessions.py`; la versión de sistema vigente se declara en `ENDURANCE_HRV_Spec_Tecnica.md`.
 
 ---
 
@@ -34,7 +34,7 @@ Este pipeline está diseñado para **un único atleta** y consume la cuenta pers
 - ❌ No sustituye a Intervals.icu (que sigue siendo la fuente de carga/TSS/ATL/CTL)
 - ❌ No sustituye a Intervals.icu como fuente principal; Polar solo aporta una capa mecánica opcional en deportes de pie cuando hay match fiable
 - ❌ No calcula zonas por potencia (solo HR)
-- ❌ No genera la capa analítica de terreno `FP-02` (`terrain_context`, `terrain_fit_context`, `terrain_intervals.csv`, `terrain_climbs.csv`); esa capa vive solo en `analysis/` y no modifica este schema
+- ❌ No genera la capa analítica de terreno (`terrain_context`, `terrain_fit_context`, `terrain_intervals.csv`, `terrain_climbs.csv`); esa capa vive solo en `analysis/` y no modifica este schema
 
 ---
 
@@ -43,9 +43,9 @@ Este pipeline está diseñado para **un único atleta** y consume la cuenta pers
 | Archivo | Granularidad | Para qué sirve |
 |---------|-------------|-----------------|
 | `sessions.csv` | 1 fila por sesión | Detalle completo de cada entrenamiento: zonas, work blocks, drift, clasificación y minutos primarios por zona (`z1/z2/z3_total_min`). Lo que miras cuando quieres entender una sesión concreta. |
-| `sessions_day.csv` | 1 fila por día | Agregados diarios + rolling 3d/7d/14d/28d con cobertura, más la capa canónica de contexto de carga (`ACWR`, `monotony`, `strain`), una señal corta de clustering reciente de intensidad y la señal rolling `DO-02` de polarización por familia con resumen de episodio. Lo que lee `build_hrv_final_dashboard.py` para generar avisos de carga en reason_text. |
+| `sessions_day.csv` | 1 fila por día | Agregados diarios + rolling 3d/7d/14d/28d con cobertura, más la capa canónica de contexto de carga (`ACWR`, `monotony`, `strain`), una señal corta de clustering reciente de intensidad y la señal rolling de polarización por familia con resumen de episodio. Lo que lee `build_hrv_final_dashboard.py` para generar avisos de carga en reason_text. |
 | `ENDURANCE_HRV_intensity_distribution_weekly.csv` | 1 fila por semana y deporte | Resumen canónico `sport x week` de distribución observada de intensidad: minutos ponderados por zona, `work_*`, patrón descriptivo (`polarized`, `pyramidal`, `threshold`, `mixed`) y confianza explícita. Pensado para análisis semanal y comparativa intra-deporte; no alimenta el gate. |
-| `ENDURANCE_HRV_weekly_coach.json` | 1 por corrida | Sidecar semanal estructurado: `iso_week`, ventana, marcas de corte (`as_of_date`, `generated_at`, `anchor_source`), cobertura (`week_expected_days`, `week_data_coverage_pct`), tipo semanal, carga, riesgo de progresión, tendencia HRV, calidad de datos, `planning_note` breve, `sleep_context` opcional de trazabilidad, `z3_budget_by_sport` opcional como lectura retrospectiva `per-sport` de `SYA-14` y `z3_budget_summary` opcional como resumen corto de UI. `sleep_context` y `z3_budget_by_sport` quedan como trazabilidad interna del JSON; la UI consume `planning_note`, `iso_week`, `window_end`, `data_quality` y `weekly_coach_z3_budget_summary` desde `/api/status`. No alimenta el gate. |
+| `ENDURANCE_HRV_weekly_coach.json` | 1 por corrida | Sidecar semanal estructurado: `iso_week`, ventana, marcas de corte (`as_of_date`, `generated_at`, `anchor_source`), cobertura (`week_expected_days`, `week_data_coverage_pct`), tipo semanal, carga, riesgo de progresión, tendencia HRV, calidad de datos, `planning_note` breve, `sleep_context` opcional de trazabilidad, `z3_budget_by_sport` opcional como lectura retrospectiva `per-sport` y `z3_budget_summary` opcional como resumen corto de UI. `sleep_context` y `z3_budget_by_sport` quedan como trazabilidad interna del JSON; la UI consume `planning_note`, `iso_week`, `window_end`, `data_quality` y `weekly_coach_z3_budget_summary` desde `/api/status`. No alimenta el gate. |
 | `ENDURANCE_HRV_sessions_metadata.json` | 1 por corrida | Trazabilidad: versión del pipeline, parámetros usados, hash de configuración, sampling rate del stream y una auditoría ligera por capas (`dataset/signal/metric`) para coaching y carga. |
 | `ENDURANCE_HRV_wellness_subjective.csv` | 1 fila por día | Wellness subjetivo diario desde Intervals (`fatigue`, `stress`, `mood`, `motivation`, `soreness`, `injury`, comentario), con labels y cobertura 7d para análisis retrospectivo o capas separadas. |
 
@@ -78,7 +78,7 @@ El pipeline de sesiones y el módulo `analysis/` se conectan, pero no comparten 
   - `speed_first_half/second_half`
   - `cadence_first_half/second_half`
   - `training_audit`
-- `analysis/` puede además construir artefactos locales de terreno (`FP-02`) a partir de Intervals/FIT:
+- `analysis/` puede además construir artefactos locales de terreno a partir de Intervals/FIT:
   - `terrain_context`
   - `terrain_fit_context`
   - `terrain_intervals.csv`
@@ -209,17 +209,17 @@ Cuando existe señal utilizable, `sessions.csv` añade una capa mecánica mínim
 | `polar_speed_available` | 0/1 | 1 si la fuente mecánica tiene cobertura útil de velocidad. |
 | `polar_cadence_available` | 0/1 | 1 si la fuente mecánica tiene cobertura útil de cadencia. |
 
-**Límites de la v1:** esta capa no introduce GAP, zonas por potencia ni métricas derivadas nuevas. Su objetivo es canonizar una base mecánica mínima para futuras tareas (`AP-01`, `FP-01`, etc.) sin romper compatibilidad.
+**Límites de la v1:** esta capa no introduce GAP, zonas por potencia ni métricas derivadas nuevas. Su objetivo es canonizar una base mecánica mínima reutilizable sin romper compatibilidad.
 
-**Relación con `FP-02`:** la capa mecánica mínima sí puede ser reutilizada por `analysis/` para enriquecer terreno, pero `build_sessions.py` no persiste `GAP`, `VAM`, `terrain_context` ni artefactos por split/climb dentro de `sessions.csv`.
+**Relación con la capa de terreno:** la capa mecánica mínima sí puede ser reutilizada por `analysis/` para enriquecer terreno, pero `build_sessions.py` no persiste `GAP`, `VAM`, `terrain_context` ni artefactos por split/climb dentro de `sessions.csv`.
 
-**Semántica temporal (FP-01):** `speed_first_half`, `speed_second_half`, `cadence_first_half`, `cadence_second_half`, `run_power_first_half` y `run_power_second_half` se calculan sobre **tiempo en movimiento**: primero se filtran las muestras válidas (velocidad > umbral mínimo, cadencia > 0, potencia > 0) y luego se parte el array resultante por su mitad. Las pausas no computan ni desplazan el punto de corte. Esto es relevante en `hike`, donde el tiempo de pausa puede superar el 30% del tiempo total. El sampling rate es 1 Hz en todas las sesiones conocidas, por lo que la frontera equivale exactamente a la mitad del tiempo en movimiento.
+**Semántica temporal de la capa mecánica:** `speed_first_half`, `speed_second_half`, `cadence_first_half`, `cadence_second_half`, `run_power_first_half` y `run_power_second_half` se calculan sobre **tiempo en movimiento**: primero se filtran las muestras válidas (velocidad > umbral mínimo, cadencia > 0, potencia > 0) y luego se parte el array resultante por su mitad. Las pausas no computan ni desplazan el punto de corte. Esto es relevante en `hike`, donde el tiempo de pausa puede superar el 30% del tiempo total. El sampling rate es 1 Hz en todas las sesiones conocidas, por lo que la frontera equivale exactamente a la mitad del tiempo en movimiento.
 
 **Cobertura Polar:** cuando `mechanics_source = polar`, la cobertura depende de la ventana reciente realmente expuesta por Polar AccessLink en `/v3/exercises`. No debe asumirse como fuente de backfill histórico completo.
 
 ### Capa derivada — Durabilidad mecánica (3 campos)
 
-Señales derivadas de FP-01 para detectar fatiga periférica en sesiones largas de deportes de pie. Solo se calculan en `build_sessions.py` como post-proceso; no dependen de ninguna fuente externa adicional.
+Señales derivadas de la capa mecánica para detectar fatiga periférica en sesiones largas de deportes de pie. Solo se calculan en `build_sessions.py` como post-proceso; no dependen de ninguna fuente externa adicional.
 
 | Campo | Tipo | Qué es |
 |-------|------|--------|
@@ -229,13 +229,13 @@ Señales derivadas de FP-01 para detectar fatiga periférica en sesiones largas 
 
 **Nota de interpretación:** `power_ratio` es la señal preferida cuando está disponible. `speed_ratio` es el fallback. Ambas pueden coexistir en la misma sesión. Para `hike`, `speed_ratio < 0.90` con `cardiac_drift_pct > 5` es la combinación más fiable; el ratio positivo alto es menos interpretable sin conocer el perfil de elevación.
 
-**Thresholds candidatos (backtesting FP-01, N=30, 2025-05 a 2026-04):**
+**Thresholds candidatos (backtesting de durabilidad mecánica, N=30, 2025-05 a 2026-04):**
 - Fatiga mecánica: `speed_ratio < 0.93` AND `cardiac_drift_pct > 5` → 1 caso claro (hike 0.773/+31.7). Sin falsos positivos con este criterio dual.
 - Decoupling cardíaco sin caída mecánica: `cardiac_drift_pct > 10` AND `speed_ratio >= 0.93` → 3 sesiones (patrón diferente: el corazón trabaja más pero la velocidad aguanta).
 - N insuficiente para producción: solo 1 caso positivo inequívoco. Revisión prevista a N≥50 sesiones aplicables.
 - Las constantes están en `build_sessions.py` (`_DURABILITY_SPEED_RATIO_THRESHOLD`, `_DURABILITY_DRIFT_THRESHOLD`) para ajuste sin cambio de lógica.
 
-**Alcance FP-01:** estas columnas son solo de `sessions.csv`. No alimentan `reason_text`, `FINAL` ni ningún gate HRV hasta que los thresholds se validen con N≥50.
+**Alcance:** estas columnas son solo de `sessions.csv`. No alimentan `reason_text`, `FINAL` ni ningún gate HRV hasta que los thresholds se validen con N≥50.
 
 ### Bloque F — Carga, percepción y métricas coach de sesión
 
@@ -377,11 +377,11 @@ Los campos rolling son sumas o medias de los últimos N días, con un campo `_no
 | `finish_strong_7d_count` | 7 días | Conteo rolling de días con `late_intensity_day = 1` en la semana previa. |
 | `elev_loss_7d_sum` | 7 días | Suma rolling de desnivel negativo en la semana previa. Campo descriptivo; no lo usa el gate. |
 
-### AP-03 y concordancia v1 vs sombra
+### Concordancia entre clustering v1 y validación en sombra
 
-`AP-03` es una capa local de validación sobre `trail_run`. No cambia `sessions_day.csv`, no cambia el gate y no sustituye `AP-01`.
+La validación en sombra es una capa local sobre `trail_run`. No cambia `sessions_day.csv`, no cambia el gate y no sustituye el clustering operativo v1.
 
-- `v1_snapshot` cachea la decisión mínima de `AP-01` v1 para ese día.
+- `v1_snapshot` cachea la decisión mínima del clustering operativo v1 para ese día.
 - `runaware_context` cachea la propuesta experimental en sombra.
 - `runaware_context.strength_basis` explicita qué cobertura o combinación de señales justifica `strength = strong` o `exploratory`.
 - `runaware_context.terrain_climb_hr_mean` traslada la FC media en subida desde `terrain_fit_context` para contextualizar el peaje cardiovascular del tramo dominante.
@@ -399,7 +399,7 @@ La concordancia aquí mide alineación de criterio, no dureza de la sesión:
 
 Uso correcto: interpretar si la sombra está calibrada respecto a la v1. Uso incorrecto: leer esta concordancia como una métrica de carga o como una reclasificación del entrenamiento.
 
-### Señal DO-02 — polarización rolling por familia
+### Polarización rolling por familia
 
 Esta capa se calcula directamente desde `sessions.csv` sobre la ventana causal `D-7..D-1`. Primero identifica la familia dominante de la ventana y después recalcula la distribución sobre las sesiones de esa familia.
 
@@ -695,7 +695,7 @@ Cuántos días de la ventana rolling tenían un valor real (no NaN) para esa mé
 
 Lo siguiente es historial de cambios acumulados. No sustituye al estado vigente declarado al inicio del documento.
 
-### v3.12 (FP-01 durabilidad mecánica — spike de validación)
+### v3.12 (durabilidad mecánica — spike de validación)
 1) `sessions.csv` bumped `68 -> 73` columnas (nota: 68 = 67 declaradas al cierre de v3.11 + `stream_dt_est` que ya existía desde v3.10 pero no figuraba en el conteo oficial de v3.11)
 2) columnas nuevas en capa mecánica: `run_power_first_half`, `run_power_second_half` (antes se calculaban y se descartaban; ahora persisten cuando `run_power_available=1`)
 3) columnas derivadas nuevas: `durability_applicable` (0/1), `speed_ratio`, `power_ratio`
@@ -704,19 +704,19 @@ Lo siguiente es historial de cambios acumulados. No sustituye al estado vigente 
 6) `power_ratio` es **NaN cuando `run_power_available=0`** — la gate es explícita en el pipeline, no inferida de la presencia de las mitades. `speed_ratio` es el fallback cuando `power_ratio` no está disponible.
 7) estas columnas no alimentan `reason_text`, `FINAL` ni ningún gate HRV (spike de validación; thresholds pendientes de backtesting)
 
-### v3.11 (SYA-04 extracción mínima canónica de coach metrics)
-1) `sessions.csv` bumped `58 -> 67` columnas con la extracción mínima cerrada en `SYA-03A`
+### v3.11 (extracción mínima canónica de coach metrics)
+1) `sessions.csv` bumped `58 -> 67` columnas con la extracción mínima canónica de coach metrics
 2) columnas nuevas: `calories`, `average_cadence`, `average_weather_temp`, `hrr_drop_bpm`, `trimp`
 3) columnas condicionales nuevas si `device_watts=true`: `icu_weighted_avg_watts`, `icu_joules_above_ftp`, `icu_max_wbal_depletion`, `decoupling`
 4) no se añaden llamadas API nuevas ni zonas por potencia; la extracción sale del payload ya presente en `/athlete/{id}/activities`
 
-### v3.10 (DO-02 polarización rolling por familia)
-1) `sessions_day.csv` bumped `49 -> 60` columnas con la señal `DO-02`
+### v3.10 (polarización rolling por familia)
+1) `sessions_day.csv` bumped `49 -> 60` columnas con la señal de polarización rolling por familia
 2) nuevo cálculo rolling `D-7..D-1` desde `sessions.csv`, no proyección del sidecar semanal
 3) la dominancia se decide por `sport_family` y se recalcula la distribución sobre la familia dominante
 4) la salida añade `dominant_family_prev_7d`, `polarisation_index_prev_7d`, `intensity_blackhole_flag` y resumen de episodio sin tocar el gate HRV
 
-### v3.8 (DO-01 distribución observada por deporte)
+### v3.8 (distribución observada por deporte)
 1) `sessions.csv` bumped `57 -> 58` columnas con `z1_total_min`
 2) nuevo sidecar `ENDURANCE_HRV_intensity_distribution_weekly.csv`
 3) la agregación semanal por deporte usa minutos ponderados por zona, no medias simples de porcentajes
@@ -755,17 +755,17 @@ F) effort split aerobic/strength
 3) cálculo sobre calendario continuo con `shift(1)`: los días sin sesión cuentan como `0` para esta capa concreta  
 4) `build_hrv_final_dashboard.py` consume la señal como contexto y la propaga con `ffill(limit=2)` en días HRV sin sesión
 
-### v3.5 (ADC-01 auditoría mínima por capas)
+### v3.5 (auditoría mínima por capas)
 1) `ENDURANCE_HRV_sessions_metadata.json` añade `training_audit`  
 2) la auditoría separa `dataset_level`, `signal_level` y `metric_level`  
 3) `metric_level` expone estados mínimos por capa (`load_context`, `zone_intensity`, `cardiac_drift`, `coaching_load`)  
 4) el objetivo es rebajar confianza de coaching/carga cuando falten streams, haya zonas en fallback o la cobertura sea parcial, sin bloquear el pipeline ni tocar el gate HRV
 
 ### v3.7 (alineación documental)
-1) la cabecera del contrato y la versión operativa se alinean con la revisión documental posterior a RE-02
+1) la cabecera del contrato y la versión operativa se alinean con la revisión documental posterior a la incorporación del wellness subjetivo
 2) no hay cambios de esquema, columnas ni semántica respecto a v3.6
 
-### v3.6 (RE-02 wellness subjetivo)
+### v3.6 (wellness subjetivo)
 1) `build_sessions.py` añade lectura de `/athlete/{id}/wellness` desde Intervals  
 2) nuevo sidecar `ENDURANCE_HRV_wellness_subjective.csv` con `fatigue`, `stress`, `mood`, `motivation`, `soreness`, `injury`, comentario, labels y cobertura 7d  
 3) `ENDURANCE_HRV_sessions_metadata.json` añade `counts.with_subjective_wellness`  

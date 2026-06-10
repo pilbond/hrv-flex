@@ -1,12 +1,12 @@
 # ENDURANCE HRV — Diccionario de Columnas (FINAL/DASHBOARD)
 
-**Revisión:** r2026-05-14 v4.14 (PCV-05 planning_note semanal)
+**Revisión:** r2026-05-14 v4.14 (planning_note semanal)
 **Estado:** Producción
 
 **Documentos relacionados:**
 - `ENDURANCE_HRV_Spec_Tecnica.md` — especificación técnica (fórmulas y reglas)
 - `ENDURANCE_HRV_Estructura.md` — contrato de datos (columnas y orden exacto)
-- `ENDURANCE_HRV_Sessions_Schema.md` — contrato del pipeline de sesiones (`sessions.csv`, `sessions_day.csv`, `ENDURANCE_HRV_weekly_coach.json`, `ENDURANCE_HRV_sessions_metadata.json`), revisión `r2026-05-13 v3.13`
+- `ENDURANCE_HRV_Sessions_Schema.md` — contrato del pipeline de sesiones (`sessions.csv`, `sessions_day.csv`, `ENDURANCE_HRV_weekly_coach.json`, `ENDURANCE_HRV_sessions_metadata.json`), revisión `r2026-05-18 v3.15`
 
 **Límite de alcance de este diccionario:**
 - documenta `CORE`, `FINAL`, `DASHBOARD`, `BETA_AUDIT`, `sleep`, `sessions_day`, `intensity_distribution_weekly`, `weekly_coach`, `wellness_subjective` y la metadata de sesiones,
@@ -21,7 +21,7 @@
 - §0. Cómo leer el CSV (operativo)
 - §1. Valores típicos (orientación inicial)
 - §2. CORE (medición canónica) — 18 columnas
-- §3. FINAL (gate + auditoría extendida) — 62 columnas
+- §3. FINAL (gate + auditoría extendida) — 66 columnas
 - §4. DASHBOARD (vista operativa) — 10 columnas
 - §5. BETA_AUDIT (forense V3) — 13 columnas
 - §5bis. CONTEXT / sleep.csv (sidecar externo) — 17 columnas
@@ -30,9 +30,9 @@
 - §5quinquies. INTENSITY_DISTRIBUTION_WEEKLY (sidecar CSV) — 21 columnas
 - §5sexies. WEEKLY_COACH (sidecar JSON)
 - §5septies. WELLNESS_SUBJECTIVE (sidecar retrospectivo) — 17 columnas
-- §5octies. SSM_SHADOW (sidecar técnico SYA-17) — 30 columnas
+- §5octies. SSM_SHADOW (sidecar técnico) — 30 columnas
 - §5nonies. SSM_VALIDATION_REPORT (sidecar JSON + MD)
-- §5decies_bis. SSM_OUTCOME_BATTERY (sidecar exploratorio SYA-17)
+- §5decies_bis. SSM_OUTCOME_BATTERY (sidecar exploratorio)
 - §5decies. SESSIONS (histórico de sesiones) — 73 columnas (mapa)
 - §6. Valores de gate_razon_base60 (y sombras)
 - §7. Valores de Flags (CORE)
@@ -174,7 +174,7 @@ Generado por `build_hrv_core.py`. Contiene la señal fisiológica **sin decision
 
 ---
 
-## 3. FINAL (gate + auditoría extendida) — 62 columnas
+## 3. FINAL (gate + auditoría extendida) — 66 columnas
 
 Generado por `build_hrv_final_dashboard.py`. Contiene:
 
@@ -351,7 +351,7 @@ Este bloque cubre el warning de baseline degradado y los flags sistémicos que l
 | `recovery_support_class` | Lectura resumida de cómo encajan gate, sueño Polar y carga reciente. `supported` = el contexto externo acompaña la lectura; `neutral` = no añade gran cosa o está mezclado; `fragile` = el gate sale razonable pero sueño/carga meten cautela; `conflicted` = el gate sale mal pero sueño/carga no lo explican bien. No cambia la acción por sí mismo. |
 | `recovery_discordance_flag` | True cuando el análisis de recuperación detecta una tensión entre el gate y el soporte externo (sueño/carga). Se activa en clases `fragile` (contexto débil) y `conflicted` (contexto contradictorio). |
 | `recovery_discordance_reason` | Códigos estructurados que explican la discordancia. Ejemplos: `sleep_basic_poor`, `nightly_rmssd_low`, `load_context_high`, `sleep_score_good`, `recent_load_low`. Pensado para auditoría o análisis posterior. |
-| `reason_text` | Texto explicativo contextual que combina información del gate con datos de sueño y carga. Estructura: `{verdicts " · "}. {whys "; "}. Acción: {actions "; "}` (UX-01). Los segmentos se deduplican por igualdad exacta y los echo genéricos de `recovery_support`/`recovery_discordance` se suprimen cuando un emisor más específico (`nightly_discordance`, `green_load_caution`, `acwr`, etc.) ya cubre la señal. Las magnitudes técnicas llevan anchor verbal en paréntesis (`monotonía=1.96, moderada`, `ACWR=0.62, baja`, `strain=917, elevado`). Ver tabla de familias de mensajes a continuación. Internamente se renderiza a partir de `reason_items` estructurados (dato medido, proxy, inferencia, acción) vía `_compose_reason_text` (módulo `build_hrv_final_dashboard`); no existe columna pública `reason_items_json` en `FINAL` ni en `DASHBOARD`, pero hay un sidecar estructurado `ENDURANCE_HRV_master_FINAL_reason_items.json` (descrito más abajo). El wellness subjetivo de Intervals queda fuera de `reason_text` y se reserva para capas retrospectivas. **No recolorea** el gate — es contexto para tu decisión. |
+| `reason_text` | Texto explicativo contextual que combina información del gate con datos de sueño y carga. Estructura: `{verdicts " · "}. {whys "; "}. Acción: {actions "; "}`. Los segmentos se deduplican por igualdad exacta y los echo genéricos de `recovery_support`/`recovery_discordance` se suprimen cuando un emisor más específico (`nightly_discordance`, `green_load_caution`, `acwr`, etc.) ya cubre la señal. Las magnitudes técnicas llevan anchor verbal en paréntesis (`monotonía=1.96, moderada`, `ACWR=0.62, baja`, `strain=917, elevado`). Ver tabla de familias de mensajes a continuación. Internamente se renderiza a partir de `reason_items` estructurados (dato medido, proxy, inferencia, acción) vía `_compose_reason_text` (módulo `build_hrv_final_dashboard`); no existe columna pública `reason_items_json` en `FINAL` ni en `DASHBOARD`, pero hay un sidecar estructurado `ENDURANCE_HRV_master_FINAL_reason_items.json` (descrito más abajo). El wellness subjetivo de Intervals queda fuera de `reason_text` y se reserva para capas retrospectivas. **No recolorea** el gate — es contexto para tu decisión. |
 
 ##### Familias de mensajes que pueden aparecer en `reason_text`
 
@@ -577,7 +577,7 @@ Además del clustering, `sessions_day.csv` sigue siendo la fuente de:
 
 Estas métricas explican *cuánta* carga hay. La capa de clustering explica si la intensidad reciente está **mal espaciada**.
 
-### Capa de distribución rolling por familia (DO-02)
+### Capa de distribución rolling por familia
 
 Estas columnas viven también en `sessions_day.csv` y describen **cómo** se repartió la intensidad en los `7` días previos (qué tan polarizada, qué tan concentrada en Z2), no cuánta carga hubo:
 
@@ -592,7 +592,7 @@ Estas columnas viven también en `sessions_day.csv` y describen **cómo** se rep
 | `intensity_blackhole_episode_id` | Identificador del episodio actual del flag. | Sirve para no contar cada día repetido como un evento nuevo. |
 | `intensity_blackhole_episode_len` | Longitud total del episodio actual. | Cuenta filas consecutivas emitidas en `sessions_day.csv`, no días calendario consecutivos. |
 
-### Semántica operativa de DO-02
+### Semántica operativa de la distribución rolling por familia
 
 - Usa ventana rolling causal `D-7..D-1`; nunca incluye el día actual.
 - Se calcula desde `sessions.csv`, no proyectando directamente el sidecar semanal.
@@ -787,7 +787,7 @@ Generado por `build_sessions.py` como `ENDURANCE_HRV_weekly_coach.json`. Resume 
 | `data_quality` | Calidad e interpretabilidad del sidecar: no equivale a normalidad operativa. |
 | `planning_note` | Orientacion breve, condicional y persistible para el arranque del siguiente microciclo. Se ancla a `HRV matinal` y `Action/reason_text` del primer dia; no prescribe sesiones exactas. |
 | `sleep_context` | Trazabilidad opcional de la lectura semanal de sueño usada para matizar `planning_note`. Puede incluir `sleep_days_present`, `sleep_duration_mean_min`, `sleep_short_nights_pct`, `sleep_deep_pct_mean` y `sleep_score_mean`. Permanece en el JSON del sidecar semanal; no se expone por `GET /api/status` ni en la tarjeta UI. |
-| `z3_budget_by_sport` | Lista opcional de lecturas retrospectivas `per-sport` para `SYA-14`. Cada elemento resume el `sport`, `sport_family`, `z3_pct_weighted_current`, `z3_total_min_current`, el percentil histórico `z3_pct_percentile_by_sport`, la banda `z3_budget_band_by_sport`, el alcance de referencia (`sport` o `sport_family`), semanas comparables usadas y el estado de cobertura. No prescribe sesiones: solo contextualiza si la semana actual cae baja, normal, alta o muy alta en `Z3` respecto al histórico comparable. La salida estructurada conserva las cuatro bandas; el resumen textual visible de la UI/weekly coach solo surfacea `high` y `very_high` en v1. |
+| `z3_budget_by_sport` | Lista opcional de lecturas retrospectivas `per-sport`. Cada elemento resume el `sport`, `sport_family`, `z3_pct_weighted_current`, `z3_total_min_current`, el percentil histórico `z3_pct_percentile_by_sport`, la banda `z3_budget_band_by_sport`, el alcance de referencia (`sport` o `sport_family`), semanas comparables usadas y el estado de cobertura. No prescribe sesiones: solo contextualiza si la semana actual cae baja, normal, alta o muy alta en `Z3` respecto al histórico comparable. La salida estructurada conserva las cuatro bandas; el resumen textual visible de la UI/weekly coach solo surfacea `high` y `very_high` en v1. |
 
 ### Lo que NO debes hacer
 
@@ -839,7 +839,7 @@ Guarda lo que tú mismo reportaste cada día (fatiga, estrés, ánimo, etc.) jun
 
 ---
 
-## 5octies. SSM_SHADOW (sidecar técnico SYA-17) — 30 columnas
+## 5octies. SSM_SHADOW (sidecar técnico) — 30 columnas
 
 Generado por `build_hrv_ssm.py` como `ENDURANCE_HRV_ssm_shadow.csv`, acompañado por `ENDURANCE_HRV_ssm_shadow_metadata.json`. Es una capa sombra diaria para estimar un estado latente de recuperación/autonomía a partir de `lnRMSSD` (`CORE`), `load_day[t-1]` (`sessions_day`) y una observación secundaria nocturna derivada de `ENDURANCE_HRV_sleep.csv`.
 
@@ -892,12 +892,12 @@ Además, la metadata puede incluir `daily_user_summary`, una lectura diaria simp
 - `confidence_label` (`alta`, `media-alta`, `media`, `baja`)
 - `innovation` como sorpresa del día frente a lo predicho por el estado y la carga: positiva si el HRV observado queda por encima de lo esperado, negativa si queda por debajo
 - `sleep_recovery_index` y `sleep_innovation` para la lectura nocturna auxiliar del mismo día
-- `interpretive_text` en castellano llano, pensado para lectura rápida del usuario final. Desde UX-01, expresa magnitudes en ms RMSSD (`exp(estado_en_log)`) con el valor log entre paréntesis como auditoría; `innovation` se renderiza como **sorpresa del modelo** en `%` de HRV respecto a lo predicho; `ssm_fatigue_state` lleva anchor verbal (`baja`/`media`/`alta`) basado en percentiles p33/p66 del histórico propio del atleta (`_fatigue_label_from_history`). La nomenclatura interna `matiz SSM` quedó retirada; se usa `lectura SSM`.
+- `interpretive_text` en castellano llano, pensado para lectura rápida del usuario final. Expresa magnitudes en ms RMSSD (`exp(estado_en_log)`) con el valor log entre paréntesis como auditoría; `innovation` se renderiza como **sorpresa del modelo** en `%` de HRV respecto a lo predicho; `ssm_fatigue_state` lleva anchor verbal (`baja`/`media`/`alta`) basado en percentiles p33/p66 del histórico propio del atleta (`_fatigue_label_from_history`). La nomenclatura interna `matiz SSM` quedó retirada; se usa `lectura SSM`.
 - `ssm_baseline_state` y `ssm_fatigue_state` para desglosar la lectura en componente lento (tendencia) y rápido (fatiga reciente) del Banister. Cuando `fatigue_state ≤ -0.02` el modelo no detecta fatiga neta y la prosa cambia a lenguaje de compensación (no `descuenta`).
 
 Esta lectura no cambia el gate ni `reason_text`; solo añade matiz interpretativo sobre el estado SSM del día.
 
-Nota Fase 1: en `build_hrv_final_dashboard.py` existe un bloque latente que emitiría un mensaje `ssm_context` en `reason_text` cuando el estado SSM diverge >=0.08 del rolling HRV bajo condiciones de alta confianza (`state_sd<0.08`, `input_quality=clean`, `|innovation|<0.12`). Ese bloque se preserva tras la feature flag `HRV_SSM_REASON_TEXT_ENABLED` (default `0`, deshabilitado). No se activa en Fase 1 por dos razones: (1) la validación principal concluye `no_go`; (2) el bloque no filtra por `sport_family` y el SSM tiene comportamiento dispar entre bike (pierde a rolling) y run (empata). Para promoción real en Fase 2 hay que añadir el filtro por deporte y validar la lectura específicamente para los deportes viables.
+Nota Fase 1: en `build_hrv_final_dashboard.py` existe un bloque latente que emitiría un mensaje `ssm_context` en `reason_text` cuando el estado SSM diverge >=0.08 del rolling HRV bajo condiciones de alta confianza (`state_sd<0.08`, `input_quality=clean`, `|innovation|<0.12`). Ese bloque se preserva tras la feature flag `HRV_SSM_REASON_TEXT_ENABLED` (default `0`, deshabilitado). No se activa porque la Fase 1 sigue siendo `shadow_only`, la ventaja no es estable en todos los regímenes temporales y el bloque no filtra por `sport_family`. El estado empírico vigente debe leerse de `phase1_conclusion`, `go_no_go` y `primary_strict_by_sport` en el reporte JSON más reciente.
 
 ---
 
@@ -978,7 +978,7 @@ El `.md` es un resumen humano del mismo análisis. Si hay discrepancia, manda el
 
 ---
 
-## 5decies_bis. SSM_OUTCOME_BATTERY (sidecar exploratorio SYA-17)
+## 5decies_bis. SSM_OUTCOME_BATTERY (sidecar exploratorio)
 
 Generado por `build_hrv_ssm_outcome_battery.py` como `ENDURANCE_HRV_ssm_outcome_battery.json` y `.md`.
 Se regenera solo bajo demanda, normalmente despues de ejecutar manualmente la validacion SSM.
@@ -990,7 +990,7 @@ Prueba el predictor SSM contra outcomes alternativos a `cardiac_drift_worst`:
 
 Para cada outcome incluye: evaluaciones Spearman + holdout MAE/RMSE + walk-forward, grid EWMA, bootstrap CI90 sobre delta MAE SSM−rolling y veredicto (`ssm_wins`, `rolling_wins`, `tied`, `insufficient_data`).
 
-Hallazgo principal de Fase 1: `ssm_innovation[t]` predice `well_fatigue_raw[t+1]` con CI90 enteramente negativo (MAE innovación 0.55 vs rolling 0.62, `prob_delta_gt_0=0.004`, n=71). Señal incipiente; se fortalecerá con más entradas de wellness.
+Los resultados son dependientes del dataset y no forman parte del contrato estable. La lectura vigente debe tomarse de `outcomes.<name>.evaluations`, `innovation_verdict`, los bloques bootstrap y `battery_conclusion` del JSON más reciente. En particular, no debe conservarse en documentación normativa un tamaño muestral o una ventaja estadística que cambia al regenerar la batería.
 
 Reglas de lectura:
 - Este sidecar es exploratorio; no modifica el gate ni recolorea `FINAL`.
@@ -1005,7 +1005,7 @@ Generado por `build_sessions.py` como `ENDURANCE_HRV_sessions.csv`. Es el **hist
 
 ### Fuente canónica del detalle columna-a-columna
 
-La especificación completa columna-a-columna vive en **`ENDURANCE_HRV_Sessions_Schema.md`** (revisión `r2026-05-13 v3.13`). Este diccionario no la duplica para evitar desincronizaciones.
+La especificación completa columna-a-columna vive en **`ENDURANCE_HRV_Sessions_Schema.md`** (revisión `r2026-05-18 v3.15`). Este diccionario no la duplica para evitar desincronizaciones.
 
 ### Mapa de bloques (73 columnas)
 
@@ -1286,7 +1286,7 @@ Texto explicativo que combina información del gate con datos contextuales (sue�
 
 Esa mejora es interna y de trazabilidad. El builder también publica un sidecar `ENDURANCE_HRV_master_FINAL_reason_items.json` con los `reason_items` estructurados por fecha para consumo de `analysis/`. El contrato público del CSV no cambia:
 
-- `FINAL` sigue teniendo 62 columnas,
+- `FINAL` sigue teniendo 66 columnas,
 - `DASHBOARD` sigue teniendo 10 columnas,
 - no existe `reason_items_json` público como columna en `FINAL` ni en `DASHBOARD`;
 - el sidecar `ENDURANCE_HRV_master_FINAL_reason_items.json` sí existe y se usa como entrada estructurada de `analysis/`.

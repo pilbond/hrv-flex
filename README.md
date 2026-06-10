@@ -17,6 +17,7 @@ Este README es una guia de entrada. La documentacion operativa y normativa que m
 1. `AGENTS.MD` para estructura, runtime, rutas, endpoints, OAuth y despliegue.
 2. `docs/contracts/` para logica HRV, columnas, QA, gating y semantica de metricas.
 3. `analysis/AGENTS.md` y documentos locales de `analysis/` para el modulo analitico.
+4. `research/AGENTS.md` para experimentos, auditorias y analisis exploratorios no adoptados.
 
 Si hay conflicto, manda `AGENTS.MD` y, para logica HRV, `docs/contracts/`.
 
@@ -30,7 +31,8 @@ El flujo principal:
 4. Actualiza `ENDURANCE_HRV_sleep.csv`.
 5. Procesa RR con `build_hrv_core.py`.
 6. Genera `FINAL` y `DASHBOARD` con `build_hrv_final_dashboard.py`.
-7. Puede sincronizar wellness a Intervals.icu de forma opcional.
+7. Regenera la sombra SSM con `build_hrv_ssm.py`.
+8. Puede sincronizar wellness a Intervals.icu de forma opcional.
 
 La prioridad canonica de cobertura RR es Dropbox primero y Polar como fallback.
 
@@ -72,6 +74,10 @@ La prioridad canonica de cobertura RR es Dropbox primero y Polar como fallback.
   - Modulo local de analisis de sesiones.
   - Consume contexto reproducible del pipeline, pero no redefine la operativa global.
 
+- `research/`
+  - Experimentos, auditorias e informes exploratorios no operativos.
+  - Mantiene separados scripts reproducibles, resultados generados y trabajo temporal.
+
 ## Estructura del repositorio
 
 - `data/`
@@ -83,14 +89,18 @@ La prioridad canonica de cobertura RR es Dropbox primero y Polar como fallback.
 - `docs/contracts/`
   - Contratos HRV activos.
 
-- `docs/legacy/`
-  - Documentacion historica. Tratar como material sensible.
+- `research/archive/`
+  - Documentacion historica y material archivado no operativo.
 
 - `scripts/`
   - Scripts operativos locales, especialmente para Windows.
 
 - `analysis/`
   - Analisis de sesiones y artefactos locales del modulo.
+
+- `research/`
+  - Investigacion exploratoria, auditorias y experimentos no adoptados.
+  - Leer `research/AGENTS.md` antes de crear contenido.
 
 ## Outputs
 
@@ -182,13 +192,15 @@ Endpoints principales:
 - `POST /api/sync`
 - `POST /api/sync-sessions`
 - `GET /api/status`
+- `POST /api/import-seed`
+- `POST /api/delete-latest-rr`
 - `GET /health`
 
 Reglas operativas:
 
-- `/api/sync` y `/api/sync-sessions` comparten estado en memoria.
+- Los cuatro endpoints POST operativos comparten estado en memoria.
 - No deben ejecutarse en paralelo.
-- Si un job esta corriendo, el otro debe rechazarse.
+- Si un job esta corriendo, cualquier otro debe rechazarse.
 
 Notas de UI:
 
@@ -259,13 +271,14 @@ Campos importantes:
 
 ## Variables de entorno
 
-### Requeridas
+### Requeridas para OAuth
 
 - `POLAR_CLIENT_SECRET`
-- `PORT`
 - una de:
   - `POLAR_CLIENT_ID`
   - `POLAR_CLIENT_ID2`
+
+`PORT` lo proporciona Railway en produccion. En local es opcional y usa `8080` por defecto.
 
 Nota:
 
@@ -285,6 +298,20 @@ Nota:
 - `HRV_QUIET=1`
 - `HRV_DISABLE_BACKUP=1`
 - `HRV_SYNC_TIMEOUT_SEC`
+- `HRV_DROPBOX_RR_TIMEOUT_SEC`
+- `HRV_SEED_UPLOAD_DIR`
+- `HRV_SHOW_SEED_IMPORT`
+
+### Especializadas
+
+- `POLAR_USER_NAME` (default `Polar_User`)
+- `POLAR_TZ_OFFSET_MIN` (default `0`)
+- `INTERVALS_BASE_URL` (default `https://intervals.icu`)
+- `ATHLETE_WEIGHT_KG` (default `68.0`)
+- `SYSTEM_BIKE_WEIGHT_KG` (default `80.0`)
+- `HRV_WARNING_MODE` (`adaptive90`, `healthy85` o `p20`)
+- `HRV_HEALTHY_START` / `HRV_HEALTHY_END`
+- `HRV_SSM_REASON_TEXT_ENABLED=0` (experimental; no activar sin validacion por deporte)
 
 ### Dropbox RR
 
@@ -293,6 +320,7 @@ Nota:
 - `HRV_DROPBOX_NO_AUX=1`
 - `HRV_DROPBOX_PAIR_LIMIT=<N>`
 - `HRV_DROPBOX_FOLDER_PATH=<dropbox_path>`
+- aliases legacy: `DROPBOX_FOLDER_PATH` y `ECG_RR_DROPBOX_FOLDER`
 - `HRV_DROPBOX_RECURSIVE=1`
 - `DROPBOX_ACCESS_TOKEN`
 - o `DROPBOX_REFRESH_TOKEN + DROPBOX_APP_KEY + DROPBOX_APP_SECRET`
@@ -337,7 +365,8 @@ Flujo esperado:
 Windows:
 
 ```bash
-scripts\run-python.bat
+scripts\run-hrv.bat
+scripts\run-build-sessions.bat
 scripts\run-web-ui.bat
 python build_sessions.py --update
 ```
@@ -363,7 +392,7 @@ Reglas:
 - No loguear tokens ni `client_secret`.
 - Rotar secretos si se exponen.
 - No exponer tokens ni artefactos sensibles por HTTP.
-- Tratar `docs/legacy/` como material historico sensible.
+- Tratar `research/archive/` como material historico sensible.
 
 ## Modulo analysis
 
@@ -374,3 +403,16 @@ Reglas:
 - No debe reinterpretar ni sustituir la documentacion operativa global.
 
 Para tareas dentro de `analysis/`, manda `analysis/AGENTS.md` despues de `AGENTS.MD`.
+
+## Modulo research
+
+`research/` evita mezclar investigacion puntual con el producto analitico:
+
+- `experiments/` contiene pruebas de hipotesis y sus scripts.
+- `audits/` contiene revisiones tecnicas, estadisticas o documentales.
+- `reports/` contiene informes generados.
+- `.scratch/` contiene trabajo temporal descartable.
+
+Si el trabajo evalua si una metrica, modelo o cambio deberia adoptarse, debe
+crearse en `research/`, no en `analysis/`. Los resultados exploratorios no
+modifican contratos ni comportamiento operativo por si solos.

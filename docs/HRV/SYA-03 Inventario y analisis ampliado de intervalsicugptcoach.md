@@ -387,7 +387,7 @@ Antes de decidir que canonizar, cada campo se clasifica segun su naturaleza:
 
 ### 3. Campos del payload por categoria semantica — datos del dump real
 
-> Dump: `GET /athlete/{id}/activities?oldest=2026-04-14&newest=2026-04-16` — 3 actividades, 175 campos por actividad. Ver `new/intervals_activities_dump.json`.
+> Dump: `GET /athlete/{id}/activities?oldest=2026-04-14&newest=2026-04-16` — 3 actividades, 175 campos por actividad. Ver `research/archive/new/intervals_activities_dump.json`.
 
 #### Categoria session-level — candidatos a sessions.csv
 
@@ -575,7 +575,7 @@ Solo tras verificar que `icu_intensity`, `polarization_index` y `session_rpe` no
 
 ### Dump real de la API
 
-Se ejecuto un dump de `GET /athlete/{id}/activities?oldest=2026-04-14&newest=2026-04-16` contra la API real. El payload completo esta en `new/intervals_activities_dump.json`.
+Se ejecuto un dump de `GET /athlete/{id}/activities?oldest=2026-04-14&newest=2026-04-16` contra la API real. El payload completo esta en `research/archive/new/intervals_activities_dump.json`.
 
 **Resultado:** 3 actividades devueltas, **175 campos por actividad**. La API devuelve el payload completo sin necesidad de parametro `fields`.
 
@@ -969,7 +969,7 @@ Criterio de cierre:
 
 Fuente:
 
-- `new/intervals_activities_backtest.json`
+- `research/archive/new/intervals_activities_backtest.json`
 - cruce completo contra `data/ENDURANCE_HRV_sessions.csv` por `session_id`
 
 Hallazgos cerrados por campo:
@@ -1293,7 +1293,7 @@ Nota operativa:
 
 ## Anexo A. Inventario exhaustivo del dump actual (2026-04-16)
 
-> Este anexo intenta cerrar la pregunta "que campos pueden haberse quedado fuera". No es una recomendacion de canonizacion masiva; es un inventario exhaustivo por familias de todos los campos observados en `new/intervals_activities_dump.json`, incluyendo los que hoy parecen de bajo valor o solo contextuales.
+> Este anexo intenta cerrar la pregunta "que campos pueden haberse quedado fuera". No es una recomendacion de canonizacion masiva; es un inventario exhaustivo por familias de todos los campos observados en `research/archive/new/intervals_activities_dump.json`, incluyendo los que hoy parecen de bajo valor o solo contextuales.
 
 ### A.1 Identidad, origen e ingestión
 

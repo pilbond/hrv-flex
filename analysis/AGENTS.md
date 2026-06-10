@@ -13,6 +13,17 @@ No cubre:
 - runtime, OAuth, despliegue, endpoints,
 - logica HRV global fuera del analisis de sesiones,
 - modificacion de outputs canonicos globales salvo instruccion explicita.
+- experimentos puntuales, benchmarks, auditorias del sistema o revisiones por
+  IA que no sean necesarias para producir el informe funcional de una sesion
+  o semana; esos trabajos pertenecen a `../research/`.
+
+Regla de frontera:
+
+- `analysis/` es la casa del producto analitico de sesiones y semanas,
+- `research/` es la casa de las investigaciones sobre si una metrica, modelo o
+  cambio deberia adoptarse,
+- ante una tarea exploratoria, cargar `../research/AGENTS.md` y escribir alli
+  scripts y resultados.
 
 ## 2. Carga obligatoria del modulo
 Para cualquier tarea analitica del modulo, cargar y respetar este orden:

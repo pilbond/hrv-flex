@@ -202,7 +202,7 @@ Comando de referencia:
 
 - `python scripts/analyze_sya15_continuity.py --today 2026-05-15`
 
-Opcionalmente, el mismo comando puede emitir un reporte local reproducible con `--report-md` y/o `--report-json` hacia `analysis/ia_analisis_reviews/` u otra ruta local de trabajo.
+Opcionalmente, el mismo comando puede emitir un reporte local reproducible con `--report-md` y/o `--report-json` hacia `research/reports/` u otra ruta local de trabajo.
 
 Nota:
 

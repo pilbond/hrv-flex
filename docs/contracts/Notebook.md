@@ -1,6 +1,6 @@
 # Notebook.md
 
-**Revisión:** r2026-05-08 v0.2 (alineado con sistema vigente V4.10: capa RE-01, DO-01/02, clustering de intensidad, convergencia de carga)
+**Revisión:** r2026-05-08 v0.2 (alineado con sistema vigente V4.10: recuperación multiseñal, distribución de intensidad, clustering y convergencia de carga)
 **Sistema vigente con el que se sincroniza:** ENDURANCE HRV V4.10
 
 Este notebook no sustituye al diccionario de columnas ni a la especificacion tecnica.
@@ -47,7 +47,7 @@ Si una pregunta empieza por `que` → Diccionario. Si empieza por `por que` → 
 **Lectura del resultado**
 - ¿Que significan los colores con + y -?
 - ¿Que es el reason_text y como leerlo sin que me abrume?
-- ¿Que es la capa RE-01 y para que sirve si no cambia el gate?
+- ¿Que es la capa de recuperación multiseñal y para que sirve si no cambia el gate?
 - ¿Que pasa cuando el gate sale verde pero el contexto dice otra cosa?
 
 **Fisiologia y matiz**
@@ -285,7 +285,7 @@ Hay tres senales del sistema que **no recolorean** el verde, pero que te deberia
 2. **`recovery_discordance_flag = True`** con `recovery_support_class` en `fragile` o `conflicted`. El gate sale razonable pero el contexto multinocturno y de carga no lo apoya. Esta clase **no cambia la accion**, asi que la decision de moderar es tuya.
 3. **`flag_sistemico` rellenado a mano**. Hoy no se alimenta automaticamente, pero si tu mismo has anotado algo (viaje, enfermedad incipiente, mala noche subjetiva), trata el verde como un verde con asterisco.
 
-Tambien hay una situacion compuesta que merece mencion aparte: **VERDE con warning de baseline largo**. Desde `PCV-02`, la lectura canónica separa dos preguntas:
+Tambien hay una situacion compuesta que merece mencion aparte: **VERDE con warning de baseline largo**. La lectura canónica separa dos preguntas:
 
 - `degraded_vs_best = True`: hoy puedes estar estable, pero sigues lejos de tu mejor forma histórica.
 - `degraded_vs_current_normal = True`: hoy estás en caída activa respecto a tu normal reciente.
@@ -332,9 +332,9 @@ Cuando el dia es VERDE y `reason_text` se enciende con tres o cuatro avisos, no 
 
 → Diccionario §3.M (familias de mensajes con ejemplos exactos).
 
-## ¿Que es la capa RE-01 y para que sirve si no cambia el gate?
+## ¿Que es la capa de recuperación multiseñal y para que sirve si no cambia el gate?
 
-La capa RE-01 es la lectura cruzada entre el gate matinal y el contexto multinocturno + carga. Vive en cuatro columnas:
+La capa de recuperación multiseñal es la lectura cruzada entre el gate matinal y el contexto multinocturno + carga. Vive en cuatro columnas:
 
 - `recovery_context_quality`: te dice si hay contexto disponible (`none`, `basic`, `rich`).
 - `recovery_support_class`: clasifica la coherencia (`supported`, `neutral`, `fragile`, `conflicted`).
@@ -555,7 +555,7 @@ Por eso el sistema permite que un nightly bueno matice un rojo, pero no le da pe
 
 ## ¿Que informacion nocturna de Polar complementa la medicion matinal y cual no debe tener peso decisor?
 
-Hoy el sistema usa de forma efectiva para contexto y RE-01:
+Hoy el sistema usa de forma efectiva para contexto y recuperación multiseñal:
 
 - `polar_sleep_duration_min`
 - `polar_interruptions_long`
@@ -586,7 +586,7 @@ Cada archivo cumple una funcion distinta en la lectura del sistema:
 
 - `CORE`: es la capa fisiologica canonica. Guarda la medicion ya procesada y metricas como `lnRMSSD`, `SI_baevsky`, `SD1` y `SD2`.
 - `BETA_AUDIT`: es una salida legacy de auditoria V3. Sirve para trazabilidad historica, no para decidir el gate actual.
-- `FINAL`: es la capa de decision completa (62 columnas). Aqui viven baseline, SWC, deltas, veto, sombras, residual, gate final, accion, capa RE-01 y reason_text.
+- `FINAL`: es la capa de decision completa (66 columnas). Aqui viven baseline, SWC, deltas, veto, sombras, residual, gate final, accion, recuperación multiseñal y reason_text.
 - `DASHBOARD`: es una vista resumida (10 columnas) para leer lo importante sin tragarte toda la auditoria.
 
 Si quieres entender `que paso`, lees `FINAL`. Si quieres leer `que hago hoy`, miras `DASHBOARD`.
@@ -690,12 +690,7 @@ No deberia presentar como vigentes, salvo que el codigo cambie de verdad:
 - ANS Charge operativo como entrada del gate
 - metricas Tier 3 accionables como SampEn (DFA-α1 existe en analysis local de sesion, pero **no** en el decisor diario)
 - protocolos ICC integrados en el flujo productivo
-- coach semanal estructurado en producto (ya cubierto por `PCV-04`)
-- baseline adaptativo a largo plazo (sigue en `PENDIENTE`)
-- capa de carga relativa del atleta (sigue en `PENDIENTE`)
-- SWC configurable o adaptativo (sigue en `PENDIENTE`)
-- planning note semanal automatica (sigue en `PENDIENTE`)
-- integracion UI/API del coach semanal (sigue en `PENDIENTE`)
+- SWC configurable o adaptativo (propuesta `PCV-07` descartada; no es comportamiento vigente)
 
 Si alguna de esas ideas se quiere conservar, mejor ponerla como `futuro` o `experimental`, no como comportamiento actual.
 

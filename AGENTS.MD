@@ -63,14 +63,15 @@ Elementos estructurales estables del repo:
 - archivo canonico de sueno en `ENDURANCE_HRV_sleep.csv`,
 - scripts operativos locales en `scripts/`,
 - norma HRV activa en `docs/contracts/`,
-- documentacion historica en `docs/legacy/`,
+- documentacion historica y material archivado en `research/archive/`,
 - modulo analitico local en `analysis/`,
+- investigacion exploratoria, auditorias e informes no operativos en `research/`,
 - implementacion interna del pipeline en `hrv_app/` (paquete Python interno; ARQ-02).
 
-## 6. Snapshot actual (2026-04-16)
+## 6. Snapshot actual (2026-06-10)
 Estado actual de implementacion observado:
 
-- la UI expone `/api/sync`, `/api/sync-sessions`, `/api/status` y endpoints OAuth,
+- la UI expone `/api/sync`, `/api/sync-sessions`, `/api/status`, `/api/import-seed`, `/api/delete-latest-rr` y endpoints OAuth,
 - `build_sessions.py` genera `ENDURANCE_HRV_sessions.csv`, `ENDURANCE_HRV_sessions_day.csv`, `ENDURANCE_HRV_intensity_distribution_weekly.csv`, `ENDURANCE_HRV_weekly_coach.json`, `ENDURANCE_HRV_sessions_metadata.json` y `ENDURANCE_HRV_wellness_subjective.csv`,
 - `ENDURANCE_HRV_sessions_day.csv` ya incluye contexto canonico de carga (`acwr_simple_prev`, `monotony_7d_prev`, `strain_7d_prev`, `load_ctx_ready`), clustering reciente de intensidad (`intense_day`, `intense_days_prev_3d`, `intense_days_prev_5d`, `intensity_clustering_flag`, `intensity_clustering_level`) y la señal rolling `DO-02` de polarizacion por familia (`dominant_family_prev_7d`, `dominant_family_share_prev_7d`, `n_sessions_usable_prev_7d`, `z1/z2/z3_pct_weighted_prev_7d`, `distribution_signal_confidence_prev_7d`, `polarisation_index_prev_7d`, `intensity_blackhole_flag`, `intensity_blackhole_episode_id`, `intensity_blackhole_episode_len`),
 - `ENDURANCE_HRV_intensity_distribution_weekly.csv` ya resume la distribucion observada por `sport x week` con ponderacion por minutos, patron (`polarized`, `pyramidal`, `threshold`, `mixed`) y confianza explicita,
@@ -100,10 +101,10 @@ Si este bloque queda desactualizado, debe actualizarse o reducirse.
 ## 7. Arquitectura actual
 - `web_ui.py`
   Flask + UI movil.
-  Endpoints: `/`, `/auth`, `/auth/callback`, `/oauth/callback`, `/api/sync`, `/api/sync-sessions`, `/api/status`, `/health`.
+  Endpoints: `/`, `/auth`, `/auth/callback`, `/oauth/callback`, `/api/sync`, `/api/sync-sessions`, `/api/status`, `/api/import-seed`, `/api/delete-latest-rr`, `/health`.
   `POST /api/sync` ejecuta `polar_hrv_automation.py --process` en thread.
   `POST /api/sync-sessions` ejecuta `build_sessions.py --update` en thread.
-  Ambos jobs comparten estado operativo y no deben ejecutarse en paralelo.
+  Los jobs HRV, sesiones, import seed y backup del ultimo RR comparten estado operativo y no deben ejecutarse en paralelo.
 
 - `polar_hrv_automation.py`
   Orquesta el flujo principal.
@@ -150,7 +151,7 @@ Canonicos:
 
 - `ENDURANCE_HRV_master_CORE.csv` (18 columnas)
 - `ENDURANCE_HRV_master_BETA_AUDIT.csv` (13 columnas)
-- `ENDURANCE_HRV_master_FINAL.csv` (62 columnas)
+- `ENDURANCE_HRV_master_FINAL.csv` (66 columnas)
 - `ENDURANCE_HRV_master_DASHBOARD.csv` (10 columnas)
 - `ENDURANCE_HRV_sleep.csv` (17 columnas)
 
@@ -176,10 +177,9 @@ Por tanto, en local:
 - CSV maestros, `sleep` y `sessions` se leen y escriben en `data/`.
 
 ## 10. Variables de entorno
-Requeridas:
+Requeridas para OAuth:
 
 - `POLAR_CLIENT_SECRET`
-- `PORT`
 
 Requerida una de estas:
 
@@ -189,6 +189,7 @@ Requerida una de estas:
 Nota:
 
 - el codigo actual da precedencia a `POLAR_CLIENT_ID2` si ambas existen.
+- `PORT` lo proporciona Railway en produccion; en local es opcional y por defecto vale `8080`.
 
 Muy recomendadas:
 
@@ -204,6 +205,20 @@ Operativas:
 - `HRV_QUIET=1`
 - `HRV_DISABLE_BACKUP=1`
 - `HRV_SYNC_TIMEOUT_SEC`
+- `HRV_DROPBOX_RR_TIMEOUT_SEC`
+- `HRV_SEED_UPLOAD_DIR`
+- `HRV_SHOW_SEED_IMPORT`
+
+Especializadas:
+
+- `POLAR_USER_NAME` (default `Polar_User`; prefijo de RR descargados)
+- `POLAR_TZ_OFFSET_MIN` (default `0`; ajuste de matching de sesiones)
+- `INTERVALS_BASE_URL` (default `https://intervals.icu`)
+- `ATHLETE_WEIGHT_KG` (default `68.0`; denominador de W/kg)
+- `SYSTEM_BIKE_WEIGHT_KG` (default `80.0`; masa total del modelo fisico)
+- `HRV_WARNING_MODE` (`adaptive90` por defecto; tambien `healthy85` o `p20`)
+- `HRV_HEALTHY_START` / `HRV_HEALTHY_END` (ancla historica y modo `healthy85`)
+- `HRV_SSM_REASON_TEXT_ENABLED=0` (feature flag experimental; no activar sin validacion por deporte)
 
 Dropbox RR:
 
@@ -212,6 +227,7 @@ Dropbox RR:
 - `HRV_DROPBOX_NO_AUX=1`
 - `HRV_DROPBOX_PAIR_LIMIT=<N>`
 - `HRV_DROPBOX_FOLDER_PATH=<dropbox_path>`
+- aliases legacy de carpeta: `DROPBOX_FOLDER_PATH` y `ECG_RR_DROPBOX_FOLDER`
 - `HRV_DROPBOX_RECURSIVE=1`
 - `DROPBOX_ACCESS_TOKEN`
 - o `DROPBOX_REFRESH_TOKEN + DROPBOX_APP_KEY + DROPBOX_APP_SECRET`
@@ -253,20 +269,22 @@ Contrato:
 - `POST /api/sync`
 - `POST /api/sync-sessions`
 - `GET /api/status`
+- `POST /api/import-seed`
+- `POST /api/delete-latest-rr`
 - `GET /health`
 
 Regla operativa:
 
-- `/api/sync` y `/api/sync-sessions` comparten estado de ejecucion en memoria,
+- los cuatro endpoints POST operativos comparten estado de ejecucion en memoria,
 - no deben ejecutarse en paralelo,
-- si un job esta corriendo, el otro debe rechazarse.
+- si un job esta corriendo, cualquier otro debe rechazarse.
 
 ## 13. Seguridad
 - no commitear `.env`, `.polar_tokens.json`, RR ni CSV personales,
 - no loguear tokens ni `client_secret`,
 - rotar secretos si se exponen,
 - no exponer tokens ni artefactos sensibles por HTTP,
-- tratar `docs/legacy/` como material historico sensible.
+- tratar `research/archive/` como material historico sensible.
 
 ## 14. Criterios de aceptacion
 1. `/auth` devuelve 302 a Polar con `redirect_uri` correcto.
@@ -283,7 +301,8 @@ Regla operativa:
 Windows:
 
 - `scripts\\run-web-ui.bat`
-- `scripts\\run-python.bat`
+- `scripts\\run-hrv.bat`
+- `scripts\\run-build-sessions.bat`
 - `scripts\\run-ssm-audit.bat`
 
 Pipeline de sesiones:
@@ -315,6 +334,39 @@ Si un cambio afecta a:
 
 entonces tambien hay que actualizar `docs/contracts/`.
 
+## 17. Enrutado de analisis, auditorias y experimentos
+
+Antes de crear archivos nuevos, clasificar el trabajo:
+
+- informe funcional de una sesion o semana, sidecar reproducible adoptado por
+  el modulo o artefacto necesario para redactar esos informes -> `analysis/`
+  segun `analysis/AGENTS.md`,
+- hipotesis puntual, benchmark, exploracion estadistica, auditoria tecnica,
+  revision por IA o experimento no adoptado -> `research/`,
+- prueba automatizada de comportamiento estable -> `tests/`,
+- contrato normativo vigente -> `docs/contracts/`,
+- documento consolidado de una tarea o decision adoptada -> `docs/HRV/`.
+
+Reglas para `research/`:
+
+- leer `research/AGENTS.md` antes de crear o modificar contenido,
+- codigo reproducible en `research/**/scripts/`,
+- resultados generados en `research/**/results/` o `research/reports/`,
+- trabajo descartable en `research/.scratch/`,
+- no escribir resultados junto a scripts,
+- no colocar experimentos en la raiz, `analysis/`, `docs/contracts/`,
+  `seed_upload/` ni `data/`,
+- no importar codigo de `research/` desde la aplicacion,
+- una investigacion solo pasa a la aplicacion mediante implementacion
+  explicita, tests y actualizacion contractual cuando corresponda.
+
+Regla de decision:
+
+- si el archivo sirve para operar o generar el producto analitico habitual,
+  pertenece a `analysis/`,
+- si sirve para decidir si algo deberia adoptarse en el futuro, pertenece a
+  `research/`.
+
 
 ## Workflow Kanvas
 
@@ -323,12 +375,12 @@ Si existe `Project.canvas` en la raiz del proyecto, usar Kanvas como tablero vis
 Reglas:
 - Nunca editar `Project.canvas` directamente.
 - Todas las modificaciones del canvas deben hacerse con el CLI de Kanvas.
-- CLI canonico:
-  `python Kanvas\canvas-tool.py polar-hrv-automation\Project.canvas <command>`
+- CLI canonico desde la raiz del repositorio:
+  `python canvas-tool.py Project.canvas <command>`
 - Al inicio de cada sesion:
-  `python Kanvas\canvas-tool.py polar-hrv-automation\Project.canvas status`
+  `python canvas-tool.py Project.canvas status`
 - Si hay inconsistencias visuales o tareas sin ID:
-  `python Kanvas\canvas-tool.py polar-hrv-automation\Project.canvas normalize`
+  `python canvas-tool.py Project.canvas normalize`
 
 Politica de estados:
 - `purple`: propuesta del agente

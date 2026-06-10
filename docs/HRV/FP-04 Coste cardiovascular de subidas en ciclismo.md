@@ -23,7 +23,7 @@ La Iteracion A de FP-03 (activar V3 FIT en bike + `cadence_unit=rpm`) esta **ya 
 - `analysis/session_analysis_pipeline.py:707-708` — `_terrain_fit_cadence_unit()` devuelve `"rpm"` cuando `analyzer_sport_from_session(row) == "bike"`, `"strides_per_min"` en otro caso.
 - `analysis/fit_terrain_utils.py:80-81` — `_climb_thresholds()` ya discrimina por `sport_family` (bike/trail/run/road/hike) vía `_CLIMB_THRESHOLDS`.
 - `analysis/session_analysis_pipeline.py:3185-3190` — existen alias `_report_bike_climb_count`, `_bike_climb_metrics`, `_bike_climb_dilation_sentence`, etc., apuntando a funciones genericas `_terrain_*` parametrizadas por `sport_family`.
-- SYA-12 (ver `docs/SYA-12_terrain_climbs_trail_road_run_analysis.md`) generalizo `_build_sport_climbs_table()` y removio el gate `sport_family == "bike"` en el render de tabla.
+- SYA-12 (ver `research/reports/legacy_analysis/SYA-12_terrain_climbs_trail_road_run_analysis.md`) generalizo `_build_sport_climbs_table()` y removio el gate `sport_family == "bike"` en el render de tabla.
 
 Resultado: para cualquier sesion bike outdoor con GPS + altitud, el pipeline ya emite `terrain_climbs.csv`, `terrain_fit_context` con `cadence_unit=rpm` y narrativa de potencia medida/estimada.
 

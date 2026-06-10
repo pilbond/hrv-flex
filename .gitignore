@@ -78,6 +78,9 @@ env/
 *.log
 analysis/reports/
 analysis/.cache/
+research/reports/
+research/**/results/
+research/.scratch/
 new/
 
 # Testing

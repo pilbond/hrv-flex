@@ -1,13 +1,13 @@
 # ENDURANCE HRV — Estructura de Datos
 
-**Revisión:** r2026-05-18 v3.14 (SYA-14 percentil historico Z3 en weekly coach)
+**Revisión:** r2026-06-10 v3.16 (alineacion con schemas y runtime actuales)
 **Estado:** Producción
 
 **Documentos relacionados:**
 - `ENDURANCE_HRV_Spec_Tecnica.md` — Fórmulas, algoritmos y reglas de cálculo
 - `ENDURANCE_HRV_Diccionario.md` — Qué significa cada columna y cómo usarla
 
-**Convención de versión:** esta cabecera identifica la revisión de este documento (`r2026-04-10 v3.11`), no la versión global del sistema. La versión de sistema vigente se declara en `ENDURANCE_HRV_Spec_Tecnica.md`.
+**Convención de versión:** esta cabecera identifica la revisión de este documento, no la versión global del sistema. La versión de sistema vigente se declara en `ENDURANCE_HRV_Spec_Tecnica.md`.
 
 ---
 
@@ -15,8 +15,8 @@
 
 Este documento es el **contrato de datos** del sistema ENDURANCE HRV: define qué archivos genera el sistema, qué columnas tiene cada uno, en qué orden, qué tipo de dato contienen, y si pueden ser nulos.
 
-- **No redefine lógica de cálculo** — para fórmulas y umbrales, la autoridad es `Spec_Tecnica.md`
-- **No explica cómo interpretar las salidas** — para eso, la autoridad es `Diccionario.md`
+- **No redefine lógica de cálculo** — para fórmulas y umbrales, la autoridad es `ENDURANCE_HRV_Spec_Tecnica.md`
+- **No explica cómo interpretar las salidas** — para eso, la autoridad es `ENDURANCE_HRV_Diccionario.md`
 - Si hay conflicto entre documentos, prevalece: Spec_Tecnica > Estructura > Diccionario
 
 ### Alcance del contrato
@@ -34,30 +34,30 @@ Si algún día se quisiera soportar varios atletas, este documento tendría que 
 
 ## 1. Archivos del sistema
 
-El sistema genera 7 archivos CSV + 2 JSON de trazabilidad. Cada uno tiene un rol distinto y se genera por un script específico:
+El sistema genera CSV operativos, sidecars JSON y reportes de auditoría. Cada uno tiene un rol distinto y se genera por un script específico:
 
 | Archivo | Para qué sirve | Lo genera | Columnas |
 |---------|---------------|-----------|----------|
 | `ENDURANCE_HRV_master_CORE.csv` | La medición fisiológica del día: pulso, variabilidad, calidad de señal y trazabilidad mínima de estabilidad. Sin ninguna decisión de entrenamiento. | `build_hrv_core.py` | 18 |
-| `ENDURANCE_HRV_master_FINAL.csv` | El gate de entrenamiento, las sombras, el residual, el veto agudo, el reason_text y la capa RE-01 de recuperación multiseñal necesaria para contextualizar soporte o discordancia sin tocar el gate. | `build_hrv_final_dashboard.py` | 62 |
+| `ENDURANCE_HRV_master_FINAL.csv` | El gate de entrenamiento, las sombras, el residual, el veto agudo, el reason_text y la capa de recuperación multiseñal necesaria para contextualizar soporte o discordancia sin tocar el gate. | `build_hrv_final_dashboard.py` | 66 |
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | Lo esencial para decidir en 10 segundos: semáforo, acción, warning, y reason_text contextual. Subconjunto de FINAL. | `build_hrv_final_dashboard.py` | 10 |
 | `ENDURANCE_HRV_master_FINAL_reason_items.json` | Sidecar estable con `reason_items` por fecha para consumo de `analysis/`; conserva la separación entre dato medido, proxy, inferencia y acción. Cuando `analysis/` lo usa como fuente primaria, los informes deben poder declararlo explícitamente en `Fuentes`. | `build_hrv_final_dashboard.py` | n/a |
-| `ENDURANCE_HRV_ssm_shadow.csv` | Sidecar técnico sombra `SYA-17` con estado latente HRV+carga, observación nocturna auxiliar, incertidumbre, flags de calidad y controles simples (`rolling_hrv_7d`, `load_7d`). No toca `FINAL`, no recolorea el gate y no se expone en la UI operativa. | `build_hrv_ssm.py` | 30 |
-| `ENDURANCE_HRV_ssm_shadow_metadata.json` | Metadata de trazabilidad para `SYA-17`: parámetros congelados, hashes de `CORE`, `sessions_day` y `sleep`, warm-up, distribución de contextos de carga, calibración nocturna, outcome audit y pre-test de utilidad de carga. | `build_hrv_ssm.py` | n/a |
-| `ENDURANCE_HRV_ssm_validation_report.json` | Reporte reproducible de validación Fase 1 para `SYA-17`: outcome principal elegido, pares temporales evaluables, comparación contra baselines simples, chequeo de redundancia, comparadores estructurales de carga, sueño y `EWMA`, y bloque `go/no-go`. No modifica el gate. Se regenera solo bajo demanda, fuera del sync diario. | `build_hrv_ssm_validation.py` | n/a |
+| `ENDURANCE_HRV_ssm_shadow.csv` | Sidecar técnico sombra con estado latente HRV+carga, observación nocturna auxiliar, incertidumbre, flags de calidad y controles simples (`rolling_hrv_7d`, `load_7d`). No toca `FINAL`, no recolorea el gate y no se expone en la UI operativa. | `build_hrv_ssm.py` | 30 |
+| `ENDURANCE_HRV_ssm_shadow_metadata.json` | Metadata de trazabilidad del modelo SSM: parámetros congelados, hashes de `CORE`, `sessions_day` y `sleep`, warm-up, distribución de contextos de carga, calibración nocturna, outcome audit y pre-test de utilidad de carga. | `build_hrv_ssm.py` | n/a |
+| `ENDURANCE_HRV_ssm_validation_report.json` | Reporte reproducible de validación Fase 1 del modelo SSM: outcome principal elegido, pares temporales evaluables, comparación contra baselines simples, chequeo de redundancia, comparadores estructurales de carga, sueño y `EWMA`, y bloque `go/no-go`. No modifica el gate. Se regenera solo bajo demanda, fuera del sync diario. | `build_hrv_ssm_validation.py` | n/a |
 | `ENDURANCE_HRV_ssm_validation_report.md` | Versión legible en Markdown del reporte de validación SSM. Resume métricas, diagnósticos y estado `go/no-go` sin sustituir al JSON. | `build_hrv_ssm_validation.py` | n/a |
-| `ENDURANCE_HRV_ssm_outcome_battery.json` | Batería exploratoria de outcomes alternativos `SYA-17`: prueba SSM contra `lnRMSSD_t+1`, `wellness_t+1` e innovación con comparadores SSM, rolling, AR(1), EWMA y bootstrap CI. No modifica el gate. Se regenera solo bajo demanda, normalmente tras lanzar manualmente la validación SSM. | `build_hrv_ssm_outcome_battery.py` | n/a |
+| `ENDURANCE_HRV_ssm_outcome_battery.json` | Batería exploratoria de outcomes alternativos: prueba SSM contra `lnRMSSD_t+1`, `wellness_t+1` e innovación con comparadores SSM, rolling, AR(1), EWMA y bootstrap CI. No modifica el gate. Se regenera solo bajo demanda, normalmente tras lanzar manualmente la validación SSM. | `build_hrv_ssm_outcome_battery.py` | n/a |
 | `ENDURANCE_HRV_ssm_outcome_battery.md` | Versión legible en Markdown de la batería de outcomes alternativos SSM. | `build_hrv_ssm_outcome_battery.py` | n/a |
 | `ENDURANCE_HRV_sleep.csv` | Sueño nocturno y señales de recuperación (Polar). Alimenta el reason_text pero NO afecta al gate. | `hrv_app.sleep_store` (coordinado por `polar_hrv_automation.py`) | 17 |
-| `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento: zonas, work blocks, drift, effort, clasificación, `route_id` cuando existe, primitivas mínimas de coach metrics por sesión, capa mecánica opcional y señales de durabilidad mecánica (`FP-01`). | `build_sessions.py` | 73 |
-| `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios de entrenamiento + rolling con cobertura (_nobs), más contexto canónico de carga (`ACWR`, `monotony`, `strain`), clustering reciente de intensidad y la señal rolling `DO-02` de polarización por familia con resumen de episodio. Alimenta el reason_text para checks de carga. | `build_sessions.py` | 60 |
+| `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento: zonas, work blocks, drift, effort, clasificación, `route_id` cuando existe, primitivas mínimas de coach metrics por sesión, capa mecánica opcional y señales de durabilidad mecánica. | `build_sessions.py` | 73 |
+| `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios de entrenamiento + rolling con cobertura (_nobs), más contexto canónico de carga (`ACWR`, `monotony`, `strain`), clustering reciente de intensidad, señal rolling de polarización por familia y `elev_loss_7d_sum`. Alimenta el reason_text para checks de carga. | `build_sessions.py` | 61 |
 | `ENDURANCE_HRV_intensity_distribution_weekly.csv` | Resumen semanal por deporte de distribución observada de intensidad (`sport x week`), con minutos ponderados por zona, `work_*`, patrón descriptivo y confianza. Es sidecar analítico; no alimenta el gate. | `build_sessions.py` | 21 |
 | `ENDURANCE_HRV_sessions_metadata.json` | Trazabilidad del pipeline de sesiones: versión, parámetros, hash, sampling rate, cobertura y auditoría ligera `dataset/signal/metric` para coaching/carga. | `build_sessions.py` | — |
-| `ENDURANCE_HRV_weekly_coach.json` | Sidecar semanal estructurado con `iso_week`, ventana, `as_of_date`, `generated_at`, `anchor_source`, `week_expected_days`, `week_data_coverage_pct`, tipo semanal, carga, riesgo de progresion, tendencia HRV, calidad de datos y contexto retrospectivo `SYA-14` (`z3_budget_by_sport`, `z3_budget_summary`). No alimenta el gate ni el `reason_text`. | `build_sessions.py` | — |
+| `ENDURANCE_HRV_weekly_coach.json` | Sidecar semanal estructurado con `iso_week`, ventana, `as_of_date`, `generated_at`, `anchor_source`, `week_expected_days`, `week_data_coverage_pct`, tipo semanal, carga, riesgo de progresion, tendencia HRV, calidad de datos y contexto retrospectivo de Z3 (`z3_budget_by_sport`, `z3_budget_summary`). No alimenta el gate ni el `reason_text`. | `build_sessions.py` | — |
 | `ENDURANCE_HRV_wellness_subjective.csv` | Wellness subjetivo diario desde Intervals (`fatigue`, `stress`, `mood`, `motivation`, `soreness`, `injury`, comentario) con labels y cobertura 7d. Se reserva para análisis retrospectivo o capas separadas; no alimenta `reason_text`. | `build_sessions.py` | 17 |
 | `ENDURANCE_HRV_master_BETA_AUDIT.csv` | Modelo alométrico beta/cRMSSD del sistema V3. Se conserva para comparación histórica; no afecta al decisor FINAL/DASHBOARD. | `build_hrv_core.py` | 13 |
 
-**Artefactos locales de `analysis/` (no son archivos canónicos del sistema):** `analysis/session_analysis_pipeline.py` genera por sesión `summary.json`, `session_payload.json`, `technical_report.md`, `report.auto.md`, `report.ia.md`, `analyst_prompt.md`, `ai_handoff.md`, `artifacts/report_sync_status.json` y `v1_shadow_history.json` dentro de `analysis/reports/<año>/<mes>/<slug>/`. Además, `analysis/analyze_weekly.py` puede generar por semana `weekly_prep_manifest.json`, `weekly_analysis_context.json`, `report.auto.md`, `report.ia.md`, `analyst_prompt.md`, `ai_handoff.md` y `artifacts/report_sync_status.json` dentro de `analysis/reports/weekly/<week_start>_<week_end>/`. Ninguno de estos artefactos forma parte del contrato canónico descrito en esta tabla: no modifican los CSV anteriores, no se despliegan en Railway y no son versionados como salidas operativas del pipeline principal. Para sesiones `trail_run`, `summary.json` incluye además `runaware_context` (validación en sombra AP-03) con `runaware_intense_candidate`, `runaware_severity_candidate` y `v1_shadow_history`; esta capa es shadow-only y no alimenta el gate ni `reason_text`.
+**Artefactos locales de `analysis/` (no son archivos canónicos del sistema):** `analysis/session_analysis_pipeline.py` genera por sesión `summary.json`, `session_payload.json`, `technical_report.md`, `report.auto.md`, `report.ia.md`, `analyst_prompt.md`, `ai_handoff.md`, `artifacts/report_sync_status.json` y `v1_shadow_history.json` dentro de `analysis/reports/<año>/<mes>/<slug>/`. Además, `analysis/analyze_weekly.py` puede generar por semana `weekly_prep_manifest.json`, `weekly_analysis_context.json`, `report.auto.md`, `report.ia.md`, `analyst_prompt.md`, `ai_handoff.md` y `artifacts/report_sync_status.json` dentro de `analysis/reports/weekly/<week_start>_<week_end>/`. Ninguno de estos artefactos forma parte del contrato canónico descrito en esta tabla: no modifican los CSV anteriores, no se despliegan en Railway y no son versionados como salidas operativas del pipeline principal. Para sesiones `trail_run`, `summary.json` incluye además `runaware_context` como validación en sombra, con `runaware_intense_candidate`, `runaware_severity_candidate` y `v1_shadow_history`; esta capa es shadow-only y no alimenta el gate ni `reason_text`.
 
 ---
 
@@ -118,7 +118,7 @@ Fecha,Calidad,HRV_Stability,Stability_Subtype,Artifact_pct,Tiempo_Estabilizacion
 
 FINAL es el archivo de auditoría completo: contiene la medición del día, el suavizado, los baselines, todos los gates, el veto agudo, el residual, la acción, la acumulación, los warnings y el `reason_text` contextual. Además, desde r2026-03-12 expone una capa mínima de auditoría `raw vs ref` para entender mejor los días `Unstable` sin cambiar el `gate_final`.
 
-**Nota SS-02:** `build_hrv_final_dashboard.py` construye internamente `reason_text` desde una capa estructurada de `reason_items` en memoria (`type`, `layer`, `source`, `message`, etc.) y además publica el sidecar `ENDURANCE_HRV_master_FINAL_reason_items.json` para consumo de `analysis/`. El esquema público de `FINAL` y `DASHBOARD` sigue siendo de 62 y 10 columnas respectivamente; no se añade una columna `reason_items_json` al CSV.
+**Nota sobre `reason_items`:** `build_hrv_final_dashboard.py` construye internamente `reason_text` desde una capa estructurada de `reason_items` en memoria (`type`, `layer`, `source`, `message`, etc.) y además publica el sidecar `ENDURANCE_HRV_master_FINAL_reason_items.json` para consumo de `analysis/`. El esquema público de `FINAL` y `DASHBOARD` es de 66 y 10 columnas respectivamente; no se añade una columna `reason_items_json` al CSV.
 
 **Nota analysis:** `analysis/session_analysis_pipeline.py` deriva una capa local `narrative_targets.final_reason_rendered` dentro de `session_payload.json`. Esa capa no cambia el contrato global HRV, pero sí fija cómo `analysis/` debe traducir las cautelas tipificadas:
 - mantiene el mensaje cuantificado del item original,
@@ -216,7 +216,7 @@ Columnas 55-58: `warning_threshold`, `warning_threshold_best`, `warning_threshol
 
 #### M) v4 Enhancement (8 cols)
 
-Veto agudo (bypass de ROLL3 ante caídas bruscas), capa RE-01 de recuperación multiseñal y texto explicativo contextual.
+Veto agudo (bypass de ROLL3 ante caídas bruscas), capa de recuperación multiseñal y texto explicativo contextual.
 
 Columnas 59-66: `veto_agudo`, `ln_pre_veto`, `swc_ln_floor`, `recovery_context_quality`, `recovery_support_class`, `recovery_discordance_flag`, `recovery_discordance_reason`, `reason_text`
 
@@ -226,7 +226,7 @@ Columnas 59-66: `veto_agudo`, `ln_pre_veto`, `swc_ln_floor`, `recovery_context_q
 - `gate_raw_today`: semáforo 2D contrafactual usando el raw del día (`lnRMSSD_today`, `HR_today`) frente a la misma baseline
 - `gate_raw_reason`: razón de ese gate raw (`2D_OK`, `2D_LN`, `2D_HR`, `2D_AMBOS`)
 - `unstable_note`: resumen corto `raw vs ref` cuando `quality_flag=True`
-- `recovery_context_quality`: cobertura del contexto RE-01 (`none`, `basic`, `rich`)
+- `recovery_context_quality`: cobertura del contexto de recuperación multiseñal (`none`, `basic`, `rich`)
 - `recovery_support_class`: lectura multiseñal resumida (`supported`, `neutral`, `fragile`, `conflicted`)
 - `recovery_discordance_flag`: marca explícita cuando el soporte objetivo discrepa materialmente del gate
 - `recovery_discordance_reason`: códigos transparentes que explican esa discordancia (`sleep_basic_poor`, `sleep_score_good`, `recent_load_low`, etc.)
@@ -404,12 +404,12 @@ assert df["HRV_Stability"].isin(["OK", "Unstable"]).all()             # vocabula
 
 ```python
 assert df["Fecha"].is_unique                                                           # sin duplicados
-assert df.shape[1] == 66                                                               # schema v4 + PCV-02 dual baseline
+assert df.shape[1] == 66                                                               # schema v4 + dual baseline
 assert df["gate_final"].isin(["VERDE", "ÁMBAR", "ROJO", "NO"]).all()                 # vocabulario cerrado
 assert df["Action"].isin(["INTENSIDAD_OK", "Z2_O_TEMPO_SUAVE", "SUAVE_O_DESCANSO"]).all()
 assert df["warning_mode"].isin(["adaptive90", "healthy85", "p20"]).all()
 assert "veto_agudo" in df.columns                                                      # v4 columns present
-assert "recovery_support_class" in df.columns                                          # RE-01 present
+assert "recovery_support_class" in df.columns                                          # recovery context present
 assert "reason_text" in df.columns
 assert df["reason_text"].dtype == object                                                # string type
 
@@ -549,22 +549,12 @@ Si `baseline60_degraded = True`:
 
 Si tienes el archivo monolítico del sistema anterior (`ENDURANCE_HRV_master_ALL.csv`):
 
+Este repositorio no incluye ya un migrador V3. Conserva el monolítico fuera
+del repositorio como backup privado y reconstruye los outputs vigentes desde
+los RR originales:
+
 ```bash
-# 1. Ejecutar migración con script legacy (si lo tienes en otro repo)
-python endurance_migrate.py --master-all ENDURANCE_HRV_master_ALL.csv
-
-# 2. Verificar que DASHBOARD contiene los datos esperados
-head -5 data/ENDURANCE_HRV_master_DASHBOARD.csv
-
-# 3. Archivar el archivo monolítico (no borrar, por seguridad)
-mkdir -p docs/legacy
-mv ENDURANCE_HRV_master_ALL.csv docs/legacy/
-
-# 4. Mover archivos intermedios con sufijos de fecha
-mv *_20260209*.csv docs/legacy/
-
-# 5. A partir de aquí, usar los scripts nuevos para cada día
-python build_hrv_core.py --rr-file data/rr_downloads/nuevo_RR.csv --data-dir data
+python build_hrv_core.py --rr-dir data/rr_downloads --data-dir data
 python build_hrv_final_dashboard.py --data-dir data
 ```
 

@@ -79,7 +79,7 @@ Ese `weekly_prep_manifest.json` es tambien el punto unico de descubrimiento: el 
 **Ejemplo:**
 ```bash
 # Ultima sesion (desde analysis/)
-python analyze_session.py  -> python analysis/analyze_session.py --keep-bundle
+python analyze_session.py --keep-bundle
 
 # Sesion concreta
 python analyze_session.py --session-id i133874358
@@ -247,6 +247,52 @@ python session_cost_model.py --session-id i133874358
 
 ---
 
+### `run_session_analysis_batch.py`
+
+**Que hace:**
+- Ejecuta el pipeline de analisis sobre varias sesiones filtradas por año, deporte o estado de informe.
+- Reutiliza `prepare_bundle()`, `run_analysis()` y `cleanup_bundle()`.
+
+**Cuando usarlo:**
+- Para backfills o regeneraciones controladas de informes.
+- No sustituye a `analyze_session.py` para el uso interactivo normal.
+
+---
+
+### `fit_speed_utils.py`
+
+**Que hace:**
+- Extrae velocidad y metricas asociadas desde FIT.
+- Es un modulo de soporte usado por `session_analysis_pipeline.py` y `patch_speed_metrics.py`.
+
+**Cuando usarlo:**
+- No se ejecuta directamente.
+
+---
+
+### `patch_speed_metrics.py`
+
+**Que hace:**
+- Migra artefactos historicos concretos añadiendo `speed_metrics` a `session_payload.json` desde el FIT conservado.
+
+**Cuando usarlo:**
+- Solo para reparaciones o backfills locales de reports existentes.
+- No forma parte del flujo normal ni modifica outputs canonicos globales.
+
+---
+
+### `efficiency_context_audit.py`
+
+**Que hace:**
+- Regenera una auditoria local de `efficiency_context` recorriendo los `summary.json` de `analysis/reports/`.
+- Comprueba sidecars `matched_climbs.csv` y puede fallar de forma estricta si falta trazabilidad.
+
+**Cuando usarlo:**
+- Para auditoria reproducible del modulo, no para producir un informe individual.
+- Sus resultados deben tratarse como auditoria local y no como contrato global.
+
+---
+
 ### `hrv_rebound_profile.py`
 
 **Que hace:**
@@ -326,7 +372,8 @@ python session_cost_model.py --session-id i133874358
 **Automatico o manual:**
 - Manual dentro del flujo local del analisis semanal.
 - No se ejecuta automaticamente al lanzar un prompt semanal; hoy es un paso explicito del modulo.
-- Comando recomendado: `python scripts/build_weekly_analysis_sidecars.py --today YYYY-MM-DD`
+- Comando recomendado desde la raíz: `python scripts/build_weekly_analysis_sidecars.py --today YYYY-MM-DD`
+- Alternativa equivalente: `python -m analysis.build_weekly_analysis_sidecars --today YYYY-MM-DD`
 
 ---
 
@@ -359,7 +406,8 @@ python session_cost_model.py --session-id i133874358
 **Automatico o manual:**
 - Manual respecto al prompt semanal.
 - Es el comando recomendado para arrancar el semanal local.
-- Comando recomendado: `python scripts/run_weekly_analysis_prep.py --today YYYY-MM-DD`
+- Comando recomendado desde la raíz: `python scripts/run_weekly_analysis_prep.py --today YYYY-MM-DD`
+- Alternativa equivalente: `python -m analysis.run_weekly_analysis_prep --today YYYY-MM-DD`
 
 ---
 
@@ -397,7 +445,8 @@ python session_cost_model.py --session-id i133874358
 **Automatico o manual:**
 - Manual respecto al prompt semanal.
 - Es el comando recomendado cuando quieres ya el borrador semanal local.
-- Comando recomendado: `python scripts/analyze_weekly.py --today YYYY-MM-DD`
+- Comando recomendado desde la raíz: `python scripts/analyze_weekly.py --today YYYY-MM-DD`
+- Alternativa equivalente: `python -m analysis.analyze_weekly --today YYYY-MM-DD`
 
 ---
 

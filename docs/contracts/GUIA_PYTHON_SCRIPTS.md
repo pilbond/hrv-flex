@@ -21,11 +21,11 @@ Importante:
 - `build_sessions.py` no se ejecuta automaticamente en ese flujo.
 - `build_hrv_final_dashboard.py` usa `ENDURANCE_HRV_sessions_day.csv` solo si ya existe.
 - Si `sessions_day.csv` y `sessions_metadata.json` estan al dia, `FINAL` puede incorporar contexto de carga canonico (`ACWR`, `monotony`, `strain`, clustering de intensidad) y capas de recuperacion multisenal sin tocar el gate.
-- La capa de terreno `FP-02` no nace aqui: se genera despues dentro de `analysis/` al correr `analysis\\run_session_analysis.py` o `analysis\\analyze_session.py`.
+- La capa de terreno no nace aqui: se genera despues dentro de `analysis/` al correr `analysis\\run_session_analysis.py` o `analysis\\analyze_session.py`.
 - Esa capa sigue siendo local a `analysis/`: hoy puede exponer `terrain_fit_context` tambien en `bike`, y en sesiones `trail`/`road` puede mostrar `climb_power_mean` cuando la fuente FIT lo declara como potencia medida; `terrain_climbs.csv` sigue siendo el detalle reproducible por climb y no cambia ningun contrato canonico global.
 - Esa misma capa local de `analysis/` ya puede enriquecer el bundle de sesion con `composite_context` (`subjective_coherence`, `thermal_context`, `durability_context`) sin tocar `sessions.csv`, `sessions_day.csv` ni otros contratos canonicos.
 - `analysis/hrv_rebound_profile.py` genera una lectura retrospectiva de rebote HRV D+1/D+3 como sidecar local (`analysis/reports/hrv_rebound_profile/`); sirve para analisis semanal de absorcion, no para el gate diario.
-- Desde `SYA-01`, `analysis/` deja tambien `artifacts/report_sync_status.json` para explicitar si el `report.md` o `report.ia.md` humano esta alineado con `session_payload.json`, `summary.json` y `technical_report.md`. El prompt/handoff incluyen un `report_sync_token` que debe copiarse al inicio del informe narrativo final.
+- `analysis/` deja tambien `artifacts/report_sync_status.json` para explicitar si el `report.md` o `report.ia.md` humano esta alineado con `session_payload.json`, `summary.json` y `technical_report.md`. El prompt/handoff incluyen un `report_sync_token` que debe copiarse al inicio del informe narrativo final.
 - En el semanal local, `analysis/analyze_weekly.py` reutiliza `weekly_prep_manifest.json`, genera `report.auto.md`, `report.ia.md`, `analyst_prompt.md`, `ai_handoff.md` y `artifacts/report_sync_status.json` bajo `analysis/reports/weekly/<week_start>_<week_end>/`. Esta capa sigue siendo local de `analysis/` y no modifica ningún contrato canónico del pipeline principal.
 - Desde esta misma fase, `analysis/run_analysis()` genera `report.md` directamente como artefacto final gobernado por pipeline. Si encuentra un `report.md` legacy sin token, crea antes un backup `report.legacy.md` y luego toma posesion del informe principal.
 
@@ -52,6 +52,16 @@ Importante:
 - Automatico o manual:
   - Automatico en Railway (start command).
   - `POST /api/sync`, `POST /api/sync-sessions`, `POST /api/import-seed` y `POST /api/delete-latest-rr` comparten estado y no deben ejecutarse en paralelo.
+
+## `canvas-tool.py`
+- Que hace:
+  - Gestiona `Project.canvas` mediante comandos de lectura, propuesta, inicio, pausa, cierre y dependencias.
+- Cuando usarlo:
+  - Solo para el workflow Kanvas documentado en `AGENTS.MD`.
+- Comando base:
+  - `python canvas-tool.py Project.canvas <command>`
+- Importante:
+  - No editar `Project.canvas` manualmente.
 
 ## `polar_hrv_automation.py`
 - Que hace:
@@ -89,6 +99,24 @@ Importante:
   - Evita que el entrypoint tenga estado global disperso.
 - Cuando usarlo:
   - Siempre que un modulo operativo necesite paths, columnas canonicas o toggles runtime.
+
+## `hrv_app.polar_utils`
+- Que hace:
+  - Reune parsers y helpers compartidos para variantes de campos Polar, duraciones, numericos, flags de entorno y extractos seguros de respuestas.
+- Cuando usarlo:
+  - Como soporte interno de clientes y UI; no es un entrypoint.
+
+## `hrv_app.oauth_utils`
+- Que hace:
+  - Implementa el intercambio OAuth `code -> token`, registro de usuario y persistencia JSON atomica reutilizada por la UI web.
+- Cuando usarlo:
+  - Desde los flujos OAuth; no se ejecuta directamente.
+
+## `hrv_app.polar_sessions`
+- Que hace:
+  - Resuelve matching de sesiones Intervals con ejercicios Polar y extrae la capa mecanica minima, incluyendo fallback FIT cuando aplica.
+- Cuando usarlo:
+  - Indirectamente desde `build_sessions.py` y el modulo `analysis/`; no es un entrypoint.
 
 ## `hrv_app.dropbox_rr`
 - Que hace:
@@ -202,28 +230,28 @@ Importante:
   - Lee CORE + sleep.
 - Aplica la logica del decisor FINAL/DASHBOARD (decision operativa diaria).
   - Enriquce `reason_text` con contexto de sueno y carga.
-  - Desde SS-01, construye internamente `reason_items` estructurados y despues renderiza `reason_text` desde esa capa.
-  - Desde SS-02, publica ademas `ENDURANCE_HRV_master_FINAL_reason_items.json` como sidecar estable para consumo de `analysis/`.
+  - Construye internamente `reason_items` estructurados y despues renderiza `reason_text` desde esa capa.
+  - Publica ademas `ENDURANCE_HRV_master_FINAL_reason_items.json` como sidecar estable para consumo de `analysis/`.
   - Valida semanticamente cada motivo con enums cerrados de `layer` (`measured/proxy/inference/action`) y `severity` (`low/medium/high/very_high`).
-  - Consume la capa CDC-01 de contexto canonico de carga desde `ENDURANCE_HRV_sessions_day.csv`:
+  - Consume la capa de contexto canonico de carga desde `ENDURANCE_HRV_sessions_day.csv`:
     - `acwr_simple_prev`
     - `monotony_7d_prev`
     - `strain_7d_prev`
     - `load_ctx_ready`
-  - Consume la capa AP-01 de clustering reciente de intensidad:
+  - Consume la capa de clustering reciente de intensidad:
     - `intense_day`
     - `intense_days_prev_3d`
     - `intense_days_prev_5d`
     - `intensity_clustering_flag`
     - `intensity_clustering_level`
-  - Construye la capa RE-01 de contexto de recuperacion multisenal sin tocar el gate:
+  - Construye la capa de contexto de recuperacion multisenal sin tocar el gate:
     - `recovery_context_quality`
     - `recovery_support_class`
     - `recovery_discordance_flag`
     - `recovery_discordance_reason`
   - Si existe `ENDURANCE_HRV_sessions_day.csv`, usa sus campos de carga.
   - Genera:
-    - `ENDURANCE_HRV_master_FINAL.csv` (62 columnas)
+    - `ENDURANCE_HRV_master_FINAL.csv` (66 columnas)
     - `ENDURANCE_HRV_master_DASHBOARD.csv`
 - Cuando usarlo:
   - Siempre que quieras pasar de CORE a salida operativa FINAL/DASHBOARD.
@@ -235,8 +263,8 @@ Importante:
   - FINAL y DASHBOARD.
   - `reason_items` sigue sin exponerse como columna en `FINAL` ni en `DASHBOARD`, pero ahora tambien se serializa en `ENDURANCE_HRV_master_FINAL_reason_items.json`.
   - `FINAL` mantiene `gate_final`, `Action` y `Action_detail` como arbitros operativos.
-  - RE-01 solo aporta soporte o discordancia objetiva via columnas y `reason_text`.
-  - CDC-01 y AP-01 solo aportan contexto de carga/clustering en `reason_text`; no recolorean el gate.
+  - La recuperación multiseñal solo aporta soporte o discordancia objetiva via columnas y `reason_text`.
+  - El contexto de carga y el clustering solo aportan contexto en `reason_text`; no recolorean el gate.
   - `analysis/` puede tratar el sidecar como fuente estructurada primaria cuando `fallback_to_reason_text = false`, pero eso no cambia el contrato público de los CSV.
 - Automatico o manual:
   - Automatico dentro de `polar_hrv_automation.py --process`.
@@ -249,33 +277,33 @@ Importante:
     - `ENDURANCE_HRV_sessions.csv` (detalle por sesion)
     - `ENDURANCE_HRV_sessions_day.csv` (agregado diario + rolling)
     - `ENDURANCE_HRV_intensity_distribution_weekly.csv` (resumen semanal por deporte del patron de distribucion observada)
-    - `ENDURANCE_HRV_weekly_coach.json` (resumen semanal estructurado con marcas de corte, cobertura y contexto retrospectivo `SYA-14`)
+    - `ENDURANCE_HRV_weekly_coach.json` (resumen semanal estructurado con marcas de corte, cobertura y contexto retrospectivo de Z3)
     - `ENDURANCE_HRV_sessions_metadata.json`
     - `ENDURANCE_HRV_wellness_subjective.csv` (wellness subjetivo diario desde Intervals, si hay cobertura)
-  - Canoniza la capa AP-02 de señal mecanica minima en `sessions.csv` para deportes de pie:
+  - Canoniza la capa de señal mecanica minima en `sessions.csv` para deportes de pie:
     - `mechanics_source`
     - `run_power_*`
     - `speed_first_half`, `speed_second_half`
     - `cadence_first_half`, `cadence_second_half`
-  - Canoniza la extracción mínima de `SYA-04` en `sessions.csv`:
+  - Canoniza la extracción mínima de coach metrics en `sessions.csv`:
     - `calories`
     - `average_cadence`
     - `average_weather_temp`
     - `hrr_drop_bpm`
     - `trimp`
     - y, si `device_watts=true`, `icu_weighted_avg_watts`, `icu_joules_above_ftp`, `icu_max_wbal_depletion`, `decoupling`
-  - Canoniza la capa CDC-01 de contexto de carga en `sessions_day.csv`:
+  - Canoniza la capa de contexto de carga en `sessions_day.csv`:
     - `acwr_simple_prev`
     - `monotony_7d_prev`
     - `strain_7d_prev`
     - `load_ctx_ready`
-  - Canoniza la capa AP-01 de clustering proactivo en `sessions_day.csv`:
+  - Canoniza la capa de clustering proactivo en `sessions_day.csv`:
     - `intense_day`
     - `intense_days_prev_3d`
     - `intense_days_prev_5d`
     - `intensity_clustering_flag`
     - `intensity_clustering_level`
-  - Embebe la capa ADC-01 de auditoria ligera por capas en `ENDURANCE_HRV_sessions_metadata.json`:
+  - Embebe la auditoria ligera por capas en `ENDURANCE_HRV_sessions_metadata.json`:
     - `training_audit.dataset_level`
     - `training_audit.signal_level`
     - `training_audit.metric_level`
@@ -301,7 +329,7 @@ Importante:
   - `sessions_day.csv` pasa a ser la fuente canonica de rolling de carga y clustering para `reason_text`.
   - `intensity_distribution_weekly.csv` pasa a ser la salida canonica de distribucion observada por `sport x week`.
   - `ENDURANCE_HRV_weekly_coach.json` pasa a ser el sidecar canonico de resumen semanal estructurado para consumo posterior.
-  - Desde `SYA-14`, ese sidecar puede incluir:
+  - Ese sidecar puede incluir:
     - `z3_budget_by_sport` como lectura retrospectiva estructurada de percentil historico de Z3 por deporte o familia
     - `z3_budget_summary` como resumen corto visible en UI (`Contexto Z3 semanal`), deliberadamente asimetrico y solo surfaceado para bandas `high/very_high`
   - Esta capa sigue siendo retrospectiva y no introduce prescripcion automatica ni modifica `sessions_day`, `FINAL`, `DASHBOARD` o `reason_text`.
@@ -375,13 +403,14 @@ Importante:
 
 ## `build_hrv_ssm.py`
 - Que hace:
-  - Genera la capa sombra SSM (`SYA-17 Fase 1`): Banister de dos estados (lento/rapido) con observacion HRV matinal y observacion nocturna de sueno opcional como segunda fuente.
+  - Genera la capa sombra SSM de Fase 1: Banister de dos estados (lento/rapido) con observacion HRV matinal y observacion nocturna de sueno opcional como segunda fuente.
   - Escribe `ENDURANCE_HRV_ssm_shadow.csv` (30 cols) y `ENDURANCE_HRV_ssm_shadow_metadata.json`.
   - Expone `preprocess_base()` para precomputar la parte invariante (obs_quality, load_context, sleep_context) y `run_ssm_from_base()` para ejecutar solo el Kalman sobre un base ya procesado — util para validacion con multiples configuraciones sin recalcular lo costoso.
   - No modifica `FINAL.csv`, no toca el gate y no se expone en la UI operativa.
 - Cuando usarlo:
   - Automaticamente tras `build_hrv_final_dashboard.py` en cada sync via `hrv_app.hrv_sync_flow`.
   - Manualmente: `python build_hrv_ssm.py [--data-dir <dir>]`.
+  - Su parser es minimo: solo reconoce `--data-dir`; no ofrece `--help` y los argumentos desconocidos se ignoran.
 - Entradas:
   - `ENDURANCE_HRV_master_CORE.csv`, `ENDURANCE_HRV_sessions_day.csv`, `ENDURANCE_HRV_sleep.csv` (opcional).
 - Salidas:
@@ -391,12 +420,13 @@ Importante:
 
 ## `build_hrv_ssm_validation.py`
 - Que hace:
-  - Genera el reporte reproducible de validacion Fase 1 (`SYA-17`): elige el outcome principal (FDS sobre `cardiac_drift_worst` normalizado por deporte), construye pares temporales, evalua SSM vs rolling vs load vs EWMA con walk-forward, bootstrap CI, estratificacion por deporte, comparador estructural (beta=0 vs ARX) y comparador de sueno.
+  - Genera el reporte reproducible de validacion Fase 1 del modelo SSM: elige el outcome principal (FDS sobre `cardiac_drift_worst` normalizado por deporte), construye pares temporales, evalua SSM vs rolling vs load vs EWMA con walk-forward, bootstrap CI, estratificacion por deporte, comparador estructural (beta=0 vs ARX) y comparador de sueno.
   - Escribe `ENDURANCE_HRV_ssm_validation_report.json` y `.md`.
-  - Resultado actual: `no_go`; el SSM no gana de forma robusta al rolling HRV ni al EWMA en este outcome.
+  - El resultado no forma parte del contrato estatico: debe leerse de `phase1_conclusion`, `go_no_go` y `primary_strict_by_sport` en el JSON regenerado.
   - No modifica el gate.
 - Cuando usarlo:
   - Manualmente: `python build_hrv_ssm_validation.py [--data-dir <dir>]`.
+  - Su parser es minimo: solo reconoce `--data-dir`; no ofrece `--help` y los argumentos desconocidos se ignoran.
   - Bajo demanda cuando se quiera reevaluar si el SSM aporta valor; no forma parte del sync HRV diario.
   - O de forma agrupada via `python polar_hrv_automation.py --ssm-audit`, que primero regenera `ssm_shadow`.
 - Entradas:
@@ -410,10 +440,11 @@ Importante:
 - Que hace:
   - Prueba el predictor SSM contra outcomes alternativos a `cardiac_drift_worst`: `lnRMSSD_t+1` y `well_fatigue_raw_t+1`.
   - Incluye comparadores SSM, rolling HRV 7d, AR(1), EWMA grid y bootstrap CI.
-  - Hallazgo principal: la innovacion SSM (`ssm_innovation`) predice bienestar subjetivo del dia siguiente mejor que rolling con CI90 enteramente negativo (n=71, incipiente).
+  - Los hallazgos dependen del dataset: deben leerse en `outcomes` y `battery_conclusion` del JSON regenerado, no copiarse como una propiedad permanente del script.
   - No modifica el gate.
 - Cuando usarlo:
   - Manualmente: `python build_hrv_ssm_outcome_battery.py [--data-dir <dir>]`.
+  - Su parser es minimo: solo reconoce `--data-dir`; no ofrece `--help` y los argumentos desconocidos se ignoran.
   - Bajo demanda, normalmente despues de lanzar la validacion SSM manual.
   - O de forma agrupada via `python polar_hrv_automation.py --ssm-audit`.
 - Entradas:
@@ -431,17 +462,17 @@ Si tu pregunta es "que scripts importan para operar dia a dia":
 2. `polar_hrv_automation.py` (sync y orquestacion)
 3. `egc_to_rr.py` (Dropbox/local JSONL -> RR, cuando faltan fechas o para validacion manual)
 4. `build_hrv_core.py` (RR -> CORE/BETA)
-5. `build_hrv_final_dashboard.py` (CORE -> FINAL/DASHBOARD + RE-01 recovery context)
+5. `build_hrv_final_dashboard.py` (CORE -> FINAL/DASHBOARD + contexto de recuperación multiseñal)
 
 Y aparte, opcionales recomendados:
 
-1. `build_sessions.py` para mantener al dia `sessions.csv`, `sessions_day.csv`, `ENDURANCE_HRV_weekly_coach.json`, `sessions_metadata.json` y `wellness_subjective.csv`, y asi habilitar AP-01, AP-02, CDC-01, ADC-01, RE-02 y PCV-04 en el contexto del sistema.
-2. `build_hrv_ssm.py` se ejecuta automaticamente tras cada sync HRV para regenerar `ENDURANCE_HRV_ssm_shadow.csv`. `build_hrv_ssm_validation.py` y `build_hrv_ssm_outcome_battery.py` quedan como herramientas manuales bajo demanda: son sombra pura, no tocan `FINAL`, no recoloran el gate y sirven para reevaluar si el SSM aporta valor cuando se quiera abrir esa auditoria. El resultado actual de la validacion es `no_go`.
+1. `build_sessions.py` para mantener al dia `sessions.csv`, `sessions_day.csv`, `ENDURANCE_HRV_weekly_coach.json`, `sessions_metadata.json` y `wellness_subjective.csv`, y asi habilitar el clustering, la señal mecánica mínima, el contexto de carga, la auditoría por capas, el wellness subjetivo y el resumen semanal.
+2. `build_hrv_ssm.py` se ejecuta automaticamente tras cada sync HRV para regenerar `ENDURANCE_HRV_ssm_shadow.csv`. `build_hrv_ssm_validation.py` y `build_hrv_ssm_outcome_battery.py` quedan como herramientas manuales bajo demanda: son sombra pura, no tocan `FINAL`, no recoloran el gate y sirven para reevaluar si el SSM aporta valor. El veredicto vigente debe leerse de los JSON regenerados, porque cambia con el dataset.
    - Entry point recomendado: `python polar_hrv_automation.py --ssm-audit`
 3. `analysis\\analyze_session.py` o `analysis\\run_session_analysis.py` cuando quieras explotar la capa analitica local sin tocar contratos canonicos:
    - terreno (`GAP`, `VAM`, potencia por split y climbs FIT`; en `bike`, la capa FIT puede anadir potencia estimada local por subida)
-   - `composite_context` de `SYA-07` (`subjective_coherence`, `thermal_context`, `durability_context`)
-   - `narrative_targets` de `SYA-11` (`error_context`, `exit_context`, `final_reason_rendered`); `exit_context.block_role_signals.load_rank_in_sport_7d` usa una ventana real de 7 dias por deporte, no un recorte visual de sesiones recientes
-   - para sesiones `trail_run`: capa shadow AP-03 (`runaware_context`, `v1_shadow_history`) — validacion paralela del clustering AP-01 v1 con senal de terreno y potencia de carrera; shadow-only, no modifica ningun contrato canonico
+   - `composite_context` (`subjective_coherence`, `thermal_context`, `durability_context`)
+   - `narrative_targets` (`error_context`, `exit_context`, `final_reason_rendered`); `exit_context.block_role_signals.load_rank_in_sport_7d` usa una ventana real de 7 dias por deporte, no un recorte visual de sesiones recientes
+   - para sesiones `trail_run`: capa shadow (`runaware_context`, `v1_shadow_history`) — validacion paralela del clustering v1 con senal de terreno y potencia de carrera; shadow-only, no modifica ningun contrato canonico
 4. `analysis\\hrv_rebound_profile.py` cuando quieras revisar la absorcion HRV de forma retrospectiva por semana o por bloque, sin mezclar esa lectura con el gate diario ni con `sessions_day`.
 

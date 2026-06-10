@@ -366,7 +366,7 @@ Esta v3 no pretende:
 - mover toda la semantica diaria a JSON externo,
 - duplicar `training_audit`,
 - convertir `reason_text` en un informe largo,
-- romper el contrato de 62 columnas de `FINAL` sin consumidor real.
+- romper el contrato de 66 columnas de `FINAL` sin consumidor real.
 
 ## Unidad semantica propuesta
 
@@ -708,7 +708,7 @@ No deben cambiar:
 
 - `COLS_FINAL`
 - `COLS_DASHBOARD`
-- contrato documental de 62 columnas en `FINAL`
+- contrato documental de 66 columnas en `FINAL`
 
 ### Si algun dia se activa Nivel B
 

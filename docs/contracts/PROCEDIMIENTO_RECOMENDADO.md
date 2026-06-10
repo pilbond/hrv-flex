@@ -23,6 +23,7 @@ Esto hace:
 - Para el sueño Polar, el flujo prueba primero la fecha exacta y, si no hay datos, el dia anterior; el fallback existe para cubrir retrasos o desplazamientos alrededor de medianoche, no para inventar filas.
 - Genera ENDURANCE_HRV_master_CORE.csv y ENDURANCE_HRV_master_BETA_AUDIT.csv.
 - Genera ENDURANCE_HRV_master_FINAL.csv y ENDURANCE_HRV_master_DASHBOARD.csv.
+- Regenera ENDURANCE_HRV_ssm_shadow.csv y su metadata.
 
 Si usas la Web UI, basta con presionar "Sincronizar".
 
@@ -76,5 +77,8 @@ Si no hay sesión en un día, el CSV simplemente no incluye esa fecha. Es normal
 - No subir a Git: `.env`, `.polar_tokens.json` ni datos personales.
 
 ## Migración desde V3 (solo histórico)
-python __endurance_migrate.py --master-all ENDURANCE_HRV_master_ALL.csv
+
+El migrador V3 ya no forma parte de este repositorio. Conserva cualquier
+`ENDURANCE_HRV_master_ALL.csv` fuera del repositorio como backup privado y
+reconstruye los outputs vigentes desde los RR originales.
 

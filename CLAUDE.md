@@ -18,7 +18,8 @@ Este archivo es **subordinado a `AGENTS.md`** y solo concreta o replica:
 3. `analysis/AGENTS.md` (reglas locales del módulo analítico)
 4. `analysis/ENDURANCE_AGENT_DOMAIN.md` (rol, tono, baseline fisiológico)
 5. `analysis/SESSION_ANALYSIS_METHOD.md` (método operativo del análisis)
-6. Este `CLAUDE.md` (guía adaptada para Claude Code; no prevalece sobre los documentos anteriores)
+6. `research/AGENTS.md` (enrutado de experimentos y auditorías no operativas)
+7. Este `CLAUDE.md` (guía adaptada para Claude Code; no prevalece sobre los documentos anteriores)
 
 ---
 
@@ -84,6 +85,11 @@ Sistema automatizado HRV para un **único atleta**:
 │   ├── AGENTS.md
 │   ├── ENDURANCE_AGENT_DOMAIN.md
 │   └── SESSION_ANALYSIS_METHOD.md
+├── research/                          # Experimentos y auditorías no operativas
+│   ├── AGENTS.md
+│   ├── experiments/
+│   ├── audits/
+│   └── reports/
 ├── web_ui.py                          # Flask + UI móvil
 ├── polar_hrv_automation.py            # Orquestador principal
 ├── build_hrv_core.py                   # RR → CORE + BETA_AUDIT
@@ -105,11 +111,11 @@ Sistema automatizado HRV para un **único atleta**:
 |---------|----------|-----------|
 | `ENDURANCE_HRV_master_CORE.csv` | 18 | RR procesado, métricas base |
 | `ENDURANCE_HRV_master_BETA_AUDIT.csv` | 13 | Auditoría RR, diagnostics |
-| `ENDURANCE_HRV_master_FINAL.csv` | 62 | CORE + gates + contexto + reason_text + RE-01 |
+| `ENDURANCE_HRV_master_FINAL.csv` | 66 | CORE + gates + contexto + reason_text + recuperación multiseñal |
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | 10 | Resumen operativo para dashboard |
 | `ENDURANCE_HRV_sleep.csv` | 17 | Sueño Polar (sidecar; carga en sessions_day.csv) |
 | `ENDURANCE_HRV_sessions.csv` | - | Sesiones Intervals.icu (histórico) |
-| `ENDURANCE_HRV_sessions_day.csv` | 60 | Carga por día + rolling con cobertura + clustering reciente de intensidad + DO-02 |
+| `ENDURANCE_HRV_sessions_day.csv` | 61 | Carga por día + rolling con cobertura + clustering reciente de intensidad + distribución rolling + `elev_loss_7d_sum` |
 | `ENDURANCE_HRV_sessions_metadata.json` | - | `training_audit` por capas (`dataset_level`, `signal_level`, `metric_level`) |
 | `ENDURANCE_HRV_intensity_distribution_weekly.csv` | - | Distribución observada por `sport x week` con patrón y confianza |
 | `ENDURANCE_HRV_weekly_coach.json` | - | Sidecar semanal con `planning_note`, cobertura y contexto retrospectivo `SYA-14` (`z3_budget_by_sport`, `z3_budget_summary`) visible en `/api/status` |
@@ -151,7 +157,7 @@ Procesamiento de RR crudo.
 ### `build_hrv_final_dashboard.py`
 Decisor HRV con contexto.
 Inputs: `CORE.csv` + `sleep.csv` + `sessions_day.csv` (ambos opcionales, solo para reason_text)
-Outputs: `FINAL.csv` (62 cols) + `DASHBOARD.csv` (10 cols)
+Outputs: `FINAL.csv` (66 cols) + `DASHBOARD.csv` (10 cols)
 - `load_3d`, la capa canonica `ACWR/monotony/strain` y el clustering reciente de intensidad se consumen solo como contexto de `reason_text`
 - `FINAL` integra la capa RE-01 sin tocar el gate HRV
 
@@ -202,12 +208,13 @@ Datos operativos:
 
 ## Variables de Entorno
 
-### Requeridas
+### Requeridas para OAuth
 - `POLAR_CLIENT_SECRET` — secret OAuth
-- `PORT` — puerto Flask
 
 ### Una de estas (al menos)
 - `POLAR_CLIENT_ID` o `POLAR_CLIENT_ID2` (precedencia: `POLAR_CLIENT_ID2` si ambas)
+
+`PORT` lo proporciona Railway en producción; en local es opcional y usa `8080` por defecto.
 
 ### Muy recomendadas
 ```
@@ -226,6 +233,19 @@ HRV_DISABLE_BACKUP=1                 # no respaldar CSVs
 HRV_SYNC_TIMEOUT_SEC=300             # timeout sync
 ```
 
+### Especializadas
+```
+POLAR_USER_NAME=Polar_User
+POLAR_TZ_OFFSET_MIN=0
+INTERVALS_BASE_URL=https://intervals.icu
+ATHLETE_WEIGHT_KG=68.0
+SYSTEM_BIKE_WEIGHT_KG=80.0
+HRV_WARNING_MODE=adaptive90          # adaptive90 | healthy85 | p20
+HRV_HEALTHY_START=2025-07-01
+HRV_HEALTHY_END=2025-09-30
+HRV_SSM_REASON_TEXT_ENABLED=0        # experimental; mantener deshabilitado
+```
+
 ### Dropbox RR
 ```
 HRV_DROPBOX_RR_ENABLED=1
@@ -233,6 +253,7 @@ HRV_DROPBOX_RR_SCRIPT=egc_to_rr.py
 HRV_DROPBOX_NO_AUX=1
 HRV_DROPBOX_PAIR_LIMIT=<N>
 HRV_DROPBOX_FOLDER_PATH=<path>
+# Aliases legacy: DROPBOX_FOLDER_PATH, ECG_RR_DROPBOX_FOLDER
 HRV_DROPBOX_RECURSIVE=1
 DROPBOX_ACCESS_TOKEN=<token>
 # O: DROPBOX_REFRESH_TOKEN + DROPBOX_APP_KEY + DROPBOX_APP_SECRET
@@ -297,7 +318,7 @@ GET  /health
 - ❌ No loguear tokens, `client_secret`, API keys
 - ✅ Rotar secretos si se exponen
 - ✅ **NUNCA** exponer tokens ni artefactos sensibles por HTTP
-- ⚠️ Tratar `docs/legacy/` como material histórico sensible
+- ⚠️ Tratar `research/archive/` como material histórico sensible
 
 ---
 
@@ -311,7 +332,7 @@ GET  /health
 6. RR se almacenan y leen desde `data/rr_downloads/`
 7. Cobertura RR: **Dropbox primero**, fallback Polar si faltan fechas
 8. `POST /api/sync-sessions` ejecuta `build_sessions.py --update`
-9. UI web no permite ejecutar `/api/sync` y `/api/sync-sessions` simultáneamente
+9. Los jobs mutables de la UI comparten estado y no se ejecutan simultáneamente
 
 ---
 
@@ -320,7 +341,7 @@ GET  /health
 ### Windows local
 ```bash
 scripts\run-web-ui.bat
-scripts\run-python.bat
+scripts\run-hrv.bat
 ```
 
 ### Pipeline sesiones
@@ -355,23 +376,31 @@ python egc_to_rr.py --dropbox-folder /ruta/carpeta --dropbox-recursive --outdir 
 
 **→ Actualizar `docs/contracts/` también**
 
+### Investigación y auditorías
+
+- `analysis/` queda reservado al producto funcional de análisis de sesiones y semanas.
+- Hipótesis, benchmarks, auditorías, revisiones por IA y experimentos no adoptados van en `research/`.
+- Antes de crear contenido exploratorio, leer `research/AGENTS.md`.
+- Guardar scripts en `research/**/scripts/` y outputs en `results/` o `research/reports/`.
+- No escribir resultados junto al código ni importar `research/` desde la aplicación.
+
 ---
 
-## Snapshot Actual (2026-04-16)
+## Snapshot Actual (2026-06-10)
 
 ### HRV global
 - ✅ ARQ-02 (AYO-11): módulos internos reorganizados en `hrv_app/`; entrypoints de raíz (`web_ui.py`, `polar_hrv_automation.py`, `build_sessions.py`) intactos
-- ✅ UI expone `/api/sync`, `/api/sync-sessions`, `/api/status`, endpoints OAuth
+- ✅ UI expone `/api/sync`, `/api/sync-sessions`, `/api/status`, `/api/import-seed`, `/api/delete-latest-rr` y endpoints OAuth
 - ✅ `build_sessions.py` genera `sessions`, `sessions_day`, `intensity_distribution_weekly`, `weekly_coach`, `sessions_metadata` y `wellness_subjective`
 - ✅ Flujo recomendado: Dropbox primero, Polar fallback
 - ✅ `ENDURANCE_HRV_sleep.csv` es archivo canónico de sueño (17 cols; carga en sessions_day.csv)
-- ✅ UI no permite ejecutar sync HRV y sync-sessions simultáneamente
+- ✅ Los jobs HRV, sesiones, import seed y backup del último RR comparten estado y no se ejecutan simultáneamente
 - ✅ `sessions_day.csv` incluye carga canonica, clustering reciente de intensidad y señal `DO-02`
 - ✅ `sessions_metadata.json` incluye `training_audit` por capas para gobernar confianza de coaching/carga
 - ✅ `weekly_coach.json` expone tambien la capa `SYA-14` como contexto retrospectivo de Z3 por deporte sin tocar el gate
 - ✅ `build_hrv_final_dashboard.py` consume `load_3d`, `ACWR/monotony/strain` y clustering reciente de intensidad solo como contexto de `reason_text`
 - ✅ Fetch sleep/nightly/intervals en `polar_hrv_automation.py` operativo
-- ✅ RE-01: capa de recuperación multiseñal en FINAL (62 cols); `recovery_support_class`, `recovery_discordance_flag` y `recovery_discordance_reason` sin tocar el gate
+- ✅ Capa de recuperación multiseñal en FINAL (66 cols); `recovery_support_class`, `recovery_discordance_flag` y `recovery_discordance_reason` sin tocar el gate
 - ✅ RE-02: sidecar `ENDURANCE_HRV_wellness_subjective.csv` (17 cols) para análisis retrospectivo; no alimenta `reason_text`
 - ✅ DO-01: sidecar `ENDURANCE_HRV_intensity_distribution_weekly.csv` (21 cols); distribución observada por `sport × semana ISO` con patrón (`polarized`, `pyramidal`, `threshold`, `mixed`) y confianza explícita; no alimenta el gate
 
@@ -413,12 +442,12 @@ Si existe `Project.canvas` en la raiz del proyecto, usar Kanvas como tablero vis
 Reglas:
 - Nunca editar `Project.canvas` directamente.
 - Todas las modificaciones del canvas deben hacerse con el CLI de Kanvas.
-- CLI canonico:
-  `python Kanvas\canvas-tool.py polar-hrv-automation\Project.canvas <command>`
+- CLI canonico desde la raiz del repositorio:
+  `python canvas-tool.py Project.canvas <command>`
 - Al inicio de cada sesion:
-  `python Kanvas\canvas-tool.py polar-hrv-automation\Project.canvas status`
+  `python canvas-tool.py Project.canvas status`
 - Si hay inconsistencias visuales o tareas sin ID:
-  `python Kanvas\canvas-tool.py polar-hrv-automation\Project.canvas normalize`
+  `python canvas-tool.py Project.canvas normalize`
 
 Politica de estados:
 - `purple`: propuesta del agente

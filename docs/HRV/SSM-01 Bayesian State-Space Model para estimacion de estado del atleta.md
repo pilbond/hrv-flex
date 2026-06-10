@@ -441,7 +441,7 @@ Eso no es una implementacion unica; es un roadmap de investigacion. Para este pr
 
 El pipeline real ya tiene un contrato duro sobre `FINAL.csv`:
 
-- `build_hrv_final_dashboard.py` declara una lista fija de 62 columnas
+- `build_hrv_final_dashboard.py` declara una lista fija de 66 columnas
 - `docs/contracts/ENDURANCE_HRV_Estructura.md` documenta ese contrato exacto
 - `analysis/` ya consume `reason_text` y sidecars asociados como parte del flujo reproducible
 

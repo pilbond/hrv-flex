@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Especificación Técnica
 
-**Revisión:** r2026-05-13 v4.13 (PCV-04 sidecar semanal estructurado)
+**Revisión:** r2026-05-13 v4.13 (sidecar semanal estructurado)
 **Estado:** Producción
 
 ---
@@ -30,7 +30,7 @@ Este repositorio usa **tres niveles distintos de versionado**. No deben comparar
    Se usa en los scripts ejecutables para identificar la revisión declarada de ese fichero concreto. No equivale por sí sola a la versión del sistema completo.
 
 Reglas:
-- `Spec_Tecnica.md` declara la **versión de sistema vigente**.
+- `ENDURANCE_HRV_Spec_Tecnica.md` declara la **versión de sistema vigente**.
 - Los demás documentos pueden tener otra versión propia porque versionan su capa documental, no el sistema entero.
 - Los scripts deben exponer `Revisión de módulo` y, si aplica, el `Sistema vigente` con el que están alineados.
 - Si una incidencia menciona solo "v4", debe aclararse si habla de sistema, documento o módulo.
@@ -39,8 +39,8 @@ Mapa operativo actual:
 - Sistema vigente: `ENDURANCE HRV V4.10`
 - Módulo RR -> CORE/BETA: `build_hrv_core.py`, revisión `r2026-03-19`
 - Módulo CORE -> FINAL/DASHBOARD: `build_hrv_final_dashboard.py`, revisión `r2026-04-08`
-- Contrato estructural HRV: `ENDURANCE_HRV_Estructura.md`, revisión `r2026-04-10 v3.11`
-- Contrato de sesiones: `ENDURANCE_HRV_Sessions_Schema.md`, revisión `r2026-04-16 v3.11`
+- Contrato estructural HRV: `ENDURANCE_HRV_Estructura.md`, revisión `r2026-06-10 v3.16`
+- Contrato de sesiones: `ENDURANCE_HRV_Sessions_Schema.md`, revisión `r2026-05-18 v3.15`
 
 ---
 
@@ -831,7 +831,7 @@ bad_7d = nº de ROJO en los últimos 7 días
 
 **Fuentes:** combina datos del pipeline HRV (veto agudo, saturación, quality) con:
 - `ENDURANCE_HRV_sleep.csv` — sueño Polar (noche corta, fragmentada, nightly_rmssd)
-- `ENDURANCE_HRV_sessions_day.csv` — carga de entrenamiento (`ACWR`, `monotony`, `strain`, `work_7d`, `z3_7d`), clustering reciente de intensidad, señal DO-02 de polarización por familia y resumen de episodios
+- `ENDURANCE_HRV_sessions_day.csv` — carga de entrenamiento (`ACWR`, `monotony`, `strain`, `work_7d`, `z3_7d`), clustering reciente de intensidad, señal de polarización por familia y resumen de episodios
 
 **Generación:** `build_hrv_final_dashboard.py` construye `reason_items` estructurados y después renderiza `reason_text` como salida humana compacta. Además, escribe un sidecar estable `ENDURANCE_HRV_master_FINAL_reason_items.json` con los items por fecha para consumo local de `analysis/`. Cada item puede declarar `type`, `layer`, `source` y, cuando aplica, evidencia estructurada (`metric`, `value`, `threshold`, `codes`, `evidence`). La tabla `FINAL` sigue sin exponer una columna pública `reason_items_json`; el contrato público del CSV no cambia.
 
@@ -862,18 +862,18 @@ Las condiciones visibles se siguen evaluando en orden y las que se cumplen se co
 | 16 | VERDE + `acute_load_72h_rel >= P75/P90 local` | sessions_day.csv | `VERDE con carga aguda 72h (acute_load_72h_rel=Xx; load_3d=Y): precaución con la intensidad` |
 | 17 | VERDE + contexto canónico exigente | sessions_day.csv | `VERDE con contexto de carga exigente: precaución con la intensidad` |
 | 18 | VERDE + `acute_load_72h_rel >= P75/P90 local` + señal canónica exigente | sessions_day.csv | `VERDE con convergencia de carga (carga 72h + ACWR/monotonía/strain): precaución con la intensidad reforzada` |
-| 19 | RE-01: VERDE + mala noche y/o carga reciente exigente | sleep.csv + sessions_day.csv | `VERDE con recuperación frágil...` |
-| 20 | RE-01: ÁMBAR + sueño nocturno bueno y poca carga reciente | sleep.csv + sessions_day.csv | `ÁMBAR con soporte nocturno aceptable...` |
-| 21 | RE-01: ÁMBAR + contexto objetivo empeorado | sleep.csv + sessions_day.csv | `ÁMBAR con recuperación frágil...` |
-| 22 | RE-01: ROJO + sueño/carga objetivamente mejores de lo esperado | sleep.csv + sessions_day.csv | `ROJO con discordancia objetiva...` |
+| 19 | VERDE + mala noche y/o carga reciente exigente | sleep.csv + sessions_day.csv | `VERDE con recuperación frágil...` |
+| 20 | ÁMBAR + sueño nocturno bueno y poca carga reciente | sleep.csv + sessions_day.csv | `ÁMBAR con soporte nocturno aceptable...` |
+| 21 | ÁMBAR + contexto objetivo empeorado | sleep.csv + sessions_day.csv | `ÁMBAR con recuperación frágil...` |
+| 22 | ROJO + sueño/carga objetivamente mejores de lo esperado | sleep.csv + sessions_day.csv | `ROJO con discordancia objetiva...` |
 
 **Umbrales de sueño:** Basados en percentiles propios (P10, P90), NO en valores fijos. Se recalculan con todo el histórico disponible. Esto adapta los avisos a TU patrón de sueño.
 
 **Umbrales de carga:** `load_3d` sigue existiendo como señal bruta de 3 días, pero el aviso interpretado principal usa `acute_load_72h_rel` con umbrales locales (`P75/P90`) cuando hay suficiente histórico; esos percentiles se calculan sobre todo el histórico listo disponible en `base_df`, igual que la capa de `strain`. Esto no es una ventana causal: para fechas antiguas del dataset, el percentil puede incorporar registros futuros, igual que ya ocurre con `strain_7d_prev`. Hasta entonces usa umbrales bootstrap provisionales. La capa canónica sigue siendo `ACWR` + `monotony` + `strain`: `ACWR` usa bandas fijas interpretativas (`>=1.3` alto, `>=1.5` muy alto; `<=0.8` descarga), `monotony` usa bandas orientativas (`>=1.8` elevada, `>=2.0` alta), y `strain` se calibra por percentiles del histórico local (`P75/P90`) cuando hay al menos 8 observaciones listas. Todo sigue siendo contexto, no gate.
 
-**Clustering de intensidad (AP-01 v1):** `sessions_day.csv` añade `intense_day`, `intense_days_prev_3d`, `intense_days_prev_5d`, `intensity_clustering_flag` e `intensity_clustering_level`. Es un proxy local del concepto NDLI: cuenta días `work_intense` en ventana corta sobre calendario continuo. Regla v1: `flag = intense_days_prev_5d >= 2`; severidad `high` si `intense_days_prev_3d >= 2` o `intense_days_prev_5d >= 3`, `low` en caso contrario. Nunca recolorea el gate.
+**Clustering de intensidad v1:** `sessions_day.csv` añade `intense_day`, `intense_days_prev_3d`, `intense_days_prev_5d`, `intensity_clustering_flag` e `intensity_clustering_level`. Es un proxy local del concepto NDLI: cuenta días `work_intense` en ventana corta sobre calendario continuo. Regla v1: `flag = intense_days_prev_5d >= 2`; severidad `high` si `intense_days_prev_3d >= 2` o `intense_days_prev_5d >= 3`, `low` en caso contrario. Nunca recolorea el gate.
 
-**Validación en sombra AP-03 (local a `analysis/`):** `analysis/session_analysis_pipeline.py` genera para sesiones `trail_run` una capa paralela `runaware_context` que evalúa si el proxy AP-01 v1 captura bien el coste específico de trail enriqueciendo el clustering con señal de terreno (`terrain_fit_context`) y potencia de carrera (`run_power_*`). Esta capa es **shadow-only**: no modifica `sessions_day.csv`, no alimenta `reason_text` y no recolorea el gate. Produce `runaware_intense_candidate`, `runaware_severity_candidate` y `v1_shadow_history` con concordancia histórica v1 vs sombra. La decisión de promover esta capa a operativa queda diferida hasta acumular evidencia suficiente (ver tarea AP-03 y `analysis/SESSION_ANALYSIS_METHOD.md`).
+**Validación en sombra local a `analysis/`:** `analysis/session_analysis_pipeline.py` genera para sesiones `trail_run` una capa paralela `runaware_context` que evalúa si el clustering v1 captura bien el coste específico de trail enriqueciéndolo con señal de terreno (`terrain_fit_context`) y potencia de carrera (`run_power_*`). Esta capa es **shadow-only**: no modifica `sessions_day.csv`, no alimenta `reason_text` y no recolorea el gate. Produce `runaware_intense_candidate`, `runaware_severity_candidate` y `v1_shadow_history` con concordancia histórica entre la versión operativa y la sombra. La decisión de promover esta capa a operativa queda diferida hasta acumular evidencia suficiente, según los criterios de `analysis/SESSION_ANALYSIS_METHOD.md`.
 
 **Propagación temporal de carga:** `ACWR`, `acute_load_72h_rel`, `monotony`, `strain` y `load_ctx_ready` se reindexan a calendario diario y se propagan con `ffill(limit=7)` para poder contextualizar días HRV sin sesión el mismo día. Superado ese límite, el contexto deja de mostrarse.
 
@@ -881,7 +881,7 @@ Las condiciones visibles se siguen evaluando en orden y las que se cumplen se co
 
 **Lectura operativa de convergencia:** si `acute_load_72h_rel` y la capa canónica (`ACWR`, `monotony`, `strain`) convergen en el mismo día VERDE, el cierre no se repite dos veces; se sintetiza en un único mensaje reforzado de convergencia.
 
-**RE-01 (recuperación multiseñal):** además del texto libre, FINAL expone cuatro columnas de auditoría ligera:
+**Recuperación multiseñal:** además del texto libre, FINAL expone cuatro columnas de auditoría ligera:
 - `recovery_context_quality` = `none/basic/rich`
 - `recovery_support_class` = `supported/neutral/fragile/conflicted`
 - `recovery_discordance_flag` = True/False
@@ -889,7 +889,7 @@ Las condiciones visibles se siguen evaluando en orden y las que se cumplen se co
 
 Esta capa usa solo soporte objetivo (`sleep.csv` + `sessions_day.csv`) y **no toca** `gate_final`, `Action` ni `Action_detail`. Su función es separar mejor un VERDE limpio de un VERDE frágil, o un ROJO bien explicado de un ROJO objetivamente discordante.
 
-**Si sleep.csv no existe:** Solo se generan las condiciones 1-3 (basadas en datos HRV) + 8-22 (si sessions_day.csv existe, aunque RE-01 quedará con cobertura `basic` o `none`). Si tampoco existe sessions_day.csv, solo condiciones 1-3 y RE-01 quedará sin soporte externo.
+**Si sleep.csv no existe:** Solo se generan las condiciones 1-3 (basadas en datos HRV) + 8-22 (si sessions_day.csv existe, aunque la recuperación multiseñal quedará con cobertura `basic` o `none`). Si tampoco existe sessions_day.csv, solo condiciones 1-3 y esta capa quedará sin soporte externo.
 
 ---
 
@@ -897,13 +897,13 @@ Esta capa usa solo soporte objetivo (`sleep.csv` + `sessions_day.csv`) y **no to
 
 **Objetivo:** avisar cuando tu capacidad actual (baseline de los últimos 60 días) está significativamente deprimida. Es un indicador a medio plazo — no cambia el gate del día, pero sugiere que las decisiones de progresión semanal deberían ser conservadoras.
 
-**Nota de trazabilidad:** desde `PCV-02` el default de `warning_mode` pasa a `adaptive90`. Un reprocesado histórico posterior a este cambio puede alterar `baseline60_degraded` y `warning_threshold` aunque los datos fisiológicos subyacentes no cambien. Para auditoría, usar siempre `warning_mode` como parte de la semántica de la fila.
+**Nota de trazabilidad:** desde la incorporación del warning dual, el default de `warning_mode` pasa a `adaptive90`. Un reprocesado histórico posterior a este cambio puede alterar `baseline60_degraded` y `warning_threshold` aunque los datos fisiológicos subyacentes no cambien. Para auditoría, usar siempre `warning_mode` como parte de la semántica de la fila.
 
 **Dos modos disponibles:**
 
 ### 16.0 Señales canónicas separadas
 
-Desde `PCV-02`, FINAL expone dos señales explícitas:
+FINAL expone dos señales explícitas de degradación:
 
 - `degraded_vs_best`: distancia a tu mejor forma histórica conocida
 - `degraded_vs_current_normal`: caída activa respecto a tu normal reciente
@@ -957,14 +957,14 @@ Si tu baseline actual está por debajo del P20 de todos tus baselines histórico
 | Archivo | Para qué | Columnas |
 |---------|----------|----------|
 | `ENDURANCE_HRV_master_CORE.csv` | La medición fisiológica del día, sin decisiones | 18 |
-| `ENDURANCE_HRV_master_FINAL.csv` | Gate, veto agudo, sombras, residual, reason_text, auditoría raw-vs-ref y RE-01 recovery context | 62 |
+| `ENDURANCE_HRV_master_FINAL.csv` | Gate, veto agudo, sombras, residual, reason_text, auditoría raw-vs-ref y contexto de recuperación multiseñal | 66 |
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | Lo esencial para decidir en 10 segundos + reason_text | 10 |
 | `ENDURANCE_HRV_sleep.csv` | Sueño nocturno y recuperación (Polar) | 17 |
 | `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento, incluyendo primitivas mínimas de coach metrics por sesión y capa de durabilidad mecánica | 73 |
-| `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios + rolling con cobertura (_nobs) + contexto canónico de carga + clustering reciente de intensidad + señal DO-02 de polarización por familia + resumen de episodios | 60 |
-| `ENDURANCE_HRV_intensity_distribution_weekly.csv` | Distribución observada de intensidad por deporte y semana ISO (DO-01). Sidecar analítico; no alimenta el gate ni `reason_text`. | 21 |
+| `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios + rolling con cobertura (_nobs) + contexto canónico de carga + clustering reciente de intensidad + señal de polarización por familia + resumen de episodios + `elev_loss_7d_sum` | 61 |
+| `ENDURANCE_HRV_intensity_distribution_weekly.csv` | Distribución observada de intensidad por deporte y semana ISO. Sidecar analítico; no alimenta el gate ni `reason_text`. | 21 |
 | `ENDURANCE_HRV_sessions_metadata.json` | Trazabilidad pipeline sesiones (versión, params, sampling rate) + auditoría ligera de interpretabilidad para coaching/carga | — |
-| `ENDURANCE_HRV_weekly_coach.json` | Sidecar semanal estructurado (PCV-04) con `iso_week`, ventana, `as_of_date`, `generated_at`, `anchor_source`, `week_expected_days`, `week_data_coverage_pct`, `week_type`, `week_load`, `progression_risk`, `hrv_trend`, `data_quality` y claves opcionales de trazabilidad como `sleep_context` y `z3_budget_by_sport`. No alimenta el gate ni `reason_text`. | — |
+| `ENDURANCE_HRV_weekly_coach.json` | Sidecar semanal estructurado con `iso_week`, ventana, `as_of_date`, `generated_at`, `anchor_source`, `week_expected_days`, `week_data_coverage_pct`, `week_type`, `week_load`, `progression_risk`, `hrv_trend`, `data_quality` y claves opcionales de trazabilidad como `sleep_context` y `z3_budget_by_sport`. No alimenta el gate ni `reason_text`. | — |
 | `ENDURANCE_HRV_master_BETA_AUDIT.csv` | Modelo beta del V3, para comparación histórica | 13 |
 
 El contrato exacto (columnas, orden, tipos) de CORE/FINAL/DASHBOARD/SLEEP está en `ENDURANCE_HRV_Estructura.md`.
@@ -972,7 +972,7 @@ El contrato de sessions/sessions_day/metadata/intensity_distribution_weekly est�
 
 ---
 
-## 17bis. Distribución de intensidad por deporte (DO-01)
+## 17bis. Distribución de intensidad por deporte
 
 `build_sessions.py` genera, junto con `sessions_day.csv`, los sidecars `ENDURANCE_HRV_intensity_distribution_weekly.csv` y `ENDURANCE_HRV_weekly_coach.json`. El primero tiene una fila por combinación `(semana ISO, deporte)`; el segundo resume la semana de referencia calculable con marcas explícitas de corte (`as_of_date`, `generated_at`, `anchor_source`).
 
@@ -1104,19 +1104,19 @@ Secciones obligatorias:
 | 2026-03-01 v4.1 | reason_text dual source: sueño de sleep.csv, carga de sessions_day.csv |
 | 2026-03-01 v4.1 | Nuevos archivos sessions.csv (43 cols), sessions_day.csv (40 cols iniciales), ENDURANCE_HRV_sessions_metadata.json |
 | 2026-04-19 v4.12 | `analysis/` añade `narrative_targets.final_reason_rendered` como capa narrativa derivada de `final_reason_items`, con `signal_kind` y trazabilidad explícita del sidecar en `Fuentes` cuando el fallback a `reason_text` está desactivado |
-| 2026-04-10 v4.9 | DO-02: `build_sessions.py` genera la señal rolling de polarización por familia en `sessions_day.csv` (`dominant_family_prev_7d`, `dominant_family_share_prev_7d`, `n_sessions_usable_prev_7d`, `z1/z2/z3_pct_weighted_prev_7d`, `distribution_signal_confidence_prev_7d`, `polarisation_index_prev_7d`, `intensity_blackhole_flag`, `intensity_blackhole_episode_id`, `intensity_blackhole_episode_len`); cálculo causal `D-7..D-1` desde `sessions.csv`, sin tocar el gate; la frecuencia operativa se interpreta por episodios consecutivos de `True` y no por días sueltos; `episode_len` cuenta filas consecutivas emitidas en `sessions_day.csv`, no días calendario; el umbral de volumen de 90 min aplica a la familia dominante |
-| 2026-04-18 v4.11 | SS-02: `build_hrv_final_dashboard.py` publica el sidecar `ENDURANCE_HRV_master_FINAL_reason_items.json` para `analysis/`; `reason_text` sigue siendo el render humano, pero `analysis/session_analysis_pipeline.py` consume `final_reason_items` y deriva flags de cautela/tensión |
-| 2026-04-10 v4.10 | SS-01: `reason_text` pasa a renderizarse desde `reason_items` estructurados en memoria (`type/layer/source/...`), con separación interna entre dato medido, proxy, inferencia y acción; sin cambio de columnas públicas en `FINAL` ni `DASHBOARD` |
-| 2026-04-08 v4.7 | DO-01: `build_sessions.py` genera `ENDURANCE_HRV_intensity_distribution_weekly.csv` (21 cols, 1 fila por semana ISO × deporte); `classify_distribution_pattern` clasifica la semana como `polarized`, `pyramidal`, `threshold` o `mixed` con ponderación por minutos y confianza explícita; sidecar analítico, no alimenta el gate ni `reason_text` |
-| 2026-05-13 v4.13 | PCV-04: `build_sessions.py` genera `ENDURANCE_HRV_weekly_coach.json` como sidecar semanal estructurado; resume `iso_week`, ventana, `as_of_date`, `generated_at`, `anchor_source`, `week_expected_days`, `week_data_coverage_pct`, `week_type`, `week_load`, `progression_risk`, `hrv_trend` y `data_quality`; `data_quality` describe interpretabilidad de los datos, no normalidad operativa; no alimenta el gate ni `reason_text` |
-| 2026-04-08 v4.6 | RE-01: `build_hrv_final_dashboard.py` añade `recovery_context_quality`, `recovery_support_class`, `recovery_discordance_flag` y `recovery_discordance_reason`; `reason_text` gana cierres semánticos de recuperación sin tocar `gate_final` |
-| 2026-04-08 v4.6 | FINAL bumped 58→62 cols para exponer la capa RE-01 sin tocar DASHBOARD |
-| 2026-05-13 v4.7 | FINAL bumped 62→66 cols para exponer PCV-02: warning dual (`degraded_vs_best`, `degraded_vs_current_normal`) manteniendo `baseline60_degraded` como alias legacy |
-| 2026-04-07 v4.5 | RE-02 (decisión final): wellness subjetivo queda como sidecar retrospectivo; `build_hrv_final_dashboard.py` NO consume `wellness_subjective.csv`; `_merge_daily_rows_incremental` filtra fechas futuras al persistir |
-| 2026-04-07 v4.4 | RE-02: nuevo sidecar `ENDURANCE_HRV_wellness_subjective.csv` (17 cols: Fecha + 6×raw + 6×label + comment + n_fields + available + coverage_7d); `build_sessions.py` fetcha `/athlete/{id}/wellness`; sidecar para análisis retrospectivo o capas separadas |
-| 2026-04-07 v4.3 | sessions_day.csv: CDC-01 (+4 cols: acwr_simple_prev, monotony_7d_prev, strain_7d_prev, load_ctx_ready), AP-01 (+5 cols: intense_day, intense_days_prev_3d, intense_days_prev_5d, intensity_clustering_flag, intensity_clustering_level); total 40→49 cols |
-| 2026-04-07 v4.3 | sessions_metadata.json: ADC-01 añade `training_audit` con bloques dataset_level/signal_level/metric_level (estados high/contextual/informational/not_applicable por capa) |
-| 2026-04-07 v4.3 | reason_text: añadidas condiciones 9-18 (ACWR, monotony, strain, clustering AP-01 v1, convergencia de carga) |
+| 2026-04-10 v4.9 | `build_sessions.py` genera la señal rolling de polarización por familia en `sessions_day.csv` (`dominant_family_prev_7d`, `dominant_family_share_prev_7d`, `n_sessions_usable_prev_7d`, `z1/z2/z3_pct_weighted_prev_7d`, `distribution_signal_confidence_prev_7d`, `polarisation_index_prev_7d`, `intensity_blackhole_flag`, `intensity_blackhole_episode_id`, `intensity_blackhole_episode_len`); cálculo causal `D-7..D-1` desde `sessions.csv`, sin tocar el gate; la frecuencia operativa se interpreta por episodios consecutivos de `True` y no por días sueltos; `episode_len` cuenta filas consecutivas emitidas en `sessions_day.csv`, no días calendario; el umbral de volumen de 90 min aplica a la familia dominante |
+| 2026-04-18 v4.11 | `build_hrv_final_dashboard.py` publica el sidecar `ENDURANCE_HRV_master_FINAL_reason_items.json` para `analysis/`; `reason_text` sigue siendo el render humano, pero `analysis/session_analysis_pipeline.py` consume `final_reason_items` y deriva flags de cautela/tensión |
+| 2026-04-10 v4.10 | `reason_text` pasa a renderizarse desde `reason_items` estructurados en memoria (`type/layer/source/...`), con separación interna entre dato medido, proxy, inferencia y acción; sin cambio de columnas públicas en `FINAL` ni `DASHBOARD` |
+| 2026-04-08 v4.7 | `build_sessions.py` genera `ENDURANCE_HRV_intensity_distribution_weekly.csv` (21 cols, 1 fila por semana ISO × deporte); `classify_distribution_pattern` clasifica la semana como `polarized`, `pyramidal`, `threshold` o `mixed` con ponderación por minutos y confianza explícita; sidecar analítico, no alimenta el gate ni `reason_text` |
+| 2026-05-13 v4.13 | `build_sessions.py` genera `ENDURANCE_HRV_weekly_coach.json` como sidecar semanal estructurado; resume `iso_week`, ventana, `as_of_date`, `generated_at`, `anchor_source`, `week_expected_days`, `week_data_coverage_pct`, `week_type`, `week_load`, `progression_risk`, `hrv_trend` y `data_quality`; `data_quality` describe interpretabilidad de los datos, no normalidad operativa; no alimenta el gate ni `reason_text` |
+| 2026-04-08 v4.6 | `build_hrv_final_dashboard.py` añade `recovery_context_quality`, `recovery_support_class`, `recovery_discordance_flag` y `recovery_discordance_reason`; `reason_text` gana cierres semánticos de recuperación sin tocar `gate_final` |
+| 2026-04-08 v4.6 | FINAL bumped 58→62 cols para exponer la capa de recuperación multiseñal sin tocar DASHBOARD |
+| 2026-05-13 v4.7 | FINAL bumped 62→66 cols para exponer el warning dual (`degraded_vs_best`, `degraded_vs_current_normal`) manteniendo `baseline60_degraded` como alias legacy |
+| 2026-04-07 v4.5 | wellness subjetivo queda como sidecar retrospectivo; `build_hrv_final_dashboard.py` NO consume `wellness_subjective.csv`; `_merge_daily_rows_incremental` filtra fechas futuras al persistir |
+| 2026-04-07 v4.4 | nuevo sidecar `ENDURANCE_HRV_wellness_subjective.csv` (17 cols: Fecha + 6×raw + 6×label + comment + n_fields + available + coverage_7d); `build_sessions.py` fetcha `/athlete/{id}/wellness`; sidecar para análisis retrospectivo o capas separadas |
+| 2026-04-07 v4.3 | sessions_day.csv: contexto de carga (+4 cols: acwr_simple_prev, monotony_7d_prev, strain_7d_prev, load_ctx_ready), clustering de intensidad (+5 cols: intense_day, intense_days_prev_3d, intense_days_prev_5d, intensity_clustering_flag, intensity_clustering_level); total 40→49 cols |
+| 2026-04-07 v4.3 | sessions_metadata.json: `training_audit` añade bloques dataset_level/signal_level/metric_level (estados high/contextual/informational/not_applicable por capa) |
+| 2026-04-07 v4.3 | reason_text: añadidas condiciones 9-18 (ACWR, monotony, strain, clustering de intensidad v1, convergencia de carga) |
 | 2026-04-06 v4.2 | sessions.csv bumped 43→57 cols con capa mecánica opcional; fuente prioritaria `Intervals FIT`, fallback `Polar AccessLink` |
 | 2026-03-01 v4.1 | reason_text: TSB/load_3d_p90 reemplazados por load_3d+nobs, work_7d, z3_7d (umbrales absolutos) |
 | 2026-02-23 v4 | Añadido veto agudo (§11bis): bypass ROLL3 en caídas agudas, con SWC_FLOOR y VETO_MULT |
