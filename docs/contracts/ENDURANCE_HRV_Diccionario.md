@@ -575,6 +575,8 @@ Además del clustering, `sessions_day.csv` sigue siendo la fuente de:
 - `strain_7d_prev`
 - `load_ctx_ready` — `True` si hay ≥14 días con datos de carga en la ventana de 28 días; indica que `acwr_simple_prev`, `acute_load_72h_rel`, `monotony_7d_prev` y `strain_7d_prev` tienen historial suficiente para ser interpretables y entrar en `reason_text`. Los cuantiles usados por esa capa se calculan con historia previa causal, no con datos futuros.
 
+Para hablar de `ROJO sin carga previa reciente`, FINAL usa `load_3d` como señal estrictamente previa y exige `load_3d_nobs >= 3`. Si la cobertura del bloque previo no alcanza, el texto degrada a `ROJO con carga no disponible` y no debe reinterpretarse como carga cero.
+
 Estas métricas explican *cuánta* carga hay. La capa de clustering explica si la intensidad reciente está **mal espaciada**.
 
 ### Capa de distribución rolling por familia

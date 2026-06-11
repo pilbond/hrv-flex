@@ -419,6 +419,16 @@ def _safe_float(row: pd.Series, col: str) -> Optional[float]:
         return None
 
 
+def _has_strict_previous_load(load_3d: Optional[float], load_3d_nobs: Optional[float], min_nobs: int = 3) -> bool:
+    """Return True when the prior 3-day load window is fully covered."""
+    if load_3d is None or load_3d_nobs is None:
+        return False
+    try:
+        return np.isfinite(float(load_3d)) and float(load_3d_nobs) >= float(min_nobs)
+    except (TypeError, ValueError):
+        return False
+
+
 def _build_sessions_day_lookups(
     sday_df: pd.DataFrame,
 ) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame]]:
@@ -1329,7 +1339,8 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
         acute_load_72h_rel = None
         acute_load_72h_rel_p75 = ACUTE_LOAD_72H_REL_HIGH_FALLBACK
         acute_load_72h_rel_p90 = ACUTE_LOAD_72H_REL_VERY_HIGH_FALLBACK
-        load_day = None
+        recent_load_available = False
+        recent_load_low = False
         load_ctx_caution = False
         load_ctx_caution_sources: List[str] = []
         load_ctx_ready = False
@@ -1485,9 +1496,10 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             load_3d = _safe_float(sday_row, "load_3d")
             load_3d_nobs = _safe_float(sday_row, "load_3d_nobs")
             acute_load_72h_rel = _safe_float(sday_row, "acute_load_72h_rel")
-            load_day = _safe_float(sday_row, "load_day")
             work_7d = _safe_float(sday_row, "work_7d_sum")
             z3_7d = _safe_float(sday_row, "z3_7d_sum")
+            recent_load_available = _has_strict_previous_load(load_3d, load_3d_nobs)
+            recent_load_low = recent_load_available and load_3d is not None and load_3d < 30
 
             if load_ctx_threshold_row is not None:
                 acute_load_72h_rel_p75_row = _safe_float(load_ctx_threshold_row, "acute_load_72h_rel_p75")
@@ -1573,19 +1585,34 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                 )
 
             # ROJO sin carga previa
-            if gate_final[i] == ROJO and load_day is not None and load_day < 30:
-                if sleep_basic_signal and not sleep_bad:
-                    _emit_reason(
-                        reason_items,
-                        reason_parts,
-                        i,
-                        type="contradiction",
-                        layer="inference",
-                        source="sessions_day",
-                        gate_scope="red",
-                        message="ROJO sin carga previa ni sueño malo: revisar factores externos al entrenamiento",
-                    )
-                elif not sleep_basic_signal:
+            if gate_final[i] == ROJO:
+                if recent_load_low:
+                    if sleep_basic_signal and not sleep_bad:
+                        _emit_reason(
+                            reason_items,
+                            reason_parts,
+                            i,
+                            type="contradiction",
+                            layer="inference",
+                            source="sessions_day",
+                            gate_scope="red",
+                            message="ROJO sin carga previa reciente ni sueño malo: revisar factores externos al entrenamiento",
+                        )
+                    elif not sleep_basic_signal:
+                        _emit_reason(
+                            reason_items,
+                            reason_parts,
+                            i,
+                            type="recent_load_absence",
+                            layer="inference",
+                            source="sessions_day",
+                            gate_scope="red",
+                            message="ROJO sin carga previa reciente: revisar factores externos al entrenamiento",
+                        )
+                elif not recent_load_available:
+                    load_message = "ROJO con carga no disponible"
+                    if sleep_basic_signal and not sleep_bad:
+                        load_message = "ROJO con carga no disponible y sueño no malo"
                     _emit_reason(
                         reason_items,
                         reason_parts,
@@ -1594,7 +1621,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         layer="inference",
                         source="sessions_day",
                         gate_scope="red",
-                        message="ROJO sin carga previa reciente: revisar factores externos al entrenamiento",
+                        message=f"{load_message}: revisar factores externos al entrenamiento",
                     )
 
             if (
@@ -1893,8 +1920,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
 
         if (
             gate_final[i] in (AMBAR, ROJO)
-            and load_day is not None
-            and load_day < 30
+            and recent_load_low
             and not load_ctx_caution
             and not clustering_flag
             and (acute_load_72h_rel is None or acute_load_72h_rel < acute_load_72h_rel_p75)

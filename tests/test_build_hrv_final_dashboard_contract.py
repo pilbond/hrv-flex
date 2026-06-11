@@ -339,8 +339,8 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
                 [
                     {
                         "Fecha": "2026-02-08",
-                        "load_day": 15,
-                        "load_3d": 75,
+                        "load_day": 80,
+                        "load_3d": 15,
                         "load_3d_nobs": 3,
                     }
                 ],
@@ -362,8 +362,8 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
                 [
                     {
                         "Fecha": "2026-02-08",
-                        "load_day": 15,
-                        "load_3d": 75,
+                        "load_day": 80,
+                        "load_3d": 15,
                         "load_3d_nobs": 3,
                     }
                 ],
@@ -385,9 +385,104 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
 
         row_with_sleep = final_with_sleep.loc[final_with_sleep["Fecha"] == "2026-02-08"].iloc[0]
         self.assertIn(
-            "ROJO sin carga previa ni sueño malo: revisar factores externos al entrenamiento",
+            "ROJO sin carga previa reciente ni sueño malo: revisar factores externos al entrenamiento",
             row_with_sleep["reason_text"],
         )
+
+    def test_red_without_sufficient_previous_load_coverage_degrades_to_no_load_message(self):
+        core = _core_frame()
+        for idx in (-4, -3, -2):
+            core.loc[len(core) + idx, "lnRMSSD"] = 3.45
+            core.loc[len(core) + idx, "RMSSD_stable"] = float(np.exp(3.45))
+            core.loc[len(core) + idx, "HR_stable"] = 54.5
+
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            _write_sessions_day(
+                data_dir,
+                [
+                    {
+                        "Fecha": "2026-02-08",
+                        "load_day": 80,
+                        "load_3d": 15,
+                        "load_3d_nobs": 2,
+                    }
+                ],
+            )
+            with patch.object(final_builder, "DATA_DIR", data_dir):
+                final, _ = final_builder.build_final_and_dashboard(core, final_builder.Config())
+
+        row = final.loc[final["Fecha"] == "2026-02-08"].iloc[0]
+        self.assertIn(
+            "ROJO con carga no disponible: revisar factores externos al entrenamiento",
+            row["reason_text"],
+        )
+        self.assertNotIn("sin carga previa reciente", row["reason_text"])
+        self.assertEqual(row["recovery_context_quality"], "basic")
+
+    def test_insufficient_previous_load_coverage_still_counts_as_basic_recovery_context(self):
+        core = _core_frame()
+
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            _write_sessions_day(
+                data_dir,
+                [
+                    {
+                        "Fecha": "2026-02-08",
+                        "load_day": 80,
+                        "load_3d": 15,
+                        "load_3d_nobs": 2,
+                    }
+                ],
+            )
+            with patch.object(final_builder, "DATA_DIR", data_dir):
+                final, _ = final_builder.build_final_and_dashboard(core, final_builder.Config())
+
+        row = final.loc[final["Fecha"] == "2026-02-08"].iloc[0]
+        self.assertEqual(row["recovery_context_quality"], "basic")
+
+    def test_red_without_sufficient_previous_load_coverage_still_emits_fallback_when_sleep_is_bad(self):
+        core = _core_frame()
+        for idx in (-4, -3, -2):
+            core.loc[len(core) + idx, "lnRMSSD"] = 3.45
+            core.loc[len(core) + idx, "RMSSD_stable"] = float(np.exp(3.45))
+            core.loc[len(core) + idx, "HR_stable"] = 54.5
+
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            _write_sessions_day(
+                data_dir,
+                [
+                    {
+                        "Fecha": "2026-02-08",
+                        "load_day": 80,
+                        "load_3d": 15,
+                        "load_3d_nobs": 2,
+                    }
+                ],
+            )
+            _write_sleep(
+                data_dir,
+                [
+                    {
+                        "Fecha": "2026-02-08",
+                        "polar_sleep_duration_min": 330,
+                        "polar_interruptions_long": 12,
+                        "sleep_dur_p10": 360,
+                        "sleep_int_p90": 8,
+                    }
+                ],
+            )
+            with patch.object(final_builder, "DATA_DIR", data_dir):
+                final, _ = final_builder.build_final_and_dashboard(core, final_builder.Config())
+
+        row = final.loc[final["Fecha"] == "2026-02-08"].iloc[0]
+        self.assertIn(
+            "ROJO con carga no disponible: revisar factores externos al entrenamiento",
+            row["reason_text"],
+        )
+        self.assertEqual(row["recovery_context_quality"], "basic")
 
     def test_single_load_caution_on_green_does_not_emit_recovery_fragile_closure(self):
         core = _core_frame()
@@ -783,6 +878,52 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
             "ROJO, pero el HRV de sueño salió alto (50ms): la recuperación nocturna fue mejor de lo esperado",
             row["reason_text"],
         )
+
+    def test_recovery_context_marks_rojo_as_conflicted_when_sleep_and_recent_load_support_align(self):
+        core = _core_frame()
+        for idx in (-4, -3, -2):
+            core.loc[len(core) + idx, "lnRMSSD"] = 3.45
+            core.loc[len(core) + idx, "RMSSD_stable"] = float(np.exp(3.45))
+            core.loc[len(core) + idx, "HR_stable"] = 54.5
+
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            _write_sleep(
+                data_dir,
+                [
+                    {
+                        "Fecha": "2026-02-08",
+                        "polar_sleep_duration_min": 430,
+                        "polar_interruptions_long": 2,
+                        "sleep_dur_p10": 360,
+                        "sleep_int_p90": 8,
+                        "polar_sleep_score": 84,
+                        "polar_night_rmssd": 50,
+                    }
+                ],
+            )
+            _write_sessions_day(
+                data_dir,
+                [
+                    {
+                        "Fecha": "2026-02-08",
+                        "load_day": 15,
+                        "load_3d": 15,
+                        "load_3d_nobs": 3,
+                    }
+                ],
+            )
+
+            with patch.object(final_builder, "DATA_DIR", data_dir):
+                final, _ = final_builder.build_final_and_dashboard(core, final_builder.Config())
+
+        row = final.loc[final["Fecha"] == "2026-02-08"].iloc[0]
+        self.assertEqual(row["gate_final"], "ROJO")
+        self.assertEqual(row["recovery_context_quality"], "rich")
+        self.assertEqual(row["recovery_support_class"], "conflicted")
+        self.assertTrue(row["recovery_discordance_flag"])
+        self.assertIn("sleep_score_good", row["recovery_discordance_reason"])
+        self.assertIn("recent_load_low", row["recovery_discordance_reason"])
         self.assertIn("ROJO, pero sueño y carga reciente no encajan con un rojo claro", row["reason_text"])
 
     def test_rojo_supported_omits_legacy_nightly_confusor_message(self):

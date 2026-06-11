@@ -577,12 +577,14 @@ Cada corrida del pipeline genera un `ENDURANCE_HRV_sessions_metadata.json` que d
 | `work_7d_sum > 200` | "Volumen semanal alto (work_7d=Xmin)" |
 | `z3_7d_sum > 60` | "Tiempo en alta intensidad acumulado esta semana (Xmin en Z3)" |
 | `intensity_clustering_flag = 1` + `level=low/high` | "VERDE pero con X días intensos..." o "Clustering ... reciente: vigilar recuperación" |
-| ROJO + `load_day < 30` + sueño OK | "ROJO sin carga previa ni sueño malo: revisar factores externos al entrenamiento" |
+| ROJO + `load_3d_nobs >= 3` + `load_3d < 30` + sueño OK | "ROJO sin carga previa reciente: revisar factores externos al entrenamiento" |
 | VERDE + `acute_load_72h_rel >= P75/P90 local` | "VERDE con carga aguda 72h (acute_load_72h_rel=Xx; load_3d=Y): precaución con la intensidad" |
 | VERDE + contexto canónico exigente | "VERDE con contexto de carga exigente: precaución con la intensidad" |
 | VERDE + `acute_load_72h_rel >= P75/P90 local` + señal canónica exigente | "VERDE con convergencia de carga (carga 72h + ACWR/monotonía/strain): precaución con la intensidad reforzada" |
 
 **Principio:** Los avisos informan, nunca cambian el semáforo. El gate sigue dependiendo exclusivamente de HRV + pulso. `load_3d` sigue siendo la señal bruta de 3 días, pero el aviso interpretado principal pasa por `acute_load_72h_rel`; la capa canónica sigue siendo `ACWR` + `monotony` + `strain`; y el clustering de intensidad aporta una alerta proactiva de mala distribución reciente. Si varias capas convergen en un día VERDE, el cierre operativo se vuelve más prudente, pero el color no cambia.
+
+**Cobertura de carga previa:** cuando la cobertura de `load_3d` no alcanza `load_3d_nobs >= 3`, el texto degrada a `ROJO con carga no disponible` y no debe interpretarse como carga cero.
 
 **Calibración local de carga:** `acute_load_72h_rel` usa percentiles del histórico listo del atleta (`P75/P90`) cuando hay soporte suficiente; mientras tanto, el dashboard usa umbrales bootstrap provisionales (`3.9/4.5`) para no perder señal al arrancar.
 

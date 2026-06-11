@@ -858,7 +858,7 @@ Las condiciones visibles se siguen evaluando en orden y las que se cumplen se co
 | 12 | `work_7d_sum > 200` | sessions_day.csv | `Volumen semanal alto (work_7d=Xmin)` |
 | 13 | `z3_7d_sum > 60` | sessions_day.csv | `Tiempo en alta intensidad acumulado esta semana (Xmin en Z3)` |
 | 14 | `intensity_clustering_flag == 1` + severidad `low/high` | sessions_day.csv | `VERDE pero con X días intensos...` o `Clustering ... reciente: vigilar recuperación` |
-| 15 | ROJO + `load_day < 30` + sueño OK | sessions_day.csv | `ROJO sin carga previa ni sueño malo: revisar factores externos al entrenamiento` |
+| 15 | ROJO + `load_3d_nobs >= 3` + `load_3d < 30` + sueño OK | sessions_day.csv | `ROJO sin carga previa reciente: revisar factores externos al entrenamiento` |
 | 16 | VERDE + `acute_load_72h_rel >= P75/P90 local` | sessions_day.csv | `VERDE con carga aguda 72h (acute_load_72h_rel=Xx; load_3d=Y): precaución con la intensidad` |
 | 17 | VERDE + contexto canónico exigente | sessions_day.csv | `VERDE con contexto de carga exigente: precaución con la intensidad` |
 | 18 | VERDE + `acute_load_72h_rel >= P75/P90 local` + señal canónica exigente | sessions_day.csv | `VERDE con convergencia de carga (carga 72h + ACWR/monotonía/strain): precaución con la intensidad reforzada` |
@@ -870,6 +870,8 @@ Las condiciones visibles se siguen evaluando en orden y las que se cumplen se co
 **Umbrales de sueño:** Basados en percentiles propios (P10, P90), NO en valores fijos. Se recalculan con todo el histórico disponible. Esto adapta los avisos a TU patrón de sueño.
 
 **Umbrales de carga:** `load_3d` sigue existiendo como señal bruta de 3 días, pero el aviso interpretado principal usa `acute_load_72h_rel` con umbrales locales (`P75/P90`) cuando hay suficiente histórico; esos percentiles se calculan sobre todo el histórico listo disponible en `base_df`, igual que la capa de `strain`. Esto no es una ventana causal: para fechas antiguas del dataset, el percentil puede incorporar registros futuros, igual que ya ocurre con `strain_7d_prev`. Hasta entonces usa umbrales bootstrap provisionales. La capa canónica sigue siendo `ACWR` + `monotony` + `strain`: `ACWR` usa bandas fijas interpretativas (`>=1.3` alto, `>=1.5` muy alto; `<=0.8` descarga), `monotony` usa bandas orientativas (`>=1.8` elevada, `>=2.0` alta), y `strain` se calibra por percentiles del histórico local (`P75/P90`) cuando hay al menos 8 observaciones listas. Todo sigue siendo contexto, no gate.
+
+**Cobertura de carga previa:** para hablar de `ROJO sin carga previa reciente`, FINAL usa `load_3d` como carga estrictamente previa y exige `load_3d_nobs >= 3`. Si la cobertura del bloque previo no basta, la salida degrada a `ROJO con carga no disponible` y no debe presentarse como si la carga previa fuera cero.
 
 **Clustering de intensidad v1:** `sessions_day.csv` añade `intense_day`, `intense_days_prev_3d`, `intense_days_prev_5d`, `intensity_clustering_flag` e `intensity_clustering_level`. Es un proxy local del concepto NDLI: cuenta días `work_intense` en ventana corta sobre calendario continuo. Regla v1: `flag = intense_days_prev_5d >= 2`; severidad `high` si `intense_days_prev_3d >= 2` o `intense_days_prev_5d >= 3`, `low` en caso contrario. Nunca recolorea el gate.
 
