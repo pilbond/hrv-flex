@@ -421,13 +421,15 @@ def _safe_float(row: pd.Series, col: str) -> Optional[float]:
 
 def _build_sessions_day_lookups(
     sday_df: pd.DataFrame,
-) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame], Dict[str, float]]:
+) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame]]:
     if "Fecha" not in sday_df.columns:
-        return None, None, None, {}
+        return None, None, None, None
 
     base_df = sday_df.copy()
     base_df["Fecha"] = base_df["Fecha"].astype(str)
     base_df = base_df.drop_duplicates(subset=["Fecha"], keep="last")
+    base_df["Fecha_dt"] = pd.to_datetime(base_df["Fecha"], format=DATE_FORMAT, errors="coerce")
+    base_df = base_df.dropna(subset=["Fecha_dt"]).sort_values("Fecha_dt")
     exact_lookup = base_df.set_index("Fecha")
 
     ctx_cols = ["acwr_simple_prev", "monotony_7d_prev", "strain_7d_prev", "load_ctx_ready"]
@@ -436,9 +438,9 @@ def _build_sessions_day_lookups(
 
     if present_ctx_cols:
         ctx_df = base_df[["Fecha"] + present_ctx_cols].copy()
-        ctx_df["Fecha_dt"] = pd.to_datetime(ctx_df["Fecha"], format=DATE_FORMAT, errors="coerce")
-        ctx_df = ctx_df.dropna(subset=["Fecha_dt"]).sort_values("Fecha_dt")
         if not ctx_df.empty:
+            ctx_df["Fecha_dt"] = pd.to_datetime(ctx_df["Fecha"], format=DATE_FORMAT, errors="coerce")
+            ctx_df = ctx_df.dropna(subset=["Fecha_dt"]).sort_values("Fecha_dt")
             ctx_lookup = ctx_df.set_index("Fecha_dt")[present_ctx_cols]
             full_range = pd.date_range(ctx_lookup.index.min(), ctx_lookup.index.max(), freq="D")
             ctx_lookup = ctx_lookup.reindex(full_range).ffill(limit=7)
@@ -455,9 +457,9 @@ def _build_sessions_day_lookups(
     clustering_lookup: Optional[pd.DataFrame] = None
     if present_clustering_cols:
         clustering_df = base_df[["Fecha"] + present_clustering_cols].copy()
-        clustering_df["Fecha_dt"] = pd.to_datetime(clustering_df["Fecha"], format=DATE_FORMAT, errors="coerce")
-        clustering_df = clustering_df.dropna(subset=["Fecha_dt"]).sort_values("Fecha_dt")
         if not clustering_df.empty:
+            clustering_df["Fecha_dt"] = pd.to_datetime(clustering_df["Fecha"], format=DATE_FORMAT, errors="coerce")
+            clustering_df = clustering_df.dropna(subset=["Fecha_dt"]).sort_values("Fecha_dt")
             clustering_lookup = clustering_df.set_index("Fecha_dt")[present_clustering_cols]
             full_range = pd.date_range(
                 clustering_lookup.index.min(),
@@ -468,32 +470,36 @@ def _build_sessions_day_lookups(
             clustering_lookup.index = clustering_lookup.index.strftime("%Y-%m-%d")
             clustering_lookup.index.name = "Fecha"
 
-    thresholds: Dict[str, float] = {}
-    if "strain_7d_prev" in base_df.columns:
-        strain_hist = pd.to_numeric(base_df["strain_7d_prev"], errors="coerce")
-        if "load_ctx_ready" in base_df.columns:
-            ready_mask = base_df["load_ctx_ready"].astype(str).str.lower().isin({"true", "1"})
-            strain_hist = strain_hist.loc[ready_mask]
-        strain_hist = strain_hist[np.isfinite(strain_hist.to_numpy(dtype=float))]
-        if strain_hist.size >= 8:
-            strain_values = strain_hist.to_numpy(dtype=float)
-            thresholds["strain_p75"] = float(np.quantile(strain_values, 0.75))
-            thresholds["strain_p90"] = float(np.quantile(strain_values, 0.90))
+    threshold_lookup: Optional[pd.DataFrame] = None
+    threshold_specs: Dict[str, Tuple[str, float]] = {
+        "acute_load_72h_rel_p75": ("acute_load_72h_rel", 0.75),
+        "acute_load_72h_rel_p90": ("acute_load_72h_rel", 0.90),
+        "strain_p75": ("strain_7d_prev", 0.75),
+        "strain_p90": ("strain_7d_prev", 0.90),
+    }
+    threshold_cols: Dict[str, np.ndarray] = {}
 
-    if "acute_load_72h_rel" in base_df.columns:
-        acute_hist = pd.to_numeric(base_df["acute_load_72h_rel"], errors="coerce")
-        if "load_ctx_ready" in base_df.columns:
-            ready_mask = base_df["load_ctx_ready"].astype(str).str.lower().isin({"true", "1"})
-            acute_hist = acute_hist.loc[ready_mask]
-        acute_hist = acute_hist[np.isfinite(acute_hist.to_numpy(dtype=float))]
-        if acute_hist.size >= 8:
-            # Operative thresholds use the full ready historical sample available
-            # for this athlete, mirroring the existing strain percentile contract.
-            acute_values = acute_hist.to_numpy(dtype=float)
-            thresholds["acute_load_72h_rel_p75"] = float(np.quantile(acute_values, 0.75))
-            thresholds["acute_load_72h_rel_p90"] = float(np.quantile(acute_values, 0.90))
+    ready_mask = None
+    if "load_ctx_ready" in base_df.columns:
+        ready_mask = base_df["load_ctx_ready"].astype(str).str.lower().isin({"true", "1"})
 
-    return exact_lookup, ctx_lookup, clustering_lookup, thresholds
+    for out_col, (source_col, quantile) in threshold_specs.items():
+        if source_col not in base_df.columns:
+            continue
+        source = pd.to_numeric(base_df[source_col], errors="coerce")
+        if ready_mask is not None:
+            source = source.where(ready_mask)
+        # Thresholds are causal: every day sees only the prior ready history.
+        threshold_cols[out_col] = source.shift(1).expanding(min_periods=8).quantile(quantile).to_numpy(dtype=float)
+
+    if threshold_cols:
+        threshold_lookup = pd.DataFrame(
+            threshold_cols,
+            index=base_df["Fecha"].astype(str).to_list(),
+        )
+        threshold_lookup.index.name = "Fecha"
+
+    return exact_lookup, ctx_lookup, clustering_lookup, threshold_lookup
 
 
 def _append_unique(items: List[str], value: str) -> None:
@@ -1291,18 +1297,18 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
     sday_lookup: Optional[pd.DataFrame] = None
     load_ctx_lookup: Optional[pd.DataFrame] = None
     clustering_lookup: Optional[pd.DataFrame] = None
-    load_ctx_thresholds: Dict[str, float] = {}
+    load_ctx_threshold_lookup: Optional[pd.DataFrame] = None
     sday_path = DATA_DIR / "ENDURANCE_HRV_sessions_day.csv"
     if sday_path.exists():
         try:
             sday_df = pd.read_csv(sday_path)
-            sday_lookup, load_ctx_lookup, clustering_lookup, load_ctx_thresholds = _build_sessions_day_lookups(sday_df)
+            sday_lookup, load_ctx_lookup, clustering_lookup, load_ctx_threshold_lookup = _build_sessions_day_lookups(sday_df)
         except (OSError, ValueError, KeyError) as exc:
             log.warning("Sessions context unavailable from %s: %s", sday_path, exc)
             sday_lookup = None
             load_ctx_lookup = None
             clustering_lookup = None
-            load_ctx_thresholds = {}
+            load_ctx_threshold_lookup = None
 
     recovery_context_quality = np.array(["none"] * len(df), dtype=object)
     recovery_support_class = np.array(["neutral"] * len(df), dtype=object)
@@ -1455,11 +1461,16 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
 
         load_ctx_row = None
         clustering_row = None
+        load_ctx_threshold_row = None
         if load_ctx_lookup is not None and fecha in load_ctx_lookup.index:
             load_ctx_row = load_ctx_lookup.loc[fecha]
             if isinstance(load_ctx_row, pd.DataFrame):
                 load_ctx_row = load_ctx_row.iloc[-1]
             load_ctx_ready = str(load_ctx_row.get("load_ctx_ready", "")).lower() in {"true", "1"}
+        if load_ctx_threshold_lookup is not None and fecha in load_ctx_threshold_lookup.index:
+            load_ctx_threshold_row = load_ctx_threshold_lookup.loc[fecha]
+            if isinstance(load_ctx_threshold_row, pd.DataFrame):
+                load_ctx_threshold_row = load_ctx_threshold_row.iloc[-1]
         if clustering_lookup is not None and fecha in clustering_lookup.index:
             clustering_row = clustering_lookup.loc[fecha]
             if isinstance(clustering_row, pd.DataFrame):
@@ -1478,8 +1489,13 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             work_7d = _safe_float(sday_row, "work_7d_sum")
             z3_7d = _safe_float(sday_row, "z3_7d_sum")
 
-            acute_load_72h_rel_p75 = load_ctx_thresholds.get("acute_load_72h_rel_p75", acute_load_72h_rel_p75)
-            acute_load_72h_rel_p90 = load_ctx_thresholds.get("acute_load_72h_rel_p90", acute_load_72h_rel_p90)
+            if load_ctx_threshold_row is not None:
+                acute_load_72h_rel_p75_row = _safe_float(load_ctx_threshold_row, "acute_load_72h_rel_p75")
+                acute_load_72h_rel_p90_row = _safe_float(load_ctx_threshold_row, "acute_load_72h_rel_p90")
+                if acute_load_72h_rel_p75_row is not None:
+                    acute_load_72h_rel_p75 = acute_load_72h_rel_p75_row
+                if acute_load_72h_rel_p90_row is not None:
+                    acute_load_72h_rel_p90 = acute_load_72h_rel_p90_row
 
             # Relative acute-load warning; only interpret it when the chronic
             # context is ready enough to make the ratio meaningful.
@@ -1759,9 +1775,9 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                     load_ctx_caution_sources.append("monotonía")
                     _append_unique(caution_codes, "load_context_high")
 
-            if load_ctx_ready and strain_7d_prev is not None and load_ctx_thresholds:
-                strain_p90 = load_ctx_thresholds.get("strain_p90")
-                strain_p75 = load_ctx_thresholds.get("strain_p75")
+            if load_ctx_ready and strain_7d_prev is not None and load_ctx_threshold_row is not None:
+                strain_p90 = _safe_float(load_ctx_threshold_row, "strain_p90")
+                strain_p75 = _safe_float(load_ctx_threshold_row, "strain_p75")
                 if strain_p90 is not None and strain_7d_prev >= strain_p90:
                     _emit_reason(
                         reason_items,

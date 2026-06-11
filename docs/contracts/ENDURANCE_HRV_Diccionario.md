@@ -351,7 +351,7 @@ Este bloque cubre el warning de baseline degradado y los flags sistémicos que l
 | `recovery_support_class` | Lectura resumida de cómo encajan gate, sueño Polar y carga reciente. `supported` = el contexto externo acompaña la lectura; `neutral` = no añade gran cosa o está mezclado; `fragile` = el gate sale razonable pero sueño/carga meten cautela; `conflicted` = el gate sale mal pero sueño/carga no lo explican bien. No cambia la acción por sí mismo. |
 | `recovery_discordance_flag` | True cuando el análisis de recuperación detecta una tensión entre el gate y el soporte externo (sueño/carga). Se activa en clases `fragile` (contexto débil) y `conflicted` (contexto contradictorio). |
 | `recovery_discordance_reason` | Códigos estructurados que explican la discordancia. Ejemplos: `sleep_basic_poor`, `nightly_rmssd_low`, `load_context_high`, `sleep_score_good`, `recent_load_low`. Pensado para auditoría o análisis posterior. |
-| `reason_text` | Texto explicativo contextual que combina información del gate con datos de sueño y carga. Estructura: `{verdicts " · "}. {whys "; "}. Acción: {actions "; "}`. Los segmentos se deduplican por igualdad exacta y los echo genéricos de `recovery_support`/`recovery_discordance` se suprimen cuando un emisor más específico (`nightly_discordance`, `green_load_caution`, `acwr`, etc.) ya cubre la señal. Las magnitudes técnicas llevan anchor verbal en paréntesis (`monotonía=1.96, moderada`, `ACWR=0.62, baja`, `strain=917, elevado`). Ver tabla de familias de mensajes a continuación. Internamente se renderiza a partir de `reason_items` estructurados (dato medido, proxy, inferencia, acción) vía `_compose_reason_text` (módulo `build_hrv_final_dashboard`); no existe columna pública `reason_items_json` en `FINAL` ni en `DASHBOARD`, pero hay un sidecar estructurado `ENDURANCE_HRV_master_FINAL_reason_items.json` (descrito más abajo). El wellness subjetivo de Intervals queda fuera de `reason_text` y se reserva para capas retrospectivas. **No recolorea** el gate — es contexto para tu decisión. |
+| `reason_text` | Texto explicativo contextual que combina información del gate con datos de sueño y carga. Estructura: `{verdicts " · "}. {whys "; "}. Acción: {actions "; "}`. Los segmentos se deduplican por igualdad exacta y los echo genéricos de `recovery_support`/`recovery_discordance` se suprimen cuando un emisor más específico (`nightly_discordance`, `green_load_caution`, `acwr`, etc.) ya cubre la señal. Las magnitudes técnicas llevan anchor verbal en paréntesis (`monotonía=1.96, moderada`, `ACWR=0.62, baja`, `strain=917, elevado`). Los umbrales percentiles que alimentan los avisos de carga se calculan con ventanas causales tipo trailing/expanding sobre días previos al evaluado; así, volver a procesar el histórico no reescribe mensajes pasados. Ver tabla de familias de mensajes a continuación. Internamente se renderiza a partir de `reason_items` estructurados (dato medido, proxy, inferencia, acción) vía `_compose_reason_text` (módulo `build_hrv_final_dashboard`); no existe columna pública `reason_items_json` en `FINAL` ni en `DASHBOARD`, pero hay un sidecar estructurado `ENDURANCE_HRV_master_FINAL_reason_items.json` (descrito más abajo). El wellness subjetivo de Intervals queda fuera de `reason_text` y se reserva para capas retrospectivas. **No recolorea** el gate — es contexto para tu decisión. |
 
 ##### Familias de mensajes que pueden aparecer en `reason_text`
 
@@ -573,7 +573,7 @@ Además del clustering, `sessions_day.csv` sigue siendo la fuente de:
 - `acute_load_72h_rel`
 - `monotony_7d_prev`
 - `strain_7d_prev`
-- `load_ctx_ready` — `True` si hay ≥14 días con datos de carga en la ventana de 28 días; indica que `acwr_simple_prev`, `acute_load_72h_rel`, `monotony_7d_prev` y `strain_7d_prev` tienen historial suficiente para ser interpretables y entrar en `reason_text`.
+- `load_ctx_ready` — `True` si hay ≥14 días con datos de carga en la ventana de 28 días; indica que `acwr_simple_prev`, `acute_load_72h_rel`, `monotony_7d_prev` y `strain_7d_prev` tienen historial suficiente para ser interpretables y entrar en `reason_text`. Los cuantiles usados por esa capa se calculan con historia previa causal, no con datos futuros.
 
 Estas métricas explican *cuánta* carga hay. La capa de clustering explica si la intensidad reciente está **mal espaciada**.
 
@@ -610,6 +610,8 @@ Cuando el día sale `VERDE`, la capa de carga puede cerrar de tres formas:
   Uso: dispara la capa canónica (`ACWR`, `monotony` o `strain`) sin apoyo de `acute_load_72h_rel`.
 - `VERDE con convergencia de carga (carga 72h + ACWR/monotonía/strain): precaución con la intensidad reforzada`
   Uso: convergen la señal aguda relativa y al menos una señal canónica. La conclusión no se repite dos veces; se sintetiza y se refuerza.
+
+Los umbrales que sostienen estas frases se recalculan con historia previa al día evaluado. Añadir sesiones futuras no debe cambiar el `reason_text` ya emitido para fechas pasadas.
 
 ---
 

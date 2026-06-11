@@ -454,6 +454,110 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
             row["reason_text"],
         )
 
+    def test_reason_text_context_percentiles_are_causal_across_rebuilds(self):
+        core = _core_frame()
+        dates = pd.date_range("2026-01-21", periods=20, freq="D")
+        session_rows: list[dict[str, object]] = []
+        for idx, fecha in enumerate(dates, start=1):
+            row = {
+                "Fecha": fecha.strftime("%Y-%m-%d"),
+                "load_day": 20.0,
+                "load_3d": 60.0,
+                "load_3d_nobs": 3,
+                "acute_load_72h_rel": float(idx),
+                "acwr_simple_prev": 1.0,
+                "monotony_7d_prev": 1.0,
+                "strain_7d_prev": 100.0,
+                "load_ctx_ready": True,
+            }
+            if idx == 15:
+                row.update(
+                    {
+                        "load_day": 75.0,
+                        "load_3d": 225.0,
+                        "acute_load_72h_rel": 12.0,
+                        "strain_7d_prev": 20.0,
+                    }
+                )
+            elif idx > 15:
+                row.update(
+                    {
+                        "acute_load_72h_rel": 100.0,
+                        "strain_7d_prev": 1000.0,
+                    }
+                )
+            session_rows.append(row)
+
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            _write_sessions_day(data_dir, session_rows[:15])
+            with patch.object(final_builder, "DATA_DIR", data_dir):
+                truncated_final, _ = final_builder.build_final_and_dashboard(core, final_builder.Config())
+
+            _write_sessions_day(data_dir, session_rows)
+            with patch.object(final_builder, "DATA_DIR", data_dir):
+                full_final, _ = final_builder.build_final_and_dashboard(core, final_builder.Config())
+
+        target_date = "2026-02-04"
+        truncated_row = truncated_final.loc[truncated_final["Fecha"] == target_date].iloc[0]
+        full_row = full_final.loc[full_final["Fecha"] == target_date].iloc[0]
+
+        self.assertEqual(truncated_row["gate_final"], "VERDE")
+        self.assertEqual(truncated_row["reason_text"], full_row["reason_text"])
+        self.assertIn("Carga aguda 72h por encima de tu base crónica", full_row["reason_text"])
+        self.assertIn("acute_load_72h_rel=12.00x", full_row["reason_text"])
+
+    def test_strain_context_percentiles_are_causal_across_rebuilds(self):
+        core = _core_frame()
+        dates = pd.date_range("2026-01-21", periods=20, freq="D")
+        session_rows: list[dict[str, object]] = []
+        for idx, fecha in enumerate(dates, start=1):
+            row = {
+                "Fecha": fecha.strftime("%Y-%m-%d"),
+                "load_day": 20.0,
+                "load_3d": 40.0,
+                "load_3d_nobs": 3,
+                "acute_load_72h_rel": 1.0,
+                "acwr_simple_prev": 1.0,
+                "monotony_7d_prev": 1.0,
+                "strain_7d_prev": 100.0,
+                "load_ctx_ready": True,
+            }
+            if idx == 15:
+                row.update(
+                    {
+                        "load_day": 90.0,
+                        "load_3d": 270.0,
+                        "strain_7d_prev": 220.0,
+                    }
+                )
+            elif idx > 15:
+                row.update(
+                    {
+                        "strain_7d_prev": 1000.0,
+                    }
+                )
+            session_rows.append(row)
+
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            _write_sessions_day(data_dir, session_rows[:15])
+            with patch.object(final_builder, "DATA_DIR", data_dir):
+                truncated_final, _ = final_builder.build_final_and_dashboard(core, final_builder.Config())
+
+            _write_sessions_day(data_dir, session_rows)
+            with patch.object(final_builder, "DATA_DIR", data_dir):
+                full_final, _ = final_builder.build_final_and_dashboard(core, final_builder.Config())
+
+        target_date = "2026-02-04"
+        truncated_row = truncated_final.loc[truncated_final["Fecha"] == target_date].iloc[0]
+        full_row = full_final.loc[full_final["Fecha"] == target_date].iloc[0]
+
+        self.assertEqual(truncated_row["gate_final"], "VERDE")
+        self.assertEqual(truncated_row["reason_text"], full_row["reason_text"])
+        self.assertIn("Semana muy exigente", full_row["reason_text"])
+        self.assertIn("strain=220", full_row["reason_text"])
+
     def test_no_load_caution_is_emitted_when_load_context_is_not_ready(self):
         core = _core_frame()
 
