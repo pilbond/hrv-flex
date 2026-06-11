@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 import build_hrv_final_dashboard as final_builder
+from hrv_app.run_manifest import file_digest
 
 
 def _core_frame() -> pd.DataFrame:
@@ -760,6 +761,19 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
         with TemporaryDirectory() as tmpdir:
             data_dir = Path(tmpdir)
             core.to_csv(data_dir / "ENDURANCE_HRV_master_CORE.csv", index=False)
+            (data_dir / "ENDURANCE_HRV_master_CORE_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "1.0",
+                        "manifest_kind": "hrv_run_manifest",
+                        "stage": "core",
+                        "effective_config_hash": "stub-effective-config-hash",
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
             _write_sessions_day(
                 data_dir,
                 [
@@ -784,6 +798,31 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
             self.assertEqual(payload["source"], "build_hrv_final_dashboard.py")
             self.assertIn("2026-02-08", payload["items_by_date"])
             self.assertTrue(payload["items_by_date"]["2026-02-08"])
+
+            manifest_path = data_dir / "ENDURANCE_HRV_master_FINAL_manifest.json"
+            self.assertTrue(manifest_path.exists())
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["schema_version"], "1.0")
+            self.assertEqual(manifest["manifest_kind"], "hrv_run_manifest")
+            self.assertEqual(manifest["stage"], "final_dashboard")
+            self.assertEqual(manifest["builder"], "build_hrv_final_dashboard.py")
+            self.assertEqual(manifest["outputs"][0]["role"], "final")
+            self.assertEqual(manifest["outputs"][1]["role"], "dashboard")
+            self.assertEqual(manifest["outputs"][2]["role"], "reason_items_sidecar")
+            self.assertEqual(manifest["inputs"][0]["role"], "core_input")
+            self.assertEqual(manifest["inputs"][1]["role"], "sleep_input")
+            self.assertEqual(manifest["inputs"][2]["role"], "sessions_day_input")
+            self.assertIn("effective_config_hash", manifest)
+            self.assertEqual(manifest["source_manifest_path"], str(manifest_path.parent / "ENDURANCE_HRV_master_CORE_manifest.json"))
+            self.assertEqual(
+                manifest["source_manifest_sha256"],
+                file_digest(manifest_path.parent / "ENDURANCE_HRV_master_CORE_manifest.json"),
+            )
+            self.assertEqual(
+                manifest["source_manifest_effective_config_hash"],
+                "stub-effective-config-hash",
+            )
+            self.assertEqual(manifest["effective_config"]["config"]["decision_mode"], "O2_SHADOW")
 
     def test_recovery_context_marks_amber_as_supported_when_night_and_load_are_favorable(self):
         core = _core_frame()

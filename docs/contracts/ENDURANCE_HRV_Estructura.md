@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Estructura de Datos
 
-**Revisión:** r2026-06-10 v3.16 (alineacion con schemas y runtime actuales)
+**Revisión:** r2026-06-11 v3.17 (manifests de trazabilidad de corrida)
 **Estado:** Producción
 
 **Documentos relacionados:**
@@ -39,7 +39,9 @@ El sistema genera CSV operativos, sidecars JSON y reportes de auditoría. Cada u
 | Archivo | Para qué sirve | Lo genera | Columnas |
 |---------|---------------|-----------|----------|
 | `ENDURANCE_HRV_master_CORE.csv` | La medición fisiológica del día: pulso, variabilidad, calidad de señal y trazabilidad mínima de estabilidad. Sin ninguna decisión de entrenamiento. | `build_hrv_core.py` | 18 |
+| `ENDURANCE_HRV_master_CORE_manifest.json` | Sidecar atómico de trazabilidad de la corrida CORE/BETA: rutas, hashes de inputs/outputs y configuración efectiva. | `build_hrv_core.py` | — |
 | `ENDURANCE_HRV_master_FINAL.csv` | El gate de entrenamiento, las sombras, el residual, el veto agudo, el reason_text y la capa de recuperación multiseñal necesaria para contextualizar soporte o discordancia sin tocar el gate. | `build_hrv_final_dashboard.py` | 66 |
+| `ENDURANCE_HRV_master_FINAL_manifest.json` | Sidecar atómico de trazabilidad de la corrida FINAL/DASHBOARD: enlaza el manifest de CORE y conserva hashes de outputs/configuración efectiva. | `build_hrv_final_dashboard.py` | — |
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | Lo esencial para decidir en 10 segundos: semáforo, acción, warning, y reason_text contextual. Subconjunto de FINAL. | `build_hrv_final_dashboard.py` | 10 |
 | `ENDURANCE_HRV_master_FINAL_reason_items.json` | Sidecar estable con `reason_items` por fecha para consumo de `analysis/`; conserva la separación entre dato medido, proxy, inferencia y acción. Cuando `analysis/` lo usa como fuente primaria, los informes deben poder declararlo explícitamente en `Fuentes`. | `build_hrv_final_dashboard.py` | n/a |
 | `ENDURANCE_HRV_ssm_shadow.csv` | Sidecar técnico sombra con estado latente HRV+carga, observación nocturna auxiliar, incertidumbre, flags de calidad y controles simples (`rolling_hrv_7d`, `load_7d`). No toca `FINAL`, no recolorea el gate y no se expone en la UI operativa. | `build_hrv_ssm.py` | 30 |

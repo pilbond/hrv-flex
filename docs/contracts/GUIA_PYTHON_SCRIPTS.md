@@ -14,6 +14,7 @@ Flujo operativo normal (Railway o UI local):
 6. `hrv_app.sleep_store` actualiza `ENDURANCE_HRV_sleep.csv`, `hrv_app.intervals_sync` resuelve la parte de wellness/Intervals y `hrv_app.pipeline_runner` llama:
    - `build_hrv_core.py`
    - `build_hrv_final_dashboard.py`
+   - cada builder deja además su sidecar de trazabilidad atómico (`ENDURANCE_HRV_master_CORE_manifest.json` y `ENDURANCE_HRV_master_FINAL_manifest.json`)
 
 Importante:
 - El comando principal no cambia: `python polar_hrv_automation.py --process`.
@@ -220,7 +221,8 @@ Importante:
 - Entradas:
   - RR (`--rr-file` o `--rr-dir`, normalmente `data/rr_downloads`).
 - Salidas:
-  - CORE y BETA_AUDIT.
+- CORE y BETA_AUDIT.
+  - `ENDURANCE_HRV_master_CORE_manifest.json` como sidecar atómico de trazabilidad de la corrida.
 - Automatico o manual:
   - Automatico dentro de `polar_hrv_automation.py --process`.
   - Tambien se puede correr manual.
@@ -261,10 +263,12 @@ Importante:
   - Opcional: `ENDURANCE_HRV_sessions_day.csv`
 - Salidas:
   - FINAL y DASHBOARD.
+  - `ENDURANCE_HRV_master_FINAL_manifest.json` como sidecar atómico de trazabilidad de la corrida.
   - `reason_items` sigue sin exponerse como columna en `FINAL` ni en `DASHBOARD`, pero ahora tambien se serializa en `ENDURANCE_HRV_master_FINAL_reason_items.json`.
   - `FINAL` mantiene `gate_final`, `Action` y `Action_detail` como arbitros operativos.
   - La recuperación multiseñal solo aporta soporte o discordancia objetiva via columnas y `reason_text`.
   - El contexto de carga y el clustering solo aportan contexto en `reason_text`; no recolorean el gate.
+  - El manifest de `FINAL/DASHBOARD` enlaza al manifest de `CORE` por ruta, hash de archivo y hash efectivo de configuración cuando está disponible.
   - `analysis/` puede tratar el sidecar como fuente estructurada primaria cuando `fallback_to_reason_text = false`, pero eso no cambia el contrato público de los CSV.
 - Automatico o manual:
   - Automatico dentro de `polar_hrv_automation.py --process`.

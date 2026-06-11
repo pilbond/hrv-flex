@@ -68,7 +68,7 @@ Elementos estructurales estables del repo:
 - investigacion exploratoria, auditorias e informes no operativos en `research/`,
 - implementacion interna del pipeline en `hrv_app/` (paquete Python interno; ARQ-02).
 
-## 6. Snapshot actual (2026-06-10)
+## 6. Snapshot actual (2026-06-11)
 Estado actual de implementacion observado:
 
 - la UI expone `/api/sync`, `/api/sync-sessions`, `/api/status`, `/api/import-seed`, `/api/delete-latest-rr` y endpoints OAuth,
@@ -84,6 +84,9 @@ Estado actual de implementacion observado:
 - el flujo recomendado de cobertura RR es Dropbox primero y Polar como fallback,
 - `ENDURANCE_HRV_sleep.csv` es el unico archivo canonico de sueno,
 - `build_hrv_ssm.py` ya se ejecuta en el sync diario para regenerar `ENDURANCE_HRV_ssm_shadow.csv`, mientras que `build_hrv_ssm_validation.py` y `build_hrv_ssm_outcome_battery.py` quedan como auditorias manuales bajo demanda,
+- `build_hrv_core.py` y `build_hrv_final_dashboard.py` ya dejan sidecars atomicos de trazabilidad
+  en `ENDURANCE_HRV_master_CORE_manifest.json` y
+  `ENDURANCE_HRV_master_FINAL_manifest.json`,
 - la UI no debe permitir ejecutar `sync` HRV y `sync-sessions` al mismo tiempo,
 - `analysis/` ya consume `training_audit` y la capa mecanica minima como contexto reproducible del informe,
 - `analysis/` ya expone una capa analitica de terreno para sesiones a pie:
@@ -122,11 +125,13 @@ Si este bloque queda desactualizado, debe actualizarse o reducirse.
 
 - `build_hrv_core.py`
   RR -> `ENDURANCE_HRV_master_CORE.csv` y `ENDURANCE_HRV_master_BETA_AUDIT.csv`.
+  Tambien deja `ENDURANCE_HRV_master_CORE_manifest.json` como sidecar atomico de corrida.
 
 - `build_hrv_final_dashboard.py`
   `CORE + sleep + sessions_day` -> `ENDURANCE_HRV_master_FINAL.csv` y `ENDURANCE_HRV_master_DASHBOARD.csv`.
   La carga de entrenamiento se lee desde `ENDURANCE_HRV_sessions_day.csv`.
   Consume `load_3d`, la capa canonica `ACWR/monotony/strain` y el clustering reciente de intensidad solo como contexto de `reason_text`.
+  Tambien deja `ENDURANCE_HRV_master_FINAL_manifest.json` como sidecar atomico de corrida.
 
 - `build_sessions.py`
   Pipeline de sesiones desde Intervals.icu.
@@ -163,6 +168,8 @@ Complementarios:
 - `ENDURANCE_HRV_weekly_coach.json`
 - `ENDURANCE_HRV_sessions_metadata.json`
 - `ENDURANCE_HRV_wellness_subjective.csv`
+- `ENDURANCE_HRV_master_CORE_manifest.json`
+- `ENDURANCE_HRV_master_FINAL_manifest.json`
 
 ## 9. Defaults runtime
 Defaults actuales si no hay variables:
@@ -423,6 +430,22 @@ scanning cannot.
 - **Architecture questions**: `get_architecture_overview` + `list_communities`
 
 Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
+
+### Policy: code-review-graph first
+
+Para cualquier tarea de review, exploracion o analisis de impacto, la IA debe consultar `code-review-graph` antes de leer archivos, salvo que el cambio sea claramente local y ya este identificado con precision.
+
+Nunca hacer lectura amplia del repo a ciegas si `detect_changes`, `get_review_context` o `get_impact_radius` pueden resolver la duda.
+
+### Policy: graph queries should be narrow
+
+Preferir consultas especificas antes que consultas amplias.
+
+- Usar `detect_changes` cuando exista diff o cambios recientes.
+- Usar `get_review_context` cuando ya se conozcan los archivos o el area afectada.
+- Usar `get_impact_radius` cuando la pregunta sea de alcance o dependencias.
+- Usar `get_minimal_context_tool` solo como orientacion inicial muy breve cuando la tarea aun no este bien acotada.
+- Si una consulta del grafo timeoutea repetidamente para la misma tarea, dejar de ampliar el alcance y pasar a lectura manual de archivos relevantes.
 
 ### Key Tools
 

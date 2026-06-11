@@ -43,6 +43,12 @@ from hrv_app.config import (
     OUTDIR as CONFIG_RR_DIR,
     resolve_writable_dir,
 )
+from hrv_app.run_manifest import (
+    artifact_signature,
+    build_run_manifest,
+    file_digest,
+    write_run_manifest_atomic,
+)
 
 
 # ============================================================================
@@ -63,6 +69,7 @@ DATE_FORMAT = "%Y-%m-%d"
 # Archivos de salida (nombres canónicos, sin fechas)
 OUT_CORE = DATA_DIR / "ENDURANCE_HRV_master_CORE.csv"
 OUT_BETA_AUDIT = DATA_DIR / "ENDURANCE_HRV_master_BETA_AUDIT.csv"
+OUT_CORE_MANIFEST = DATA_DIR / "ENDURANCE_HRV_master_CORE_manifest.json"
 
 # Constantes de procesamiento
 CONSTANTS = {
@@ -793,12 +800,13 @@ def main():
     parser.add_argument("--data-dir", type=str, help="Directorio de datos (override HRV_DATA_DIR)")
     args = parser.parse_args()
 
-    global DATA_DIR, OUT_CORE, OUT_BETA_AUDIT
+    global DATA_DIR, OUT_CORE, OUT_BETA_AUDIT, OUT_CORE_MANIFEST
 
     if args.data_dir:
         DATA_DIR = resolve_writable_dir(Path(args.data_dir), CONFIG_DATA_DIR)
         OUT_CORE = DATA_DIR / "ENDURANCE_HRV_master_CORE.csv"
         OUT_BETA_AUDIT = DATA_DIR / "ENDURANCE_HRV_master_BETA_AUDIT.csv"
+        OUT_CORE_MANIFEST = DATA_DIR / "ENDURANCE_HRV_master_CORE_manifest.json"
     if args.rr_dir:
         global RR_BASE_DIR
         RR_BASE_DIR = resolve_writable_dir(Path(args.rr_dir), CONFIG_RR_DIR)
@@ -926,18 +934,53 @@ def main():
     write_csv_atomic(core_df, OUT_CORE)
     write_csv_atomic(beta_df, OUT_BETA_AUDIT)
 
+    manifest = build_run_manifest(
+        stage="core",
+        builder="build_hrv_core.py",
+        builder_revision=file_digest(Path(__file__)),
+        data_dir=DATA_DIR,
+        effective_config={
+            "data_dir": str(DATA_DIR),
+            "rr_base_dir": str(RR_BASE_DIR),
+            "quiet": QUIET,
+            "disable_backup": disable_backup,
+            "constants": CONSTANTS,
+        },
+        inputs=[
+            artifact_signature(rr_path, role="rr_input", required=False)
+            for rr_path in rr_files
+        ],
+        outputs=[
+            artifact_signature(
+                OUT_CORE,
+                role="core",
+                row_count=len(core_df),
+                column_count=len(core_df.columns),
+            ),
+            artifact_signature(
+                OUT_BETA_AUDIT,
+                role="beta_audit",
+                row_count=len(beta_df),
+                column_count=len(beta_df.columns),
+            ),
+        ],
+    )
+    write_run_manifest_atomic(manifest, OUT_CORE_MANIFEST)
+
     if not QUIET:
         print("\n" + "="*50)
         print("ENDURANCE HRV - Procesamiento completado")
         print("="*50)
         print(f"CORE:       {OUT_CORE} ({len(core_df)} filas)")
         print(f"BETA_AUDIT: {OUT_BETA_AUDIT} ({len(beta_df)} filas)")
+        print(f"MANIFEST:   {OUT_CORE_MANIFEST}")
         print("\nUltimas fechas procesadas:")
         for p in processed[-5:]:
             print(f"   {p['Fecha']}: HR={p['HR']:.1f} lpm, RMSSD={p['RMSSD']:.1f} ms")
         print("\nEjecuta 'python build_hrv_final_dashboard.py' para generar FINAL y DASHBOARD")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
 

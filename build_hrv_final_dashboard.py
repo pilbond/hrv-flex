@@ -34,7 +34,7 @@ import sys
 import logging
 import tempfile
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, replace, asdict
 from pathlib import Path
 from typing import Dict, Optional, Tuple, List
 
@@ -44,6 +44,12 @@ from hrv_app.config import (
     DATA_DIR as CONFIG_DATA_DIR,
     SSM_SHADOW_PATH,
     resolve_writable_dir,
+)
+from hrv_app.run_manifest import (
+    artifact_signature,
+    build_run_manifest,
+    file_digest,
+    write_run_manifest_atomic,
 )
 
 
@@ -64,6 +70,8 @@ IN_CORE = DATA_DIR / "ENDURANCE_HRV_master_CORE.csv"
 OUT_FINAL = DATA_DIR / "ENDURANCE_HRV_master_FINAL.csv"
 OUT_DASHBOARD = DATA_DIR / "ENDURANCE_HRV_master_DASHBOARD.csv"
 OUT_FINAL_REASON_ITEMS = DATA_DIR / "ENDURANCE_HRV_master_FINAL_reason_items.json"
+OUT_CORE_MANIFEST = DATA_DIR / "ENDURANCE_HRV_master_CORE_manifest.json"
+OUT_FINAL_MANIFEST = DATA_DIR / "ENDURANCE_HRV_master_FINAL_manifest.json"
 DATE_FORMAT = "%Y-%m-%d"
 
 
@@ -2276,13 +2284,15 @@ def write_json_atomic(payload: object, path: Path) -> None:
 def main(argv: List[str]) -> int:
     args = parse_args(argv)
 
-    global DATA_DIR, IN_CORE, OUT_FINAL, OUT_DASHBOARD, OUT_FINAL_REASON_ITEMS
+    global DATA_DIR, IN_CORE, OUT_FINAL, OUT_DASHBOARD, OUT_FINAL_REASON_ITEMS, OUT_CORE_MANIFEST, OUT_FINAL_MANIFEST
     if "data_dir" in args:
         DATA_DIR = resolve_writable_dir(Path(args["data_dir"]), CONFIG_DATA_DIR)
         IN_CORE = DATA_DIR / "ENDURANCE_HRV_master_CORE.csv"
         OUT_FINAL = DATA_DIR / "ENDURANCE_HRV_master_FINAL.csv"
         OUT_DASHBOARD = DATA_DIR / "ENDURANCE_HRV_master_DASHBOARD.csv"
         OUT_FINAL_REASON_ITEMS = DATA_DIR / "ENDURANCE_HRV_master_FINAL_reason_items.json"
+        OUT_CORE_MANIFEST = DATA_DIR / "ENDURANCE_HRV_master_CORE_manifest.json"
+        OUT_FINAL_MANIFEST = DATA_DIR / "ENDURANCE_HRV_master_FINAL_manifest.json"
 
     cfg = CFG
     if "decision_mode" in args:
@@ -2303,10 +2313,81 @@ def main(argv: List[str]) -> int:
     write_csv_atomic(dashboard, OUT_DASHBOARD)
     write_json_atomic(final.attrs.get("reason_items_sidecar", {}), OUT_FINAL_REASON_ITEMS)
 
+    manifest_extra = {}
+    if OUT_CORE_MANIFEST.exists():
+        manifest_extra["source_manifest_path"] = str(OUT_CORE_MANIFEST)
+        manifest_extra["source_manifest_sha256"] = file_digest(OUT_CORE_MANIFEST)
+        try:
+            source_manifest = json.loads(OUT_CORE_MANIFEST.read_text(encoding="utf-8"))
+        except Exception:
+            source_manifest = None
+        if isinstance(source_manifest, dict) and "effective_config_hash" in source_manifest:
+            manifest_extra["source_manifest_effective_config_hash"] = str(
+                source_manifest["effective_config_hash"]
+            )
+
+    manifest = build_run_manifest(
+        stage="final_dashboard",
+        builder="build_hrv_final_dashboard.py",
+        builder_revision=file_digest(Path(__file__)),
+        data_dir=DATA_DIR,
+        effective_config={
+            "data_dir": str(DATA_DIR),
+            "input_core": str(IN_CORE),
+            "input_sleep": str(DATA_DIR / "ENDURANCE_HRV_sleep.csv"),
+            "input_sessions_day": str(DATA_DIR / "ENDURANCE_HRV_sessions_day.csv"),
+            "final_output": str(OUT_FINAL),
+            "dashboard_output": str(OUT_DASHBOARD),
+            "reason_items_output": str(OUT_FINAL_REASON_ITEMS),
+            "config": asdict(cfg),
+            "swc_floor": SWC_FLOOR,
+            "veto_mult": VETO_MULT,
+        },
+        inputs=[
+            artifact_signature(
+                IN_CORE,
+                role="core_input",
+                row_count=len(core),
+                column_count=len(core.columns),
+            ),
+            artifact_signature(
+                DATA_DIR / "ENDURANCE_HRV_sleep.csv",
+                role="sleep_input",
+                required=False,
+            ),
+            artifact_signature(
+                DATA_DIR / "ENDURANCE_HRV_sessions_day.csv",
+                role="sessions_day_input",
+                required=False,
+            ),
+        ],
+        outputs=[
+            artifact_signature(
+                OUT_FINAL,
+                role="final",
+                row_count=len(final),
+                column_count=len(final.columns),
+            ),
+            artifact_signature(
+                OUT_DASHBOARD,
+                role="dashboard",
+                row_count=len(dashboard),
+                column_count=len(dashboard.columns),
+            ),
+            artifact_signature(
+                OUT_FINAL_REASON_ITEMS,
+                role="reason_items_sidecar",
+            ),
+        ],
+        extra=manifest_extra or None,
+    )
+    write_run_manifest_atomic(manifest, OUT_FINAL_MANIFEST)
+
     last_fecha = "N/A"
     if not final.empty and "Fecha" in final.columns:
         last_fecha = str(final["Fecha"].iloc[-1])
     print(f"[OK] Archivos actualizados hasta {last_fecha}")
+    print(f"[OK] Manifest escrito en {OUT_FINAL_MANIFEST}")
     return 0
 
 

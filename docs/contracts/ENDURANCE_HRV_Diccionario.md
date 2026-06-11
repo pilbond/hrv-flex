@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Diccionario de Columnas (FINAL/DASHBOARD)
 
-**Revisión:** r2026-05-14 v4.14 (planning_note semanal)
+**Revisión:** r2026-06-11 v4.15 (manifests de trazabilidad de corrida)
 **Estado:** Producción
 
 **Documentos relacionados:**
@@ -10,6 +10,7 @@
 
 **Límite de alcance de este diccionario:**
 - documenta `CORE`, `FINAL`, `DASHBOARD`, `BETA_AUDIT`, `sleep`, `sessions_day`, `intensity_distribution_weekly`, `weekly_coach`, `wellness_subjective` y la metadata de sesiones,
+- documenta también los sidecars de trazabilidad `ENDURANCE_HRV_master_CORE_manifest.json` y `ENDURANCE_HRV_master_FINAL_manifest.json` como envoltorios operativos de corrida,
 - para el detalle columna-a-columna de `sessions.csv` (73 cols), la fuente canónica es `ENDURANCE_HRV_Sessions_Schema.md`; aquí sólo se ofrece el mapa,
 - no documenta artefactos locales de `analysis/` como `terrain_context`, `terrain_fit_context`, `terrain_intervals.csv` o `terrain_climbs.csv`,
 - cuando haga falta esa capa de análisis de terreno, la fuente correcta es `analysis/SESSION_ANALYSIS_METHOD.md` y `analysis/ANALYSIS_DICTIONARY.md`.

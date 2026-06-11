@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Especificación Técnica
 
-**Revisión:** r2026-05-13 v4.13 (sidecar semanal estructurado)
+**Revisión:** r2026-06-11 v4.15 (manifests de corrida CORE/FINAL)
 **Estado:** Producción
 
 ---
@@ -959,7 +959,9 @@ Si tu baseline actual está por debajo del P20 de todos tus baselines histórico
 | Archivo | Para qué | Columnas |
 |---------|----------|----------|
 | `ENDURANCE_HRV_master_CORE.csv` | La medición fisiológica del día, sin decisiones | 18 |
+| `ENDURANCE_HRV_master_CORE_manifest.json` | Sidecar atómico de trazabilidad de la corrida CORE/BETA: rutas, hashes de inputs/outputs y configuración efectiva | — |
 | `ENDURANCE_HRV_master_FINAL.csv` | Gate, veto agudo, sombras, residual, reason_text, auditoría raw-vs-ref y contexto de recuperación multiseñal | 66 |
+| `ENDURANCE_HRV_master_FINAL_manifest.json` | Sidecar atómico de trazabilidad de la corrida FINAL/DASHBOARD: enlaza el manifest de CORE y conserva hashes de outputs/configuración efectiva | — |
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | Lo esencial para decidir en 10 segundos + reason_text | 10 |
 | `ENDURANCE_HRV_sleep.csv` | Sueño nocturno y recuperación (Polar) | 17 |
 | `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento, incluyendo primitivas mínimas de coach metrics por sesión y capa de durabilidad mecánica | 73 |
