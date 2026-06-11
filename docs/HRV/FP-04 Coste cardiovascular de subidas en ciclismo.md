@@ -1,15 +1,29 @@
-# FP-04 Coste cardiovascular de subidas en ciclismo
-
-> Tarjeta Kanvas: `FP-04` — grupo `Terreno / Perfomance`, estado `purple` (propuesta).
-> Documento base predecesor: [FP-03 Coste cardiovascular de subidas en ciclismo.md](FP-03%20Coste%20cardiovascular%20de%20subidas%20en%20ciclismo.md)
+# FP-04 Matched climbs en bike con potencia medida cuando exista
 
 ## Texto de la tarjeta
 
-Objetivo: extender la capa FIT de terreno a bike para exponer coste cardiovascular por subida y hacer visible la FC real de las subidas, sin tocar `session_cost_model`, `sessions.csv` ni el gate HRV.
+Contexto actual: la extension FIT a `bike` ya quedo resuelta por `TYM-01`. El gap pendiente no es exponer climbs, sino comparar subidas comparables dentro de la misma sesion (`matched_climbs`) para leer deriva cardiovascular y perdida mecanica en ciclismo, priorizando potencia medida cuando exista y usando estimada solo como fallback interpretativo.
 
-V1 ejecutable: `matched_climbs` sobre `terrain_fit_context` para bike. `grade_bins` queda como evolucion posterior si hace falta mas granularidad.
+Objetivo: habilitar `matched_climbs` para `bike` sobre `terrain_fit_context`, sin tocar `session_cost_model`, `sessions.csv`, `sessions_day.csv`, `FINAL`, `DASHBOARD` ni el gate HRV.
 
-Relacion: no mezclar con la linea de run contextual; debe vivir en su propia tarjeta y su propio documento.
+V1 ejecutable:
+- permitir `bike` en `compute_matched_climbs_context()`
+- emitir `efficiency_context` y `matched_climbs.csv` para sesiones bike con >=2 climbs comparables
+- usar deltas early vs late de `hr_mean`, `power_mean`, `cadence_mean` y ratios agregados (`hr_drift_bpm`, `power_per_hr_ratio`, `hr_per_vam_ratio`)
+- si `climb_power_source=measured`, tratar esa via como lectura preferente; si es `estimated`, mantener cautela explicita
+
+Criterios de aceptacion:
+1. una sesion bike outdoor con >=2 climbs comparables genera `efficiency_context.applicable=true`
+2. `summary.json` y `session_payload.json` exponen `matched_groups_count`, agregados early/late y patron categorico interpretable
+3. se escribe `analysis/reports/<slug>/artifacts/matched_climbs.csv` cuando aplique
+4. la narrativa distingue potencia `measured` vs `estimated`
+5. no se modifica ningun output canonico global
+6. validacion minima con 3 sesiones bike recientes con climbs; priorizar casos con potencia medida
+
+Relacion:
+- no duplicar `TYM-01`; esa extension ya esta cerrada
+- no mezclar con la linea de run contextual salvo reutilizacion interna de infraestructura
+- la Iteracion B de FP-03 (zonas por climb) queda fuera salvo decision explicita
 
 ---
 
