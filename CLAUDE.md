@@ -85,11 +85,13 @@ Sistema automatizado HRV para un **único atleta**:
 │   ├── AGENTS.md
 │   ├── ENDURANCE_AGENT_DOMAIN.md
 │   └── SESSION_ANALYSIS_METHOD.md
-├── research/                          # Experimentos y auditorías no operativas
+├── research/                          # Experimentos, auditorías e informes no operativos
 │   ├── AGENTS.md
+│   ├── README.md
 │   ├── experiments/
 │   ├── audits/
-│   └── reports/
+│   ├── reports/
+│   └── archive/
 ├── web_ui.py                          # Flask + UI móvil
 ├── polar_hrv_automation.py            # Orquestador principal
 ├── build_hrv_core.py                   # RR → CORE + BETA_AUDIT
@@ -120,6 +122,7 @@ Sistema automatizado HRV para un **único atleta**:
 | `ENDURANCE_HRV_intensity_distribution_weekly.csv` | - | Distribución observada por `sport x week` con patrón y confianza |
 | `ENDURANCE_HRV_weekly_coach.json` | - | Sidecar semanal con `planning_note`, cobertura y contexto retrospectivo `SYA-14` (`z3_budget_by_sport`, `z3_budget_summary`) visible en `/api/status` |
 | `ENDURANCE_HRV_wellness_subjective.csv` | - | Sidecar local para bienestar subjetivo |
+| `ENDURANCE_HRV_ssm_shadow.csv` | - | Shadow diario de SSM regenerado por `build_hrv_ssm.py` |
 
 ---
 
@@ -133,10 +136,12 @@ Endpoints:
 - `GET /auth/callback`, `/oauth/callback` — intercambio de code → tokens
 - `POST /api/sync` — ejecuta `polar_hrv_automation.py --process` en thread
 - `POST /api/sync-sessions` — ejecuta `build_sessions.py --update` en thread
+- `POST /api/import-seed` — importa seed/artefactos auxiliares
+- `POST /api/delete-latest-rr` — elimina el ultimo RR ingerido
 - `GET /api/status` — estado actual
 - `GET /health` — health check
 
-**Regla crítica:** `/api/sync` y `/api/sync-sessions` **NO deben ejecutarse en paralelo**. El estado operativo es compartido; si uno está corriendo, el otro debe rechazarse.
+**Regla crítica:** `/api/sync`, `/api/sync-sessions`, `/api/import-seed` y `/api/delete-latest-rr` **NO deben ejecutarse en paralelo**. El estado operativo es compartido; si uno está corriendo, el otro debe rechazarse.
 
 ### `polar_hrv_automation.py`
 Orquestador del flujo principal.
@@ -145,6 +150,8 @@ Orquestador del flujo principal.
 - Fallback a Polar si Dropbox no cubre las fechas necesarias
 - Ejecuta `build_hrv_core.py` (RR → CORE)
 - Ejecuta `build_hrv_final_dashboard.py` (CORE + sleep + sessions_day → FINAL + DASHBOARD)
+- Ejecuta `build_hrv_ssm.py` cuando corresponde para regenerar `ENDURANCE_HRV_ssm_shadow.csv`
+- `build_hrv_ssm_validation.py` y `build_hrv_ssm_outcome_battery.py` quedan como auditorias manuales bajo demanda
 - Fetch sleep y nightly recharge de Polar; append/upsert a `ENDURANCE_HRV_sleep.csv`
 - Push wellness a Intervals.icu (opcional, según config)
 
@@ -381,7 +388,7 @@ python egc_to_rr.py --dropbox-folder /ruta/carpeta --dropbox-recursive --outdir 
 - `analysis/` queda reservado al producto funcional de análisis de sesiones y semanas.
 - Hipótesis, benchmarks, auditorías, revisiones por IA y experimentos no adoptados van en `research/`.
 - Antes de crear contenido exploratorio, leer `research/AGENTS.md`.
-- Guardar scripts en `research/**/scripts/` y outputs en `results/` o `research/reports/`.
+- Guardar scripts en `research/**/scripts/` y outputs en `research/reports/` o en el subárbol del experimento.
 - No escribir resultados junto al código ni importar `research/` desde la aplicación.
 
 ---
@@ -398,6 +405,7 @@ python egc_to_rr.py --dropbox-folder /ruta/carpeta --dropbox-recursive --outdir 
 - ✅ `sessions_day.csv` incluye carga canonica, clustering reciente de intensidad y señal `DO-02`
 - ✅ `sessions_metadata.json` incluye `training_audit` por capas para gobernar confianza de coaching/carga
 - ✅ `weekly_coach.json` expone tambien la capa `SYA-14` como contexto retrospectivo de Z3 por deporte sin tocar el gate
+- ✅ `build_hrv_ssm.py` se ejecuta en el sync diario para regenerar `ENDURANCE_HRV_ssm_shadow.csv`; `build_hrv_ssm_validation.py` y `build_hrv_ssm_outcome_battery.py` quedan como auditorias manuales
 - ✅ `build_hrv_final_dashboard.py` consume `load_3d`, `ACWR/monotony/strain` y clustering reciente de intensidad solo como contexto de `reason_text`
 - ✅ Fetch sleep/nightly/intervals en `polar_hrv_automation.py` operativo
 - ✅ Capa de recuperación multiseñal en FINAL (66 cols); `recovery_support_class`, `recovery_discordance_flag` y `recovery_discordance_reason` sin tocar el gate
