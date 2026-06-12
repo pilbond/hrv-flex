@@ -7,6 +7,13 @@ from unittest import mock
 from analysis import analyze_weekly as MODULE
 from analysis import sya15_continuity
 
+# Algunos tests consumen los CSV personales reales de data/ (no versionados);
+# en CI no existen y se omiten con razón explícita.
+_REAL_DATA_AVAILABLE = Path("data/ENDURANCE_HRV_intensity_distribution_weekly.csv").exists()
+requires_real_data = unittest.skipUnless(
+    _REAL_DATA_AVAILABLE, "requiere los CSV personales de data/ (no disponibles en CI)"
+)
+
 
 class AnalyzeWeeklyTests(unittest.TestCase):
     def test_render_weekly_report_labels_low_load_week_as_relative_deload(self):
@@ -198,6 +205,7 @@ class AnalyzeWeeklyTests(unittest.TestCase):
         self.assertEqual(list(profile.columns), ["Dia", "Fecha", "Sueño", "gate_badge", "Action", "Sesion", "load_day", "work_total_min_day", "z3_min_day"])
         self.assertEqual(profile.iloc[0]["load_day"], "42")
 
+    @requires_real_data
     def test_weekly_prompt_and_handoff_use_repo_relative_paths(self):
         weekly_dir = MODULE.Path("C:/Pilbond/polar-hrv-automation/analysis/reports/weekly/2026-05-11_2026-05-17")
         prompt = MODULE.build_weekly_analyst_prompt_markdown(
@@ -232,6 +240,7 @@ class AnalyzeWeeklyTests(unittest.TestCase):
         self.assertIn("analysis/WEEKLY_ANALYSIS_METHOD.md", handoff)
         self.assertNotIn("C:\\Pilbond\\polar-hrv-automation", handoff)
 
+    @requires_real_data
     def test_analyze_weekly_generates_report_and_context(self):
         with TemporaryDirectory() as tmpdir:
             weekly_dir = Path(tmpdir) / "weekly"
@@ -275,6 +284,7 @@ class AnalyzeWeeklyTests(unittest.TestCase):
             self.assertEqual(context["week_start"], "2026-05-11")
             self.assertEqual(context["week_end"], "2026-05-17")
 
+    @requires_real_data
     def test_analyze_weekly_can_reuse_existing_manifest(self):
         with TemporaryDirectory() as tmpdir:
             weekly_dir = Path(tmpdir) / "weekly"
@@ -297,6 +307,7 @@ class AnalyzeWeeklyTests(unittest.TestCase):
             )
             self.assertTrue(Path(payload["report_auto_md"]).exists())
 
+    @requires_real_data
     def test_analyze_weekly_skip_prep_tolerates_manifest_without_sya15(self):
         with TemporaryDirectory() as tmpdir:
             weekly_dir = Path(tmpdir) / "weekly"
@@ -329,6 +340,7 @@ class AnalyzeWeeklyTests(unittest.TestCase):
             self.assertIn("SYA-15 no está presente en este manifest semanal", report)
             self.assertEqual(report.count("No hay sidecar SYA-15 declarado en este manifest"), 1)
 
+    @requires_real_data
     def test_analyze_weekly_skip_prep_with_missing_sya15_keeps_single_guidance_line(self):
         with TemporaryDirectory() as tmpdir:
             weekly_dir = Path(tmpdir) / "weekly"
@@ -360,6 +372,7 @@ class AnalyzeWeeklyTests(unittest.TestCase):
             expected = "No hay sidecar SYA-15 declarado en este manifest; si hace falta esa capa, regenerar el prep semanal."
             self.assertEqual(report.count(expected), 1)
 
+    @requires_real_data
     def test_analyze_weekly_skip_prep_tolerates_duplicate_sya15_entries(self):
         with TemporaryDirectory() as tmpdir:
             weekly_dir = Path(tmpdir) / "weekly"
@@ -461,6 +474,7 @@ class AnalyzeWeeklyTests(unittest.TestCase):
                     skip_prep=True,
                 )
 
+    @requires_real_data
     def test_analyze_weekly_fails_with_clear_error_if_canonical_csv_is_missing(self):
         with TemporaryDirectory() as tmpdir:
             weekly_dir = Path(tmpdir) / "weekly"

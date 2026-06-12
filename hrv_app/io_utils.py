@@ -41,13 +41,13 @@ def _replace_atomic(src: Path, dst: Path) -> None:
             time.sleep(0.2 * (attempt + 1))
 
 
-def write_csv_atomic(df: pd.DataFrame, path: Path) -> None:
+def write_csv_atomic(df: pd.DataFrame, path: Path, **to_csv_kwargs) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f"{path.name}.", suffix=".tmp")
     os.close(fd)
     tmp_path = Path(tmp)
     try:
-        df.to_csv(tmp_path, index=False)
+        df.to_csv(tmp_path, index=False, **to_csv_kwargs)
         _replace_atomic(tmp_path, path)
     finally:
         if tmp_path.exists():

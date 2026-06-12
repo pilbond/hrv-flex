@@ -15,6 +15,13 @@ MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(MODULE)
 
+# Algunos tests consumen los CSV personales reales de data/ (no versionados);
+# en CI no existen y se omiten con razón explícita.
+_REAL_DATA_AVAILABLE = Path("data/ENDURANCE_HRV_intensity_distribution_weekly.csv").exists()
+requires_real_data = unittest.skipUnless(
+    _REAL_DATA_AVAILABLE, "requiere los CSV personales de data/ (no disponibles en CI)"
+)
+
 
 class AnalyzeSya15ContinuityTests(unittest.TestCase):
     def _write_weekly_csv(self, rows):
@@ -1008,6 +1015,7 @@ class AnalyzeSya15ContinuityTests(unittest.TestCase):
         self.assertIn("# SYA-15 Bike Continuity Review", report)
         self.assertNotIn("# SYA-15 Trail Run Continuity Review", report)
 
+    @requires_real_data
     def test_main_rejects_non_positive_window_size(self):
         argv = [
             "analyze_sya15_continuity.py",
@@ -1019,6 +1027,7 @@ class AnalyzeSya15ContinuityTests(unittest.TestCase):
             with mock.patch.object(sys, "argv", argv):
                 MODULE.main()
 
+    @requires_real_data
     def test_main_rejects_invalid_min_positive(self):
         argv = [
             "analyze_sya15_continuity.py",

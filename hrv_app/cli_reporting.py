@@ -369,6 +369,31 @@ def show_last_daily_summary():
                     "🧭 Baseline largo: "
                     f"best={'sí' if degraded_best else 'no'} / current={'sí' if degraded_current else 'no'}"
                 )
+            ln_rmssd_today = _maybe_float(last_row.get("lnRMSSD_today"))
+            ln_rmssd_used = _maybe_float(last_row.get("lnRMSSD_used"))
+            swc_ln = _maybe_float(last_row.get("SWC_ln"))
+            if (
+                _has_value(ln_base60)
+                and ln_rmssd_used is not None
+                and swc_ln is not None
+            ):
+                try:
+                    ln_base60_f = float(ln_base60)
+                    rmssd_base60 = math.exp(ln_base60_f)
+                    rmssd_used = math.exp(ln_rmssd_used)
+                    delta_ln = ln_rmssd_used - ln_base60_f
+                    delta_ms = rmssd_used - rmssd_base60
+                    raw_note = ""
+                    if ln_rmssd_today is not None and abs(ln_rmssd_today - ln_rmssd_used) > 1e-6:
+                        raw_note = f"; bruto hoy {_format_metric(rmssd)} ms"
+                    print(
+                        "🔎 Gate 2D:        "
+                        f"usado {_format_metric(rmssd_used)} ms vs base60 {_format_metric(rmssd_base60)} ms "
+                        f"(Δln {delta_ln:+.3f}; Δ≈{delta_ms:+.1f} ms; SWC_ln {_format_metric(swc_ln)})"
+                        f"{raw_note}"
+                    )
+                except (ValueError, TypeError, OverflowError):
+                    pass
             print(f"🧠 Reason text:     {reason_text}")
             ssm_summary = _load_ssm_daily_summary(expected_date=fecha)
             if ssm_summary:

@@ -60,7 +60,10 @@ class CliReportingContractTests(unittest.TestCase):
                         "Tiempo_Estabilizacion": 72,
                         "HRV_Stability": "Media",
                         "Stability_Subtype": "Inestable",
+                        "lnRMSSD_today": 3.8598010575712274,
+                        "lnRMSSD_used": 3.7089108492977814,
                         "ln_base60": 3.75,
+                        "SWC_ln": 0.11498916949676254,
                         "n_base60": 41,
                         "Calidad": "A",
                         "healthy_rmssd": 54.2,
@@ -112,6 +115,7 @@ class CliReportingContractTests(unittest.TestCase):
             self.assertIn("🧪 Contexto recuperación: contexto completo / senales alineadas", output)
             self.assertIn("📐 Base 60d:        42.5 ms (n=41)", output)
             self.assertIn("⚠️  Límite inferior de referencia: 46.1 ms", output)
+            self.assertIn("🔎 Gate 2D:        usado 40.8 ms vs base60 42.5 ms", output)
             self.assertGreater(
                 output.index("🧠 Reason text:"),
                 output.index("⚠️  Límite inferior de referencia: 46.1 ms"),

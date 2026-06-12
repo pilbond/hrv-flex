@@ -7,6 +7,7 @@ Accesible desde cualquier dispositivo (móvil, tablet, PC)
 
 from flask import Flask, render_template_string, jsonify, request, redirect
 from flask_cors import CORS
+from markupsafe import escape
 from werkzeug.middleware.proxy_fix import ProxyFix
 import subprocess
 import sys
@@ -20,7 +21,7 @@ import threading
 import json
 from urllib.parse import urlencode
 import secrets
-from hrv_app.config import DATA_DIR, TOKEN_FILE as TOKEN_PATH
+from hrv_app.config import DATA_DIR, OUTDIR as RR_DOWNLOAD_DIR, TOKEN_FILE as TOKEN_PATH
 from hrv_app.polar_utils import env_flag, response_excerpt
 from hrv_app.oauth_utils import exchange_code_for_token, register_polar_user, save_json_atomic
 
@@ -96,11 +97,55 @@ execution_state = {
 }
 execution_state_lock = threading.Lock()
 
+# Clave compartida opcional para proteger /api/*. Si HRV_UI_KEY no está
+# definida, el comportamiento es el histórico (sin autenticación).
+UI_KEY = (os.environ.get("HRV_UI_KEY") or "").strip()
+
+# Estados OAuth emitidos pendientes de callback (anti-CSRF). Proceso único,
+# memoria local suficiente.
+_OAUTH_STATE_TTL_SEC = 600
+_oauth_states: dict[str, float] = {}
+_oauth_states_lock = threading.Lock()
+
+
+def _issue_oauth_state() -> str:
+    state = secrets.token_urlsafe(24)
+    now = time.time()
+    with _oauth_states_lock:
+        expired = [s for s, t in _oauth_states.items() if now - t > _OAUTH_STATE_TTL_SEC]
+        for s in expired:
+            _oauth_states.pop(s, None)
+        _oauth_states[state] = now
+    return state
+
+
+def _consume_oauth_state(state: str) -> bool:
+    if not state:
+        return False
+    with _oauth_states_lock:
+        issued_at = _oauth_states.pop(state, None)
+    return issued_at is not None and (time.time() - issued_at) <= _OAUTH_STATE_TTL_SEC
+
+
+@app.before_request
+def _require_ui_key():
+    if not UI_KEY or not request.path.startswith("/api/"):
+        return None
+    provided = (request.headers.get("X-HRV-KEY") or request.args.get("key") or "").strip()
+    if provided and secrets.compare_digest(provided, UI_KEY):
+        return None
+    return jsonify({
+        "success": False,
+        "error": "No autorizado: falta la clave HRV_UI_KEY (header X-HRV-KEY o ?key=).",
+    }), 401
+
+
 JOB_LABELS = {
     'hrv': 'sincronización HRV',
     'sessions': 'sincronización de sesiones',
     'seed_import': 'importación CSV seed',
     'delete_rr': 'borrado del último RR',
+    'restore_backup': 'restauración desde Dropbox',
 }
 
 
@@ -312,8 +357,9 @@ def _import_seed_csvs() -> dict:
 
 
 def _rr_download_dir() -> Path:
-    raw = (os.environ.get("RR_DOWNLOAD_DIR") or "").strip()
-    return Path(raw) if raw else (DATA_DIR / "rr_downloads")
+    # Misma resolución (con fallback a directorio escribible) que usa el
+    # pipeline: una única fuente de verdad en hrv_app.config.
+    return RR_DOWNLOAD_DIR
 
 
 def _list_rr_csv_files(rr_dir: Path) -> list[Path]:
@@ -371,7 +417,9 @@ def _delete_latest_rr() -> dict:
 
 
 def _csv_runtime_diagnostics() -> dict:
-    data_dir = Path((os.environ.get("HRV_DATA_DIR") or "data").strip() or "data")
+    # DATA_DIR resuelto por hrv_app.config (mismo fallback que el pipeline);
+    # evita que /api/status mire un directorio distinto del que se escribe.
+    data_dir = DATA_DIR
     core_path = data_dir / "ENDURANCE_HRV_master_CORE.csv"
     final_path = data_dir / "ENDURANCE_HRV_master_FINAL.csv"
 
@@ -422,6 +470,13 @@ def _csv_runtime_diagnostics() -> dict:
         "final_path": str(final_path),
         "final_exists": final_path.exists(),
         "final_last_fecha": last_final_row.get("Fecha") if last_final_row else None,
+        "final_last_hr_today": last_final_row.get("HR_today") if last_final_row else None,
+        "final_last_rmssd_stable": last_final_row.get("RMSSD_stable") if last_final_row else None,
+        "final_last_lnrmssd_today": last_final_row.get("lnRMSSD_today") if last_final_row else None,
+        "final_last_lnrmssd_used": last_final_row.get("lnRMSSD_used") if last_final_row else None,
+        "final_last_ln_base60": last_final_row.get("ln_base60") if last_final_row else None,
+        "final_last_swc_ln": last_final_row.get("SWC_ln") if last_final_row else None,
+        "final_last_gate_badge": last_final_row.get("gate_badge") if last_final_row else None,
         "final_last_n_base60": last_final_row.get("n_base60") if last_final_row else None,
         "final_last_gate_razon_base60": last_final_row.get("gate_razon_base60") if last_final_row else None,
         "final_last_reason_text": last_final_row.get("reason_text") if last_final_row else None,
@@ -630,6 +685,52 @@ HTML_TEMPLATE = """
             border: 1px solid rgba(15, 118, 110, 0.12);
             padding: 8px 10px;
         }
+        .hrv-summary-card {
+            border: 1px solid rgba(234, 106, 42, 0.18);
+            background:
+                linear-gradient(180deg, rgba(255, 241, 220, 0.96), rgba(255, 252, 247, 0.97));
+        }
+        .hrv-summary-title {
+            font-size: 18px;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            color: var(--brand-strong);
+            margin-bottom: 10px;
+        }
+        .hrv-summary-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+        .hrv-summary-item {
+            padding: 10px 12px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.78);
+            border: 1px solid rgba(234, 106, 42, 0.10);
+        }
+        .hrv-summary-label {
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin-bottom: 4px;
+        }
+        .hrv-summary-value {
+            font-size: 15px;
+            font-weight: 750;
+            line-height: 1.35;
+            color: var(--text);
+        }
+        .hrv-summary-note {
+            font-size: 13px;
+            line-height: 1.45;
+            color: var(--brand-strong);
+            background: rgba(234, 106, 42, 0.08);
+            border: 1px solid rgba(234, 106, 42, 0.12);
+            padding: 8px 10px;
+        }
         .coach-source {
             margin-top: 12px;
             font-size: 12px;
@@ -658,6 +759,28 @@ HTML_TEMPLATE = """
             </div>
             <div id="status" class="status"></div>
         </section>
+        <section id="hrvSummaryCard" class="card hrv-summary-card" hidden>
+            <div class="hrv-summary-title">Lectura HRV de hoy</div>
+            <div class="hrv-summary-grid">
+                <div class="hrv-summary-item">
+                    <div class="hrv-summary-label">Dato bruto</div>
+                    <div id="hrvSummaryRaw" class="hrv-summary-value">-</div>
+                </div>
+                <div class="hrv-summary-item">
+                    <div class="hrv-summary-label">Dato usado por el gate</div>
+                    <div id="hrvSummaryUsed" class="hrv-summary-value">-</div>
+                </div>
+                <div class="hrv-summary-item">
+                    <div class="hrv-summary-label">Baseline 60d</div>
+                    <div id="hrvSummaryBase" class="hrv-summary-value">-</div>
+                </div>
+                <div class="hrv-summary-item">
+                    <div class="hrv-summary-label">Gate</div>
+                    <div id="hrvSummaryGate" class="hrv-summary-value">-</div>
+                </div>
+            </div>
+            <div id="hrvSummaryNote" class="hrv-summary-note">Esperando disponibilidad del resumen HRV...</div>
+        </section>
         <section id="weeklyCoachCard" class="card coach-card" hidden>
             <div class="coach-header">
                 <div class="coach-title">Coach semanal</div>
@@ -676,11 +799,18 @@ HTML_TEMPLATE = """
             <pre id="rawOutput" class="raw-output">Esperando ejecución...</pre>
             <div class="button-stack" style="margin-top: 14px;">
                 <button id="importBtn" class="ghost-button{% if not show_seed_import %} is-hidden{% endif %}" onclick="importSeedCsvs()" {% if not show_seed_import %}hidden{% endif %}><span id="importBtnText">Importar CSV seed</span></button>
+                <button id="restoreBackupBtn" class="ghost-button{% if not show_restore_backup %} is-hidden{% endif %}" onclick="restoreFromDropbox()" {% if not show_restore_backup %}hidden{% endif %}><span id="restoreBackupBtnText">Restaurar backup Dropbox</span></button>
                 <button id="deleteLastRrBtn" class="danger-button" onclick="deleteLastRr()"><span id="deleteLastRrBtnText">Borrar último RR</span></button>
             </div>
         </section>
     </div>
     <script>
+        const UI_KEY = new URLSearchParams(window.location.search).get('key');
+        function apiFetch(url, options = {}) {
+            const headers = Object.assign({}, options.headers || {});
+            if (UI_KEY) headers['X-HRV-KEY'] = UI_KEY;
+            return fetch(url, Object.assign({}, options, { headers }));
+        }
         function showBanner(kind, message) {
             const status = document.getElementById('status');
             status.className = `status ${kind} show`;
@@ -717,6 +847,49 @@ HTML_TEMPLATE = """
             z3.hidden = !z3Summary;
             z3.textContent = z3Summary ? `Contexto Z3 semanal: ${z3Summary}` : '';
         }
+        function renderHrvSummaryPanel(data) {
+            const card = document.getElementById('hrvSummaryCard');
+            const raw = document.getElementById('hrvSummaryRaw');
+            const used = document.getElementById('hrvSummaryUsed');
+            const base = document.getElementById('hrvSummaryBase');
+            const gate = document.getElementById('hrvSummaryGate');
+            const note = document.getElementById('hrvSummaryNote');
+            const diagnostics = data?.diagnostics || {};
+            const exists = Boolean(diagnostics.final_exists);
+            card.hidden = !exists;
+            if (!exists) {
+                raw.textContent = '-';
+                used.textContent = '-';
+                base.textContent = '-';
+                gate.textContent = '-';
+                note.textContent = 'Todavía no hay salida FINAL disponible.';
+                return;
+            }
+
+            const rmssdRaw = diagnostics.final_last_rmssd_stable;
+            const hrToday = diagnostics.final_last_hr_today;
+            const lnToday = diagnostics.final_last_lnrmssd_today;
+            const lnUsed = diagnostics.final_last_lnrmssd_used;
+            const lnBase = diagnostics.final_last_ln_base60;
+            const swcLn = diagnostics.final_last_swc_ln;
+            const gateBadge = diagnostics.final_last_gate_badge || 'N/A';
+            const gateReason = diagnostics.final_last_gate_razon_base60 || 'N/A';
+            const action = diagnostics.final_last_action_detail || 'N/A';
+
+            raw.textContent = `${fmtNumber(rmssdRaw)} ms · HR ${fmtNumber(hrToday)} lpm · lnRMSSD bruto ${fmtNumber(lnToday, 3)}`;
+            used.textContent = `${fmtNumber(expFromLog(lnUsed))} ms · lnRMSSD usado ${fmtNumber(lnUsed, 3)}`;
+            base.textContent = `${fmtNumber(expFromLog(lnBase))} ms · SWC_ln ${fmtNumber(swcLn, 3)}`;
+            gate.textContent = `${gateBadge} · ${gateReason}`;
+            note.textContent = `El gate compara el valor usado por la decisión con BASE60. Hoy la acción es ${action}.`;
+        }
+        function fmtNumber(value, decimals = 1) {
+            const n = Number(value);
+            return Number.isFinite(n) ? n.toFixed(decimals) : '-';
+        }
+        function expFromLog(value) {
+            const n = Number(value);
+            return Number.isFinite(n) ? Math.exp(n) : NaN;
+        }
         function setButtonState(jobType, state) {
             const mapping = { hrv: ['syncBtn', 'syncBtnText', 'Sincronizar HRV'], sessions: ['sessionsBtn', 'sessionsBtnText', 'Sincronizar sesiones'] };
             const target = mapping[jobType];
@@ -752,12 +925,13 @@ HTML_TEMPLATE = """
                 const latestRrPath = data?.diagnostics?.latest_rr_path;
                 deleteLastRrBtn.disabled = Boolean(data.running || !latestRrPath);
             }
+            renderHrvSummaryPanel(data);
             renderWeeklyCoachPanel(data);
             renderTechnicalOutput(rawText);
         }
         async function refreshDashboard() {
             try {
-                const response = await fetch('/api/status');
+                const response = await apiFetch('/api/status');
                 const data = await response.json();
                 applyUiState(data);
                 if (data.running) showBanner('info', data.job_type === 'sessions' ? 'Procesando sincronización de sesiones...' : 'Procesando sincronización HRV...');
@@ -779,7 +953,7 @@ HTML_TEMPLATE = """
             btnText.innerHTML = '<span class="spinner"></span> ' + (jobType === 'hrv' ? 'Sincronizando HRV...' : 'Sincronizando sesiones...');
             showBanner('info', startMessage);
             try {
-                const response = await fetch(url, { method: 'POST' });
+                const response = await apiFetch(url, { method: 'POST' });
                 const data = await response.json();
                 if (!response.ok) { showSyncError(data, jobType); return; }
                 if (data.message && /iniciada/i.test(data.message)) await pollSyncStatus();
@@ -800,7 +974,7 @@ HTML_TEMPLATE = """
             btnText.innerHTML = '<span class="spinner"></span> Importando...';
             showBanner('info', 'Importando CSV seed a /data...');
             try {
-                const response = await fetch('/api/import-seed', { method: 'POST' });
+                const response = await apiFetch('/api/import-seed', { method: 'POST' });
                 const data = await response.json();
                 if (!response.ok || !data.success) throw new Error(data.error || 'Error importando CSV seed');
                 renderTechnicalOutput(JSON.stringify(data, null, 2));
@@ -813,10 +987,32 @@ HTML_TEMPLATE = """
                 btnText.textContent = 'Importar CSV seed';
             }
         }
+        async function restoreFromDropbox() {
+            const btn = document.getElementById('restoreBackupBtn');
+            const btnText = document.getElementById('restoreBackupBtnText');
+            const confirmed = window.confirm('Se restaurarán los CSV del último backup en Dropbox. Los archivos actuales se guardarán en data/backup/. ¿Continuar?');
+            if (!confirmed) return;
+            btn.disabled = true;
+            btnText.innerHTML = '<span class="spinner"></span> Restaurando...';
+            showBanner('info', 'Descargando backup desde Dropbox...');
+            try {
+                const response = await apiFetch('/api/restore-backup', { method: 'POST' });
+                const data = await response.json();
+                if (!response.ok || !data.success) throw new Error(data.error || 'Error restaurando backup');
+                renderTechnicalOutput(JSON.stringify(data, null, 2));
+                showBanner('success', `Backup restaurado: ${data.restored?.length || 0} archivos desde ${data.source_folder || 'Dropbox'}`);
+                await refreshDashboard();
+            } catch (error) {
+                showBanner('error', error.message);
+            } finally {
+                btn.disabled = false;
+                btnText.textContent = 'Restaurar backup Dropbox';
+            }
+        }
         async function deleteLastRr() {
             const btn = document.getElementById('deleteLastRrBtn');
             const btnText = document.getElementById('deleteLastRrBtnText');
-            const statusResponse = await fetch('/api/status');
+            const statusResponse = await apiFetch('/api/status');
             const statusData = await statusResponse.json();
             const latest = statusData?.diagnostics?.latest_rr_file;
             if (!latest) {
@@ -829,7 +1025,7 @@ HTML_TEMPLATE = """
             btnText.innerHTML = '<span class="spinner"></span> Borrando...';
             showBanner('info', `Moviendo ${latest} a backup...`);
             try {
-                const response = await fetch('/api/delete-latest-rr', { method: 'POST' });
+                const response = await apiFetch('/api/delete-latest-rr', { method: 'POST' });
                 const data = await response.json();
                 if (!response.ok || !data.success) throw new Error(data.error || 'Error borrando el último RR');
                 renderTechnicalOutput(JSON.stringify(data, null, 2));
@@ -850,7 +1046,7 @@ HTML_TEMPLATE = """
             while (attempts < maxAttempts) {
                 await new Promise(resolve => setTimeout(resolve, 2000));
                 try {
-                    const response = await fetch('/api/status');
+                    const response = await apiFetch('/api/status');
                     const data = await response.json();
                     applyUiState(data);
                     if (!data.running) {
@@ -903,6 +1099,7 @@ def index():
         HTML_TEMPLATE,
         sync_timeout_sec=_sync_timeout_seconds(),
         show_seed_import=env_flag('HRV_SHOW_SEED_IMPORT', SEED_UPLOAD_DIR.exists()),
+        show_restore_backup=env_flag('HRV_BACKUP_DROPBOX_ENABLED', False),
     )
 
 
@@ -952,46 +1149,17 @@ def sync():
 
 
 def run_sync():
-    """Ejecutar polar_hrv_automation.py"""
-    _set_execution_start('hrv')
-
-    try:
-        script_path = Path('polar_hrv_automation.py')
-        timeout_sec = _sync_timeout_seconds()
-
-        if not script_path.exists():
-            raise FileNotFoundError('polar_hrv_automation.py no encontrado')
-
-        result = subprocess.run(
-            [sys.executable, str(script_path), '--process'],
-            capture_output=True,
-            text=True,
-            encoding='utf-8',
-            errors='replace',
-            timeout=timeout_sec,
-            env={
-                **os.environ,
-                'PYTHONIOENCODING': 'utf-8',
-                'PYTHONUTF8': '1',
-                'HRV_DISABLE_BACKUP': '1',
-                'HRV_QUIET': '1',
-            }
-        )
-
-        _set_execution_result('hrv', result.returncode == 0, result.stdout or '', result.stderr or '',
-                              'Sincronización completada' if result.returncode == 0 else 'Error en sincronización')
-    except subprocess.TimeoutExpired as e:
-        timeout_sec = _sync_timeout_seconds()
-        stdout = e.stdout if isinstance(e.stdout, str) else (e.stdout.decode('utf-8', errors='replace') if e.stdout else '')
-        stderr = e.stderr if isinstance(e.stderr, str) else (e.stderr.decode('utf-8', errors='replace') if e.stderr else '')
-        _set_execution_result('hrv', False, stdout or '', (
-            f"Timeout ejecutando sync (>{timeout_sec}s). Ajusta HRV_SYNC_TIMEOUT_SEC si hace falta.\n{stderr or ''}"
-        ).strip(), 'Error en sincronización')
-    except Exception as e:
-        _set_execution_result('hrv', False, '', str(e), 'Error en sincronización')
-    finally:
-        with execution_state_lock:
-            execution_state['last_run'] = datetime.now().isoformat()
+    """Ejecutar polar_hrv_automation.py --process."""
+    _run_subprocess_job(
+        [sys.executable, 'polar_hrv_automation.py', '--process'],
+        'hrv',
+        'Sincronización completada',
+        env_extra={
+            'PYTHONUTF8': '1',
+            'HRV_DISABLE_BACKUP': '1',
+            'HRV_QUIET': '1',
+        },
+    )
 
 
 @app.route('/api/sync-sessions', methods=['POST'])
@@ -1092,6 +1260,40 @@ def import_seed():
         }), 400
 
 
+@app.route('/api/restore-backup', methods=['POST'])
+def restore_backup_endpoint():
+    """Restaurar CSV canónicos desde el último backup en Dropbox."""
+    if not _try_begin_execution('restore_backup'):
+        return jsonify({
+            'success': False,
+            'error': f'Hay un proceso en curso: {_job_label(_execution_snapshot().get("job_type"))}. Espera a que termine antes de restaurar.'
+        }), 409
+
+    try:
+        from hrv_app.backup_dropbox import restore_backup
+        result = restore_backup()
+        _set_execution_result(
+            'restore_backup',
+            True,
+            json.dumps(result, ensure_ascii=False, indent=2),
+            '',
+            'Backup restaurado desde Dropbox',
+        )
+        return jsonify({
+            'success': True,
+            'message': 'Backup restaurado desde Dropbox',
+            'job_type': 'restore_backup',
+            **result,
+        })
+    except Exception as exc:
+        _set_execution_result('restore_backup', False, '', str(exc), 'Error restaurando backup')
+        return jsonify({
+            'success': False,
+            'error': str(exc),
+            'job_type': 'restore_backup',
+        }), 400
+
+
 @app.route('/api/delete-latest-rr', methods=['POST'])
 def delete_latest_rr():
     """Mover a backup el último RR CSV del directorio operativo."""
@@ -1137,7 +1339,7 @@ def auth():
         return jsonify({'error': 'POLAR_CLIENT_ID o POLAR_CLIENT_SECRET no configurados'}), 500
 
     redirect_uri = _redirect_uri()
-    state = secrets.token_urlsafe(24)
+    state = _issue_oauth_state()
 
     # Polar AccessLink espera scope (en muchos casos es obligatorio)
     params = {
@@ -1180,8 +1382,8 @@ def oauth_callback():
         </head>
         <body style="font-family: Arial; text-align: center; padding: 50px;">
             <h1>❌ Error de Autorización</h1>
-            <p><strong>{error}</strong></p>
-            <p>{error_description or 'Error desconocido'}</p>
+            <p><strong>{escape(error)}</strong></p>
+            <p>{escape(error_description or 'Error desconocido')}</p>
             <br>
             <a href="/" style="color: #667eea; text-decoration: none;">← Volver a la app</a>
         </body>
@@ -1200,6 +1402,22 @@ def oauth_callback():
             <p>No se recibió código de autorización</p>
             <br>
             <a href="/" style="color: #667eea; text-decoration: none;">← Volver a la app</a>
+        </body>
+        </html>
+        """, 400
+
+    if not _consume_oauth_state((request.args.get('state') or '').strip()):
+        return """
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Error</title>
+        </head>
+        <body style="font-family: Arial; text-align: center; padding: 50px;">
+            <h1>⚠️ Error</h1>
+            <p>Estado OAuth inválido o caducado. Vuelve a iniciar la autorización desde /auth.</p>
+            <br>
+            <a href="/auth" style="color: #667eea; text-decoration: none;">← Reintentar autorización</a>
         </body>
         </html>
         """, 400
@@ -1341,13 +1559,61 @@ def oauth_callback():
         </html>
         """, 500
 
+def _final_staleness() -> dict:
+    """Última Fecha del FINAL y días transcurridos, para el monitor externo."""
+    final_path = DATA_DIR / "ENDURANCE_HRV_master_FINAL.csv"
+    last_fecha = None
+    if final_path.exists():
+        try:
+            with final_path.open("r", encoding="utf-8", newline="") as f:
+                for row in csv.DictReader(f):
+                    raw = (row.get("Fecha") or "").strip()
+                    if raw:
+                        last_fecha = raw
+        except Exception:
+            last_fecha = None
+
+    days_stale = None
+    if last_fecha:
+        parsed = _parse_iso_date(last_fecha)
+        if parsed is not None:
+            days_stale = (datetime.now().date() - parsed).days
+    return {"final_last_fecha": last_fecha, "days_stale": days_stale}
+
+
+def _stale_max_days(default: int = 3) -> int:
+    raw = (os.environ.get("HRV_STALE_MAX_DAYS") or "").strip()
+    try:
+        value = int(raw)
+        return value if value >= 1 else default
+    except ValueError:
+        return default
+
+
 @app.route('/health', methods=['GET'])
 def health():
-    """Health check para Railway/Render"""
-    return jsonify({
+    """Health check para Railway/monitor externo.
+
+    Sin parámetros siempre devuelve 200 (liveness; no rompe healthchecks de
+    despliegue). Con ?strict=1 devuelve 503 si el FINAL falta o su última
+    fecha supera HRV_STALE_MAX_DAYS — apunta ahí un monitor externo
+    (UptimeRobot, healthchecks.io) para enterarte de syncs fallando en silencio.
+    """
+    staleness = _final_staleness()
+    stale_max = _stale_max_days()
+    payload = {
         'status': 'healthy',
-        'timestamp': datetime.now().isoformat()
-    })
+        'timestamp': datetime.now().isoformat(),
+        'stale_max_days': stale_max,
+        **staleness,
+    }
+    strict = (request.args.get('strict') or '').strip().lower() in {'1', 'true', 'yes'}
+    if strict:
+        days = staleness.get('days_stale')
+        if days is None or days > stale_max:
+            payload['status'] = 'stale'
+            return jsonify(payload), 503
+    return jsonify(payload)
 
 
 if __name__ == '__main__':

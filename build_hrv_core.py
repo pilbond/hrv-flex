@@ -38,6 +38,7 @@ from typing import Dict, List, Tuple, Optional
 
 import numpy as np
 import pandas as pd
+from hrv_app.io_utils import write_csv_atomic
 from hrv_app.config import (
     DATA_DIR as CONFIG_DATA_DIR,
     OUTDIR as CONFIG_RR_DIR,
@@ -753,31 +754,6 @@ def upsert_row(df: pd.DataFrame, row: dict, columns: List[str]) -> pd.DataFrame:
     df = df.sort_values("Fecha").reset_index(drop=True)
     
     return df
-
-
-def write_csv_atomic(df: pd.DataFrame, path: Path) -> None:
-    """Escribe un CSV mediante reemplazo atómico en el mismo directorio."""
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    try:
-        df.to_csv(tmp_path, index=False)
-        last_exc = None
-        for attempt in range(5):
-            try:
-                os.replace(tmp_path, path)
-                return
-            except PermissionError as exc:
-                last_exc = exc
-                if attempt == 4:
-                    raise
-                time.sleep(0.2 * (attempt + 1))
-        if last_exc is not None:
-            raise last_exc
-    finally:
-        if tmp_path.exists():
-            try:
-                tmp_path.unlink()
-            except OSError:
-                pass
 
 
 # ============================================================================

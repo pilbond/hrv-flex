@@ -50,6 +50,9 @@ class WebUiStatusTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
+        self.assertIn('id="hrvSummaryCard"', html)
+        self.assertIn("Lectura HRV de hoy", html)
+        self.assertIn("renderHrvSummaryPanel", html)
         self.assertIn('id="weeklyCoachCard"', html)
         self.assertIn("Coach semanal", html)
         self.assertIn("renderWeeklyCoachPanel", html)

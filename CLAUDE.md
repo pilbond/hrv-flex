@@ -80,7 +80,8 @@ Sistema automatizado HRV para un **único atleta**:
 │   ├── polar_oauth_local.py
 │   ├── intervals_sync.py
 │   ├── sleep_store.py
-│   └── hrv_sync_flow.py
+│   ├── hrv_sync_flow.py
+│   └── backup_dropbox.py
 ├── analysis/                          # Módulo analítico local
 │   ├── AGENTS.md
 │   ├── ENDURANCE_AGENT_DOMAIN.md
@@ -137,11 +138,12 @@ Endpoints:
 - `POST /api/sync` — ejecuta `polar_hrv_automation.py --process` en thread
 - `POST /api/sync-sessions` — ejecuta `build_sessions.py --update` en thread
 - `POST /api/import-seed` — importa seed/artefactos auxiliares
+- `POST /api/restore-backup` — restaura CSV canónicos desde el último backup en Dropbox
 - `POST /api/delete-latest-rr` — elimina el ultimo RR ingerido
 - `GET /api/status` — estado actual
 - `GET /health` — health check
 
-**Regla crítica:** `/api/sync`, `/api/sync-sessions`, `/api/import-seed` y `/api/delete-latest-rr` **NO deben ejecutarse en paralelo**. El estado operativo es compartido; si uno está corriendo, el otro debe rechazarse.
+**Regla crítica:** `/api/sync`, `/api/sync-sessions`, `/api/import-seed`, `/api/restore-backup` y `/api/delete-latest-rr` **NO deben ejecutarse en paralelo**. El estado operativo es compartido; si uno está corriendo, el otro debe rechazarse.
 
 ### `polar_hrv_automation.py`
 Orquestador del flujo principal.
@@ -238,6 +240,11 @@ INTERVALS_ATHLETE_ID=<id>
 HRV_QUIET=1                          # logs mínimos
 HRV_DISABLE_BACKUP=1                 # no respaldar CSVs
 HRV_SYNC_TIMEOUT_SEC=300             # timeout sync
+HRV_UI_KEY=<clave>                   # opcional: protege /api/* (header X-HRV-KEY o ?key=); sin definir = sin auth
+HRV_STALE_MAX_DAYS=3                 # umbral de /health?strict=1 (503 si FINAL más viejo o ausente)
+HRV_BACKUP_DROPBOX_ENABLED=1         # opcional: backup de ENDURANCE_HRV_* a Dropbox tras sync exitoso
+HRV_BACKUP_DROPBOX_PATH=/hrv_backups # carpeta raíz del backup en Dropbox
+HRV_BACKUP_KEEP=14                   # copias diarias a conservar (rotación)
 ```
 
 ### Especializadas
@@ -308,11 +315,14 @@ GET  /oauth/callback
 POST /api/sync
 POST /api/sync-sessions
 GET  /api/status
+POST /api/import-seed
+POST /api/restore-backup
+POST /api/delete-latest-rr
 GET  /health
 ```
 
 ### Regla operativa de concurrencia
-- `/api/sync` (HRV) y `/api/sync-sessions` (sesiones) **comparten estado en memoria**
+- Todos los endpoints POST operativos (`/api/sync`, `/api/sync-sessions`, `/api/import-seed`, `/api/restore-backup`, `/api/delete-latest-rr`) **comparten estado en memoria**
 - **NO ejecutar en paralelo**
 - Si uno está corriendo, rechazar el otro (409 Conflict o similar)
 - La UI web debe evitar permitir botones simultáneos
@@ -340,6 +350,7 @@ GET  /health
 7. Cobertura RR: **Dropbox primero**, fallback Polar si faltan fechas
 8. `POST /api/sync-sessions` ejecuta `build_sessions.py --update`
 9. Los jobs mutables de la UI comparten estado y no se ejecutan simultáneamente
+10. `POST /api/restore-backup` descarga el último backup de Dropbox a `DATA_DIR` con escritura atómica
 
 ---
 
@@ -393,15 +404,20 @@ python egc_to_rr.py --dropbox-folder /ruta/carpeta --dropbox-recursive --outdir 
 
 ---
 
-## Snapshot Actual (2026-06-10)
+## Snapshot Actual (2026-06-12)
 
 ### HRV global
 - ✅ ARQ-02 (AYO-11): módulos internos reorganizados en `hrv_app/`; entrypoints de raíz (`web_ui.py`, `polar_hrv_automation.py`, `build_sessions.py`) intactos
-- ✅ UI expone `/api/sync`, `/api/sync-sessions`, `/api/status`, `/api/import-seed`, `/api/delete-latest-rr` y endpoints OAuth
+- ✅ UI expone `/api/sync`, `/api/sync-sessions`, `/api/status`, `/api/import-seed`, `/api/restore-backup`, `/api/delete-latest-rr` y endpoints OAuth
 - ✅ `build_sessions.py` genera `sessions`, `sessions_day`, `intensity_distribution_weekly`, `weekly_coach`, `sessions_metadata` y `wellness_subjective`
 - ✅ Flujo recomendado: Dropbox primero, Polar fallback
 - ✅ `ENDURANCE_HRV_sleep.csv` es archivo canónico de sueño (17 cols; carga en sessions_day.csv)
-- ✅ Los jobs HRV, sesiones, import seed y backup del último RR comparten estado y no se ejecutan simultáneamente
+- ✅ Los jobs HRV, sesiones, import seed, restore backup y borrado del último RR comparten estado y no se ejecutan simultáneamente
+- ✅ `hrv_app/backup_dropbox.py`: backup opcional de `ENDURANCE_HRV_*` a Dropbox tras sync exitoso (`HRV_BACKUP_DROPBOX_ENABLED`); restauración vía `POST /api/restore-backup` con escritura atómica y backup previo
+- ✅ `/health?strict=1` devuelve 503 si el FINAL falta o su última fecha supera `HRV_STALE_MAX_DAYS` (default 3); sin `strict` sigue siendo 200 (liveness)
+- ✅ Si `HRV_UI_KEY` está definida, todos los `/api/*` exigen la clave vía header `X-HRV-KEY` o `?key=`; OAuth `state` validado con TTL y uso único
+- ✅ `build_hrv_core.py`, `build_hrv_final_dashboard.py` y `build_sessions.py` usan `hrv_app.io_utils` para escrituras atómicas (eliminadas implementaciones locales duplicadas)
+- ✅ CI en `.github/workflows/tests.yml`: pytest en push/PR, Python 3.11
 - ✅ `sessions_day.csv` incluye carga canonica, clustering reciente de intensidad y señal `DO-02`
 - ✅ `sessions_metadata.json` incluye `training_audit` por capas para gobernar confianza de coaching/carga
 - ✅ `weekly_coach.json` expone tambien la capa `SYA-14` como contexto retrospectivo de Z3 por deporte sin tocar el gate

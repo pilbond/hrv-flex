@@ -50,6 +50,7 @@ from hrv_app.config import (
     DATA_DIR as CONFIG_DATA_DIR,
     resolve_writable_dir,
 )
+from hrv_app.io_utils import write_csv_atomic, write_json_atomic, write_text_atomic
 from hrv_app.polar_sessions import PolarSessionClient, extract_mechanical_metrics_from_fit_payload
 
 # ─── Version & params ─────────────────────────────────────────────────────────
@@ -88,63 +89,6 @@ logging.basicConfig(
 )
 log = logging.getLogger("build_sessions")
 
-
-def write_csv_atomic(df: pd.DataFrame, path: Path, **to_csv_kwargs) -> None:
-    """Write a CSV atomically via same-directory temp file + replace."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(
-        dir=path.parent,
-        prefix=f"{path.name}.",
-        suffix=".tmp",
-    )
-    os.close(fd)
-    tmp_path = Path(tmp_name)
-    try:
-        df.to_csv(tmp_path, index=False, **to_csv_kwargs)
-        last_exc = None
-        for attempt in range(5):
-            try:
-                os.replace(tmp_path, path)
-                return
-            except PermissionError as exc:
-                last_exc = exc
-                if attempt == 4:
-                    raise
-                time.sleep(0.2 * (attempt + 1))
-        if last_exc is not None:
-            raise last_exc
-    finally:
-        if tmp_path.exists():
-            try:
-                tmp_path.unlink()
-            except OSError:
-                pass
-
-
-def write_text_atomic(text: str, path: Path, encoding: str = "utf-8") -> None:
-    """Write text atomically via same-directory temp file + replace."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(
-        dir=path.parent,
-        prefix=f"{path.name}.",
-        suffix=".tmp",
-    )
-    os.close(fd)
-    tmp_path = Path(tmp_name)
-    try:
-        tmp_path.write_text(text, encoding=encoding)
-        os.replace(tmp_path, path)
-    finally:
-        if tmp_path.exists():
-            try:
-                tmp_path.unlink()
-            except OSError:
-                pass
-
-
-def write_json_atomic(payload: dict, path: Path) -> None:
-    """Write JSON atomically via same-directory temp file + replace."""
-    write_text_atomic(json.dumps(payload, indent=2, ensure_ascii=False), path)
 
 ENV_FILE = Path(__file__).parent / ".env"
 if ENV_FILE.exists():
@@ -2850,6 +2794,13 @@ def merge_sessions_incremental(new_df: pd.DataFrame, sessions_path: Path) -> pd.
     return merged
 
 
+# Solape del modo --update: re-descarga los últimos días ya vistos para tolerar
+# actividades que llegan tarde a Intervals (sync de reloj retrasado, FIT manual)
+# y reparar sesiones guardadas degradadas. El upsert por session_id lo hace
+# idempotente; el coste son unas pocas descargas extra por run.
+UPDATE_OVERLAP_DAYS = 7
+
+
 def resolve_update_oldest(output_dir: Path, fallback_oldest: str) -> str:
     candidates = [
         output_dir / "ENDURANCE_HRV_sessions_day.csv",
@@ -2872,9 +2823,12 @@ def resolve_update_oldest(output_dir: Path, fallback_oldest: str) -> str:
         if fechas.empty:
             continue
 
-        last_day = fechas.max().date().isoformat()
-        log.info(f"Update mode anchor: {last_day} ← {csv_path.name}")
-        return last_day
+        anchor = (fechas.max() - pd.Timedelta(days=UPDATE_OVERLAP_DAYS)).date().isoformat()
+        log.info(
+            f"Update mode anchor: {anchor} "
+            f"(última Fecha {fechas.max().date().isoformat()} - {UPDATE_OVERLAP_DAYS}d solape) ← {csv_path.name}"
+        )
+        return anchor
 
     log.info(f"Update mode anchor not found; falling back to --oldest={fallback_oldest}")
     return fallback_oldest

@@ -35,7 +35,7 @@ Importante:
 ## `web_ui.py`
 - Que hace:
   - Levanta Flask (UI + API).
-  - Expone endpoints: `/`, `/auth`, `/auth/callback`, `/oauth/callback`, `/api/sync`, `/api/sync-sessions`, `/api/status`, `/api/import-seed`, `/api/delete-latest-rr`, `/health`.
+  - Expone endpoints: `/`, `/auth`, `/auth/callback`, `/oauth/callback`, `/api/sync`, `/api/sync-sessions`, `/api/status`, `/api/import-seed`, `/api/restore-backup`, `/api/delete-latest-rr`, `/health`.
   - En `/api/sync` dispara `polar_hrv_automation.py --process`.
   - En `/api/sync-sessions` dispara `build_sessions.py --update`.
   - La UI prioriza los controles operativos, una tarjeta dedicada de `Coach semanal` cuando existe `ENDURANCE_HRV_weekly_coach.json`, y despues `Detalle tecnico` / `raw output`.
@@ -52,7 +52,8 @@ Importante:
   - No genera CSV por si solo; delega al pipeline.
 - Automatico o manual:
   - Automatico en Railway (start command).
-  - `POST /api/sync`, `POST /api/sync-sessions`, `POST /api/import-seed` y `POST /api/delete-latest-rr` comparten estado y no deben ejecutarse en paralelo.
+  - `POST /api/sync`, `POST /api/sync-sessions`, `POST /api/import-seed`, `POST /api/restore-backup` y `POST /api/delete-latest-rr` comparten estado y no deben ejecutarse en paralelo.
+  - Si `HRV_UI_KEY` está definida, todos los `/api/*` exigen la clave vía header `X-HRV-KEY` o query `?key=`; sin definir, comportamiento histórico sin autenticación.
 
 ## `canvas-tool.py`
 - Que hace:
@@ -177,10 +178,25 @@ Importante:
 
 ## `hrv_app.io_utils`
 - Que hace:
-  - Proporciona `write_csv_atomic`, `write_json_atomic`, `write_text_atomic` y `json_safe` compartidos por los modulos SSM.
+  - Proporciona `write_csv_atomic`, `write_json_atomic`, `write_text_atomic` y `json_safe` compartidos por todos los módulos que escriben artefactos canónicos.
   - Todas las escrituras usan `tempfile + os.replace` con retry ante `PermissionError`.
 - Cuando usarlo:
-  - Lo importan `build_hrv_ssm.py`, `build_hrv_ssm_validation.py` y `build_hrv_ssm_outcome_battery.py`. No se llama directamente desde el flujo operativo.
+  - Lo importan `build_hrv_core.py`, `build_hrv_final_dashboard.py`, `build_sessions.py`, `build_hrv_ssm.py` y `hrv_app/backup_dropbox.py`. No se llama directamente desde el flujo operativo.
+
+## `hrv_app.backup_dropbox`
+- Que hace:
+  - Backup opcional de los `ENDURANCE_HRV_*.csv/.json` a Dropbox tras un sync exitoso.
+  - Sube los artefactos canónicos a una carpeta fechada (`/hrv_backups/YYYY-MM-DD/`) y rota copias antiguas (configurable via `HRV_BACKUP_KEEP`, default 14).
+  - Restaura archivos desde Dropbox a `DATA_DIR` con escritura atómica y backup previo de los archivos existentes en `data/backup/pre_restore_<fecha>/`.
+  - Reutiliza las credenciales Dropbox ya configuradas para la ingesta RR.
+- Cuando usarlo:
+  - El backup se ejecuta automáticamente al final de cada sync si `HRV_BACKUP_DROPBOX_ENABLED=1`.
+  - La restauración se invoca desde `POST /api/restore-backup` en la UI web.
+  - NUNCA lanza excepciones en el backup (el sync continua); la restauración sí lanza si falta credencial o no hay backups.
+- Entradas:
+  - Variables de entorno Dropbox (`DROPBOX_ACCESS_TOKEN` o refresh trio), `HRV_BACKUP_DROPBOX_PATH`, `HRV_BACKUP_KEEP`.
+- Salidas:
+  - Archivos subidos/descargados a/desde Dropbox, dict de resultado con status.
 
 ## `hrv_app.eval_utils`
 - Que hace:

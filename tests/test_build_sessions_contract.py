@@ -1587,7 +1587,9 @@ class BuildSessionsContractTests(unittest.TestCase):
                 day_path.unlink()
             if output_dir.exists():
                 output_dir.rmdir()
-        self.assertEqual(oldest, "2026-03-03")
+        # Ancla = última Fecha (2026-03-03) menos UPDATE_OVERLAP_DAYS de solape:
+        # tolera actividades que llegan tarde a Intervals; upsert idempotente.
+        self.assertEqual(oldest, "2026-02-24")
 
     def test_match_polar_exercise_accepts_single_dst_like_candidate(self):
         row = {

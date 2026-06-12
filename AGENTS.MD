@@ -68,10 +68,10 @@ Elementos estructurales estables del repo:
 - investigacion exploratoria, auditorias e informes no operativos en `research/`,
 - implementacion interna del pipeline en `hrv_app/` (paquete Python interno; ARQ-02).
 
-## 6. Snapshot actual (2026-06-11)
+## 6. Snapshot actual (2026-06-12)
 Estado actual de implementacion observado:
 
-- la UI expone `/api/sync`, `/api/sync-sessions`, `/api/status`, `/api/import-seed`, `/api/delete-latest-rr` y endpoints OAuth,
+- la UI expone `/api/sync`, `/api/sync-sessions`, `/api/status`, `/api/import-seed`, `/api/restore-backup`, `/api/delete-latest-rr` y endpoints OAuth,
 - `build_sessions.py` genera `ENDURANCE_HRV_sessions.csv`, `ENDURANCE_HRV_sessions_day.csv`, `ENDURANCE_HRV_intensity_distribution_weekly.csv`, `ENDURANCE_HRV_weekly_coach.json`, `ENDURANCE_HRV_sessions_metadata.json` y `ENDURANCE_HRV_wellness_subjective.csv`,
 - `ENDURANCE_HRV_sessions_day.csv` ya incluye contexto canonico de carga (`acwr_simple_prev`, `monotony_7d_prev`, `strain_7d_prev`, `load_ctx_ready`), clustering reciente de intensidad (`intense_day`, `intense_days_prev_3d`, `intense_days_prev_5d`, `intensity_clustering_flag`, `intensity_clustering_level`) y la señal rolling `DO-02` de polarizacion por familia (`dominant_family_prev_7d`, `dominant_family_share_prev_7d`, `n_sessions_usable_prev_7d`, `z1/z2/z3_pct_weighted_prev_7d`, `distribution_signal_confidence_prev_7d`, `polarisation_index_prev_7d`, `intensity_blackhole_flag`, `intensity_blackhole_episode_id`, `intensity_blackhole_episode_len`),
 - `ENDURANCE_HRV_intensity_distribution_weekly.csv` ya resume la distribucion observada por `sport x week` con ponderacion por minutos, patron (`polarized`, `pyramidal`, `threshold`, `mixed`) y confianza explicita,
@@ -98,16 +98,22 @@ Estado actual de implementacion observado:
   - `analysis_only_context` en `summary.json` y `session_payload.json`
   - `coach_metrics.json`, `coach_intervals.csv` y `coach_groups.csv` como sidecars locales reproducibles
   - esta capa no modifica `sessions.csv`, `sessions_day.csv`, `FINAL` ni `DASHBOARD`.
+- `hrv_app/backup_dropbox.py`: backup opcional de `ENDURANCE_HRV_*` a Dropbox tras sync exitoso (`HRV_BACKUP_DROPBOX_ENABLED`); restauracion via `POST /api/restore-backup` con escritura atomica y backup previo de los archivos existentes en `data/backup/pre_restore_<fecha>/`,
+- `/health?strict=1` devuelve 503 si el FINAL falta o su ultima fecha supera `HRV_STALE_MAX_DAYS` (default 3); sin `strict` sigue siendo 200 (liveness),
+- si `HRV_UI_KEY` esta definida, todos los `/api/*` exigen la clave via header `X-HRV-KEY` o `?key=`; el `state` de OAuth se valida con TTL y uso unico,
+- `build_hrv_core.py`, `build_hrv_final_dashboard.py` y `build_sessions.py` usan `hrv_app.io_utils` para escrituras atomicas (eliminadas las implementaciones locales duplicadas),
+- CI en `.github/workflows/tests.yml`: pytest en push/PR sobre Python 3.11.
 
 Si este bloque queda desactualizado, debe actualizarse o reducirse.
 
 ## 7. Arquitectura actual
 - `web_ui.py`
   Flask + UI movil.
-  Endpoints: `/`, `/auth`, `/auth/callback`, `/oauth/callback`, `/api/sync`, `/api/sync-sessions`, `/api/status`, `/api/import-seed`, `/api/delete-latest-rr`, `/health`.
+  Endpoints: `/`, `/auth`, `/auth/callback`, `/oauth/callback`, `/api/sync`, `/api/sync-sessions`, `/api/status`, `/api/import-seed`, `/api/restore-backup`, `/api/delete-latest-rr`, `/health`.
   `POST /api/sync` ejecuta `polar_hrv_automation.py --process` en thread.
   `POST /api/sync-sessions` ejecuta `build_sessions.py --update` en thread.
-  Los jobs HRV, sesiones, import seed y backup del ultimo RR comparten estado operativo y no deben ejecutarse en paralelo.
+  `POST /api/restore-backup` descarga el último backup de Dropbox a `DATA_DIR` (requiere `HRV_BACKUP_DROPBOX_ENABLED`).
+  Los jobs HRV, sesiones, import seed, restore backup y borrado del ultimo RR comparten estado operativo y no deben ejecutarse en paralelo.
 
 - `polar_hrv_automation.py`
   Orquesta el flujo principal.
@@ -116,6 +122,7 @@ Si este bloque queda desactualizado, debe actualizarse o reducirse.
   Si no es posible, usa Polar como fallback.
   Actualiza `ENDURANCE_HRV_sleep.csv`.
   Ejecuta `build_hrv_core.py`, `build_hrv_final_dashboard.py` y `build_hrv_ssm.py` cuando corresponde.
+  Al final del sync exitoso, ejecuta `hrv_app.backup_dropbox.run_backup()` (opt-in via `HRV_BACKUP_DROPBOX_ENABLED`; nunca rompe el sync).
   La validacion SSM y la battery de outcomes quedan fuera del sync diario y se lanzan solo bajo demanda.
   Puede sincronizar wellness a Intervals.icu.
 
@@ -215,6 +222,11 @@ Operativas:
 - `HRV_DROPBOX_RR_TIMEOUT_SEC`
 - `HRV_SEED_UPLOAD_DIR`
 - `HRV_SHOW_SEED_IMPORT`
+- `HRV_UI_KEY` (opcional: si está definida, todos los `/api/*` exigen la clave vía header `X-HRV-KEY` o query `?key=`; sin definir, comportamiento histórico sin autenticación)
+- `HRV_STALE_MAX_DAYS` (umbral de `/health?strict=1`: devuelve 503 si el FINAL falta o su última fecha supera el umbral; default 3. `/health` sin `strict` sigue siendo 200 liveness)
+- `HRV_BACKUP_DROPBOX_ENABLED` (opcional: tras cada sync exitoso sube los `ENDURANCE_HRV_*.csv/.json` de `DATA_DIR` a Dropbox en carpeta fechada; usa las credenciales Dropbox ya configuradas; nunca rompe el sync)
+- `HRV_BACKUP_DROPBOX_PATH` (carpeta raíz del backup; default `/hrv_backups`)
+- `HRV_BACKUP_KEEP` (copias diarias a conservar; default 14)
 
 Especializadas:
 
@@ -277,12 +289,13 @@ Contrato:
 - `POST /api/sync-sessions`
 - `GET /api/status`
 - `POST /api/import-seed`
+- `POST /api/restore-backup`
 - `POST /api/delete-latest-rr`
 - `GET /health`
 
 Regla operativa:
 
-- los cuatro endpoints POST operativos comparten estado de ejecucion en memoria,
+- los cinco endpoints POST operativos comparten estado de ejecucion en memoria,
 - no deben ejecutarse en paralelo,
 - si un job esta corriendo, cualquier otro debe rechazarse.
 
@@ -303,6 +316,7 @@ Regla operativa:
 7. Si faltan fechas en `CORE`, se intenta primero cubrirlas desde Dropbox antes del fallback Polar.
 8. `POST /api/sync-sessions` ejecuta `build_sessions.py --update`.
 9. La UI web no permite ejecutar `sync` HRV y `sync-sessions` al mismo tiempo.
+10. `POST /api/restore-backup` descarga el ultimo backup de Dropbox a `DATA_DIR` con escritura atomica.
 
 ## 15. Comandos operativos
 Windows:

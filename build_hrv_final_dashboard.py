@@ -40,6 +40,7 @@ from typing import Dict, Optional, Tuple, List
 
 import numpy as np
 import pandas as pd
+from hrv_app.io_utils import write_csv_atomic, write_json_atomic
 from hrv_app.config import (
     DATA_DIR as CONFIG_DATA_DIR,
     SSM_SHADOW_PATH,
@@ -2212,73 +2213,6 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
 
     dashboard = final[COLS_DASHBOARD].copy()
     return final, dashboard
-
-
-def write_csv_atomic(df: pd.DataFrame, path: Path) -> None:
-    """Write a CSV atomically via same-directory temp file + replace."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(
-        dir=path.parent,
-        prefix=f"{path.name}.",
-        suffix=".tmp",
-    )
-    os.close(fd)
-    tmp_path = Path(tmp_name)
-    try:
-        df.to_csv(tmp_path, index=False)
-        last_exc = None
-        for attempt in range(5):
-            try:
-                os.replace(tmp_path, path)
-                return
-            except PermissionError as exc:
-                last_exc = exc
-                if attempt == 4:
-                    raise
-                time.sleep(0.2 * (attempt + 1))
-        if last_exc is not None:
-            raise last_exc
-    finally:
-        if tmp_path.exists():
-            try:
-                tmp_path.unlink()
-            except OSError:
-                pass
-
-
-def write_json_atomic(payload: object, path: Path) -> None:
-    """Write a JSON file atomically via same-directory temp file + replace."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(
-        dir=path.parent,
-        prefix=f"{path.name}.",
-        suffix=".tmp",
-    )
-    os.close(fd)
-    tmp_path = Path(tmp_name)
-    try:
-        tmp_path.write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
-        last_exc = None
-        for attempt in range(5):
-            try:
-                os.replace(tmp_path, path)
-                return
-            except PermissionError as exc:
-                last_exc = exc
-                if attempt == 4:
-                    raise
-                time.sleep(0.2 * (attempt + 1))
-        if last_exc is not None:
-            raise last_exc
-    finally:
-        if tmp_path.exists():
-            try:
-                tmp_path.unlink()
-            except OSError:
-                pass
 
 
 def main(argv: List[str]) -> int:
