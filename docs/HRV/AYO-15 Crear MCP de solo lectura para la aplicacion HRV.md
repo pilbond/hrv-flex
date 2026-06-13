@@ -1,4 +1,4 @@
-# AYO-15 Crear MCP de solo lectura para la aplicacion HRV
+
 
 ## Estado
 

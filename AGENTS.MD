@@ -459,6 +459,7 @@ Preferir consultas especificas antes que consultas amplias.
 - Usar `get_impact_radius` cuando la pregunta sea de alcance o dependencias.
 - Usar `get_minimal_context_tool` solo como orientacion inicial muy breve cuando la tarea aun no este bien acotada.
 - Si `code-review-graph` agota el tiempo o no devuelve contexto utilizable, no insistir con la misma consulta: acotar la busqueda a una subzona, cambiar a `detect_changes`, `get_review_context` o `get_impact_radius` segun corresponda, y si persiste, continuar con lectura manual de los archivos relevantes.
+- Si el analisis automatico del diff completo timeautea, no reintentar el diff global: dividir el cambio por rutas, comunidades o flujos y revisar cada subzona con `detect_changes` o `get_review_context`.
 
 ### Key Tools
 

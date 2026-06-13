@@ -153,6 +153,38 @@ Importante:
 - Importante:
   - El runtime productivo sigue en v3 salvo `POLAR_API_VERSION=v4`; rollback = flip de env var, el bundle v3 no se toca.
 
+## `hrv_app.polar_shadow` (AYO-19, shadow mode)
+- Que hace:
+  - Lectura de solo-lectura de la API v4 (sleeps, nightly-recharge, training-sessions) para auditoria en paralelo.
+  - Se ejecuta automaticamente al final de `--process` si `POLAR_API_VERSION=shadow`.
+  - Compara presencia v4 contra lo persistido en `ENDURANCE_HRV_sleep.csv` (sleep/nightly) y `ENDURANCE_HRV_master_CORE.csv` (sessions).
+  - Reporta diffs numericos, latencia, refreshes y status por dominio en sidecar append-only `data/audit/polar_v4_shadow.jsonl`.
+  - Nunca bloquea `--process`: cualquier fallo queda registrado como status en el sidecar y la excepcion se captura.
+- Cuando usarlo:
+  - Bajo `POLAR_API_VERSION=shadow` en una ventana de observacion de 7-14 dias previos al corte v4 (phase F5).
+  - El sidecar sirve como punto de referencia empirica de paridad v3/v4 antes de pasar todo el trafico a v4.
+- Entradas:
+  - Bundle v4 (`polar_tokens_v4.json`).
+  - `ENDURANCE_HRV_sleep.csv` y `ENDURANCE_HRV_master_CORE.csv` para lectura de v3.
+- Salidas:
+  - `data/audit/polar_v4_shadow.jsonl` (uno por fecha, JSONL append-only).
+- Automatico o manual:
+  - Automatico si `POLAR_API_VERSION=shadow` y se ejecuta `--process`.
+  - El contenido no modifica ningun contrato canonico ni interfiere con el pipeline principal.
+
+## `scripts/shadow_report.py` (AYO-19, diagnostico)
+- Que hace:
+  - Lee `data/audit/polar_v4_shadow.jsonl` y resume presencia, diffs, latencia y refreshes por dominio.
+  - Reporte de solo lectura para diagnostico durante la ventana shadow de observacion.
+- Cuando usarlo:
+  - Bajo demanda, durante la fase shadow mode, para validar que v4 devuelve datos y los diffs son manejables.
+- Entradas:
+  - `data/audit/polar_v4_shadow.jsonl` (o `--path` custom).
+- Salidas:
+  - Salida textual en consola (sin generar archivos).
+- Automatico o manual:
+  - Manual diagnostico: `python scripts/shadow_report.py [--last N] [--path <path>]`.
+
 ## `hrv_app.polar_oauth_local`
 - Que hace:
   - Mantiene el flujo OAuth local con callback HTTP local para uso `dev-only`.

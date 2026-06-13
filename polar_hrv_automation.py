@@ -30,6 +30,7 @@ from hrv_app.polar_client import (
 )
 from hrv_app.polar_oauth_local import do_oauth_flow, load_tokens
 from hrv_app.hrv_sync_flow import sync_hrv_range
+from hrv_app.polar_shadow import run_polar_v4_shadow
 from hrv_app.backup_dropbox import run_backup as run_dropbox_backup
 
 
@@ -134,6 +135,11 @@ def main():
     if not isinstance(exercises, list):
         raise RuntimeError(f"Respuesta inesperada: {type(exercises)}")
     sync_hrv_range(args, access_token, x_user_id, exercises)
+
+    # AYO-19: lectura shadow Polar v4 de solo-auditoria (no-op salvo
+    # POLAR_API_VERSION=shadow; nunca bloquea --process)
+    if args.process:
+        run_polar_v4_shadow()
 
     # Backup opcional del histórico fuera del volumen (opt-in, nunca rompe el sync)
     run_dropbox_backup()
