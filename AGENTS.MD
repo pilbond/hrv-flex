@@ -98,7 +98,7 @@ Estado actual de implementacion observado:
   - `analysis_only_context` en `summary.json` y `session_payload.json`
   - `coach_metrics.json`, `coach_intervals.csv` y `coach_groups.csv` como sidecars locales reproducibles
   - esta capa no modifica `sessions.csv`, `sessions_day.csv`, `FINAL` ni `DASHBOARD`.
-- `hrv_app/backup_dropbox.py`: backup opcional de `ENDURANCE_HRV_*` a Dropbox tras sync exitoso (`HRV_BACKUP_DROPBOX_ENABLED`); restauracion via `POST /api/restore-backup` con escritura atomica y backup previo de los archivos existentes en `data/backup/pre_restore_<fecha>/`,
+- `hrv_app/backup_dropbox.py`: backup opcional de `ENDURANCE_HRV_*` a una carpeta plana en Dropbox (`HRV_BACKUP_DROPBOX_ENABLED`, sobrescribe en cada sync); restauracion via `POST /api/restore-backup` con escritura atomica y backup previo de los archivos existentes en `data/backup/pre_restore/`,
 - `/health?strict=1` devuelve 503 si el FINAL falta o su ultima fecha supera `HRV_STALE_MAX_DAYS` (default 3); sin `strict` sigue siendo 200 (liveness),
 - si `HRV_UI_KEY` esta definida, todos los `/api/*` exigen la clave via header `X-HRV-KEY` o `?key=`; el `state` de OAuth se valida con TTL y uso unico,
 - `build_hrv_core.py`, `build_hrv_final_dashboard.py` y `build_sessions.py` usan `hrv_app.io_utils` para escrituras atomicas (eliminadas las implementaciones locales duplicadas),
@@ -224,9 +224,8 @@ Operativas:
 - `HRV_SHOW_SEED_IMPORT`
 - `HRV_UI_KEY` (opcional: si está definida, todos los `/api/*` exigen la clave vía header `X-HRV-KEY` o query `?key=`; sin definir, comportamiento histórico sin autenticación)
 - `HRV_STALE_MAX_DAYS` (umbral de `/health?strict=1`: devuelve 503 si el FINAL falta o su última fecha supera el umbral; default 3. `/health` sin `strict` sigue siendo 200 liveness)
-- `HRV_BACKUP_DROPBOX_ENABLED` (opcional: tras cada sync exitoso sube los `ENDURANCE_HRV_*.csv/.json` de `DATA_DIR` a Dropbox en carpeta fechada; usa las credenciales Dropbox ya configuradas; nunca rompe el sync)
-- `HRV_BACKUP_DROPBOX_PATH` (carpeta raíz del backup; default `/hrv_backups`)
-- `HRV_BACKUP_KEEP` (copias diarias a conservar; default 14)
+- `HRV_BACKUP_DROPBOX_ENABLED` (opcional: tras cada sync exitoso sube los `ENDURANCE_HRV_*.csv/.json` de `DATA_DIR` a una carpeta plana en Dropbox, sobrescribiendo; usa las credenciales Dropbox ya configuradas; nunca rompe el sync)
+- `HRV_BACKUP_DROPBOX_PATH` (carpeta del backup; default `/hrv_backups`)
 
 Especializadas:
 
@@ -459,7 +458,7 @@ Preferir consultas especificas antes que consultas amplias.
 - Usar `get_review_context` cuando ya se conozcan los archivos o el area afectada.
 - Usar `get_impact_radius` cuando la pregunta sea de alcance o dependencias.
 - Usar `get_minimal_context_tool` solo como orientacion inicial muy breve cuando la tarea aun no este bien acotada.
-- Si una consulta del grafo timeoutea repetidamente para la misma tarea, dejar de ampliar el alcance y pasar a lectura manual de archivos relevantes.
+- Si `code-review-graph` agota el tiempo o no devuelve contexto utilizable, no insistir con la misma consulta: acotar la busqueda a una subzona, cambiar a `detect_changes`, `get_review_context` o `get_impact_radius` segun corresponda, y si persiste, continuar con lectura manual de los archivos relevantes.
 
 ### Key Tools
 

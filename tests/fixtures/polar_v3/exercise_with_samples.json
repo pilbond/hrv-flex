@@ -1,0 +1,10 @@
+{
+  "id": "ex-001",
+  "start-time": "2025-06-10T07:30:00",
+  "duration": "PT8M30S",
+  "detailed-sport-info": "BODY_AND_MIND",
+  "sport": "OTHER",
+  "samples": [
+    {"sample-type": "11", "recording-rate": 0, "data": "812,820,805,798"}
+  ]
+}

@@ -37,26 +37,15 @@ class BackupDropboxContractTests(unittest.TestCase):
         self.assertEqual(result["status"], "no_credentials")
         post_mock.assert_not_called()
 
-    def test_uploads_canonical_files_and_rotates_old_folders(self):
+    def test_uploads_canonical_files_overwriting_flat_folder(self):
         env = {
             "HRV_BACKUP_DROPBOX_ENABLED": "1",
             "DROPBOX_ACCESS_TOKEN": "tok",
             "DROPBOX_REFRESH_TOKEN": "",
             "HRV_BACKUP_DROPBOX_PATH": "/hrv_backups",
-            "HRV_BACKUP_KEEP": "2",
-        }
-        old_folders = {
-            "entries": [
-                {".tag": "folder", "name": "2026-01-01"},
-                {".tag": "folder", "name": "2026-01-02"},
-                {".tag": "folder", "name": "2026-01-03"},
-                {".tag": "folder", "name": "no_es_fecha"},
-            ]
         }
 
         def fake_post(url, **kwargs):
-            if url == backup_dropbox._LIST_FOLDER_URL:
-                return _response(200, old_folders)
             return _response(200, {})
 
         with TemporaryDirectory() as tmpdir:
@@ -73,14 +62,21 @@ class BackupDropboxContractTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         # Solo los 2 canónicos ENDURANCE_HRV_*, no "otro_archivo.csv".
         self.assertEqual(result["uploaded"], 2)
-        # keep=2 sobre 3 carpetas-fecha → borra la más antigua (la no-fecha se ignora).
-        self.assertEqual(result["deleted_old"], 1)
+        self.assertEqual(result["folder"], "/hrv_backups")
 
-        delete_calls = [
-            c for c in post_mock.call_args_list if c.args[0] == backup_dropbox._DELETE_URL
+        upload_calls = [
+            c for c in post_mock.call_args_list if c.args[0] == backup_dropbox._UPLOAD_URL
         ]
-        self.assertEqual(len(delete_calls), 1)
-        self.assertEqual(delete_calls[0].kwargs["json"]["path"], "/hrv_backups/2026-01-01")
+        self.assertEqual(len(upload_calls), 2)
+        # Carpeta plana: ruta directa sin carpeta-fecha.
+        uploaded_paths = {
+            __import__("json").loads(c.kwargs["headers"]["Dropbox-API-Arg"])["path"]
+            for c in upload_calls
+        }
+        self.assertEqual(
+            uploaded_paths,
+            {"/hrv_backups/ENDURANCE_HRV_master_FINAL.csv", "/hrv_backups/ENDURANCE_HRV_weekly_coach.json"},
+        )
 
     def test_upload_failure_reports_partial_and_never_raises(self):
         env = {
@@ -117,12 +113,6 @@ class BackupDropboxContractTests(unittest.TestCase):
 class RestoreBackupContractTests(unittest.TestCase):
     def test_restore_downloads_files_atomically_to_data_dir(self):
         env = {"DROPBOX_ACCESS_TOKEN": "tok", "HRV_BACKUP_DROPBOX_PATH": "/hrv_backups"}
-        folder_entries = {
-            "entries": [
-                {".tag": "folder", "name": "2026-06-10"},
-                {".tag": "folder", "name": "2026-06-11"},
-            ]
-        }
         file_entries = {
             "entries": [
                 {".tag": "file", "name": "ENDURANCE_HRV_sleep.csv"},
@@ -132,10 +122,7 @@ class RestoreBackupContractTests(unittest.TestCase):
 
         def fake_post(url, **kwargs):
             if url == backup_dropbox._LIST_FOLDER_URL:
-                json_body = kwargs.get("json", {})
-                if json_body.get("path", "").endswith("2026-06-11"):
-                    return _response(200, file_entries)
-                return _response(200, folder_entries)
+                return _response(200, file_entries)
             if url == backup_dropbox._DOWNLOAD_URL:
                 resp = _response(200)
                 resp.content = b"Fecha\n2026-06-11\n"
@@ -154,12 +141,12 @@ class RestoreBackupContractTests(unittest.TestCase):
             self.assertEqual(result["status"], "ok")
             self.assertEqual(len(result["restored"]), 2)
             self.assertIn("ENDURANCE_HRV_sleep.csv", result["backed_up"])
-            self.assertEqual(result["source_folder"], "/hrv_backups/2026-06-11")
+            self.assertEqual(result["source_folder"], "/hrv_backups")
             self.assertEqual(
                 (data_dir / "ENDURANCE_HRV_sleep.csv").read_text(encoding="utf-8"),
                 "Fecha\n2026-06-11\n",
             )
-            backup_dir = data_dir / "backup" / "pre_restore_2026-06-11"
+            backup_dir = data_dir / "backup" / "pre_restore"
             self.assertTrue((backup_dir / "ENDURANCE_HRV_sleep.csv").exists())
             self.assertEqual(
                 (backup_dir / "ENDURANCE_HRV_sleep.csv").read_text(encoding="utf-8"),
@@ -185,7 +172,6 @@ class RestoreBackupContractTests(unittest.TestCase):
 
     def test_restore_partial_download_failure(self):
         env = {"DROPBOX_ACCESS_TOKEN": "tok", "HRV_BACKUP_DROPBOX_PATH": "/hrv_backups"}
-        folder_entries = {"entries": [{".tag": "folder", "name": "2026-06-11"}]}
         file_entries = {
             "entries": [
                 {".tag": "file", "name": "ENDURANCE_HRV_sleep.csv"},
@@ -196,10 +182,7 @@ class RestoreBackupContractTests(unittest.TestCase):
 
         def fake_post(url, **kwargs):
             if url == backup_dropbox._LIST_FOLDER_URL:
-                json_body = kwargs.get("json", {})
-                if json_body.get("path", "").endswith("2026-06-11"):
-                    return _response(200, file_entries)
-                return _response(200, folder_entries)
+                return _response(200, file_entries)
             if url == backup_dropbox._DOWNLOAD_URL:
                 call_count["download"] += 1
                 if call_count["download"] == 1:

@@ -242,9 +242,8 @@ HRV_DISABLE_BACKUP=1                 # no respaldar CSVs
 HRV_SYNC_TIMEOUT_SEC=300             # timeout sync
 HRV_UI_KEY=<clave>                   # opcional: protege /api/* (header X-HRV-KEY o ?key=); sin definir = sin auth
 HRV_STALE_MAX_DAYS=3                 # umbral de /health?strict=1 (503 si FINAL más viejo o ausente)
-HRV_BACKUP_DROPBOX_ENABLED=1         # opcional: backup de ENDURANCE_HRV_* a Dropbox tras sync exitoso
-HRV_BACKUP_DROPBOX_PATH=/hrv_backups # carpeta raíz del backup en Dropbox
-HRV_BACKUP_KEEP=14                   # copias diarias a conservar (rotación)
+HRV_BACKUP_DROPBOX_ENABLED=1         # opcional: backup de ENDURANCE_HRV_* a Dropbox (carpeta plana, overwrite) tras sync exitoso
+HRV_BACKUP_DROPBOX_PATH=/hrv_backups # carpeta del backup en Dropbox
 ```
 
 ### Especializadas
@@ -413,7 +412,7 @@ python egc_to_rr.py --dropbox-folder /ruta/carpeta --dropbox-recursive --outdir 
 - ✅ Flujo recomendado: Dropbox primero, Polar fallback
 - ✅ `ENDURANCE_HRV_sleep.csv` es archivo canónico de sueño (17 cols; carga en sessions_day.csv)
 - ✅ Los jobs HRV, sesiones, import seed, restore backup y borrado del último RR comparten estado y no se ejecutan simultáneamente
-- ✅ `hrv_app/backup_dropbox.py`: backup opcional de `ENDURANCE_HRV_*` a Dropbox tras sync exitoso (`HRV_BACKUP_DROPBOX_ENABLED`); restauración vía `POST /api/restore-backup` con escritura atómica y backup previo
+- ✅ `hrv_app/backup_dropbox.py`: backup opcional de `ENDURANCE_HRV_*` a carpeta plana en Dropbox (`HRV_BACKUP_DROPBOX_ENABLED`, overwrite tras cada sync); restauración vía `POST /api/restore-backup` con escritura atómica y backup previo en `data/backup/pre_restore/`
 - ✅ `/health?strict=1` devuelve 503 si el FINAL falta o su última fecha supera `HRV_STALE_MAX_DAYS` (default 3); sin `strict` sigue siendo 200 (liveness)
 - ✅ Si `HRV_UI_KEY` está definida, todos los `/api/*` exigen la clave vía header `X-HRV-KEY` o `?key=`; OAuth `state` validado con TTL y uso único
 - ✅ `build_hrv_core.py`, `build_hrv_final_dashboard.py` y `build_sessions.py` usan `hrv_app.io_utils` para escrituras atómicas (eliminadas implementaciones locales duplicadas)

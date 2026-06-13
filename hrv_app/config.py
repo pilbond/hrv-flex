@@ -138,6 +138,27 @@ TOKEN_FILE = _resolve_writable_file(
     Path(os.environ.get("POLAR_TOKEN_PATH", ".polar_tokens.json")),
     DATA_DIR,
 )
+
+# --- Polar Dynamic API v4 (AYO-13): dual stack bajo feature flag ---
+# v3: runtime actual (default). v4: lecturas Polar vía Dynamic API v4.
+# shadow: v3 efectivo + lectura paralela v4 solo para auditoría.
+_raw_polar_api_version = (os.environ.get("POLAR_API_VERSION") or "v3").strip().lower()
+if _raw_polar_api_version not in ("v3", "v4", "shadow"):
+    _qprint(f"AVISO: POLAR_API_VERSION invalida ({_raw_polar_api_version!r}); se usa v3")
+    _raw_polar_api_version = "v3"
+POLAR_API_VERSION = _raw_polar_api_version
+
+POLAR_V4_SCOPES = (
+    os.environ.get("POLAR_V4_SCOPES")
+    or "sleep:read nightly_recharge:read training_sessions:read"
+).strip()
+
+# Bundle v4 en archivo separado del v3: rollback = flip de env var sin
+# migración de datos. Misma app/credenciales que v3 (admin.polaraccesslink.com).
+TOKEN_FILE_V4 = _resolve_writable_file(
+    Path(os.environ.get("POLAR_TOKEN_PATH_V4", ".polar_tokens_v4.json")),
+    DATA_DIR,
+)
 CORE_PATH = DATA_DIR / "ENDURANCE_HRV_master_CORE.csv"
 BETA_AUDIT_PATH = DATA_DIR / "ENDURANCE_HRV_master_BETA_AUDIT.csv"
 FINAL_PATH = DATA_DIR / "ENDURANCE_HRV_master_FINAL.csv"

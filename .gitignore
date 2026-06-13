@@ -8,6 +8,7 @@
 
 # OAuth tokens y credenciales
 .polar_tokens.json
+.polar_tokens_v4.json
 .oauth_code.txt
 tokens.json
 credentials.json

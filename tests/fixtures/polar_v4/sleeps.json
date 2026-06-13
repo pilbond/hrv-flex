@@ -1,0 +1,448 @@
+{
+  "nightSleeps": [
+    {
+      "sleepDate": "2025-06-13",
+      "sleepResult": {
+        "hypnogram": {
+          "sleepStart": "2025-06-13T00:55:14.9+02:00",
+          "sleepEnd": "2025-06-13T08:42:14.9+02:00",
+          "alarmSnoozeTimes": [],
+          "sleepStateChanges": [
+            {
+              "offsetFromStart": "0s",
+              "newState": "SLEEP_STATE_WAKE"
+            },
+            {
+              "offsetFromStart": "30s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "720s",
+              "newState": "SLEEP_STATE_NON_REM3"
+            },
+            {
+              "offsetFromStart": "1530s",
+              "newState": "SLEEP_STATE_WAKE"
+            },
+            {
+              "offsetFromStart": "1590s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "1620s",
+              "newState": "SLEEP_STATE_NON_REM3"
+            },
+            {
+              "offsetFromStart": "3270s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "3750s",
+              "newState": "SLEEP_STATE_REM"
+            },
+            {
+              "offsetFromStart": "4080s",
+              "newState": "SLEEP_STATE_WAKE"
+            },
+            {
+              "offsetFromStart": "4260s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "4290s",
+              "newState": "SLEEP_STATE_REM"
+            },
+            {
+              "offsetFromStart": "4980s",
+              "newState": "SLEEP_STATE_WAKE"
+            },
+            {
+              "offsetFromStart": "5040s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "5820s",
+              "newState": "SLEEP_STATE_NON_REM3"
+            },
+            {
+              "offsetFromStart": "6750s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "7770s",
+              "newState": "SLEEP_STATE_WAKE"
+            },
+            {
+              "offsetFromStart": "7830s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "9360s",
+              "newState": "SLEEP_STATE_REM"
+            },
+            {
+              "offsetFromStart": "9990s",
+              "newState": "SLEEP_STATE_WAKE"
+            },
+            {
+              "offsetFromStart": "10020s",
+              "newState": "SLEEP_STATE_REM"
+            },
+            {
+              "offsetFromStart": "10410s",
+              "newState": "SLEEP_STATE_WAKE"
+            },
+            {
+              "offsetFromStart": "10470s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "10500s",
+              "newState": "SLEEP_STATE_REM"
+            },
+            {
+              "offsetFromStart": "10560s",
+              "newState": "SLEEP_STATE_WAKE"
+            },
+            {
+              "offsetFromStart": "10590s",
+              "newState": "SLEEP_STATE_REM"
+            },
+            {
+              "offsetFromStart": "10860s",
+              "newState": "SLEEP_STATE_WAKE"
+            },
+            {
+              "offsetFromStart": "10890s",
+              "newState": "SLEEP_STATE_REM"
+            },
+            {
+              "offsetFromStart": "11040s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "11550s",
+              "newState": "SLEEP_STATE_WAKE"
+            },
+            {
+              "offsetFromStart": "11580s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "12600s",
+              "newState": "SLEEP_STATE_NON_REM3"
+            },
+            {
+              "offsetFromStart": "12900s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "15420s",
+              "newState": "SLEEP_STATE_WAKE"
+            },
+            {
+              "offsetFromStart": "15450s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "15660s",
+              "newState": "SLEEP_STATE_REM"
+            },
+            {
+              "offsetFromStart": "15990s",
+              "newState": "SLEEP_STATE_WAKE"
+            },
+            {
+              "offsetFromStart": "16050s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "16080s",
+              "newState": "SLEEP_STATE_REM"
+            },
+            {
+              "offsetFromStart": "16740s",
+              "newState": "SLEEP_STATE_WAKE"
+            },
+            {
+              "offsetFromStart": "16800s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "17310s",
+              "newState": "SLEEP_STATE_WAKE"
+            },
+            {
+              "offsetFromStart": "17370s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "17490s",
+              "newState": "SLEEP_STATE_WAKE"
+            },
+            {
+              "offsetFromStart": "17550s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "18150s",
+              "newState": "SLEEP_STATE_NON_REM3"
+            },
+            {
+              "offsetFromStart": "18420s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "19470s",
+              "newState": "SLEEP_STATE_NON_REM3"
+            },
+            {
+              "offsetFromStart": "19530s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "19740s",
+              "newState": "SLEEP_STATE_NON_REM3"
+            },
+            {
+              "offsetFromStart": "20220s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "20280s",
+              "newState": "SLEEP_STATE_NON_REM3"
+            },
+            {
+              "offsetFromStart": "20670s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "21540s",
+              "newState": "SLEEP_STATE_WAKE"
+            },
+            {
+              "offsetFromStart": "21570s",
+              "newState": "SLEEP_STATE_REM"
+            },
+            {
+              "offsetFromStart": "21930s",
+              "newState": "SLEEP_STATE_WAKE"
+            },
+            {
+              "offsetFromStart": "21960s",
+              "newState": "SLEEP_STATE_REM"
+            },
+            {
+              "offsetFromStart": "22080s",
+              "newState": "SLEEP_STATE_WAKE"
+            },
+            {
+              "offsetFromStart": "22110s",
+              "newState": "SLEEP_STATE_REM"
+            },
+            {
+              "offsetFromStart": "22380s",
+              "newState": "SLEEP_STATE_WAKE"
+            },
+            {
+              "offsetFromStart": "22410s",
+              "newState": "SLEEP_STATE_REM"
+            },
+            {
+              "offsetFromStart": "22590s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "22860s",
+              "newState": "SLEEP_STATE_WAKE"
+            },
+            {
+              "offsetFromStart": "22890s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "23550s",
+              "newState": "SLEEP_STATE_WAKE"
+            },
+            {
+              "offsetFromStart": "23580s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "23820s",
+              "newState": "SLEEP_STATE_NON_REM3"
+            },
+            {
+              "offsetFromStart": "23850s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "24540s",
+              "newState": "SLEEP_STATE_WAKE"
+            },
+            {
+              "offsetFromStart": "24570s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "24720s",
+              "newState": "SLEEP_STATE_WAKE"
+            },
+            {
+              "offsetFromStart": "24750s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "25260s",
+              "newState": "SLEEP_STATE_REM"
+            },
+            {
+              "offsetFromStart": "25350s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "25380s",
+              "newState": "SLEEP_STATE_REM"
+            },
+            {
+              "offsetFromStart": "25470s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "26010s",
+              "newState": "SLEEP_STATE_WAKE"
+            },
+            {
+              "offsetFromStart": "26040s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "26160s",
+              "newState": "SLEEP_STATE_WAKE"
+            },
+            {
+              "offsetFromStart": "26220s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "26370s",
+              "newState": "SLEEP_STATE_REM"
+            },
+            {
+              "offsetFromStart": "27510s",
+              "newState": "SLEEP_STATE_WAKE"
+            },
+            {
+              "offsetFromStart": "27570s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "27600s",
+              "newState": "SLEEP_STATE_REM"
+            },
+            {
+              "offsetFromStart": "27660s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "27720s",
+              "newState": "SLEEP_STATE_WAKE"
+            },
+            {
+              "offsetFromStart": "27780s",
+              "newState": "SLEEP_STATE_NON_REM2"
+            },
+            {
+              "offsetFromStart": "27900s",
+              "newState": "SLEEP_STATE_NON_REM3"
+            },
+            {
+              "offsetFromStart": "28050s",
+              "newState": "SLEEP_STATE_WAKE"
+            }
+          ],
+          "sleepStartOffsetSeconds": 0,
+          "sleepEndOffsetSeconds": 0,
+          "sleepRating": "SLEEP_RATING_UNKNOWN",
+          "sleepGoal": "28800s",
+          "birthday": "1974-02-26",
+          "deviceReference": {
+            "uuid": "ANON_ID"
+          },
+          "batteryRanOut": false
+        },
+        "sleepCycles": [
+          {
+            "secondsFromSleepStart": 64005,
+            "sleepDepthAtCycleStart": 0.55581236
+          },
+          {
+            "secondsFromSleepStart": 68415,
+            "sleepDepthAtCycleStart": 0.975893
+          },
+          {
+            "secondsFromSleepStart": 74235,
+            "sleepDepthAtCycleStart": 0.9774647
+          },
+          {
+            "secondsFromSleepStart": 80295,
+            "sleepDepthAtCycleStart": 0.9583911
+          },
+          {
+            "secondsFromSleepStart": 86145,
+            "sleepDepthAtCycleStart": 0.97494996
+          },
+          {
+            "secondsFromSleepStart": 91365,
+            "sleepDepthAtCycleStart": 0.96444213
+          }
+        ]
+      },
+      "sleepScore": {
+        "created": "2025-06-13T06:48:23.811Z",
+        "lastModified": "2025-06-13T06:48:23.811Z",
+        "sleepScore": 88.1296,
+        "sleepTimeOwnTargetScore": 91.3333,
+        "sleepTimeRecommendationScore": 93.5,
+        "continuityScore": 76.0,
+        "efficiencyScore": 83.3548,
+        "remScore": 84.7752,
+        "n3Score": 96.944,
+        "longInterruptionsTimeScore": 91.0,
+        "groupDurationScore": 92.4167,
+        "groupSolidityScore": 83.4516,
+        "groupRefreshScore": 90.8596,
+        "scoreRate": 5
+      },
+      "sleepEvaluation": {
+        "sleepType": "SLEEP_TYPE_SLEEP_PLUS_STAGES",
+        "sleepSpan": "28020s",
+        "asleepDuration": "26760s",
+        "age": 51.293150684931504,
+        "analysis": {
+          "efficiencyPercent": 95.50321199143468,
+          "continuityIndex": 3.4,
+          "continuityClass": 3,
+          "feedback": "11120"
+        },
+        "interruptions": {
+          "totalDuration": "1260s",
+          "longDuration": "180s",
+          "shortDuration": "1080s",
+          "totalCount": 26,
+          "longCount": 1,
+          "shortCount": 25
+        },
+        "phaseDurations": {
+          "wake": "1260s",
+          "rem": "5820s",
+          "light": "15870s",
+          "deep": "5070s",
+          "unknown": "0s",
+          "remPercentage": 20.770877944325484,
+          "deepPercentage": 18.094218415417558
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "captured_at_utc": "2026-06-13T13:51:39+00:00",
+  "errors": [
+    {
+      "key": "nightly_recharge_results_features_2026-06-11",
+      "status": 500,
+      "url": "/nightly-recharge-results",
+      "params": {
+        "from": "2026-06-11",
+        "to": "2026-06-12",
+        "features": [
+          "samples"
+        ]
+      },
+      "error_excerpt": "Unexpected error occurred"
+    }
+  ]
+}

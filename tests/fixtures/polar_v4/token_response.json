@@ -1,0 +1,8 @@
+{
+  "token_type": "bearer",
+  "expires_in": 3599,
+  "scope": "tests:read training_sessions:read sleep:read nightly_recharge:read ppi_data:read",
+  "provider_version": "v4",
+  "obtained_at": 1781358676.6402786,
+  "scopes": "tests:read training_sessions:read sleep:read nightly_recharge:read ppi_data:read"
+}

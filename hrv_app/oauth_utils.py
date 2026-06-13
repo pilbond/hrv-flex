@@ -5,6 +5,7 @@ import json
 import os
 import time
 from pathlib import Path
+from uuid import uuid4
 from typing import Any, Callable, Optional
 
 import requests
@@ -44,7 +45,9 @@ def exchange_code_for_token(
 def save_json_atomic(path: Path, payload: dict[str, Any], chmod_mode: int = 0o600) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    # Nombre temporal único: dos escritores concurrentes no deben pisarse
+    # el mismo .tmp (el replace final sigue siendo atómico).
+    tmp_path = path.with_suffix(path.suffix + f".{os.getpid()}.{uuid4().hex[:8]}.tmp")
     tmp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     tmp_path.replace(path)
     if chmod_mode is None:

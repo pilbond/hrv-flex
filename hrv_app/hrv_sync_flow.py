@@ -57,8 +57,15 @@ def extract_rr_ms(exercise_json: dict):
         if str(st) != "11":
             continue
 
+        # Máscara opcional alineada con `data` (extensión del adaptador v4:
+        # offline=true de Polar es la primera capa de descarte de artefactos
+        # y debe respetarse aunque el RR caiga en rango fisiológico). Los
+        # samples v3 no la traen y el comportamiento es el histórico.
+        raw_mask = str(s.get("offline") or "")
+        mask = [t.strip() for t in raw_mask.split(",")] if raw_mask else []
+
         data = str(s.get("data", ""))
-        for tok in data.split(","):
+        for i, tok in enumerate(data.split(",")):
             tok = tok.strip()
             if not tok or tok.upper() == "NULL":
                 continue
@@ -66,7 +73,8 @@ def extract_rr_ms(exercise_json: dict):
                 v = float(tok)
             except ValueError:
                 continue
-            offline = 0 if RR_MIN_MS <= v <= RR_MAX_MS else 1
+            polar_offline = i < len(mask) and mask[i] == "1"
+            offline = 1 if polar_offline or not (RR_MIN_MS <= v <= RR_MAX_MS) else 0
             rr.append((v, offline))
     return rr
 

@@ -140,6 +140,19 @@ Importante:
 - Cuando usarlo:
   - Como capa de red/fallback Polar, no como entrypoint.
 
+## `hrv_app.polar_auth_v4`, `hrv_app.polar_client_v4`, `hrv_app.polar_adapters_v4` (AYO-13, pre-corte)
+- Que hacen:
+  - `polar_auth_v4`: OAuth contra `auth.polar.com` con refresh token obligatorio, bundle separado (`polar_tokens_v4.json`) y rotacion atomica bajo lock.
+  - `polar_client_v4`: cliente HTTP aislado de la Dynamic API v4; ningun consumidor canonico lo importa hasta el corte (gateway F5).
+  - `polar_adapters_v4`: convierte respuestas v4 al shape v3 que ya consumen `sleep_store`, `hrv_sync_flow` y `polar_sessions`.
+- Compatibilidad transitoria del adaptador (extension `offline`):
+  - El shape v3 de samples RR (`{"sample-type": "11", "data": "rr1,rr2,..."}`) no tiene canal para el flag `offline` por intervalo que v4 si expone (`rrSamples[].offline`).
+  - El adaptador anade una mascara paralela `"offline": "0,1,0,..."` (misma longitud y orden que `data`).
+  - `hrv_app.hrv_sync_flow.extract_rr_ms` la consume con OR sobre el chequeo fisiologico de rango: un RR en rango pero marcado `offline=true` por el sensor queda como artefacto (`offline=1` en el CSV `duration,offline`).
+  - Los samples v3 no traen la mascara y el comportamiento es el historico. Esta extension es interna al gateway/adaptador: no cambia el contrato del CSV RR (`ENDURANCE_HRV_Spec_Tecnica.md`) ni los CSVs canonicos.
+- Importante:
+  - El runtime productivo sigue en v3 salvo `POLAR_API_VERSION=v4`; rollback = flip de env var, el bundle v3 no se toca.
+
 ## `hrv_app.polar_oauth_local`
 - Que hace:
   - Mantiene el flujo OAuth local con callback HTTP local para uso `dev-only`.
@@ -186,15 +199,15 @@ Importante:
 ## `hrv_app.backup_dropbox`
 - Que hace:
   - Backup opcional de los `ENDURANCE_HRV_*.csv/.json` a Dropbox tras un sync exitoso.
-  - Sube los artefactos canónicos a una carpeta fechada (`/hrv_backups/YYYY-MM-DD/`) y rota copias antiguas (configurable via `HRV_BACKUP_KEEP`, default 14).
-  - Restaura archivos desde Dropbox a `DATA_DIR` con escritura atómica y backup previo de los archivos existentes en `data/backup/pre_restore_<fecha>/`.
+  - Sube los artefactos canónicos a una carpeta plana (`/hrv_backups/`), sobrescribiendo cada archivo (Dropbox conserva versiones anteriores por su cuenta).
+  - Restaura archivos desde Dropbox a `DATA_DIR` con escritura atómica y backup previo de los archivos existentes en `data/backup/pre_restore/`.
   - Reutiliza las credenciales Dropbox ya configuradas para la ingesta RR.
 - Cuando usarlo:
   - El backup se ejecuta automáticamente al final de cada sync si `HRV_BACKUP_DROPBOX_ENABLED=1`.
   - La restauración se invoca desde `POST /api/restore-backup` en la UI web.
-  - NUNCA lanza excepciones en el backup (el sync continua); la restauración sí lanza si falta credencial o no hay backups.
+  - NUNCA lanza excepciones en el backup (el sync continua); la restauración sí lanza si falta credencial o no hay archivos en `/hrv_backups/`.
 - Entradas:
-  - Variables de entorno Dropbox (`DROPBOX_ACCESS_TOKEN` o refresh trio), `HRV_BACKUP_DROPBOX_PATH`, `HRV_BACKUP_KEEP`.
+  - Variables de entorno Dropbox (`DROPBOX_ACCESS_TOKEN` o refresh trio), `HRV_BACKUP_DROPBOX_PATH`.
 - Salidas:
   - Archivos subidos/descargados a/desde Dropbox, dict de resultado con status.
 

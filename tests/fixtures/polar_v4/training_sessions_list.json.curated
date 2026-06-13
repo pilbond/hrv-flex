@@ -1,0 +1,11 @@
+Este fixture se mantiene a mano y NO debe ser sobreescrito por
+scripts/capture_v4_fixtures.py.
+
+Motivo: los tests de adaptador necesitan 2 sesiones con `sport.id` legibles
+para validar el mapeo `sport.id -> detailed-sport-info` contra un catálogo
+controlado. La captura real anonimiza `sport.id` a `ANON_ID` y trae 1 sola
+sesión, inservible para ese mapeo.
+
+El shape está confirmado idéntico al real (validación empírica F0
+2026-06-13: 10 794 RR extraídos de una sesión real de 1h15 vía
+v4_session_to_internal + extract_rr_ms).

@@ -1,0 +1,12 @@
+Este fixture se mantiene recortado a mano (15 muestras) y NO debe ser
+sobreescrito por scripts/capture_v4_fixtures.py.
+
+Motivo: la captura real de PPI son ~6-7 MB por día. El shape completo está
+confirmado en la matriz de paridad
+(`dailyPpiSamples[].ppiSamplesPerDevice[].ppiSamples[{offsetMillis,
+ppInterval, errorEstimateMillis, skinContact, movement, offline}]`); 15
+muestras son suficientes para tests y para diff-review humano.
+
+Para refrescar el shape: ejecuta el script, mira el archivo grande, anota
+diferencias en la matriz, y vuelve a recortar a 15 muestras (los tests no
+deben depender de un dataset que cambie cada día).

@@ -1,0 +1,143 @@
+{
+  "dailyPpiSamples": [
+    {
+      "date": "2025-06-13",
+      "modified": "2025-06-13T06:48:39Z",
+      "ppiSamplesPerDevice": [
+        {
+          "recordingDevice": {
+            "uuid": "ANON_ID"
+          },
+          "ppiSamples": [
+            {
+              "offsetMillis": 387959,
+              "ppInterval": 866,
+              "errorEstimateMillis": 17,
+              "skinContact": true,
+              "movement": true,
+              "offline": false
+            },
+            {
+              "offsetMillis": 388825,
+              "ppInterval": 902,
+              "errorEstimateMillis": 15,
+              "skinContact": true,
+              "movement": true,
+              "offline": false
+            },
+            {
+              "offsetMillis": 389727,
+              "ppInterval": 921,
+              "errorEstimateMillis": 6,
+              "skinContact": true,
+              "movement": true,
+              "offline": false
+            },
+            {
+              "offsetMillis": 390648,
+              "ppInterval": 924,
+              "errorEstimateMillis": 6,
+              "skinContact": true,
+              "movement": true,
+              "offline": false
+            },
+            {
+              "offsetMillis": 391572,
+              "ppInterval": 947,
+              "errorEstimateMillis": 5,
+              "skinContact": true,
+              "movement": true,
+              "offline": false
+            },
+            {
+              "offsetMillis": 392519,
+              "ppInterval": 1004,
+              "errorEstimateMillis": 11,
+              "skinContact": true,
+              "movement": true,
+              "offline": false
+            },
+            {
+              "offsetMillis": 393523,
+              "ppInterval": 985,
+              "errorEstimateMillis": 9,
+              "skinContact": true,
+              "movement": true,
+              "offline": false
+            },
+            {
+              "offsetMillis": 394508,
+              "ppInterval": 977,
+              "errorEstimateMillis": 7,
+              "skinContact": true,
+              "movement": true,
+              "offline": false
+            },
+            {
+              "offsetMillis": 395485,
+              "ppInterval": 907,
+              "errorEstimateMillis": 2,
+              "skinContact": true,
+              "movement": true,
+              "offline": false
+            },
+            {
+              "offsetMillis": 396392,
+              "ppInterval": 896,
+              "errorEstimateMillis": 5,
+              "skinContact": true,
+              "movement": true,
+              "offline": false
+            },
+            {
+              "offsetMillis": 397288,
+              "ppInterval": 901,
+              "errorEstimateMillis": 4,
+              "skinContact": true,
+              "movement": true,
+              "offline": false
+            },
+            {
+              "offsetMillis": 398189,
+              "ppInterval": 909,
+              "errorEstimateMillis": 0,
+              "skinContact": true,
+              "movement": true,
+              "offline": false
+            },
+            {
+              "offsetMillis": 399098,
+              "ppInterval": 912,
+              "errorEstimateMillis": 10,
+              "skinContact": true,
+              "movement": true,
+              "offline": false
+            },
+            {
+              "offsetMillis": 400010,
+              "ppInterval": 1018,
+              "errorEstimateMillis": 18,
+              "skinContact": true,
+              "movement": true,
+              "offline": false
+            },
+            {
+              "offsetMillis": 401028,
+              "ppInterval": 1018,
+              "errorEstimateMillis": 18,
+              "skinContact": true,
+              "movement": true,
+              "offline": false
+            }
+          ],
+          "recordingTriggerTypeChanges": [
+            {
+              "triggerType": "TRIGGER_TYPE_AUTOMATIC",
+              "offsetMillis": 387959
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

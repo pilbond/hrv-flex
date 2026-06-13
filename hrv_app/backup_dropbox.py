@@ -4,7 +4,8 @@
 El histórico del atleta vive en un único volumen (Railway); el sueño y el
 wellness subjetivo no son regenerables desde las APIs si ese volumen se pierde.
 Este módulo sube los `ENDURANCE_HRV_*.csv` / `*.json` de `DATA_DIR` a una
-carpeta fechada de Dropbox y rota las copias antiguas.
+carpeta plana en Dropbox, sobrescribiendo cada archivo (sin versionado propio:
+Dropbox ya conserva versiones anteriores de cada archivo).
 
 Contrato operativo:
 - Opt-in vía `HRV_BACKUP_DROPBOX_ENABLED` (default off).
@@ -18,11 +19,9 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import sys
 import tempfile
-from datetime import date
 from pathlib import Path
 
 import requests
@@ -32,10 +31,9 @@ from .polar_utils import env_flag
 
 _UPLOAD_URL = "https://content.dropboxapi.com/2/files/upload"
 _LIST_FOLDER_URL = "https://api.dropboxapi.com/2/files/list_folder"
-_DELETE_URL = "https://api.dropboxapi.com/2/files/delete_v2"
+_DOWNLOAD_URL = "https://content.dropboxapi.com/2/files/download"
 _TOKEN_URL = "https://api.dropboxapi.com/oauth2/token"
 
-_DATE_FOLDER_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _TIMEOUT_SEC = 60
 
 
@@ -52,15 +50,6 @@ def _backup_root() -> str:
     if not raw.startswith("/"):
         raw = "/" + raw
     return raw.rstrip("/")
-
-
-def _backup_keep(default: int = 14) -> int:
-    raw = (os.environ.get("HRV_BACKUP_KEEP") or "").strip()
-    try:
-        value = int(raw)
-        return value if value >= 1 else default
-    except ValueError:
-        return default
 
 
 def _get_access_token() -> str | None:
@@ -111,28 +100,12 @@ def _upload_file(token: str, local_path: Path, dropbox_path: str) -> bool:
     return True
 
 
-def _list_backup_date_folders(token: str, root: str) -> list[str]:
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    resp = requests.post(_LIST_FOLDER_URL, headers=headers, json={"path": root}, timeout=_TIMEOUT_SEC)
-    if resp.status_code != 200:
-        # 409 típico cuando la carpeta aún no existe: no hay nada que rotar.
-        return []
-    entries = resp.json().get("entries", [])
-    return sorted(
-        e.get("name", "")
-        for e in entries
-        if e.get(".tag") == "folder" and _DATE_FOLDER_RE.match(e.get("name", ""))
-    )
-
-
-_DOWNLOAD_URL = "https://content.dropboxapi.com/2/files/download"
-
-
 def _list_folder_files(token: str, folder: str) -> list[str]:
     """Lista los archivos (no carpetas) dentro de una carpeta de Dropbox."""
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     resp = requests.post(_LIST_FOLDER_URL, headers=headers, json={"path": folder}, timeout=_TIMEOUT_SEC)
     if resp.status_code != 200:
+        # 409 típico cuando la carpeta aún no existe: no hay nada que listar.
         return []
     entries = resp.json().get("entries", [])
     return [e["name"] for e in entries if e.get(".tag") == "file"]
@@ -148,17 +121,8 @@ def _download_file(token: str, dropbox_path: str) -> bytes | None:
     return resp.content
 
 
-def _delete_path(token: str, path: str) -> bool:
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    resp = requests.post(_DELETE_URL, headers=headers, json={"path": path}, timeout=_TIMEOUT_SEC)
-    if resp.status_code != 200:
-        _warn(f"no se pudo borrar copia antigua {path} ({resp.status_code})")
-        return False
-    return True
-
-
 def run_backup() -> dict:
-    """Sube los artefactos canónicos a Dropbox. Nunca lanza."""
+    """Sube los artefactos canónicos a Dropbox (sobrescribiendo). Nunca lanza."""
     if not backup_enabled():
         return {"status": "disabled"}
 
@@ -174,34 +138,24 @@ def run_backup() -> dict:
             return {"status": "no_files"}
 
         root = _backup_root()
-        day_folder = f"{root}/{date.today().isoformat()}"
         uploaded = 0
         failed = 0
         for path in files:
-            if _upload_file(token, path, f"{day_folder}/{path.name}"):
+            if _upload_file(token, path, f"{root}/{path.name}"):
                 uploaded += 1
             else:
                 failed += 1
 
-        deleted = 0
-        keep = _backup_keep()
-        folders = _list_backup_date_folders(token, root)
-        for name in folders[:-keep] if len(folders) > keep else []:
-            if _delete_path(token, f"{root}/{name}"):
-                deleted += 1
-
         status = "ok" if failed == 0 else "partial"
         print(
-            f"💾 Backup Dropbox: {uploaded} archivos → {day_folder}"
+            f"💾 Backup Dropbox: {uploaded} archivos → {root}"
             + (f" ({failed} fallidos)" if failed else "")
-            + (f"; {deleted} copias antiguas rotadas" if deleted else "")
         )
         return {
             "status": status,
             "uploaded": uploaded,
             "failed": failed,
-            "deleted_old": deleted,
-            "folder": day_folder,
+            "folder": root,
         }
     except Exception as exc:
         _warn(f"error inesperado ({exc}); el sync continúa")
@@ -209,17 +163,17 @@ def run_backup() -> dict:
 
 
 def list_available_backups() -> dict:
-    """Lista las carpetas de backup disponibles en Dropbox (más reciente primero)."""
+    """Lista los archivos de backup disponibles en Dropbox."""
     token = _get_access_token()
     if not token:
-        return {"status": "no_credentials", "folders": []}
+        return {"status": "no_credentials", "files": []}
     root = _backup_root()
-    folders = _list_backup_date_folders(token, root)
-    return {"status": "ok", "folders": list(reversed(folders))}
+    files = _list_folder_files(token, root)
+    return {"status": "ok", "files": sorted(files), "folder": root}
 
 
-def restore_backup(date_folder: str | None = None) -> dict:
-    """Descarga la copia de backup de Dropbox a DATA_DIR. Lanza en caso de error."""
+def restore_backup() -> dict:
+    """Descarga el backup de Dropbox a DATA_DIR. Lanza en caso de error."""
     from .io_utils import _replace_atomic
 
     token = _get_access_token()
@@ -227,28 +181,18 @@ def restore_backup(date_folder: str | None = None) -> dict:
         raise RuntimeError("Sin credenciales Dropbox (DROPBOX_ACCESS_TOKEN o refresh trio)")
 
     root = _backup_root()
-    if not date_folder:
-        folders = _list_backup_date_folders(token, root)
-        if not folders:
-            raise FileNotFoundError(f"No hay backups en {root}")
-        date_folder = folders[-1]
-
-    if not _DATE_FOLDER_RE.match(date_folder):
-        raise ValueError(f"Nombre de carpeta inválido: {date_folder}")
-
-    folder_path = f"{root}/{date_folder}"
-    file_names = _list_folder_files(token, folder_path)
+    file_names = _list_folder_files(token, root)
     if not file_names:
-        raise FileNotFoundError(f"No hay archivos en {folder_path}")
+        raise FileNotFoundError(f"No hay archivos en {root}")
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    backup_dir = DATA_DIR / "backup" / f"pre_restore_{date_folder}"
+    backup_dir = DATA_DIR / "backup" / "pre_restore"
 
     restored = []
     failed = []
     backed_up = []
     for name in file_names:
-        data = _download_file(token, f"{folder_path}/{name}")
+        data = _download_file(token, f"{root}/{name}")
         if data is None:
             failed.append(name)
             continue
@@ -274,11 +218,11 @@ def restore_backup(date_folder: str | None = None) -> dict:
         restored.append(name)
 
     if not restored:
-        raise RuntimeError(f"No se pudo descargar ningún archivo de {folder_path}")
+        raise RuntimeError(f"No se pudo descargar ningún archivo de {root}")
 
     return {
         "status": "ok" if not failed else "partial",
-        "source_folder": folder_path,
+        "source_folder": root,
         "restored": restored,
         "failed": failed,
         "backed_up": backed_up,
