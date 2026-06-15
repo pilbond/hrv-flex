@@ -9,9 +9,8 @@ Flujo operativo normal (Railway o UI local):
 1. `web_ui.py` levanta la web.
 2. Al llamar `POST /api/sync`, la web ejecuta `python polar_hrv_automation.py --process`.
 3. `polar_hrv_automation.py` valida entorno, tokens y argumentos, y delega el flujo operativo a `hrv_app.hrv_sync_flow`.
-4. `hrv_app.hrv_sync_flow` calcula las fechas objetivo y trata Dropbox como fuente principal de cobertura RR, usando `hrv_app.dropbox_rr` para intentar cubrirlas desde JSONL/ZIP con `egc_to_rr.py`.
-5. Solo para fechas que sigan sin cobertura RR, usa `hrv_app.polar_client` como fallback contra Polar.
-6. `hrv_app.sleep_store` actualiza `ENDURANCE_HRV_sleep.csv`, `hrv_app.intervals_sync` resuelve la parte de wellness/Intervals y `hrv_app.pipeline_runner` llama:
+4. `hrv_app.hrv_sync_flow` calcula las fechas objetivo (desde `ultima_fecha_CORE + 1` hasta hoy) y usa `hrv_app.dropbox_rr` para intentar cubrirlas desde JSONL/ZIP con `egc_to_rr.py`. Si `CORE` esta vacio, primero intenta reconstruir desde RR ya presentes en `data/rr_downloads/`; solo si no hay RR locales cae al bootstrap corto desde Dropbox. Dropbox es la **unica** fuente de nuevos RR matinales (AYO-13-F4): si una fecha no esta en Dropbox, esa fecha no entra al pipeline en este ciclo (sin fallback Polar).
+5. `hrv_app.sleep_store` actualiza `ENDURANCE_HRV_sleep.csv`, `hrv_app.intervals_sync` resuelve la parte de wellness/Intervals y `hrv_app.pipeline_runner` llama:
    - `build_hrv_core.py`
    - `build_hrv_final_dashboard.py`
    - cada builder deja además su sidecar de trazabilidad atómico (`ENDURANCE_HRV_master_CORE_manifest.json` y `ENDURANCE_HRV_master_FINAL_manifest.json`)
@@ -83,7 +82,8 @@ Importante:
 ## `hrv_app.hrv_sync_flow`
 - Que hace:
   - Implementa el caso de uso principal del sync HRV.
-  - Resuelve rango de fechas y decide si la cobertura RR viene de Dropbox o, en fallback, de Polar.
+  - Si `CORE` esta vacio, primero intenta reprocesar RR locales de `data/rr_downloads/`; si no existen, hace bootstrap corto desde Dropbox.
+  - Resuelve rango de fechas y cubre `target_missing_dates` desde Dropbox (AYO-13-F4); si Dropbox no cubre una fecha nueva, esa fecha no entra al pipeline (sin fallback Polar).
   - Coordina escritura de RR, ejecucion de `build_hrv_core.py`, refresco de `sleep`, sync opcional con Intervals y reporting final.
 - Cuando usarlo:
   - Indirectamente desde `polar_hrv_automation.py`.
@@ -129,16 +129,16 @@ Importante:
 - Cuando usarlo:
   - Como capa operativa de cobertura RR principal.
 - Importante:
-  - Dropbox es hoy la fuente principal esperada de RR matinales.
-  - Polar no compite con Dropbox como fuente primaria; se usa como fallback cuando Dropbox no cubre.
+  - Dropbox es la unica fuente de nuevos RR matinales (AYO-13-F4). Si una fecha nueva no esta cubierta en Dropbox, esa fecha no entra al pipeline en este ciclo; no hay fallback Polar para RR nuevos.
+  - Correcciones de fechas ya existentes en CORE quedan fuera de alcance de F4 (requieren reprocesado manual del periodo, fuera de este flujo automatico).
 
 ## `hrv_app.polar_client`
 - Que hace:
   - Encapsula las llamadas HTTP a Polar AccessLink.
-  - Lista ejercicios, descarga detalle con samples y fetch de sleep/nightly recharge.
+  - Lista ejercicios (uso de diagnostico via `--debug-sports`), descarga detalle con samples y fetch de sleep/nightly recharge.
   - Resuelve el registro del usuario Polar contra AccessLink.
 - Cuando usarlo:
-  - Como capa de red/fallback Polar, no como entrypoint.
+  - Para sleep/nightly recharge (sigue siendo el flujo operativo) y para diagnostico (`--debug-sports`); ya no participa en la cobertura de RR nuevos.
 
 ## `hrv_app.polar_auth_v4`, `hrv_app.polar_client_v4`, `hrv_app.polar_adapters_v4` (AYO-13, pre-corte)
 - Que hacen:

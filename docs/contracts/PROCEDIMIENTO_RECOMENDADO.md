@@ -15,10 +15,11 @@ python polar_hrv_automation.py --process
 
 Esto hace:
 - El entrypoint `polar_hrv_automation.py` coordina el caso de uso pero ya no concentra toda la logica operativa en un solo archivo; la implementacion interna vive en `hrv_app/`.
-- Detecta fechas faltantes en CORE.
-- Intenta cubrir primero esos faltantes desde Dropbox (JSONL o ZIP -> RR) con `egc_to_rr.py` si está habilitado.
-- Trata Dropbox como fuente principal esperada de RR matinales.
-- Solo para faltantes restantes, usa Polar como fallback.
+- Detecta fechas faltantes en CORE (desde `ultima_fecha_CORE + 1` hasta hoy).
+- Intenta cubrir esos faltantes desde Dropbox (JSONL o ZIP -> RR) con `egc_to_rr.py` si está habilitado.
+- Dropbox es la **única** fuente de nuevos RR matinales (AYO-13-F4): no hay fallback Polar para fechas nuevas que Dropbox no cubra; si una fecha no está en Dropbox, esa fecha no entra al pipeline en este ciclo.
+- El historico de CORE generado anteriormente con RR de Polar se conserva sin migracion retroactiva.
+- Si CORE no existe o esta vacio y hay RR en `rr_downloads/`, reprocesa esos RR locales primero (sin Dropbox ni Polar); solo si tampoco hay RR locales recurre a Dropbox con la ventana por defecto.
 - Actualiza `ENDURANCE_HRV_sleep.csv`.
 - Para el sueño Polar, el flujo prueba primero la fecha exacta y, si no hay datos, el dia anterior; el fallback existe para cubrir retrasos o desplazamientos alrededor de medianoche, no para inventar filas.
 - Genera ENDURANCE_HRV_master_CORE.csv y ENDURANCE_HRV_master_BETA_AUDIT.csv.

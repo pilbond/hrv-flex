@@ -7,9 +7,9 @@ Funciona con .env (local) O variables de entorno (Railway/Render)
 
 Uso:
     python polar_hrv_automation.py --auth         # Primera vez
-    python polar_hrv_automation.py                # Después (últimos 7 días)
+    python polar_hrv_automation.py                # Después (desde última fecha CORE; si CORE está vacío, reintenta RR locales y luego últimos 7 días)
     python polar_hrv_automation.py --days 30      # Últimos 30 días
-    python polar_hrv_automation.py --all          # Todas las sesiones
+    python polar_hrv_automation.py --all          # Reprocesa RR ya descargados localmente (sin descargar nada nuevo)
     python polar_hrv_automation.py --process      # + ejecutar build_hrv_core.py + build_hrv_final_dashboard.py
 """
 
@@ -72,7 +72,7 @@ def main():
     parser = argparse.ArgumentParser(description='Polar HRV Automation')
     parser.add_argument('--auth', action='store_true', help='Forzar re-autenticación')
     parser.add_argument('--days', type=int, help='Días hacia atrás (ignora --auto)')
-    parser.add_argument('--all', action='store_true', help='Todas las sesiones (ignora --days y --auto)')
+    parser.add_argument('--all', action='store_true', help='Reprocesa RR ya existentes en rr_downloads/, sin descargar nada nuevo (ignora --days y --auto)')
     parser.add_argument('--auto', action='store_true', help='Detectar automáticamente días faltantes desde último registro')
     parser.add_argument('--process', action='store_true', help='Ejecutar build_hrv_core.py + build_hrv_final_dashboard.py después')
     parser.add_argument('--ssm-audit', action='store_true', help='Ejecutar manualmente SSM shadow + validación + outcome battery')
@@ -128,12 +128,14 @@ def main():
         print("⚠️  Registro Polar no confirmado por error temporal del servicio. Continuando con la sync.")
     # print(f"📝 Usuario: {reg.get('status')}")
 
-    # Listar ejercicios
-    # print("\n🔍 Obteniendo ejercicios...")
-    exercises = list_exercises(access_token)
+    # Listar ejercicios solo para diagnóstico (--debug-sports); el flujo RR
+    # normal ya no depende de Polar (Dropbox es la única fuente de RR nuevos).
+    exercises: list = []
+    if args.debug_sports:
+        exercises = list_exercises(access_token)
+        if not isinstance(exercises, list):
+            raise RuntimeError(f"Respuesta inesperada: {type(exercises)}")
 
-    if not isinstance(exercises, list):
-        raise RuntimeError(f"Respuesta inesperada: {type(exercises)}")
     sync_hrv_range(args, access_token, x_user_id, exercises)
 
     # AYO-19: lectura shadow Polar v4 de solo-auditoria (no-op salvo

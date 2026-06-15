@@ -28,6 +28,19 @@ Actualizacion 2026-06-12 — F0/F1/F2 implementadas (runtime sigue en v3):
 - Pendiente F0 real: autorizar v4 y ejecutar la captura para cerrar la
   matriz (registro de usuario, x_user_id, samples mecanicos, BODY_AND_MIND).
 
+Actualizacion 2026-06-14 — F4 cerrada (AYO-20):
+
+- Dropbox es la unica fuente de nuevos RR matinales; no hay fallback Polar
+  para fechas nuevas. `hrv_app/hrv_sync_flow.py::sync_hrv_range` ya no
+  descarga ejercicios Polar para cubrir RR.
+- `--all` reprocesa solo RR ya presentes en disco (`_scan_rr_files_by_date`),
+  sin descargar nada nuevo ni consultar Dropbox/Polar.
+- `list_exercises` (y por tanto `--debug-sports`) ya no condiciona el flujo
+  normal de RR; solo se invoca bajo `--debug-sports`.
+- Detalle de la decision y criterios de aceptacion en
+  `docs/HRV/AYO-20 AYO-13-F4 Dropbox como unica fuente de nuevos RR
+  matinales.md`.
+
 ## Objetivo
 
 Migrar la integracion operativa de Polar AccessLink v3 a la Dynamic API v4
@@ -191,18 +204,21 @@ resultado va a ser reemplazado inmediatamente por v4.
 
 No se deben duplicar escrituras ni ejecutar dos veces los builders.
 
-### Fase 4. Validacion PPI
+### Fase 4. Politica de fuente RR matinal
 
-- Comparar PPI v4 con RR procedente de Dropbox y con sample type `11` v3 en
-  fechas donde coincidan.
-- Verificar unidades, orden, timestamp, huecos, `errorEstimateMillis`,
-  movimiento, skin contact y marcadores offline.
-- Evaluar si PPI sirve como:
-  - fallback Polar del RR matinal;
-  - contexto de recuperacion;
-  - fuente solo analitica.
-- No incorporarlo a `build_hrv_core.py` sin actualizar tests y, si cambia la
-  semantica HRV, `docs/contracts/`.
+- Cerrar F4 como decision operativa de producto: Dropbox pasa a ser la unica
+  fuente de nuevos RR matinales.
+- Si una fecha nueva no esta en Dropbox, no entra al pipeline HRV.
+- El historico de `CORE` ya generado con RR de Polar se conserva sin migracion
+  retroactiva.
+- El sync automatico se mantiene simple: desde `ultima_fecha_CORE + 1` hasta
+  hoy.
+- `--days N` queda como via manual de backfill o rescate hacia atras.
+- `--all` reprocesa solo RR ya presentes en disco y no descarga nada nuevo.
+- PPI no entra en `build_hrv_core.py` en esta fase; si se quiere mantener su
+  analisis, queda como investigacion o auditoria separada.
+- Fuente vigente de la tarea: `docs/HRV/AYO-20 AYO-13-F4 Dropbox como unica
+  fuente de nuevos RR matinales.md`.
 
 ### Fase 5. Corte controlado
 
@@ -231,8 +247,8 @@ No se deben duplicar escrituras ni ejecutar dos veces los builders.
 6. Las sesiones comunes a v3 y v4 mantienen fecha, hora, deporte, duracion y
    disponibilidad mecanica, o sus discrepancias quedan justificadas.
 7. `/api/sync` y `/api/sync-sessions` mantienen exclusividad mutua.
-8. Dropbox sigue siendo la primera fuente para cubrir RR faltantes.
-9. PPI no entra en el gate HRV sin validacion especifica.
+8. Dropbox es la unica fuente de nuevos RR matinales.
+9. PPI no entra en el gate HRV ni en `build_hrv_core.py` en esta fase.
 10. El sistema sigue funcionando tras redeploy de Railway con volumen.
 11. Existe rollback probado a v3 mientras dure la ventana de transicion.
 12. Se actualizan contratos solo si cambia la semantica o esquema HRV.
@@ -245,7 +261,8 @@ No se deben duplicar escrituras ni ejecutar dos veces los builders.
 - fixtures de normalizacion v3/v4 para sleep, nightly y sesiones;
 - tests de consultas por rango y fechas limite;
 - tests de matching de sesiones y cambios de zona horaria;
-- tests de PPI con errores, movimiento y skin contact;
+- tests de politica de fuente RR: auto, `--days N`, `--all` y ausencia de
+  fallback Polar;
 - smoke test de `/auth`, callback, `/api/status` y `/api/sync`;
 - smoke test Railway con volumen y redeploy;
 - verificacion de ausencia de secretos en logs.
@@ -254,7 +271,7 @@ No se deben duplicar escrituras ni ejecutar dos veces los builders.
 
 - reautorizacion obligatoria al cambiar scopes;
 - campos v4 no equivalentes a `exercise.samples`;
-- menor cobertura PPI segun dispositivo o tipo de medicion;
+- necesidad de backfill manual para fechas antiguas o correcciones tardias;
 - payloads grandes al solicitar demasiadas features de sesiones;
 - doble consumo de cuota durante shadow;
 - token bundle incompatible con el formato actual;

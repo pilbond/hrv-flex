@@ -90,7 +90,7 @@ Con `python canvas-tool.py Project.canvas` proponer (purple) en grupo Plataforma
 2. `AYO-13-F1` Cliente v4 aislado y adaptadores (dep: F0)
 3. `AYO-13-F2` OAuth v4 y refresh bajo flag (dep: F1)
 4. `AYO-13-F3` Lecturas shadow y sidecar de auditoría (dep: F2)
-5. `AYO-13-F4` Validación PPI vs Dropbox RR (dep: F3)
+5. `AYO-13-F4` Dropbox como única fuente de nuevos RR matinales (dep: F3)
 6. `AYO-13-F5` Corte controlado a v4 (dep: F3)
 7. `AYO-13-F6` Retirada v3 y limpieza (dep: F4, F5)
 

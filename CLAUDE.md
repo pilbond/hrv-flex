@@ -27,8 +27,8 @@ Este archivo es **subordinado a `AGENTS.md`** y solo concreta o replica:
 
 Sistema automatizado HRV para un **único atleta**:
 - Autentica con **Polar AccessLink** vía OAuth2 Authorization Code
-- Intenta cubrir RR faltantes desde `ECG.jsonl + ACC.jsonl` en Dropbox primero
-- Usa Polar como fallback cuando Dropbox no está disponible o falta cobertura
+- Cubre nuevos RR matinales desde `ECG.jsonl + ACC.jsonl` en Dropbox, su única fuente (AYO-13-F4): si una fecha nueva no está en Dropbox, no entra al pipeline en ese ciclo; no hay fallback Polar para RR nuevos
+- El histórico de `CORE` generado anteriormente con RR de Polar se conserva sin migración retroactiva
 - Procesa RR con `build_hrv_core.py` → `CORE.csv` + `BETA_AUDIT.csv`
 - Genera `FINAL.csv` y `DASHBOARD.csv` con `build_hrv_final_dashboard.py`
 - Expone UI web Flask con endpoints de sincronización
@@ -147,9 +147,9 @@ Endpoints:
 
 ### `polar_hrv_automation.py`
 Orquestador del flujo principal.
-- Descarga RR desde Polar AccessLink (`/v3/exercises`)
-- Intenta cubrir RR faltantes desde **Dropbox primero**
-- Fallback a Polar si Dropbox no cubre las fechas necesarias
+- Cubre RR nuevos faltantes desde **Dropbox**, su única fuente (AYO-13-F4); si una fecha nueva no está en Dropbox, no entra al pipeline en este ciclo (sin fallback Polar)
+- `--all` reprocesa solo RR ya presentes en disco, sin descargar nada nuevo
+- Solo consulta ejercicios Polar (`/v3/exercises`) en modo diagnóstico `--debug-sports`
 - Ejecuta `build_hrv_core.py` (RR → CORE)
 - Ejecuta `build_hrv_final_dashboard.py` (CORE + sleep + sessions_day → FINAL + DASHBOARD)
 - Ejecuta `build_hrv_ssm.py` cuando corresponde para regenerar `ENDURANCE_HRV_ssm_shadow.csv`
@@ -346,7 +346,7 @@ GET  /health
 4. Tras redeploy, `/api/sync` sigue funcionando (volumen persistente)
 5. Logs útiles, sin secretos
 6. RR se almacenan y leen desde `data/rr_downloads/`
-7. Cobertura RR: **Dropbox primero**, fallback Polar si faltan fechas
+7. Cobertura RR: **Dropbox es la única fuente de nuevos RR matinales** (AYO-13-F4); si una fecha nueva no está en Dropbox, no entra a `CORE` en ese ciclo (sin fallback Polar)
 8. `POST /api/sync-sessions` ejecuta `build_sessions.py --update`
 9. Los jobs mutables de la UI comparten estado y no se ejecutan simultáneamente
 10. `POST /api/restore-backup` descarga el último backup de Dropbox a `DATA_DIR` con escritura atómica
@@ -409,7 +409,7 @@ python egc_to_rr.py --dropbox-folder /ruta/carpeta --dropbox-recursive --outdir 
 - ✅ ARQ-02 (AYO-11): módulos internos reorganizados en `hrv_app/`; entrypoints de raíz (`web_ui.py`, `polar_hrv_automation.py`, `build_sessions.py`) intactos
 - ✅ UI expone `/api/sync`, `/api/sync-sessions`, `/api/status`, `/api/import-seed`, `/api/restore-backup`, `/api/delete-latest-rr` y endpoints OAuth
 - ✅ `build_sessions.py` genera `sessions`, `sessions_day`, `intensity_distribution_weekly`, `weekly_coach`, `sessions_metadata` y `wellness_subjective`
-- ✅ Flujo recomendado: Dropbox primero, Polar fallback
+- ✅ AYO-13-F4 / AYO-20: Dropbox es la única fuente de nuevos RR matinales; sin fallback Polar para fechas nuevas (`--all` reprocesa solo RR locales; `list_exercises` queda detrás de `--debug-sports`)
 - ✅ `ENDURANCE_HRV_sleep.csv` es archivo canónico de sueño (17 cols; carga en sessions_day.csv)
 - ✅ Los jobs HRV, sesiones, import seed, restore backup y borrado del último RR comparten estado y no se ejecutan simultáneamente
 - ✅ `hrv_app/backup_dropbox.py`: backup opcional de `ENDURANCE_HRV_*` a carpeta plana en Dropbox (`HRV_BACKUP_DROPBOX_ENABLED`, overwrite tras cada sync); restauración vía `POST /api/restore-backup` con escritura atómica y backup previo en `data/backup/pre_restore/`

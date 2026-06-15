@@ -18,10 +18,10 @@ class CliReportingContractTests(unittest.TestCase):
             "BASE60_INSUF": "Todavía no hay suficientes datos limpios en la ventana de 60 días",
             "SWC_NAN/0": "La referencia estadística de hoy salió vacía o demasiado plana",
             "RAW_NAN/0": "La señal bruta llegó vacía o inválida",
-            "2D_OK": "La medición de hoy quedó dentro de tu rango reciente",
-            "2D_LN": "La variabilidad de hoy bajó respecto a tu base reciente",
-            "2D_HR": "La frecuencia cardiaca de hoy subió respecto a tu base reciente",
-            "2D_AMBOS": "La variabilidad bajó y la frecuencia cardiaca subió respecto a tu base reciente",
+            "2D_OK": "La señal quedó dentro de tu rango reciente",
+            "2D_LN": "La señal suavizada bajó respecto a tu base reciente",
+            "2D_HR": "La frecuencia cardiaca suavizada subió respecto a tu base reciente",
+            "2D_AMBOS": "La señal suavizada bajó y la frecuencia cardiaca suavizada subió respecto a tu base reciente",
         }
 
         for code, expected_snippet in cases.items():

@@ -146,20 +146,21 @@ def _format_gate_reason(value, row=None):
             "evaluar."
         ),
         "2D_OK": (
-            "La medición de hoy quedó dentro de tu rango reciente, sin "
-            "alertas relevantes."
+            "La señal quedó dentro de tu rango reciente; si el resto del "
+            "contexto también acompaña, puedes seguir con el plan previsto."
         ),
         "2D_LN": (
-            "La variabilidad de hoy bajó respecto a tu base reciente; suele "
-            "apuntar a más carga o menos recuperación."
+            "La señal suavizada bajó respecto a tu base reciente; conviene "
+            "no apretar más de la cuenta y vigilar recuperación y carga."
         ),
         "2D_HR": (
-            "La frecuencia cardiaca de hoy subió respecto a tu base reciente; "
-            "suele apuntar a más estrés o menor recuperación."
+            "La frecuencia cardiaca suavizada subió respecto a tu base reciente; "
+            "mejor mantener prudencia hoy y evitar subir demasiado la intensidad."
         ),
         "2D_AMBOS": (
-            "La variabilidad bajó y la frecuencia cardiaca subió respecto a tu "
-            "base reciente; es la combinación más desfavorable."
+            "La señal suavizada bajó y la frecuencia cardiaca suavizada subió "
+            "respecto a tu base reciente; trata hoy como un día más delicado: "
+            "baja un punto la exigencia."
         ),
     }
     if raw in mapping:
@@ -264,7 +265,7 @@ def _print_divider(width: int = 30, leading_blank: bool = False, trailing_blank:
         _qprint("")
 
 
-def _print_sync_completed(updated_date=None, checkmark=False):
+def _print_sync_completed(updated_date=None):
     if QUIET:
         return
     print("\n✅ SINCRONIZACIÓN COMPLETADA")
@@ -272,17 +273,16 @@ def _print_sync_completed(updated_date=None, checkmark=False):
         print(f"📊 CORE actualizado hasta hoy ({updated_date})")
     else:
         print("📊 CORE actualizado hasta hoy")
-    print("💡 No nuevas sesiones")
+    print("💡 No hay RR nuevos que procesar")
 
 
-def _print_no_rr_files():
+def _print_no_local_rr_files():
     if QUIET:
-        print("⚠️  No hay RR para procesar")
+        print("⚠️  No hay RR locales para reprocesar")
         return
-    print("\n⚠️  No hay archivos RR para procesar")
-    print("Causas típicas:")
-    print("   - Sesiones sin RR en el periodo")
-    print("   - Archivos aún no disponibles en Dropbox ni en Polar")
+    print("\n⚠️  No hay archivos RR locales para reprocesar")
+    print("   - rr_downloads/ está vacío")
+    print("   - --all no descarga nada nuevo; usa el modo automático o --days N para traer RR desde Dropbox")
 
 
 def _print_master_already_updated():

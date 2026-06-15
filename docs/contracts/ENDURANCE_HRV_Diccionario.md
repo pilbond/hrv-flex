@@ -269,7 +269,7 @@ Deltas (la distancia entre tu valor suavizado de hoy y tu baseline):
 | Columna | Qué es | Valores |
 |---------|--------|---------|
 | `gate_base60` | El semáforo calculado con tu baseline principal (60 días). Es el punto de partida de la decisión: compara tus deltas (d_ln, d_HR) contra los umbrales SWC. | VERDE / ÁMBAR / ROJO / NO |
-| `gate_razon_base60` | Explica **por qué** salió ese color. Si es 2D_OK, ambos deltas están dentro de SWC. Si es 2D_LN, tu HRV está baja. Si es 2D_AMBOS, ambas señales están fuera → convergencia de fatiga. | 2D_OK, 2D_LN, 2D_HR, 2D_AMBOS, ROLL3_INSUF, BASE60_INSUF, etc. |
+| `gate_razon_base60` | Explica **por qué** salió ese color. Si es 2D_OK, ambos deltas están dentro de SWC. Si es 2D_LN, tu HRV suavizada está baja. Si es 2D_AMBOS, la HRV suavizada baja y el pulso suavizado sube → convergencia de fatiga. | 2D_OK, 2D_LN, 2D_HR, 2D_AMBOS, ROLL3_INSUF, BASE60_INSUF, etc. |
 | `gate_shadow42` | Semáforo calculado con el baseline de 42 días. Representa tu "normal" de las últimas ~6 semanas. Si discrepa de gate_base60, puede indicar que tu estado está cambiando y BASE60 aún no lo ve. | VERDE / ÁMBAR / ROJO / NO |
 | `gate_razon_shadow42` | Motivo del semáforo de la sombra de 42 días (misma lógica 2D). | ídem gate_razon_base60 |
 | `n_base42` | Días clean en la ventana de 42 días. Necesita ≥21 para operar. | entero |
@@ -415,7 +415,7 @@ Subconjunto de FINAL para mirar en 10 segundos. Solo lo esencial para decidir qu
 | `RMSSD_stable` | Tu variabilidad de hoy en ms. Sirve como referencia rápida, pero no tomes decisiones comparando este número entre días — para eso está el gate. |
 | `gate_badge` | **Tu semáforo completo**: el color final (VERDE/ÁMBAR/ROJO/NO) + el sufijo del residual (+/-). Es lo primero que debes mirar después de descartar INVALID. Ejemplo: `VERDE+` = todo bien y HRV mejor de lo esperable. `ROJO--` = señal clara de estrés/fatiga. |
 | `Action` | **Qué hacer hoy**: INTENSIDAD_OK (adelante), Z2_O_TEMPO_SUAVE (sin intervalos), SUAVE_O_DESCANSO (regenerativo o parar). |
-| `gate_razon_base60` | Por qué salió ese color. 2D_OK = todo dentro de rango. 2D_LN = HRV baja. 2D_HR = pulso alto. 2D_AMBOS = las dos cosas → máxima confianza de fatiga. |
+| `gate_razon_base60` | Por qué salió ese color. 2D_OK = todo dentro de rango. 2D_LN = HRV suavizada baja. 2D_HR = pulso suavizado alto. 2D_AMBOS = las dos cosas → máxima confianza de fatiga. |
 | `decision_path` | Si el gate fue ajustado por una sombra (BASE28 o BASE42) aparece aquí. Si dice BASE60_ONLY, no hubo override. |
 | `baseline60_degraded` | Warning a medio plazo legacy. Para lectura nueva, distinguir `degraded_vs_best` (lejos de mejor forma) de `degraded_vs_current_normal` (caída activa reciente). |
 | `reason_text` | Contexto textual del día: por qué el sistema tomó esa decisión y qué factores externos hay (sueño, carga, divergencias). El wellness subjetivo no entra en esta capa. Vacío si no hay nada que reportar. |
@@ -1280,7 +1280,7 @@ Mecanismo de seguridad que detecta cuando ROLL3 está **enmascarando una caída 
 Mínimo garantizado para SWC_ln: `ln(1.05) ≈ 0.04879`. ¿Por qué? En periodos de variabilidad muy estable (todos los días casi iguales), SWC puede ser minúsculo, lo que haría que cualquier fluctuación trivial active gates o vetos. El floor asegura que el "cambio mínimo significativo" nunca sea menor que un ~5% de variación en RMSSD.
 
 ### Reason_text
-Texto explicativo que combina información del gate con datos contextuales (sueño, carga). No modifica el gate — es un "comentario" que acompaña a la decisión automática. Puede decir cosas como "sueño más corto de lo habitual", "carga acumulada reciente alta", o "VERDE con fatiga acumulada: conviene prudencia". Si el sleep.csv no existe, solo se generan avisos basados en datos HRV (caída brusca de RMSSD de hoy respecto a la base reciente o RMSSD suavizado de 3 días por encima de la base reciente).
+Texto explicativo que combina información del gate con datos contextuales (sueño, carga). No modifica el gate — es un "comentario" que acompaña a la decisión automática. Puede decir cosas como "sueño más corto de lo habitual", "carga acumulada reciente alta", o "VERDE con fatiga acumulada: conviene prudencia". Si el sleep.csv no existe, solo se generan avisos basados en datos HRV (caída brusca de la señal suavizada respecto a la base reciente o RMSSD suavizado de 3 días por encima de la base reciente).
 
 `reason_text` debe leerse como un render humano compacto del contexto operativo, no como el origen semántico primario. Internamente se construye desde `reason_items` que separan cuatro capas epistémicas:
 
