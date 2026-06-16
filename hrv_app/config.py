@@ -150,7 +150,7 @@ POLAR_API_VERSION = _raw_polar_api_version
 
 POLAR_V4_SCOPES = (
     os.environ.get("POLAR_V4_SCOPES")
-    or "sleep:read nightly_recharge:read training_sessions:read"
+    or "sleep:read nightly_recharge:read training_sessions:read sports:read"
 ).strip()
 
 # Bundle v4 en archivo separado del v3: rollback = flip de env var sin
@@ -239,6 +239,11 @@ MAX_AUTO_DAYS = 30
 DATE_STRING_LENGTH = 10
 UNKNOWN_SESSION_ID = "unknown"
 DEBUG_JSON = False
+
+# Sesiones Polar via Dynamic API v4 (F5.2); requiere POLAR_API_VERSION=v4.
+# Default off: el backend v3 de PolarSessionClient es el activo hasta que se valide.
+# Rollback = POLAR_V4_SESSIONS=0 (o unset).
+POLAR_V4_SESSIONS = env_flag("POLAR_V4_SESSIONS", False)
 
 DROPBOX_RR_ENABLED = env_flag("HRV_DROPBOX_RR_ENABLED", True)
 DROPBOX_RR_SCRIPT = (os.environ.get("HRV_DROPBOX_RR_SCRIPT") or "egc_to_rr.py").strip() or "egc_to_rr.py"

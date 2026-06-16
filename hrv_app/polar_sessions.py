@@ -302,12 +302,31 @@ def extract_mechanical_metrics_from_fit_file(fit_path: Path, source: str = "inte
 
 
 class PolarSessionClient:
-    def __init__(self, token_path: Path | None = None):
+    def __init__(self, token_path: Path | None = None, bundle_path_v4: Path | None = None):
+        # Leer flags en tiempo de init para que los patches de tests sean efectivos.
+        from .config import POLAR_V4_SESSIONS as _v4_flag, TOKEN_FILE_V4 as _token_v4
+        self._v4_mode = _v4_flag
+
+        # Estado v3 (siempre inicializado para facilitar rollback)
         self.token_path = token_path or TOKEN_FILE
         self.session = requests.Session()
         self._last_request = 0.0
         self._access_token = self._load_access_token()
         self._exercises: list[dict[str, Any]] | None = None
+
+        # Estado v4 (solo activo cuando POLAR_V4_SESSIONS=1)
+        if self._v4_mode:
+            from .polar_client_v4 import V4Client
+            from . import polar_auth_v4
+            self._v4_client = V4Client(bundle_path=bundle_path_v4 or _token_v4)
+            # Verificar disponibilidad una vez: el bundle no cambia durante el run.
+            # V4Client refresca el token en cada petición si está próximo a expirar.
+            try:
+                self._v4_available = bool(polar_auth_v4.get_valid_access_token(self._v4_client.bundle_path))
+            except Exception:
+                self._v4_available = False
+            self._v4_sport_catalog = None
+            self._v4_session_cache = {}
 
     def _load_access_token(self) -> str | None:
         if not self.token_path.exists():
@@ -326,7 +345,7 @@ class PolarSessionClient:
 
     @property
     def available(self) -> bool:
-        return bool(self._access_token)
+        return self._v4_available if self._v4_mode else bool(self._access_token)
 
     def _rate_limit(self):
         elapsed = time.time() - self._last_request
@@ -357,12 +376,72 @@ class PolarSessionClient:
         payload = self._get(f"/exercises/{exercise_id}", params={"samples": "true"})
         return payload if isinstance(payload, dict) else {}
 
+    # ---- Backend v4 (F5.2) ----
+
+    def _list_sessions_for_date(self, date_str: str) -> list[dict[str, Any]]:
+        """Pide [day, day+1) con features=samples, adapta y cachea por fecha."""
+        if date_str in self._v4_session_cache:
+            return self._v4_session_cache[date_str]
+
+        from .polar_adapters_v4 import v4_session_to_internal, next_day_iso
+        if self._v4_sport_catalog is None:
+            try:
+                self._v4_sport_catalog = self._v4_client.list_sports()
+            except Exception as exc:
+                # No cacheamos el fallo: se reintenta en la siguiente fecha.
+                log.warning("No se pudo cargar catálogo de deportes v4: %s", exc)
+        try:
+            raw_sessions = self._v4_client.list_training_sessions(
+                date_from=date_str,
+                date_to=next_day_iso(date_str),
+                features=["samples"],
+            )
+        except Exception as exc:
+            log.warning("No se pudo obtener sesiones v4 para %s: %s", date_str, exc)
+            raw_sessions = []
+
+        adapted = [ex for s in raw_sessions if (ex := v4_session_to_internal(s, sport_catalog=self._v4_sport_catalog or {}))]
+        self._v4_session_cache[date_str] = adapted
+        return adapted
+
+    def _enrich_row_v4(self, row: dict[str, Any], sport: str) -> dict[str, Any]:
+        defaults = _mechanics_defaults()
+        date_str = str(row.get("Fecha") or "").strip()
+        if not date_str:
+            return defaults
+
+        exercises = self._list_sessions_for_date(date_str)
+        try:
+            match = match_polar_exercise(
+                {k: "" if v is None else str(v) for k, v in row.items()},
+                exercises,
+                tz_offset_min=int(os.environ.get("POLAR_TZ_OFFSET_MIN", "0")),
+                allowed_polar_sports=POLAR_STANDING_SPORT_MAP.get(sport),
+            )
+        except RuntimeError as exc:
+            log.warning("v4 session match fallido para %s: %s", date_str, exc)
+            return defaults
+
+        # En v4, list_training_sessions con features ya incluye samples:
+        # no se necesita una segunda petición HTTP.
+        exercise = match["exercise"]
+        metrics = extract_mechanical_metrics(exercise)
+        metrics["polar_start_delta_min"] = match["start_delta_min"]
+        metrics["polar_duration_gap_min"] = match["duration_gap_min"]
+        return {**defaults, **metrics}
+
+    # ---- Punto de entrada ----
+
     def enrich_row(self, row: dict[str, Any]) -> dict[str, Any]:
         defaults = _mechanics_defaults()
         sport = str(row.get("sport") or "").strip()
         if sport not in STANDING_SPORTS or not self.available:
             return defaults
 
+        if self._v4_mode:
+            return self._enrich_row_v4(row, sport)
+
+        # Backend v3 (sin cambios)
         match = match_polar_exercise(
             {k: "" if v is None else str(v) for k, v in row.items()},
             self.list_exercises(),

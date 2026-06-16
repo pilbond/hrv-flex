@@ -104,6 +104,7 @@ Scopes iniciales propuestos para el runtime canonico:
 - `sleep:read`;
 - `nightly_recharge:read`;
 - `training_sessions:read`;
+- `sports:read` (requerido para `GET /v4/data/sports/list`);
 - `ppi_data:read`, inicialmente solo en shadow;
 - `tests:read`, solo si se adopta una salida analitica concreta.
 
@@ -140,7 +141,7 @@ Configuracion propuesta:
 
 ```text
 POLAR_API_VERSION=v3|v4|shadow
-POLAR_V4_SCOPES="sleep:read nightly_recharge:read training_sessions:read"
+POLAR_V4_SCOPES="sleep:read nightly_recharge:read training_sessions:read sports:read"
 POLAR_TOKEN_PATH=/data/polar_tokens.json
 ```
 

@@ -350,7 +350,7 @@ def get_valid_access_token(
     if not bundle_scopes_match(bundle, expected):
         # Distinguible en logs de Railway de un fallo de refresh: este caso
         # solo se resuelve re-autorizando con los scopes ampliados.
-        print("⚠️ Bundle v4: scopes concedidos no cubren los configurados; re-auth requerida (/auth?provider=v4).")
+        print("AVISO: Bundle v4: scopes concedidos no cubren los configurados; re-auth requerida (/auth?provider=v4).")
         return None
 
     if not force_refresh and not bundle_needs_refresh(bundle):

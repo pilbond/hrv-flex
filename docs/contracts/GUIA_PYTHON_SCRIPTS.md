@@ -138,12 +138,12 @@ Importante:
   - Lista ejercicios (uso de diagnostico via `--debug-sports`), descarga detalle con samples y fetch de sleep/nightly recharge.
   - Resuelve el registro del usuario Polar contra AccessLink.
 - Cuando usarlo:
-  - Para sleep/nightly recharge (sigue siendo el flujo operativo) y para diagnostico (`--debug-sports`); ya no participa en la cobertura de RR nuevos.
+  - En runtime `v3`, para sleep/nightly recharge y diagnostico (`--debug-sports`); ya no participa en la cobertura de RR nuevos.
 
 ## `hrv_app.polar_auth_v4`, `hrv_app.polar_client_v4`, `hrv_app.polar_adapters_v4` (AYO-13, pre-corte)
 - Que hacen:
   - `polar_auth_v4`: OAuth contra `auth.polar.com` con refresh token obligatorio, bundle separado (`polar_tokens_v4.json`) y rotacion atomica bajo lock.
-  - `polar_client_v4`: cliente HTTP aislado de la Dynamic API v4; ningun consumidor canonico lo importa hasta el corte (gateway F5).
+  - `polar_client_v4`: cliente HTTP aislado de la Dynamic API v4; en runtime `v4` ya lo consumen el gateway de sleep/nightly y `PolarSessionClient` bajo `POLAR_V4_SESSIONS=1`.
   - `polar_adapters_v4`: convierte respuestas v4 al shape v3 que ya consumen `sleep_store`, `hrv_sync_flow` y `polar_sessions`.
 - Compatibilidad transitoria del adaptador (extension `offline`):
   - El shape v3 de samples RR (`{"sample-type": "11", "data": "rr1,rr2,..."}`) no tiene canal para el flag `offline` por intervalo que v4 si expone (`rrSamples[].offline`).
@@ -152,6 +152,8 @@ Importante:
   - Los samples v3 no traen la mascara y el comportamiento es el historico. Esta extension es interna al gateway/adaptador: no cambia el contrato del CSV RR (`ENDURANCE_HRV_Spec_Tecnica.md`) ni los CSVs canonicos.
 - Importante:
   - El runtime productivo sigue en v3 salvo `POLAR_API_VERSION=v4`; rollback = flip de env var, el bundle v3 no se toca.
+  - En F5.2 el catálogo de deportes usa `GET /v4/data/sports/list` y requiere `sports:read`.
+  - En sesiones reales v4, los samples mecánicos observados usan tipos string (`SPEED`, `CADENCE`; y potencialmente `POWER`/`LEFT_CRANK_CURRENT_POWER`), además del shape numérico legacy de fixtures.
 
 ## `hrv_app.polar_shadow` (AYO-19, shadow mode)
 - Que hace:

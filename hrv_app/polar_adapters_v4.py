@@ -285,6 +285,47 @@ def _v4_rr_samples_to_v3(item: dict) -> Optional[dict]:
     }
 
 
+def _v4_mechanical_samples_to_v3(item: dict) -> list[dict]:
+    """Convierte samples mecánicos v4 al formato v3 que consume
+    extract_mechanical_metrics: {"sample-type": "N", "data": "v1,v2,..."}
+
+    v4: exercises[].samples.samples[]{type, intervalMillis, values: []}
+    Tipos observados:
+    - legacy/fixture: 1=speed(m/s), 2=cadence(rpm), 4=power(W)
+    - real v4: "SPEED", "CADENCE" (y potencialmente "POWER")."""
+    type_aliases = {
+        1: 1,
+        2: 2,
+        4: 4,
+        "1": 1,
+        "2": 2,
+        "4": 4,
+        "SPEED": 1,
+        "CADENCE": 2,
+        "POWER": 4,
+        "LEFT_CRANK_CURRENT_POWER": 4,
+    }
+    type_values: dict[int, list] = {}
+    for ex in item.get("exercises") or []:
+        if not isinstance(ex, dict):
+            continue
+        for sample in (ex.get("samples") or {}).get("samples") or []:
+            if not isinstance(sample, dict):
+                continue
+            raw_type = sample.get("type")
+            stype = type_aliases.get(raw_type, type_aliases.get(str(raw_type).strip().upper()))
+            if stype not in {1, 2, 4}:
+                continue
+            values = sample.get("values")
+            if isinstance(values, list):
+                type_values.setdefault(stype, []).extend(v for v in values if v is not None)
+    return [
+        {"sample-type": str(stype), "data": ",".join(str(v) for v in vals)}
+        for stype, vals in type_values.items()
+        if vals
+    ]
+
+
 def _duration_to_v3(duration: Any) -> Any:
     """v4 oficial expresa duration en milisegundos; v3 usa ISO 8601 (PT...).
     Si ya viene como string ISO se respeta."""
@@ -309,7 +350,7 @@ def _sport_to_v3(sport: Any, sport_catalog: Optional[dict] = None) -> Any:
     """Resuelve `sport`/`sportReference` v4 al label v3 (p.ej. BODY_AND_MIND).
 
     Esquema oficial: `sport: {id: "22353647432"}` — el nombre humano vive en
-    `/v4/sports/list`. Sin catálogo no podemos producir un label v3 fiable,
+    `/v4/data/sports/list`. Sin catálogo no podemos producir un label v3 fiable,
     así que devolvemos el id crudo y dejamos que el gateway de la fase de
     corte resuelva el nombre antes de pasar el filtro de deportes."""
     if isinstance(sport, dict):
@@ -332,7 +373,7 @@ def v4_session_to_internal(item: Optional[dict], sport_catalog: Optional[dict] =
     `stopTime`, `durationMillis`, `exercises[].samples.rrSamples[].durationMillis`.
     Para que el filtro v3 de deporte (BODY_AND_MIND, TRAIL_RUNNING…) siga
     funcionando hay que resolver `sport.id` con `sport_catalog` (cacheable
-    desde `/v4/sports/list` en el gateway de F5)."""
+    desde `/v4/data/sports/list` en el gateway de F5)."""
     if not isinstance(item, dict):
         return None
     out: dict[str, Any] = {}
@@ -372,6 +413,8 @@ def v4_session_to_internal(item: Optional[dict], sport_catalog: Optional[dict] =
         # Si v4 ya entrega una lista de samples tipados, se pasa tal cual y
         # F0 decide si requiere mapeo de tipos.
         samples.extend(s for s in raw_samples if isinstance(s, dict))
+    mech_samples = _v4_mechanical_samples_to_v3(item)
+    samples.extend(mech_samples)
     rr_sample = _v4_rr_samples_to_v3(item)
     if rr_sample is not None:
         samples.append(rr_sample)

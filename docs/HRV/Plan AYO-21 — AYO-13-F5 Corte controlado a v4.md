@@ -172,13 +172,15 @@ Es la parte con dependencias reales. Tres puntos:
 1. **Catálogo de deporte (bloqueador nombrado en la matriz).** En v4 la sesión
    trae `sport.id` numérico, no el label. `extract_mechanical_metrics` y
    `match_polar_exercise` filtran por `detailed_sport_info` (`RUNNING`,
-   `TRAIL_RUNNING`, `HIKING`…). Hay que cargar y **cachear** `/v4/sports/list`
+   `TRAIL_RUNNING`, `HIKING`…). Hay que cargar y **cachear** `/v4/data/sports/list`
    una vez y pasarlo como `sport_catalog` a `v4_session_to_internal()` (el
    adaptador ya acepta el parámetro). Sin catálogo, el filtro de deporte se
    degrada y cualquier sesión podría matchear.
    `V4Client` debe incorporar explícitamente `list_sports()` para
-   `/v4/sports/list`; el catálogo se carga una vez por instancia de
+   `/v4/data/sports/list`; el catálogo se carga una vez por instancia de
    `PolarSessionClient`.
+   Validado en real: requiere scope `sports:read` y el id puede venir como
+   `identifier: {id: ...}`.
 
 2. **Samples mecánicos.** El adaptador hoy mapea RR, sport, duración y start,
    pero **no** los samples mecánicos. La matriz confirma que viven en
@@ -187,6 +189,9 @@ Es la parte con dependencias reales. Tres puntos:
    `extract_mechanical_metrics` (sample-type `1`=velocidad, `2`=cadencia,
    `4`=potencia, con `data` como CSV). Es trabajo de adaptador, acotado y
    testeable con fixtures.
+   Validado en real: además del shape numérico legacy (`1/2/4`), Polar puede
+   devolver tipos string como `SPEED` y `CADENCE`; el adaptador debe aceptar
+   ambos.
 
 3. **No hay endpoint de detalle en v4.** `list_training_sessions(from,to,features)`
    ya devuelve todo, incluidos samples. Por tanto, `PolarSessionClient` debe
@@ -213,7 +218,7 @@ sleep/nightly ni conservar `list_exercises(token)` como abstracción falsa.
 - Para sleep/nightly, ampliar o procesar el sidecar para calcular explícitamente
   cobertura, `Δrmssd` y `Δduración`; no asumir que el JSONL ya emite el gate
   agregado.
-- Confirmar el shape de `/v4/sports/list` con una captura (bloqueador de F5.2).
+- Confirmar el shape de `/v4/data/sports/list` con una captura (bloqueador de F5.2).
 - Añadir una comparación específica de sesiones v3/v4 que mida timestamp,
   duración y deporte. El shadow actual solo registra presencia, conteo y RR, por
   lo que no demuestra todavía el gate de matching.
@@ -232,7 +237,7 @@ sleep/nightly ni conservar `list_exercises(token)` como abstracción falsa.
    `FINAL`/`DASHBOARD` se regeneran correctamente con los valores v4.
 
 ### F5.2 — Sesiones a v4 (opcional, detrás de `POLAR_V4_SESSIONS`)
-1. Añadir `V4Client.list_sports()`, cargar `/v4/sports/list` una vez por
+1. Añadir `V4Client.list_sports()`, cargar `/v4/data/sports/list` una vez por
    instancia y pasar `sport_catalog` al adaptador.
 2. Extender `v4_session_to_internal()` para emitir samples mecánicos v3.
 3. Hacer `PolarSessionClient` flag-aware e implementar su backend v4 por fecha,
@@ -340,7 +345,7 @@ Reaprovechar la suite v4 existente (`test_polar_client_v4_contract.py`,
 
 | Riesgo | Impacto | Mitigación |
 |---|---|---|
-| `/v4/sports/list`: shape no capturado todavía | Bloquea **F5.2** (no F5.1) | Captura previa en Paso 0; F5.2 es opcional y diferible |
+| `/v4/data/sports/list`: shape no capturado todavía / requiere `sports:read` | Bloquea **F5.2** (no F5.1) | Captura previa en Paso 0; F5.2 es opcional y diferible |
 | Samples mecánicos v4: mapeo nuevo en el adaptador | Mecánica de deportes de pie incorrecta si se mapea mal | Fixtures + test de equivalencia; flag separado permite no activarlo |
 | Refresh v4 es el camino caliente (TTL ~12h) | Un refresh fallido = sin sleep/nightly ese día | Ya implementado y testeado en F2; degradación a `None` no rompe la sync; shadow lo ejercita |
 | Doble flag = 4 estados | Más superficie de prueba | Test explícito de la matriz de flags (§8) |
@@ -391,7 +396,7 @@ Reaprovechar la suite v4 existente (`test_polar_client_v4_contract.py`,
 
 | Sub-fase | Contenido | Riesgo | Esfuerzo relativo |
 |---|---|---|---|
-| Paso 0 | Ventana shadow + captura `/v4/sports/list` | bajo | S |
+| Paso 0 | Ventana shadow + captura `/v4/data/sports/list` | bajo | S |
 | **F5.1** | Gateway sleep/nightly + auth/identidad del runtime | bajo-medio | M |
 | **F5.2** | Catálogo + samples + backend por fecha en PolarSessionClient | medio | M–L |
 | Cierre | Validación de esquemas, docs, rollback documentado | bajo | S |
@@ -405,6 +410,6 @@ comenzar hasta que F5.2 esté implementada y validada.
 
 ## 14. Decisiones abiertas a confirmar (no asumir)
 
-1. Shape real de `/v4/sports/list` (bloqueador F5.2).
+1. Shape real de `/v4/data/sports/list` y concesión de `sports:read` (bloqueador F5.2).
 2. ¿Se activa F5.2 en este ciclo o se difiere? Si se difiere, AYO-22 permanece
    bloqueada.

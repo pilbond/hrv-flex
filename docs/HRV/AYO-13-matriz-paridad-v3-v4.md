@@ -5,6 +5,28 @@ https://www.polar.com/polar-api-v4/. Los campos marcados `provisional` deben
 confirmarse con capturas reales de `scripts/capture_v4_fixtures.py` antes de
 cerrar la Fase 0.
 
+## Actualización 2026-06-16 (validación operativa real de F5.2)
+
+- **Catálogo de deportes validado en real**: el endpoint operativo es
+  `GET /v4/data/sports/list`, no `/v4/sports/list`.
+- **Scope requerido confirmado**: `sports:read` es obligatorio para ese
+  endpoint. Con un bundle sin ese scope, la API responde
+  `{"errorMessage":"Missing required scope: sports:read"}`.
+- **Shape real del catálogo**: el identificador puede venir anidado como
+  `identifier: {id: ...}` en vez de `id` escalar. El parser debe soportar
+  ambas variantes.
+- **Sesiones reales validadas con catálogo**: ids observados como `1`,
+  `27`, `126` se resolvieron correctamente a `RUNNING`, `TRAIL_RUNNING` y
+  `CORE`.
+- **Samples mecánicos reales validados**: en sesiones reales de running y
+  trail, `exercises[].samples.samples[].type` aparece como string
+  (`SPEED`, `CADENCE`) y no solo como enum numérico `1/2/4`. El adaptador
+  debe aceptar ambos shapes.
+- **Resultado operativo**: con `POLAR_API_VERSION=v4` y
+  `POLAR_V4_SESSIONS=1`, el matching por fecha/deporte funciona y la capa
+  mecánica mínima canónica para deportes de pie queda alimentada en sesiones
+  reales sin tocar outputs persistidos durante la validación.
+
 ## Actualización 2026-06-12 (segunda revisión externa): confirmado en doc oficial
 
 - **`features` es obligatorio para obtener datos**: sin `features` las
@@ -38,10 +60,10 @@ cerrar la Fase 0.
   intervalo en `{durationMillis, offline}`. El adaptador lee este camino
   como ruta principal (los shapes planos quedan como fallback).
 - **`sport` es solo `{id: "22353647432"}`** (referencia numérica al
-  catálogo `/v4/sports/list`). No hay `name` en la respuesta de sesiones.
+  catálogo `/v4/data/sports/list`). No hay `name` en la respuesta de sesiones.
   Sin catálogo, el adaptador devuelve el id crudo en `detailed-sport-info`;
   con `sport_catalog` opcional resuelve a label v3 (BODY_AND_MIND, TRAIL_RUNNING…).
-  **Bloqueador F5:** cargar y cachear `/v4/sports/list` antes del corte para
+  **Bloqueador F5:** cargar y cachear `/v4/data/sports/list` antes del corte para
   que el filtro de deportes del pipeline siga funcionando.
 - **Features oficiales** (kebab-case): `/sleeps` admite `sleep-result`,
   `original-sleep-result`, `sleep-score`, `sleep-evaluation`;

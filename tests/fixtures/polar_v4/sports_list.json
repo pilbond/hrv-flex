@@ -1,0 +1,9 @@
+{
+  "sports": [
+    {"id": "22353647432", "name": "BODY_AND_MIND", "detailedSportInfo": "BODY_AND_MIND"},
+    {"id": "10005", "name": "TRAIL_RUNNING", "detailedSportInfo": "TRAIL_RUNNING"},
+    {"id": "1", "name": "RUNNING", "detailedSportInfo": "RUNNING"},
+    {"id": "2", "name": "HIKING", "detailedSportInfo": "HIKING"},
+    {"id": "3", "name": "CYCLING", "detailedSportInfo": "CYCLING"}
+  ]
+}

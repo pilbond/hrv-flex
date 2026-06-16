@@ -18,6 +18,7 @@ import argparse
 from hrv_app.config import (
     IS_PRODUCTION,
     POLAR_API_VERSION,
+    POLAR_V4_SESSIONS,
     get_production_url,
 )
 from hrv_app.pipeline_runner import (
@@ -68,6 +69,34 @@ def run_ssm_audit() -> int:
     return 0
 
 
+def _debug_sports_v4() -> None:
+    """Muestra deportes de las sesiones v4 de los últimos 7 días (diagnóstico)."""
+    from datetime import date, timedelta
+    from hrv_app.polar_client_v4 import V4Client, PolarV4Error
+
+    today = date.today().isoformat()
+    week_ago = (date.today() - timedelta(days=7)).isoformat()
+    client = V4Client()
+    try:
+        sessions = client.list_training_sessions(date_from=week_ago, date_to=today)
+    except PolarV4Error as exc:
+        print(f"❌ No se pudo obtener sesiones v4: {exc}", file=sys.stderr)
+        return
+
+    if not sessions:
+        print(f"No hay sesiones v4 en los últimos 7 días ({week_ago} – {today}).")
+        return
+
+    print(f"Sesiones v4 ({week_ago} – {today}):")
+    for s in sessions:
+        start = s.get("startTime") or s.get("start_time") or "?"
+        sport = s.get("sport") or {}
+        sport_id = sport.get("id") if isinstance(sport, dict) else sport
+        dur_ms = s.get("durationMillis") or 0
+        dur_min = round(dur_ms / 60000) if dur_ms else "?"
+        print(f"  {start}  sport_id={sport_id}  duration={dur_min} min")
+
+
 def main():
     _configure_stdio()
     parser = argparse.ArgumentParser(description='Polar HRV Automation')
@@ -105,8 +134,14 @@ def main():
         # En v4 no se exige token ni registro v3: sleep/nightly se resuelven
         # via hrv_app.polar_gateway con el bundle v4 (refresh transparente).
         if args.debug_sports:
-            print("❌ --debug-sports usa la ruta v3; no disponible con POLAR_API_VERSION=v4 en F5.1.", file=sys.stderr)
-            sys.exit(3)
+            if not POLAR_V4_SESSIONS:
+                print(
+                    "❌ --debug-sports con POLAR_API_VERSION=v4 requiere POLAR_V4_SESSIONS=1 (F5.2).",
+                    file=sys.stderr,
+                )
+                sys.exit(3)
+            _debug_sports_v4()
+            return 0
         if args.auth:
             public_url = get_production_url()
             hint = f"{public_url.rstrip('/')}/auth?provider=v4" if public_url else "/auth?provider=v4"

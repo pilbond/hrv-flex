@@ -87,11 +87,12 @@ class V4Client:
             time.sleep(wait_s)
         self._last_request_ts = time.time()
 
-    def _do_get(self, path: str, params: Optional[dict], token: str, timeout: int) -> requests.Response:
+    def _do_get(self, path: str, params: Optional[dict], token: str, timeout: int, *, base: Optional[str] = None) -> requests.Response:
         self._throttle()
+        url = f"{base or API_BASE_V4}{path}"
         try:
             return requests.get(
-                f"{API_BASE_V4}{path}",
+                url,
                 params=params or {},
                 headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
                 timeout=timeout,
@@ -101,8 +102,9 @@ class V4Client:
             # (y sin tokens — exc de requests no incluye headers enviados).
             raise PolarV4Error(f"GET {path} -> error de red: {type(exc).__name__}: {exc}") from exc
 
-    def _request(self, path: str, params: Optional[dict] = None, timeout: Optional[int] = None) -> Any:
+    def _request(self, path: str, params: Optional[dict] = None, timeout: Optional[int] = None, *, base: Optional[str] = None) -> Any:
         timeout = timeout or self.default_timeout
+        effective_base = base or API_BASE_V4
         token = polar_auth_v4.get_valid_access_token(self.bundle_path)
         if not token:
             raise PolarV4Error(
@@ -110,13 +112,13 @@ class V4Client:
                 "Autoriza vía /auth?provider=v4."
             )
 
-        r = self._do_get(path, params, token, timeout)
+        r = self._do_get(path, params, token, timeout, base=effective_base)
         if r.status_code == 401:
             # Retry único: fuerza refresh y reintenta una sola vez.
             token = polar_auth_v4.get_valid_access_token(self.bundle_path, force_refresh=True)
             if not token:
                 raise PolarV4Error(f"GET {path} -> 401 y refresh no disponible", status=401)
-            r = self._do_get(path, params, token, timeout)
+            r = self._do_get(path, params, token, timeout, base=effective_base)
 
         if r.status_code == 204:
             return None
@@ -203,3 +205,36 @@ class V4Client:
     def fetch_tests(self, date_from: str, date_to: str, features=None) -> list[dict]:
         payload = self._request("/tests/list", params=self._range_params(date_from, date_to, features))
         return _extract_items(payload, ("tests", "testResults", "test_results"))
+
+    def list_sports(self) -> dict[str, str]:
+        """Carga /v4/data/sports/list y devuelve {str(id): LABEL} para resolver
+        sport.id numérico a etiqueta compatible con el filtro v3 (RUNNING,
+        TRAIL_RUNNING…). Se llama una vez por instancia; el consumidor cachea."""
+        payload = self._request("/sports/list")
+        items = _extract_items(payload, ("sports", "sportList", "sport_list", "exerciseTypes"))
+        catalog: dict[str, str] = {}
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            sport_id = None
+            for key in ("id", "sportId", "identifier"):
+                sport_id = item.get(key)
+                if sport_id is not None:
+                    break
+            if isinstance(sport_id, dict):
+                for nested_key in ("id", "sportId", "identifier", "value"):
+                    nested_value = sport_id.get(nested_key)
+                    if nested_value is not None:
+                        sport_id = nested_value
+                        break
+            name = None
+            for key in ("detailedSportInfo", "name", "technicalName", "label"):
+                name = item.get(key)
+                if name:
+                    break
+            if sport_id is not None and name:
+                # Normaliza a SNAKE_UPPER_CASE para coincidir con las etiquetas
+                # v3 que usa POLAR_STANDING_SPORT_MAP (TRAIL_RUNNING, etc.).
+                label = str(name).strip().upper().replace(" ", "_").replace("-", "_")
+                catalog[str(sport_id)] = label
+        return catalog

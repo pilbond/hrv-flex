@@ -1,4 +1,4 @@
-# Plan AYO-22 — AYO-13-F6 Retirada v3 y limpieza
+
 
 Estado: **PROPUESTA (no implementada)** — 2026-06-14
 Autor: análisis para Claude Code
@@ -30,15 +30,15 @@ simpleza y seguridad de rollback, no rehacer arquitectura.
 
 ## 2. Estado real de la migración (verificado en código, 2026-06-14)
 
-| Fase | Tarea | Estado | Evidencia en repo |
-|---|---|---|---|
-| F0 Fixtures/paridad | AYO-16 | ✅ | `scripts/capture_v4_fixtures.py`, captura real 2026-06-13 en la matriz |
-| F1 Cliente v4 aislado | AYO-17 | ✅ | `hrv_app/polar_client_v4.py`, `hrv_app/polar_adapters_v4.py` |
-| F2 OAuth v4 + refresh | AYO-18 | ✅ | `hrv_app/polar_auth_v4.py`, flag `POLAR_API_VERSION`, callback dual |
-| F3 Lecturas shadow | AYO-19 | ✅ | `hrv_app/polar_shadow.py`, sidecar `data/audit/polar_v4_shadow.jsonl` |
-| F4 Dropbox RR único | AYO-20 | ✅ (orange) | `hrv_sync_flow.sync_hrv_range` sin fallback Polar |
-| **F5 Corte controlado** | **AYO-21** | **❌ pendiente** | **No existe `polar_gateway.py`; sleep/nightly/sesiones siguen en v3** |
-| **F6 Retirada v3** | **AYO-22** | **❌ bloqueada** | Esta propuesta |
+| Fase                    | Tarea      | Estado          | Evidencia en repo                                                      |
+| ----------------------- | ---------- | --------------- | ---------------------------------------------------------------------- |
+| F0 Fixtures/paridad     | AYO-16     | ✅               | `scripts/capture_v4_fixtures.py`, captura real 2026-06-13 en la matriz |
+| F1 Cliente v4 aislado   | AYO-17     | ✅               | `hrv_app/polar_client_v4.py`, `hrv_app/polar_adapters_v4.py`           |
+| F2 OAuth v4 + refresh   | AYO-18     | ✅               | `hrv_app/polar_auth_v4.py`, flag `POLAR_API_VERSION`, callback dual    |
+| F3 Lecturas shadow      | AYO-19     | ✅               | `hrv_app/polar_shadow.py`, sidecar `data/audit/polar_v4_shadow.jsonl`  |
+| F4 Dropbox RR único     | AYO-20     | ✅ (orange)      | `hrv_sync_flow.sync_hrv_range` sin fallback Polar                      |
+| **F5 Corte controlado** | **AYO-21** | **❌ pendiente** | **No existe `polar_gateway.py`; sleep/nightly/sesiones siguen en v3**  |
+| **F6 Retirada v3**      | **AYO-22** | **❌ bloqueada** | Esta propuesta                                                         |
 
 **Lo que aún corre en v3 (lo que F6 debe retirar):**
 
@@ -84,7 +84,7 @@ entrada, no parte del trabajo de F6:
    resultados de la ventana shadow anexados. (El registro de usuario v4 ya está
    confirmado innecesario: matriz, incógnita #1 — `/v4/data/*` funciona sin
    `POST /users`.)
-4. **Catálogo de deporte v4 resuelto**: `/v4/sports/list` cargado/cacheado para
+4. **Catálogo de deporte v4 resuelto**: `/v4/data/sports/list` cargado/cacheado para
    que el filtro `SPORTS_FILTER=["BODY_AND_MIND"]` siga funcionando (la matriz lo
    marca como *bloqueador F5*; si F5 lo cierra, F6 solo lo da por hecho).
 5. **Punto de rollback creado**: tag git del último build con v4 operativo y v3

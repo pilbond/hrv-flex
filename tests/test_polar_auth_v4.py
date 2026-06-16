@@ -367,6 +367,21 @@ class GetValidAccessTokenTests(unittest.TestCase):
             )
         self.assertIsNone(token)
 
+    def test_scope_mismatch_returns_none_without_unicode_console_dependency(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "b.json"
+            self._write_bundle(path, scopes="sleep:read")
+            with patch("builtins.print") as mock_print:
+                token = auth.get_valid_access_token(
+                    path,
+                    client_id="cid",
+                    client_secret="sec",
+                    expected_scopes="sleep:read sports:read",
+                )
+        self.assertIsNone(token)
+        mock_print.assert_called_once()
+        self.assertIn("re-auth requerida", mock_print.call_args[0][0])
+
 
 if __name__ == "__main__":
     unittest.main()

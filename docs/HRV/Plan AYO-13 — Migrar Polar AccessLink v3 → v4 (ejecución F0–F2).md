@@ -21,7 +21,7 @@ Verificado en la doc oficial (https://www.polar.com/polar-api-v4/):
 ## F0 — Contrato y fixtures
 
 **Nuevo `scripts/capture_v4_fixtures.py`** (dev one-shot, no productivo):
-- Flujo auth code local reutilizando el patrón de `hrv_app/polar_oauth_local.py` (HTTPServer:5050 + webbrowser) pero contra `https://auth.polar.com/oauth/authorize` y `.../oauth/token` con scopes `sleep:read nightly_recharge:read training_sessions:read ppi_data:read`.
+- Flujo auth code local reutilizando el patrón de `hrv_app/polar_oauth_local.py` (HTTPServer:5050 + webbrowser) pero contra `https://auth.polar.com/oauth/authorize` y `.../oauth/token` con scopes `sleep:read nightly_recharge:read training_sessions:read sports:read ppi_data:read`.
 - Descarga y vuelca respuestas crudas: sleeps por rango, nightly-recharge-results, training-sessions (list + detalle con samples), ppi-samples, token response (redactado).
 - `--anonymize`: desplaza fechas, sustituye ids, elimina tokens → salida a `tests/fixtures/polar_v4/`.
 
@@ -57,7 +57,7 @@ Verificado en la doc oficial (https://www.polar.com/polar-api-v4/):
 **`hrv_app/config.py`** (junto a L100-103, sin tocar constantes v3):
 ```python
 POLAR_API_VERSION = (os.environ.get("POLAR_API_VERSION") or "v3").lower()  # v3|v4|shadow; inválido→v3
-POLAR_V4_SCOPES = os.environ.get("POLAR_V4_SCOPES") or "sleep:read nightly_recharge:read training_sessions:read"
+POLAR_V4_SCOPES = os.environ.get("POLAR_V4_SCOPES") or "sleep:read nightly_recharge:read training_sessions:read sports:read"
 TOKEN_FILE_V4 = ...  # polar_tokens_v4.json, mismo resolver que TOKEN_FILE
 ```
 
