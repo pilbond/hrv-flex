@@ -56,6 +56,15 @@ class WebUiOauthCallbackSecurityTests(unittest.TestCase):
 
 
 class WebUiOauthV4Tests(unittest.TestCase):
+    def test_redirect_uri_uses_http_on_localhost(self):
+        with web_ui.app.test_request_context("/auth", base_url="http://localhost:8080"):
+            self.assertEqual(web_ui._redirect_uri(), "http://localhost:8080/auth/callback")
+
+    def test_redirect_uri_normalizes_https_localhost_env_to_http(self):
+        with patch.dict("os.environ", {"PUBLIC_URL": "https://localhost:8080"}):
+            with web_ui.app.test_request_context("/auth", base_url="http://localhost:8080"):
+                self.assertEqual(web_ui._redirect_uri(), "http://localhost:8080/auth/callback")
+
     def test_auth_provider_v4_redirects_to_auth_polar_with_scopes_and_state(self):
         with patch.dict("os.environ", {"POLAR_CLIENT_ID": "cid", "POLAR_CLIENT_SECRET": "sec"}):
             with web_ui.app.test_client() as client:

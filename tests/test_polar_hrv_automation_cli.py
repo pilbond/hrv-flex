@@ -72,5 +72,42 @@ class PolarHrvAutomationCliTests(unittest.TestCase):
         sync_mock.assert_called_once_with(ANY, "token", "user", exercises)
 
 
+    def test_v4_mode_skips_v3_token_and_registration(self):
+        with patch("sys.argv", ["polar_hrv_automation.py"]), \
+                patch.object(polar_hrv_automation, "POLAR_API_VERSION", "v4"), \
+                patch.object(polar_hrv_automation, "load_tokens") as load_tokens_mock, \
+                patch.object(polar_hrv_automation, "do_oauth_flow") as oauth_mock, \
+                patch.object(polar_hrv_automation, "register_user_if_needed") as register_mock, \
+                patch.object(polar_hrv_automation, "list_exercises") as list_mock, \
+                patch.object(polar_hrv_automation, "sync_hrv_range") as sync_mock, \
+                patch.object(polar_hrv_automation, "run_dropbox_backup"):
+            exit_code = polar_hrv_automation.main()
+
+        self.assertEqual(exit_code, 0)
+        load_tokens_mock.assert_not_called()
+        oauth_mock.assert_not_called()
+        register_mock.assert_not_called()
+        list_mock.assert_not_called()
+        sync_mock.assert_called_once_with(ANY, None, None, [])
+
+    def test_v4_mode_rejects_debug_sports(self):
+        with patch("sys.argv", ["polar_hrv_automation.py", "--debug-sports"]), \
+                patch.object(polar_hrv_automation, "POLAR_API_VERSION", "v4"):
+            with self.assertRaises(SystemExit) as ctx:
+                polar_hrv_automation.main()
+
+        self.assertEqual(ctx.exception.code, 3)
+
+    def test_v4_mode_rejects_auth(self):
+        with patch("sys.argv", ["polar_hrv_automation.py", "--auth"]), \
+                patch.object(polar_hrv_automation, "POLAR_API_VERSION", "v4"), \
+                patch.object(polar_hrv_automation, "do_oauth_flow") as oauth_mock:
+            with self.assertRaises(SystemExit) as ctx:
+                polar_hrv_automation.main()
+
+        self.assertEqual(ctx.exception.code, 3)
+        oauth_mock.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

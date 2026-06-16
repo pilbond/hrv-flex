@@ -16,11 +16,28 @@ reales cierra la lista; ajustar aquí si la captura real difiere.
 """
 
 import re
+from datetime import date as _date_type, timedelta
 from typing import Any, Optional, TypedDict
 
 # Duración estilo protobuf ("90s", "5460s", "28800.5s"): los ejemplos
 # oficiales de /sleeps la usan aunque el swagger declare int64 ms.
 _PROTO_DURATION_RE = re.compile(r"^(\d+(?:\.\d+)?)s$")
+
+# Sin `features` las respuestas v4 solo traen fechas (ver polar_client_v4).
+SLEEP_FEATURES = ["sleep-result", "sleep-score", "sleep-evaluation"]
+NIGHTLY_FEATURES = ["samples"]
+
+
+def next_day_iso(date_str: str) -> str:
+    """Rango de query [day, day+1). Para training-sessions/list la promocion a
+    datetime hace que from=to=mismo-dia sea una ventana de 0 segundos; para
+    sleep/nightly es la unica forma validada en la captura F0. Los consumidores
+    filtran por index_by_date/date_str, asi que un rango que devuelva dos dias
+    es inocuo."""
+    try:
+        return (_date_type.fromisoformat(date_str) + timedelta(days=1)).isoformat()
+    except ValueError:
+        return date_str
 
 
 class InternalSleep(TypedDict, total=False):

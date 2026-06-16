@@ -64,7 +64,10 @@ ALLOWED_IMPORT_FILES = [
 
 
 def _public_url() -> str:
-    """URL pública base (https://<dominio>)"""
+    """URL pública base.
+
+    En producción se usa https. En local se respeta http://localhost.
+    """
     # Prioridad: PUBLIC_URL explícita → Railway domain → request host
     pu = (
         os.environ.get("PUBLIC_URL")
@@ -73,15 +76,16 @@ def _public_url() -> str:
         or ""
     ).strip()
     if pu:
-        if not pu.startswith("http"):
-            pu = f"https://{pu}"
-        return pu.rstrip("/")
+        if pu.startswith("http://") or pu.startswith("https://"):
+            host = pu.split("://", 1)[1]
+            if host.startswith(("localhost", "127.0.0.1", "[::1]")):
+                return f"http://{host}".rstrip("/")
+            return pu.rstrip("/")
+        if pu.startswith(("localhost", "127.0.0.1", "[::1]")):
+            return f"http://{pu}".rstrip("/")
+        return f"https://{pu}".rstrip("/")
     # Fallback razonable: usar Host del request (puede ser http sin ProxyFix)
-    host = (request.host_url or "").rstrip("/")
-    if host.startswith("http://"):
-        # Railway sirve https fuera; forzamos https
-        host = host.replace("http://", "https://", 1)
-    return host
+    return (request.host_url or "").rstrip("/")
 
 
 def _redirect_uri() -> str:

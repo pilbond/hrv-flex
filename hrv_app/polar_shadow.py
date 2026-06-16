@@ -17,8 +17,7 @@ captura en el punto de entrada `run_polar_v4_shadow`.
 
 import json
 import time
-from datetime import date as _date_type
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -26,7 +25,10 @@ from . import config
 from . import polar_auth_v4 as auth_v4
 from .hrv_sync_flow import extract_rr_ms
 from .polar_adapters_v4 import (
+    NIGHTLY_FEATURES,
+    SLEEP_FEATURES,
     index_by_date,
+    next_day_iso as _next_day_iso,
     v4_nightly_to_internal,
     v4_session_to_internal,
     v4_sleep_to_internal,
@@ -41,22 +43,7 @@ SHADOW_PATH = config.DATA_DIR / "audit" / "polar_v4_shadow.jsonl"
 # el cache por-fecha de run_shadow_for_dates es inutil para fechas sin v3.
 _UNSET = object()
 
-# Sin `features` las respuestas v4 solo traen fechas (ver polar_client_v4).
-SLEEP_FEATURES = ["sleep-result", "sleep-score", "sleep-evaluation"]
-NIGHTLY_FEATURES = ["samples"]
 SESSION_FEATURES = ["samples"]
-
-
-def _next_day_iso(date_str: str) -> str:
-    """Rango de query [day, day+1). Para training-sessions/list la promocion a
-    datetime hace que from=to=mismo-dia sea una ventana de 0 segundos; para
-    sleep/nightly es la unica forma validada en la captura F0. Los consumidores
-    filtran por index_by_date/date_str, asi que un rango que devuelva dos dias
-    es inocuo."""
-    try:
-        return (_date_type.fromisoformat(date_str) + timedelta(days=1)).isoformat()
-    except ValueError:
-        return date_str
 
 
 def _bundle_obtained_at(bundle_path: Path) -> Optional[Any]:

@@ -8,8 +8,9 @@ try:
 except ImportError:  # pragma: no cover - pandas is expected in runtime requirements
     pd = None
 
+from . import config
 from .config import PANDAS_AVAILABLE, SLEEP_PATH
-from .polar_client import fetch_polar_nightly_recharge, fetch_polar_sleep
+from .polar_gateway import fetch_polar_nightly_recharge, fetch_polar_sleep
 from .polar_utils import _parse_yyyy_mm_dd, parse_duration_to_minutes, parse_float
 
 
@@ -401,7 +402,10 @@ def fetch_and_upsert_sleep(token: str, user_id: Optional[str], processed_date) -
     sleep_row: Dict[str, Any] = {col: float("nan") for col in SLEEP_COLUMNS}
     sleep_row["Fecha"] = date_str
 
-    if user_id:
+    # En v4 los endpoints de sleep/nightly estan asociados al bearer token,
+    # no a un user_id: el gateway consulta aunque x_user_id sea None. En v3
+    # se conserva el guard historico (la llamada va con user_id en la URL).
+    if user_id or config.POLAR_API_VERSION == "v4":
         sleep_json = None
         sleep_used_date = None
         nightly_json = None
