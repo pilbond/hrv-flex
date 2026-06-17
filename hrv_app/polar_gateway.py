@@ -59,7 +59,7 @@ def _warn_missing_bundle(date_str: str, kind: str) -> None:
     _missing_bundle_warned = True
     print(
         f"⚠️ Sin bundle v4 utilizable: se omiten lecturas {kind} v4. "
-        f"Autoriza vía /auth?provider=v4 (primer día afectado: {date_str})."
+        f"Autoriza vía /auth (primer día afectado: {date_str})."
     )
 
 

@@ -90,7 +90,7 @@ class V4NoTokenTests(_Env):
         warning_messages = [msg for msg in messages if "bundle v4 utilizable" in msg]
         self.assertEqual(len(warning_messages), 1)
         self.assertIn("sleep", warning_messages[0])
-        self.assertTrue(any("/auth?provider=v4" in msg for msg in messages))
+        self.assertTrue(any("/auth" in msg for msg in messages))
 
 
 class V4FetchTests(_Env):

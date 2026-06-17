@@ -24,9 +24,26 @@ Actualizacion 2026-06-12 — F0/F1/F2 implementadas (runtime sigue en v3):
   `/api/status`. Consolida IU-01 (state, ya existia) e IU-02 (refresh).
 - Sin `POLAR_API_VERSION` el runtime es identico al actual (rollback
   implicito). Suite completa: 464 tests en verde.
-- Subtareas Kanvas: AYO-16 (F0) a AYO-22 (F6).
+- Subtareas Kanvas: AYO-16 (F0) a AYO-22 (F6), con `AYO-24` como tarea
+  adicional de paridad funcional para `analysis` y RR de sesion antes del
+  corte final.
 - Pendiente F0 real: autorizar v4 y ejecutar la captura para cerrar la
   matriz (registro de usuario, x_user_id, samples mecanicos, BODY_AND_MIND).
+
+Actualizacion 2026-06-17 — F5.3 cerrada (AYO-23): v4 es el runtime principal:
+
+- `POLAR_API_VERSION` defaulta a `v4`; v3 queda como rollback temporal
+  (`POLAR_API_VERSION=v3`).
+- `/auth` entra en v4 como camino normal; `?provider=v3` queda como escape
+  de rollback.
+- `shadow` fuera del camino operativo normal.
+- `analysis/session_analysis_pipeline.py` ya no importa top-level módulos
+  legacy v3; en modo v4 el fetch de RR de sesion degrada de forma controlada
+  a `rr_unavailable=True` sin romper el informe.
+- Mensajes UX de `polar_gateway`, `polar_auth_v4` y `polar_client_v4`
+  actualizados a `/auth` sin `?provider=v4`.
+- Pendiente: AYO-24 cerrará la paridad funcional de RR de sesion en v4
+  antes del corte final; AYO-22 (F6) retirará el código legacy v3.
 
 Actualizacion 2026-06-14 — F4 cerrada (AYO-20):
 

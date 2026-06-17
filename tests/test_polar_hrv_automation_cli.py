@@ -41,13 +41,13 @@ class PolarHrvAutomationCliTests(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 2)
 
     def test_normal_run_does_not_fetch_polar_exercises(self):
-        with patch("sys.argv", ["polar_hrv_automation.py"]), patch.object(
-            polar_hrv_automation, "load_tokens", return_value=("token", "user")
-        ), patch.object(
-            polar_hrv_automation, "register_user_if_needed", return_value={"status": "ok"}
-        ), patch.object(polar_hrv_automation, "list_exercises") as list_mock, patch.object(
-            polar_hrv_automation, "sync_hrv_range"
-        ) as sync_mock, patch.object(polar_hrv_automation, "run_dropbox_backup"):
+        with patch("sys.argv", ["polar_hrv_automation.py"]), \
+             patch.object(polar_hrv_automation, "POLAR_API_VERSION", "v3"), \
+             patch.object(polar_hrv_automation, "load_tokens", return_value=("token", "user")), \
+             patch.object(polar_hrv_automation, "register_user_if_needed", return_value={"status": "ok"}), \
+             patch.object(polar_hrv_automation, "list_exercises") as list_mock, \
+             patch.object(polar_hrv_automation, "sync_hrv_range") as sync_mock, \
+             patch.object(polar_hrv_automation, "run_dropbox_backup"):
             exit_code = polar_hrv_automation.main()
 
         self.assertEqual(exit_code, 0)
@@ -56,15 +56,13 @@ class PolarHrvAutomationCliTests(unittest.TestCase):
 
     def test_debug_sports_fetches_polar_exercises(self):
         exercises = [{"id": "abc123"}]
-        with patch("sys.argv", ["polar_hrv_automation.py", "--debug-sports"]), patch.object(
-            polar_hrv_automation, "load_tokens", return_value=("token", "user")
-        ), patch.object(
-            polar_hrv_automation, "register_user_if_needed", return_value={"status": "ok"}
-        ), patch.object(
-            polar_hrv_automation, "list_exercises", return_value=exercises
-        ) as list_mock, patch.object(polar_hrv_automation, "sync_hrv_range") as sync_mock, patch.object(
-            polar_hrv_automation, "run_dropbox_backup"
-        ):
+        with patch("sys.argv", ["polar_hrv_automation.py", "--debug-sports"]), \
+             patch.object(polar_hrv_automation, "POLAR_API_VERSION", "v3"), \
+             patch.object(polar_hrv_automation, "load_tokens", return_value=("token", "user")), \
+             patch.object(polar_hrv_automation, "register_user_if_needed", return_value={"status": "ok"}), \
+             patch.object(polar_hrv_automation, "list_exercises", return_value=exercises) as list_mock, \
+             patch.object(polar_hrv_automation, "sync_hrv_range") as sync_mock, \
+             patch.object(polar_hrv_automation, "run_dropbox_backup"):
             exit_code = polar_hrv_automation.main()
 
         self.assertEqual(exit_code, 0)

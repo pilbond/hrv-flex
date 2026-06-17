@@ -109,7 +109,7 @@ class V4Client:
         if not token:
             raise PolarV4Error(
                 "Sin token v4 utilizable (bundle ausente, scopes insuficientes o refresh fallido). "
-                "Autoriza vía /auth?provider=v4."
+                "Autoriza vía /auth."
             )
 
         r = self._do_get(path, params, token, timeout, base=effective_base)

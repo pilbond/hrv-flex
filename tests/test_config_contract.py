@@ -68,6 +68,19 @@ class ConfigContractTests(unittest.TestCase):
                 self.assertEqual(config.SSM_VALIDATION_REPORT_MD_PATH, data_dir / "ENDURANCE_HRV_ssm_validation_report.md")
                 self.assertEqual(config.DROPBOX_RR_TIMEOUT_SEC, 321)
 
+    def test_polar_api_version_defaults_to_v4(self):
+        env = {k: v for k, v in __import__("os").environ.items() if k != "POLAR_API_VERSION"}
+        with patch.dict("os.environ", env, clear=True):
+            import hrv_app.config as config
+            config = importlib.reload(config)
+        self.assertEqual(config.POLAR_API_VERSION, "v4")
+
+    def test_polar_api_version_v3_rollback_explicit(self):
+        with patch.dict("os.environ", {"POLAR_API_VERSION": "v3"}, clear=False):
+            import hrv_app.config as config
+            config = importlib.reload(config)
+        self.assertEqual(config.POLAR_API_VERSION, "v3")
+
     def test_path_resolution_falls_back_to_a_writable_storage_root(self):
         class _ProbeContext:
             def __enter__(self):

@@ -32,10 +32,9 @@ if str(_ANALYSIS_DIR) not in sys.path:
 from fit_speed_utils import compute_speed_metrics as _compute_speed_metrics
 from fit_terrain_utils import analyze_fit_climbs, compute_matched_climbs_context, group_terrain_climbs, parse_fit_terrain_data
 
+import hrv_app.config as _hrv_config
 from hrv_app.config import ATHLETE_WEIGHT_KG, SYSTEM_BIKE_WEIGHT_KG
 from hrv_app.hrv_sync_flow import extract_rr_ms, write_rr_csv
-from hrv_app.polar_client import get_exercise_with_samples, list_exercises
-from hrv_app.polar_oauth_local import load_tokens
 from hrv_app.polar_sessions import match_polar_exercise
 from hrv_app.polar_utils import parse_float, weighted_mean as _weighted_mean
 from training_audit_utils import (
@@ -1851,9 +1850,14 @@ def _match_polar_exercise(row: dict[str, str], exercises: list[dict[str, Any]]) 
 
 
 def fetch_session_rr_csv(row: dict[str, str], target_csv: Path) -> dict[str, Any]:
+    if _hrv_config.POLAR_API_VERSION != "v3":
+        raise RuntimeError("RR de entrenamiento desde Polar no disponible en modo v4")
+    from hrv_app.polar_client import get_exercise_with_samples, list_exercises  # noqa: PLC0415
+    from hrv_app.polar_oauth_local import load_tokens  # noqa: PLC0415
+
     token, _user = load_tokens()
     if not token:
-        raise RuntimeError("token Polar ausente o expirado")
+        raise RuntimeError("token Polar v3 ausente o expirado")
 
     exercises = list_exercises(token)
     match = _match_polar_exercise(row, exercises)

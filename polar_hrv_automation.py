@@ -144,7 +144,7 @@ def main():
             return 0
         if args.auth:
             public_url = get_production_url()
-            hint = f"{public_url.rstrip('/')}/auth?provider=v4" if public_url else "/auth?provider=v4"
+            hint = f"{public_url.rstrip('/')}/auth" if public_url else "/auth"
             print(f"❌ --auth no aplica con POLAR_API_VERSION=v4. Autoriza vía {hint}.", file=sys.stderr)
             sys.exit(3)
         access_token, x_user_id = None, None
@@ -188,8 +188,8 @@ def main():
 
     sync_hrv_range(args, access_token, x_user_id, exercises)
 
-    # AYO-19: lectura shadow Polar v4 de solo-auditoria (no-op salvo
-    # POLAR_API_VERSION=shadow; nunca bloquea --process)
+    # Legado AYO-19: shadow de auditoría v4/v3 (no-op salvo POLAR_API_VERSION=shadow;
+    # shadow está fuera del camino normal desde AYO-23; nunca bloquea --process)
     if args.process:
         run_polar_v4_shadow()
 

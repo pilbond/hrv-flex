@@ -138,7 +138,8 @@ Importante:
   - Lista ejercicios (uso de diagnostico via `--debug-sports`), descarga detalle con samples y fetch de sleep/nightly recharge.
   - Resuelve el registro del usuario Polar contra AccessLink.
 - Cuando usarlo:
-  - En runtime `v3`, para sleep/nightly recharge y diagnostico (`--debug-sports`); ya no participa en la cobertura de RR nuevos.
+  - Solo en rollback v3 (`POLAR_API_VERSION=v3`). En runtime v4 (default desde AYO-23), el gateway lo reemplaza; sleep/nightly van por `polar_gateway` y `--debug-sports` requiere `POLAR_V4_SESSIONS=1`.
+  - Ya no participa en la cobertura de RR nuevos (AYO-13-F4).
 
 ## `hrv_app.polar_auth_v4`, `hrv_app.polar_client_v4`, `hrv_app.polar_adapters_v4` (AYO-13, pre-corte)
 - Que hacen:
@@ -151,7 +152,7 @@ Importante:
   - `hrv_app.hrv_sync_flow.extract_rr_ms` la consume con OR sobre el chequeo fisiologico de rango: un RR en rango pero marcado `offline=true` por el sensor queda como artefacto (`offline=1` en el CSV `duration,offline`).
   - Los samples v3 no traen la mascara y el comportamiento es el historico. Esta extension es interna al gateway/adaptador: no cambia el contrato del CSV RR (`ENDURANCE_HRV_Spec_Tecnica.md`) ni los CSVs canonicos.
 - Importante:
-  - El runtime productivo sigue en v3 salvo `POLAR_API_VERSION=v4`; rollback = flip de env var, el bundle v3 no se toca.
+  - El runtime productivo usa v4 por defecto desde AYO-23; rollback = `POLAR_API_VERSION=v3` (flip de env var, el bundle v4 no se toca).
   - En F5.2 el catálogo de deportes usa `GET /v4/data/sports/list` y requiere `sports:read`.
   - En sesiones reales v4, los samples mecánicos observados usan tipos string (`SPEED`, `CADENCE`; y potencialmente `POWER`/`LEFT_CRANK_CURRENT_POWER`), además del shape numérico legacy de fixtures.
 

@@ -5892,5 +5892,111 @@ class TestBikePowerEstimation(unittest.TestCase):
         self.assertIn("6:40", full)  # pace: 600s / 1.5km = 400s/km = 6:40
 
 
+class TestFetchSessionRrCsvV4Behavior(unittest.TestCase):
+    """Contrato de fetch_session_rr_csv en el nuevo runtime v4 (AYO-23)."""
+
+    def _row(self):
+        return {"Fecha": "2025-01-15", "start_time": "07:00", "sport": "road_run", "session_id": "s1"}
+
+    def test_v4_mode_raises_runtime_error(self):
+        from analysis.session_analysis_pipeline import fetch_session_rr_csv
+        import hrv_app.config as cfg
+
+        with patch.object(cfg, "POLAR_API_VERSION", "v4"), TemporaryDirectory() as tmp:
+            with self.assertRaises(RuntimeError) as ctx:
+                fetch_session_rr_csv(self._row(), Path(tmp) / "rr.csv")
+        self.assertIn("no disponible en modo v4", str(ctx.exception))
+
+    def test_shadow_mode_raises_runtime_error(self):
+        from analysis.session_analysis_pipeline import fetch_session_rr_csv
+        import hrv_app.config as cfg
+
+        with patch.object(cfg, "POLAR_API_VERSION", "shadow"), TemporaryDirectory() as tmp:
+            with self.assertRaises(RuntimeError):
+                fetch_session_rr_csv(self._row(), Path(tmp) / "rr.csv")
+
+    def test_v3_mode_missing_token_raises_runtime_error(self):
+        from analysis.session_analysis_pipeline import fetch_session_rr_csv
+        import hrv_app.config as cfg
+
+        with patch.object(cfg, "POLAR_API_VERSION", "v3"), \
+             patch("hrv_app.polar_oauth_local.load_tokens", return_value=(None, None)), \
+             TemporaryDirectory() as tmp:
+            with self.assertRaises(RuntimeError) as ctx:
+                fetch_session_rr_csv(self._row(), Path(tmp) / "rr.csv")
+        self.assertIn("v3", str(ctx.exception).lower())
+
+    def test_v4_error_propagates_as_rr_unavailable_in_no_rr_summary(self):
+        from analysis.session_analysis_pipeline import _build_no_rr_summary
+
+        summary = _build_no_rr_summary(
+            self._row(),
+            {"rr_error": "RR de entrenamiento desde Polar no disponible en modo v4"},
+        )
+        self.assertTrue(summary["rr_unavailable"])
+        self.assertTrue(summary["session_cost_model"]["usable"])
+
+    def test_run_analysis_without_rr_writes_partial_summary(self):
+        from analysis import session_analysis_pipeline as pipeline
+
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            reports_dir = tmp_path / "reports"
+            bundle_manifest = tmp_path / "bundle_manifest.json"
+            session_row_path = tmp_path / "session_row.json"
+            sessions_csv = tmp_path / "sessions.csv"
+            hr_stream_csv = tmp_path / "session_stream.csv"
+
+            session_row = {
+                "Fecha": "2025-01-15",
+                "start_time": "07:00",
+                "sport": "road_run",
+                "session_id": "s1",
+            }
+            manifest = {
+                "slug": "2025-01-15_07-00_road_run_s1",
+                "session_row_path": str(session_row_path),
+                "session_id": "s1",
+                "sessions_csv": str(sessions_csv),
+                "hr_stream_csv": str(hr_stream_csv),
+                "rr_csv": None,
+                "rr_error": "RR de entrenamiento desde Polar no disponible en modo v4",
+                "analysis_only_context": {},
+                "coach_interval_rows": [],
+                "coach_group_rows": [],
+                "terrain_intervals": [],
+            }
+            session_row_path.write_text(json.dumps(session_row), encoding="utf-8")
+            bundle_manifest.write_text(json.dumps(manifest), encoding="utf-8")
+            sessions_csv.write_text("session_id\ns1\n", encoding="utf-8")
+            hr_stream_csv.write_text("timestamp,hr\n", encoding="utf-8")
+
+            with patch.object(pipeline, "_supports_terrain_context", return_value=False), \
+                 patch.object(pipeline, "build_v1_snapshot", return_value=None), \
+                 patch.object(pipeline, "build_runaware_context", return_value=None), \
+                 patch.object(pipeline, "build_v1_shadow_comparison", return_value=None), \
+                 patch.object(pipeline, "build_v1_shadow_history", return_value=None), \
+                 patch.object(pipeline, "build_longitudinal_context", return_value=None), \
+                 patch.object(pipeline, "render_report_markdown", return_value="partial report"), \
+                 patch.object(pipeline, "write_terrain_intervals_csv", return_value=None), \
+                 patch.object(pipeline, "build_conversational_payload", return_value={"meta": {"sport_family": "road"}}), \
+                 patch.object(pipeline, "build_report_sync_token", return_value="sync-token"), \
+                 patch.object(pipeline, "build_analyst_prompt_markdown", return_value="prompt"), \
+                 patch.object(pipeline, "build_ai_handoff_markdown", return_value="handoff"), \
+                 patch.object(pipeline, "build_final_report_markdown", return_value="final report"), \
+                 patch.object(pipeline, "write_managed_final_report", return_value=None), \
+                 patch.object(pipeline, "build_report_sync_status", return_value={"status": "in_sync"}):
+                result = pipeline.run_analysis(bundle_manifest, reports_dir)
+                summary_path = Path(result["summary_path"])
+                summary = json.loads(summary_path.read_text(encoding="utf-8"))
+                self.assertTrue(summary["rr_unavailable"])
+                self.assertEqual(
+                    summary["rr_error"],
+                    "RR de entrenamiento desde Polar no disponible en modo v4",
+                )
+                self.assertTrue(Path(result["technical_report_md"]).exists())
+                self.assertTrue(Path(result["session_payload"]).exists())
+
+
 if __name__ == "__main__":
     unittest.main()

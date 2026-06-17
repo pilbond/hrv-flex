@@ -139,13 +139,13 @@ TOKEN_FILE = _resolve_writable_file(
     DATA_DIR,
 )
 
-# --- Polar Dynamic API v4 (AYO-13): dual stack bajo feature flag ---
-# v3: runtime actual (default). v4: lecturas Polar vía Dynamic API v4.
-# shadow: v3 efectivo + lectura paralela v4 solo para auditoría.
-_raw_polar_api_version = (os.environ.get("POLAR_API_VERSION") or "v3").strip().lower()
+# --- Polar Dynamic API v4 (AYO-23): v4 es el runtime principal ---
+# v4: comportamiento por defecto (AYO-23). v3: legado temporal, solo rollback.
+# shadow: auditoria paralela v4/v3 (legado, fuera del camino normal).
+_raw_polar_api_version = (os.environ.get("POLAR_API_VERSION") or "v4").strip().lower()
 if _raw_polar_api_version not in ("v3", "v4", "shadow"):
-    _qprint(f"AVISO: POLAR_API_VERSION invalida ({_raw_polar_api_version!r}); se usa v3")
-    _raw_polar_api_version = "v3"
+    _qprint(f"AVISO: POLAR_API_VERSION invalida ({_raw_polar_api_version!r}); se usa v4")
+    _raw_polar_api_version = "v4"
 POLAR_API_VERSION = _raw_polar_api_version
 
 POLAR_V4_SCOPES = (

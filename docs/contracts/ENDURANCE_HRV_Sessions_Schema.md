@@ -61,8 +61,8 @@ De forma **opcional y no bloqueante**, el pipeline puede enriquecer sesiones de 
 - Polar AccessLink como fallback cuando el FIT no está disponible o no trae señal útil
 
 Como fallback secundario, el pipeline puede enriquecer con muestras mecánicas de Polar AccessLink:
-- `GET /v3/exercises`
-- `GET /v3/exercises/{id}?samples=true`
+- v4 (default desde AYO-23, requiere `POLAR_V4_SESSIONS=1`): `GET /v4/data/training-sessions/list` + catálogo `/v4/data/sports/list`
+- v3 (rollback via `POLAR_API_VERSION=v3`): `GET /v3/exercises` y `GET /v3/exercises/{id}?samples=true`
 
 El stream HR de Intervals es idéntico al TCX del sensor (verificado empíricamente: 4844 vs 4843 puntos, Δ=0). No se necesita descargar TCX.
 
@@ -215,7 +215,7 @@ Cuando existe señal utilizable, `sessions.csv` añade una capa mecánica mínim
 
 **Semántica temporal de la capa mecánica:** `speed_first_half`, `speed_second_half`, `cadence_first_half`, `cadence_second_half`, `run_power_first_half` y `run_power_second_half` se calculan sobre **tiempo en movimiento**: primero se filtran las muestras válidas (velocidad > umbral mínimo, cadencia > 0, potencia > 0) y luego se parte el array resultante por su mitad. Las pausas no computan ni desplazan el punto de corte. Esto es relevante en `hike`, donde el tiempo de pausa puede superar el 30% del tiempo total. El sampling rate es 1 Hz en todas las sesiones conocidas, por lo que la frontera equivale exactamente a la mitad del tiempo en movimiento.
 
-**Cobertura Polar:** cuando `mechanics_source = polar`, la cobertura depende de la ventana reciente realmente expuesta por Polar AccessLink. En runtime v3, la fuente es `/v3/exercises`; en runtime v4 (`POLAR_V4_SESSIONS=1`), la fuente es `/v4/data/training-sessions/list` por fecha con `features=samples`, catálogo deportivo desde `/v4/data/sports/list` y scopes granulares (`training_sessions:read`, `sports:read`). En ambos casos no debe asumirse como fuente de backfill histórico completo.
+**Cobertura Polar:** cuando `mechanics_source = polar`, la cobertura depende de la ventana reciente realmente expuesta por Polar AccessLink. El runtime principal es v4 desde AYO-23: la fuente es `/v4/data/training-sessions/list` con `features=samples` (requiere `POLAR_V4_SESSIONS=1`), catálogo desde `/v4/data/sports/list` y scopes granulares (`training_sessions:read`, `sports:read`). En rollback v3 (`POLAR_API_VERSION=v3`), la fuente es `/v3/exercises`. En ambos casos no debe asumirse como fuente de backfill histórico completo.
 
 ### Capa derivada — Durabilidad mecánica (3 campos)
 

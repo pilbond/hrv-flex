@@ -34,11 +34,12 @@ class WebUiOauthCallbackSecurityTests(unittest.TestCase):
         self.assertIn("Estado OAuth", bad_state.get_data(as_text=True))
 
     def test_callback_accepts_issued_state_once(self):
-        state = web_ui._issue_oauth_state()
-        fake_token = {"access_token": "", "x_user_id": None}
+        state = web_ui._issue_oauth_state()  # default v4 desde AYO-23
+        fake_token = {"access_token": "at-v4", "x_user_id": None, "expires_in": 43199}
+        fake_bundle = dict(fake_token)
 
-        with patch.object(web_ui, "exchange_code_for_token", return_value=dict(fake_token)), \
-                patch.object(web_ui, "save_json_atomic") as save_mock, \
+        with patch.object(web_ui, "exchange_code_for_token_v4", return_value=dict(fake_token)), \
+                patch.object(web_ui, "persist_authorized_bundle", return_value=fake_bundle) as persist_mock, \
                 patch.dict("os.environ", {"POLAR_CLIENT_ID": "cid", "POLAR_CLIENT_SECRET": "sec"}):
             with web_ui.app.test_client() as client:
                 first = client.get(
@@ -49,7 +50,7 @@ class WebUiOauthCallbackSecurityTests(unittest.TestCase):
                 )
 
         self.assertEqual(first.status_code, 200)
-        save_mock.assert_called_once()
+        persist_mock.assert_called_once()
         # El state es de un solo uso: el replay debe rechazarse.
         self.assertEqual(replay.status_code, 400)
         self.assertIn("Estado OAuth", replay.get_data(as_text=True))
@@ -76,10 +77,20 @@ class WebUiOauthV4Tests(unittest.TestCase):
         self.assertIn("sleep%3Aread", location)
         self.assertIn("state=", location)
 
-    def test_auth_default_remains_v3(self):
+    def test_auth_default_redirects_to_v4(self):
         with patch.dict("os.environ", {"POLAR_CLIENT_ID": "cid", "POLAR_CLIENT_SECRET": "sec"}):
             with web_ui.app.test_client() as client:
                 response = client.get("/auth")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(
+            response.headers["Location"].startswith("https://auth.polar.com/oauth/authorize")
+        )
+
+    def test_auth_v3_rollback_redirects_to_flow_polar(self):
+        with patch.dict("os.environ", {"POLAR_CLIENT_ID": "cid", "POLAR_CLIENT_SECRET": "sec"}):
+            with web_ui.app.test_client() as client:
+                response = client.get("/auth", query_string={"provider": "v3"})
 
         self.assertEqual(response.status_code, 302)
         self.assertTrue(
@@ -139,11 +150,35 @@ class WebUiOauthV4Tests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("/auth?provider=v4", response.get_data(as_text=True))
 
-    def test_unknown_state_retry_mentions_v4_path(self):
+    def test_expired_v3_state_retry_link_preserves_provider(self):
+        state = web_ui._issue_oauth_state("v3")
+        with web_ui._oauth_states_lock:
+            issued_at, version = web_ui._oauth_states[state]
+            web_ui._oauth_states[state] = (issued_at - 9999, version)
+
+        with web_ui.app.test_client() as client:
+            response = client.get("/auth/callback", query_string={"code": "abc", "state": state})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("/auth?provider=v3", response.get_data(as_text=True))
+
+    def test_unknown_state_retry_links_to_plain_auth(self):
         with web_ui.app.test_client() as client:
             response = client.get("/auth/callback", query_string={"code": "abc", "state": "forged"})
         self.assertEqual(response.status_code, 400)
-        self.assertIn("/auth?provider=v4", response.get_data(as_text=True))
+        body = response.get_data(as_text=True)
+        self.assertIn("/auth", body)
+        self.assertNotIn("/auth?provider=v4", body)
+
+    def test_api_status_v3_rollback_signals_non_default_version(self):
+        """En rollback v3, /api/status expone api_version="v3" para alertar que
+        el runtime no está en el camino normal (AYO-23)."""
+        with patch.object(web_ui, "POLAR_API_VERSION", "v3"):
+            with web_ui.app.test_client() as client:
+                response = client.get("/api/status")
+        self.assertEqual(response.status_code, 200)
+        diagnostics = response.get_json().get("diagnostics", {})
+        self.assertEqual(diagnostics.get("api_version"), "v3")
 
     def test_api_status_never_contains_refresh_token_in_v4_mode(self):
         import json as _json
@@ -288,7 +323,7 @@ class WebUiOauthV4Tests(unittest.TestCase):
         from tempfile import TemporaryDirectory
 
         # En shadow el runtime efectivo sigue siendo v3, pero el bundle v4
-        # (autorizado via /auth?provider=v4) debe seguir siendo visible.
+        # (autorizado via /auth en el camino normal) debe seguir siendo visible.
         with TemporaryDirectory() as tmpdir:
             bundle_path = Path(tmpdir) / "polar_tokens_v4.json"
             bundle_path.write_text(_json.dumps({

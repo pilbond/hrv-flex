@@ -128,7 +128,7 @@ _oauth_states: dict[str, tuple[float, str]] = {}
 _oauth_states_lock = threading.Lock()
 
 
-def _issue_oauth_state(version: str = "v3") -> str:
+def _issue_oauth_state(version: str = "v4") -> str:
     state = secrets.token_urlsafe(24)
     now = time.time()
     with _oauth_states_lock:
@@ -143,7 +143,7 @@ def _consume_oauth_state(state: str) -> tuple[str | None, str | None]:
     """Valida y consume el state (uso único). Devuelve (version, hint):
     version es "v3"|"v4" si el state es válido, None si es inválido o caducó.
     hint conserva la versión cuando el state existía pero caducó, para que
-    el enlace de reintento no devuelva silenciosamente al flujo v3."""
+    el enlace de reintento preserva el provider original (v3 o v4)."""
     if not state:
         return None, None
     with _oauth_states_lock:
@@ -158,12 +158,11 @@ def _consume_oauth_state(state: str) -> tuple[str | None, str | None]:
 
 def _oauth_effective_version() -> str:
     """Versión OAuth para /auth: query param explícito > feature flag.
-    En modo shadow el runtime efectivo sigue siendo v3, pero se permite
-    autorizar v4 con ?provider=v4 para preparar el bundle."""
+    v4 es el default (AYO-23); v3 solo vía ?provider=v3 o POLAR_API_VERSION=v3."""
     provider = (request.args.get("provider") or "").strip().lower()
     if provider in ("v3", "v4"):
         return provider
-    return "v4" if POLAR_API_VERSION == "v4" else "v3"
+    return "v3" if POLAR_API_VERSION == "v3" else "v4"
 
 
 @app.before_request
@@ -361,15 +360,14 @@ def _token_diagnostics() -> dict:
         "token_reason": "missing",
         "token_expired": None,
     }
-    if POLAR_API_VERSION != "v3":
-        # Solo en modos no-default: con POLAR_API_VERSION sin definir, el
-        # payload de /api/status es byte a byte el anterior a AYO-13.
+    if POLAR_API_VERSION != "v4":
+        # Solo en modos no-default (v3 rollback o shadow): señala explícitamente
+        # que el runtime no está en el camino normal v4 (AYO-23).
         info["api_version"] = POLAR_API_VERSION
 
     if POLAR_API_VERSION == "shadow":
         # En shadow el runtime efectivo sigue siendo v3, pero el bundle v4
-        # puede ya estar autorizado (vía /auth?provider=v4) para preparar el
-        # corte: sin esto /api/status queda ciego al estado más relevante.
+        # puede ya estar autorizado (vía /auth) para diagnóstico.
         info["token_v4"] = _token_diagnostics_v4()
 
     if not info["token_exists"]:
@@ -1517,13 +1515,12 @@ def oauth_callback():
 
     state_version, retry_version = _consume_oauth_state((request.args.get('state') or '').strip())
     if state_version is None:
-        # El reintento debe conservar el provider del flujo original: si el
-        # state caducado era v4, /auth a secas reiniciaría en v3 por defecto.
-        retry_href = "/auth?provider=v4" if retry_version == "v4" else "/auth"
+        # El reintento debe conservar el provider del flujo original.
+        retry_href = f"/auth?provider={retry_version}" if retry_version in ("v3", "v4") else "/auth"
         v4_hint = (
             ""
             if retry_version
-            else "<p style='font-size:13px;color:#666;'>Si estabas autorizando v4, usa <a href='/auth?provider=v4'>/auth?provider=v4</a>.</p>"
+            else "<p style='font-size:13px;color:#666;'>Para autorizar, usa <a href='/auth'>/auth</a>.</p>"
         )
         return f"""
         <html>

@@ -410,6 +410,7 @@ python egc_to_rr.py --dropbox-folder /ruta/carpeta --dropbox-recursive --outdir 
 - ✅ UI expone `/api/sync`, `/api/sync-sessions`, `/api/status`, `/api/import-seed`, `/api/restore-backup`, `/api/delete-latest-rr` y endpoints OAuth
 - ✅ `build_sessions.py` genera `sessions`, `sessions_day`, `intensity_distribution_weekly`, `weekly_coach`, `sessions_metadata` y `wellness_subjective`
 - ✅ AYO-13-F4 / AYO-20: Dropbox es la única fuente de nuevos RR matinales; sin fallback Polar para fechas nuevas (`--all` reprocesa solo RR locales; `list_exercises` queda detrás de `--debug-sports`)
+- ✅ AYO-23 (AYO-13-F5.3): v4 es el runtime Polar por defecto (`POLAR_API_VERSION` default=`v4`); v3 queda como rollback temporal (`POLAR_API_VERSION=v3`); shadow fuera del camino normal; `analysis/session_analysis_pipeline.py` ya no depende de módulos legacy v3 en top-level
 - ✅ `ENDURANCE_HRV_sleep.csv` es archivo canónico de sueño (17 cols; carga en sessions_day.csv)
 - ✅ Los jobs HRV, sesiones, import seed, restore backup y borrado del último RR comparten estado y no se ejecutan simultáneamente
 - ✅ `hrv_app/backup_dropbox.py`: backup opcional de `ENDURANCE_HRV_*` a carpeta plana en Dropbox (`HRV_BACKUP_DROPBOX_ENABLED`, overwrite tras cada sync); restauración vía `POST /api/restore-backup` con escritura atómica y backup previo en `data/backup/pre_restore/`

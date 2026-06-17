@@ -1,6 +1,5 @@
 
-
-Estado: **PROPUESTA (no implementada)** — 2026-06-14
+Estado: **PROPUESTA (revisada tras AYO-23)** — 2026-06-17
 Autor: análisis para Claude Code
 Doc padre: `docs/HRV/AYO-13 Migrar Polar AccessLink de v3 a v4.md` (Fase 6)
 Tarjeta Kanvas: `AYO-22` (purple) — depende de `AYO-20` (F4) y `AYO-21` (F5)
@@ -10,25 +9,25 @@ Tarjeta Kanvas: `AYO-22` (purple) — depende de `AYO-20` (F4) y `AYO-21` (F5)
 ## 1. Resumen ejecutivo
 
 AYO-22 es la **fase final** de la migración Polar v3 → v4: retirar el código,
-las constantes y la configuración v3 una vez que v4 es la fuente operativa
-confirmada. No añade funcionalidad; **reduce superficie** y consolida v4 como
-único camino.
+las constantes y la configuración v3 una vez que v4 ya es el runtime normal.
+No añade funcionalidad; **reduce superficie** y consolida v4 como único camino.
 
-**Conclusión principal de la evaluación:** la tarea está **bloqueada hoy** y no
-debe ejecutarse todavía. El runtime operativo sigue siendo **100% v3** para
-sleep, nightly y sesiones (v4 solo se lee en modo `shadow` para auditoría).
-La fase de corte (F5 / AYO-21) **no está hecha**: no existe `hrv_app/polar_gateway.py`
-y ningún consumidor canónico lee de v4. La matriz de paridad sigue marcada
-**PROVISIONAL** y el *gate cuantitativo* de F5 (ventana shadow 7–14 días) no
-consta como superado.
+**Conclusión principal revisada (2026-06-17):**
 
-Por tanto este documento es un **plan de ejecución listo para disparar cuando
-se cumplan las precondiciones**, no un trabajo a iniciar ahora. La prioridad es
-simpleza y seguridad de rollback, no rehacer arquitectura.
+- AYO-21 y AYO-23 ya dejaron v4 como runtime principal del producto.
+- F6 ya no debe mezclar "hacer funcionar v4" con "borrar v3".
+- Lo que sigue pendiente en F6 es la **retirada del doble stack**:
+  OAuth/callback v3, `polar_oauth_local.py`, `polar_client.py`, ramas
+  `shadow`, diagnósticos duales y backend v3 de sesiones.
+- La posible recuperación de RR de sesiones de entrenamiento en `analysis`
+  **no debe entrar en F6**. Si se quiere conservar esa capacidad, requiere
+  una tarea nueva y separada.
+
+Este documento queda como plan de retirada final post-AYO-23.
 
 ---
 
-## 2. Estado real de la migración (verificado en código, 2026-06-14)
+## 2. Estado real de la migración (verificado en código, 2026-06-17)
 
 | Fase                    | Tarea      | Estado          | Evidencia en repo                                                      |
 | ----------------------- | ---------- | --------------- | ---------------------------------------------------------------------- |
@@ -37,8 +36,9 @@ simpleza y seguridad de rollback, no rehacer arquitectura.
 | F2 OAuth v4 + refresh   | AYO-18     | ✅               | `hrv_app/polar_auth_v4.py`, flag `POLAR_API_VERSION`, callback dual    |
 | F3 Lecturas shadow      | AYO-19     | ✅               | `hrv_app/polar_shadow.py`, sidecar `data/audit/polar_v4_shadow.jsonl`  |
 | F4 Dropbox RR único     | AYO-20     | ✅ (orange)      | `hrv_sync_flow.sync_hrv_range` sin fallback Polar                      |
-| **F5 Corte controlado** | **AYO-21** | **❌ pendiente** | **No existe `polar_gateway.py`; sleep/nightly/sesiones siguen en v3**  |
-| **F6 Retirada v3**      | **AYO-22** | **❌ bloqueada** | Esta propuesta                                                         |
+| **F5 Corte controlado** | **AYO-21** | ✅ | gateway y runtime v4 ya integrados |
+| **F5.3 Consolidacion**  | **AYO-23** | ✅ | `POLAR_API_VERSION` default `v4`, `/auth` orientado a v4, legado v3 aislado |
+| **F6 Retirada v3**      | **AYO-22** | **🟡 pendiente** | retirada final del doble stack y limpieza |
 
 **Lo que aún corre en v3 (lo que F6 debe retirar):**
 
@@ -51,13 +51,15 @@ simpleza y seguridad de rollback, no rehacer arquitectura.
   `exchange_code_for_token` genérico v3.
 - `hrv_app/polar_oauth_local.py` — helper OAuth local (abre navegador +
   `HTTPServer`) atado a `AUTH_URL`/`TOKEN_URL`/`SCOPE` v3.
-- `web_ui.py` — flujo dual `?provider=v3|v4`, `_register_polar_user`, ramas
-  `v3`/`shadow` en `_token_diagnostics`, callback dual.
+- `web_ui.py` — mantiene flujo dual `?provider=v3|v4`, `_register_polar_user`,
+  ramas `v3`/`shadow` en `_token_diagnostics`, callback dual y retry-aware por
+  provider.
 - `hrv_app/polar_shadow.py` + `scripts/shadow_report.py` — infraestructura de
   comparación v3↔v4 (deja de tener sentido cuando v4 es la única fuente).
-- `analysis/session_analysis_pipeline.py` — importa `list_exercises` y
-  `get_exercise_with_samples` de `polar_client` (v3) y `load_tokens` de
-  `polar_oauth_local`.
+- `hrv_app/polar_sessions.py` — sigue conservando backend v3 y deja el backend
+  v4 de sesiones tras `POLAR_V4_SESSIONS`.
+- `analysis/session_analysis_pipeline.py` — ya no importa top-level el cliente
+  v3, pero mantiene una rama legacy `v3` local para RR de sesiones.
 - Tests v3: `test_polar_client_contract.py`, `test_polar_shadow_contract.py`,
   `test_polar_oauth_local_contract.py`, fixtures `tests/fixtures/polar_v3/`, y
   ramas v3/provider en `test_web_ui_security.py` y `test_polar_hrv_automation_cli.py`.
@@ -69,10 +71,8 @@ simpleza y seguridad de rollback, no rehacer arquitectura.
 F6 **no se inicia** hasta que se cumpla TODO lo siguiente. Es una checklist de
 entrada, no parte del trabajo de F6:
 
-1. **AYO-21 (F5) cerrada**: existe `hrv_app/polar_gateway.py` y los consumidores
-   canónicos (`sleep_store`, `hrv_sync_flow`, `polar_hrv_automation`,
-   `PolarSessionClient`) leen de v4 a través del gateway. Sync completo verde con
-   `POLAR_API_VERSION=v4` y `POLAR_V4_SESSIONS=1`.
+1. **AYO-23 cerrada funcionalmente**: `POLAR_API_VERSION=v4` es el default,
+   `/auth` entra en v4 por defecto y el runtime ordinario ya no depende de v3.
 2. **Ventana shadow superada** (criterios ya escritos en la matriz, sección
    "Criterios cuantitativos de corte (gate F5)"):
    - sleep/nightly: cobertura v4 ≥ v3, |Δrmssd| ≤ 1 ms, |Δduración| ≤ 5 min/noche;
@@ -84,9 +84,8 @@ entrada, no parte del trabajo de F6:
    resultados de la ventana shadow anexados. (El registro de usuario v4 ya está
    confirmado innecesario: matriz, incógnita #1 — `/v4/data/*` funciona sin
    `POST /users`.)
-4. **Catálogo de deporte v4 resuelto**: `/v4/data/sports/list` cargado/cacheado para
-   que el filtro `SPORTS_FILTER=["BODY_AND_MIND"]` siga funcionando (la matriz lo
-   marca como *bloqueador F5*; si F5 lo cierra, F6 solo lo da por hecho).
+4. **AYO-24 cerrada**: la paridad funcional de RR de sesion en `analysis`
+   ya esta resuelta y validada antes del corte final.
 5. **Punto de rollback creado**: tag git del último build con v4 operativo y v3
    aún presente (ver §6).
 
@@ -105,7 +104,9 @@ de despliegue.
 
 - Retirar registro de usuario v3 y endpoints v3.
 - Migrar `polar_oauth_local.py` a v4 (o retirarlo si se confirma que no se usa).
-- Migrar `analysis/session_analysis_pipeline.py` a la frontera v4 (gateway).
+- Retirar la rama legacy `v3` que todavía queda en
+  `analysis/session_analysis_pipeline.py`, si y solo si ya existe decision
+  explicita sobre el futuro de RR de sesion.
 - Colapsar el flag `POLAR_API_VERSION` y limpiar `config.py`.
 - Retirar la infraestructura shadow (F3) del runtime.
 - Limpiar tests v3 y fixtures `polar_v3/`.
@@ -118,6 +119,8 @@ de despliegue.
 - Cambiar columnas o semántica de `CORE`/`FINAL`/`DASHBOARD`/`sleep`/`sessions`.
 - Renombrar el bundle de tokens v4 al path canónico v3 (ver §5, decisión D2).
 - Tocar el método analítico de `analysis/` más allá de la frontera Polar.
+- Diseñar o implementar de cero el soporte de RR de sesiones de entrenamiento
+  sobre v4.
 - Introducir MCP en el camino de `/api/sync` (es AYO-14/AYO-15).
 - Adoptar scopes/endpoints v4 nuevos sin consumidor.
 
@@ -164,11 +167,14 @@ flag.
   release más. Añade ramas muertas y tests dobles sin valor real una vez que la
   ventana shadow pasó.
 
-### D4 — `polar_oauth_local.py`: migrar mínimo, no rediseñar
+### D4 — `polar_oauth_local.py`: migrar mínimo o borrar, pero decidirlo en F6
 
 Es un helper **solo local** (abre navegador + `HTTPServer`, prohibido en prod).
-Opción elegida: repuntar sus constantes a v4 reutilizando `polar_auth_v4`
-(`build_auth_url_v4`, `exchange_code_for_token_v4`) y el bundle v4.
+Tras AYO-23 ya quedó explícitamente como legado temporal. F6 debe elegir una
+de dos:
+
+- borrarlo si el flujo local real ya usa `/auth`
+- o migrarlo mínimamente a v4 si se sigue usando
 
 - ✅ Ventaja: el dev local sigue teniendo un atajo de autorización; cambio
   pequeño y contenido.
@@ -210,12 +216,14 @@ quién importa v3, luego el v3 importado.
 
 **Paso 0 — Gate y rollback.** Verificar §3, crear tag de rollback (§6).
 
-**Paso 1 — `analysis/session_analysis_pipeline.py` a v4.**
-Sustituir `list_exercises` / `get_exercise_with_samples` (de `polar_client` v3)
-por las equivalentes del gateway v4 de F5, y `load_tokens` (de
-`polar_oauth_local` v3) por la carga del bundle v4. Este es el único *nuevo
-cableado* de F6; el resto es borrado. Es análisis bajo demanda, no entra en el
-camino de `/api/sync`.
+**Paso 1 — Cerrar la decision sobre RR de sesion en `analysis`.**
+
+Antes de borrar la ultima rama legacy de `analysis`, fijar una de dos:
+
+- `analysis` final no soporta RR de sesion desde Polar en v4
+- existe una tarea separada que implementa esa capacidad sobre v4
+
+F6 no debe diseñar esa capacidad nueva.
 
 **Paso 2 — `polar_oauth_local.py` a v4** (o borrado, según §9/D4).
 
@@ -274,7 +282,9 @@ ausencia de secretos en logs; confirmar esquemas CSV intactos (nº de columnas).
    históricas.
 2. `POLAR_API_VERSION` no existe en código ni en variables de Railway.
 3. `/auth`, callback y `/api/status` operan solo en v4; `state` validado.
-4. `analysis/session_analysis_pipeline.py` obtiene RR de sesión vía v4.
+4. Si se ha decidido abandonar RR de sesion en `analysis`, el contrato queda
+   documentado y testado. Si se ha decidido preservarlo, esa capacidad ya esta
+   resuelta fuera de F6 antes de ejecutar el corte.
 5. Sync completo (sleep, nightly, sesiones) verde tras redeploy con volumen;
    esquemas y nº de columnas de CSV canónicos sin cambios.
 6. `/api/sync` y `/api/sync-sessions` mantienen exclusividad mutua.
@@ -291,10 +301,13 @@ ausencia de secretos en logs; confirmar esquemas CSV intactos (nº de columnas).
 1. **OAuth local (`polar_oauth_local.py`)**: ¿lo usas en tu flujo local, o todo
    pasa por el web `/auth`? Define si en F6 se **migra a v4** o se **borra**
    (D4). Recomendación: borrar si no se usa (más simple).
-2. **`scripts/shadow_report.py` y captura v4**: ¿conservar en `research/` para
+2. **AYO-24**: confirmar que la tarea de paridad funcional en `analysis`
+   esta cerrada antes de ejecutar F6.
+3. **`scripts/shadow_report.py` y captura v4**: ¿conservar en `research/` para
    auditorías puntuales o eliminar del repo? (D5).
-3. **Momento**: ¿quieres que F6 se prepare ahora como PR "listo para mergear tras
-   F5", o se mantiene en backlog hasta que F5 + ventana shadow estén cerradas?
+4. **Momento**: ¿quieres que F6 se prepare ahora como PR "listo para mergear tras
+   AYO-23", o se mantiene en backlog hasta que la ventana shadow y la decision
+   sobre RR de sesion esten cerradas?
 
 ---
 
@@ -319,11 +332,11 @@ ausencia de secretos en logs; confirmar esquemas CSV intactos (nº de columnas).
   producción dejaría al sistema sin red de seguridad (riesgo explícito en el
   doc padre: "retirada prematura de v3 sin rollback real").
 
-**Recomendación:** mantener AYO-22 bloqueada hasta cerrar AYO-21 (F5) y la
-ventana shadow. Cuando eso ocurra, ejecutar F6 como un PR único, secuencial y
-acotado (§7), priorizando el orden seguro y el rollback por tag. Evitar
-sobreingeniería: nada de flags de compatibilidad nuevos ni de renombrar estado
-persistido.
+**Recomendación:** mantener AYO-22 bloqueada hasta cerrar la ventana shadow y
+la decision de alcance sobre RR de sesion en `analysis`. Cuando eso ocurra,
+ejecutar F6 como un PR único, secuencial y acotado (§7), priorizando el orden
+seguro y el rollback por tag. Evitar sobreingeniería: nada de flags de
+compatibilidad nuevos ni de renombrar estado persistido.
 
 ---
 

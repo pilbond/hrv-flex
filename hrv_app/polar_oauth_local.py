@@ -8,6 +8,8 @@ import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlencode, urlparse
 
+# Legado v3 — solo rollback temporal hasta AYO-22 (F6).
+# El runtime principal usa v4 (AYO-23). No importar desde código nuevo.
 from .config import AUTH_URL, CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, SCOPE, TOKEN_FILE, TOKEN_URL
 from .oauth_utils import exchange_code_for_token, save_json_atomic
 
