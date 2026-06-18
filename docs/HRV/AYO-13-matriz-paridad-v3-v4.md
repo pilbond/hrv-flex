@@ -1,9 +1,6 @@
 # AYO-13 — Matriz de paridad Polar AccessLink v3 / Dynamic API v4
 
-Estado: **PROVISIONAL** (2026-06-12). Basada en la documentación pública de
-https://www.polar.com/polar-api-v4/. Los campos marcados `provisional` deben
-confirmarse con capturas reales de `scripts/capture_v4_fixtures.py` antes de
-cerrar la Fase 0.
+Estado: **CERRADA — 2026-06-18.** v3 retirado por completo en AYO-22 (F6). Este documento es referencia histórica de la migración.
 
 ## Actualización 2026-06-16 (validación operativa real de F5.2)
 

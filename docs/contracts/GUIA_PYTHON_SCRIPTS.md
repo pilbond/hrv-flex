@@ -132,69 +132,18 @@ Importante:
   - Dropbox es la unica fuente de nuevos RR matinales (AYO-13-F4). Si una fecha nueva no esta cubierta en Dropbox, esa fecha no entra al pipeline en este ciclo; no hay fallback Polar para RR nuevos.
   - Correcciones de fechas ya existentes en CORE quedan fuera de alcance de F4 (requieren reprocesado manual del periodo, fuera de este flujo automatico).
 
-## `hrv_app.polar_client`
-- Que hace:
-  - Encapsula las llamadas HTTP a Polar AccessLink.
-  - Lista ejercicios (uso de diagnostico via `--debug-sports`), descarga detalle con samples y fetch de sleep/nightly recharge.
-  - Resuelve el registro del usuario Polar contra AccessLink.
-- Cuando usarlo:
-  - Solo en rollback v3 (`POLAR_API_VERSION=v3`). En runtime v4 (default desde AYO-23), el gateway lo reemplaza; sleep/nightly van por `polar_gateway` y `--debug-sports` requiere `POLAR_V4_SESSIONS=1`.
-  - Ya no participa en la cobertura de RR nuevos (AYO-13-F4).
-
-## `hrv_app.polar_auth_v4`, `hrv_app.polar_client_v4`, `hrv_app.polar_adapters_v4` (AYO-13, pre-corte)
+## `hrv_app.polar_auth_v4`, `hrv_app.polar_client_v4`, `hrv_app.polar_adapters_v4`
 - Que hacen:
   - `polar_auth_v4`: OAuth contra `auth.polar.com` con refresh token obligatorio, bundle separado (`polar_tokens_v4.json`) y rotacion atomica bajo lock.
-  - `polar_client_v4`: cliente HTTP aislado de la Dynamic API v4; en runtime `v4` ya lo consumen el gateway de sleep/nightly y `PolarSessionClient` bajo `POLAR_V4_SESSIONS=1`.
-  - `polar_adapters_v4`: convierte respuestas v4 al shape v3 que ya consumen `sleep_store`, `hrv_sync_flow` y `polar_sessions`.
-- Compatibilidad transitoria del adaptador (extension `offline`):
-  - El shape v3 de samples RR (`{"sample-type": "11", "data": "rr1,rr2,..."}`) no tiene canal para el flag `offline` por intervalo que v4 si expone (`rrSamples[].offline`).
-  - El adaptador anade una mascara paralela `"offline": "0,1,0,..."` (misma longitud y orden que `data`).
-  - `hrv_app.hrv_sync_flow.extract_rr_ms` la consume con OR sobre el chequeo fisiologico de rango: un RR en rango pero marcado `offline=true` por el sensor queda como artefacto (`offline=1` en el CSV `duration,offline`).
-  - Los samples v3 no traen la mascara y el comportamiento es el historico. Esta extension es interna al gateway/adaptador: no cambia el contrato del CSV RR (`ENDURANCE_HRV_Spec_Tecnica.md`) ni los CSVs canonicos.
+  - `polar_client_v4`: cliente HTTP de la Dynamic API v4; lo consumen el gateway de sleep/nightly y `PolarSessionClient`.
+  - `polar_adapters_v4`: convierte respuestas v4 al shape interno que consumen `sleep_store`, `hrv_sync_flow` y `polar_sessions`.
+- Mascara `offline` en RR:
+  - El adaptador añade `"offline": "0,1,0,..."` (mismo orden que `data`).
+  - `hrv_app.hrv_sync_flow.extract_rr_ms` la consume: un RR en rango fisiologico pero marcado `offline=true` queda como artefacto.
+  - No cambia el contrato del CSV RR ni los CSVs canonicos.
 - Importante:
-  - El runtime productivo usa v4 por defecto desde AYO-23; rollback = `POLAR_API_VERSION=v3` (flip de env var, el bundle v4 no se toca).
-  - En F5.2 el catálogo de deportes usa `GET /v4/data/sports/list` y requiere `sports:read`.
-  - En sesiones reales v4, los samples mecánicos observados usan tipos string (`SPEED`, `CADENCE`; y potencialmente `POWER`/`LEFT_CRANK_CURRENT_POWER`), además del shape numérico legacy de fixtures.
-
-## `hrv_app.polar_shadow` (AYO-19, shadow mode)
-- Que hace:
-  - Lectura de solo-lectura de la API v4 (sleeps, nightly-recharge, training-sessions) para auditoria en paralelo.
-  - Se ejecuta automaticamente al final de `--process` si `POLAR_API_VERSION=shadow`.
-  - Compara presencia v4 contra lo persistido en `ENDURANCE_HRV_sleep.csv` (sleep/nightly) y `ENDURANCE_HRV_master_CORE.csv` (sessions).
-  - Reporta diffs numericos, latencia, refreshes y status por dominio en sidecar append-only `data/audit/polar_v4_shadow.jsonl`.
-  - Nunca bloquea `--process`: cualquier fallo queda registrado como status en el sidecar y la excepcion se captura.
-- Cuando usarlo:
-  - Bajo `POLAR_API_VERSION=shadow` en una ventana de observacion de 7-14 dias previos al corte v4 (phase F5).
-  - El sidecar sirve como punto de referencia empirica de paridad v3/v4 antes de pasar todo el trafico a v4.
-- Entradas:
-  - Bundle v4 (`polar_tokens_v4.json`).
-  - `ENDURANCE_HRV_sleep.csv` y `ENDURANCE_HRV_master_CORE.csv` para lectura de v3.
-- Salidas:
-  - `data/audit/polar_v4_shadow.jsonl` (uno por fecha, JSONL append-only).
-- Automatico o manual:
-  - Automatico si `POLAR_API_VERSION=shadow` y se ejecuta `--process`.
-  - El contenido no modifica ningun contrato canonico ni interfiere con el pipeline principal.
-
-## `scripts/shadow_report.py` (AYO-19, diagnostico)
-- Que hace:
-  - Lee `data/audit/polar_v4_shadow.jsonl` y resume presencia, diffs, latencia y refreshes por dominio.
-  - Reporte de solo lectura para diagnostico durante la ventana shadow de observacion.
-- Cuando usarlo:
-  - Bajo demanda, durante la fase shadow mode, para validar que v4 devuelve datos y los diffs son manejables.
-- Entradas:
-  - `data/audit/polar_v4_shadow.jsonl` (o `--path` custom).
-- Salidas:
-  - Salida textual en consola (sin generar archivos).
-- Automatico o manual:
-  - Manual diagnostico: `python scripts/shadow_report.py [--last N] [--path <path>]`.
-
-## `hrv_app.polar_oauth_local`
-- Que hace:
-  - Mantiene el flujo OAuth local con callback HTTP local para uso `dev-only`.
-  - Carga tokens y soporta el flujo interactivo local cuando no se usa la UI web.
-- Importante:
-  - No es el flujo productivo de Railway.
-  - En produccion el OAuth canonico sigue siendo el web de `web_ui.py`.
+  - El catalogo de deportes usa `GET /v4/data/sports/list` y requiere el scope `sports:read`.
+  - Los samples mecanicos en sesiones reales usan tipos string (`SPEED`, `CADENCE`, `POWER`/`LEFT_CRANK_CURRENT_POWER`).
 
 ## `hrv_app.sleep_store`
 - Que hace:

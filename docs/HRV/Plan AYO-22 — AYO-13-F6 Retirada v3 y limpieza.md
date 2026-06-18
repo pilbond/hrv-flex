@@ -1,8 +1,8 @@
 
-Estado: **PROPUESTA (revisada tras AYO-23)** — 2026-06-17
+Estado: **COMPLETADA** — 2026-06-18
 Autor: análisis para Claude Code
 Doc padre: `docs/HRV/AYO-13 Migrar Polar AccessLink de v3 a v4.md` (Fase 6)
-Tarjeta Kanvas: `AYO-22` (purple) — depende de `AYO-20` (F4) y `AYO-21` (F5)
+Tarjeta Kanvas: `AYO-22` (cyan — pendiente revisión humana)
 
 ---
 
@@ -19,9 +19,8 @@ No añade funcionalidad; **reduce superficie** y consolida v4 como único camino
 - Lo que sigue pendiente en F6 es la **retirada del doble stack**:
   OAuth/callback v3, `polar_oauth_local.py`, `polar_client.py`, ramas
   `shadow`, diagnósticos duales y backend v3 de sesiones.
-- La posible recuperación de RR de sesiones de entrenamiento en `analysis`
-  **no debe entrar en F6**. Si se quiere conservar esa capacidad, requiere
-  una tarea nueva y separada.
+- La paridad funcional de RR de sesiones en `analysis` ya quedó tratada fuera
+  de F6 en `AYO-24`; F6 no debe reabrir esa discusión.
 
 Este documento queda como plan de retirada final post-AYO-23.
 
@@ -85,7 +84,7 @@ entrada, no parte del trabajo de F6:
    confirmado innecesario: matriz, incógnita #1 — `/v4/data/*` funciona sin
    `POST /users`.)
 4. **AYO-24 cerrada**: la paridad funcional de RR de sesion en `analysis`
-   ya esta resuelta y validada antes del corte final.
+   ya esta resuelta y validada antes del corte final; F6 no la rediscute.
 5. **Punto de rollback creado**: tag git del último build con v4 operativo y v3
    aún presente (ver §6).
 
@@ -103,11 +102,12 @@ de despliegue.
 **Dentro de alcance:**
 
 - Retirar registro de usuario v3 y endpoints v3.
-- Migrar `polar_oauth_local.py` a v4 (o retirarlo si se confirma que no se usa).
+- Borrar `polar_oauth_local.py` y adaptar puntualmente los consumidores
+  auxiliares que aún dependan de él.
 - Retirar la rama legacy `v3` que todavía queda en
-  `analysis/session_analysis_pipeline.py`, si y solo si ya existe decision
-  explicita sobre el futuro de RR de sesion.
-- Colapsar el flag `POLAR_API_VERSION` y limpiar `config.py`.
+  `analysis/session_analysis_pipeline.py` una vez cumplido el gate de `AYO-24`.
+- Colapsar el flag `POLAR_API_VERSION` y retirar también
+  `POLAR_V4_SESSIONS` como resto transitorio de configuración.
 - Retirar la infraestructura shadow (F3) del runtime.
 - Limpiar tests v3 y fixtures `polar_v3/`.
 - Actualizar `AGENTS.md`, `CLAUDE.md`, `docs/contracts/` y la doc operativa.
@@ -167,21 +167,18 @@ flag.
   release más. Añade ramas muertas y tests dobles sin valor real una vez que la
   ventana shadow pasó.
 
-### D4 — `polar_oauth_local.py`: migrar mínimo o borrar, pero decidirlo en F6
+### D4 — `polar_oauth_local.py`: borrar, no migrar
 
 Es un helper **solo local** (abre navegador + `HTTPServer`, prohibido en prod).
-Tras AYO-23 ya quedó explícitamente como legado temporal. F6 debe elegir una
-de dos:
+Tras AYO-23 ya quedó explícitamente como legado temporal. La decisión más simple
+y coherente con el runtime final es **borrarlo**, no migrarlo.
 
-- borrarlo si el flujo local real ya usa `/auth`
-- o migrarlo mínimamente a v4 si se sigue usando
-
-- ✅ Ventaja: el dev local sigue teniendo un atajo de autorización; cambio
-  pequeño y contenido.
-- ⚠️ Inconveniente: mantiene un segundo camino OAuth (web + local). Si se
-  confirma que nadie lo usa, la alternativa más simple es **borrarlo** y dejar
-  solo el flujo web `/auth?provider=v4`. **Pregunta abierta para el usuario**
-  (ver §9): ¿se usa el OAuth local?
+- ✅ Ventaja: elimina un segundo camino OAuth local que ya no aporta valor al
+  producto ni al despliegue.
+- ✅ Ventaja: reduce imports legacy y evita mantener código de navegador local
+  + `HTTPServer` para un caso marginal.
+- ⚠️ Inconveniente: scripts auxiliares de captura o auditoría que aún lo usen
+  deben adaptarse de forma puntual antes de borrarlo.
 
 ### D5 — Shadow (F3): retirar del runtime, conservar utilidad de auditoría
 
@@ -216,16 +213,20 @@ quién importa v3, luego el v3 importado.
 
 **Paso 0 — Gate y rollback.** Verificar §3, crear tag de rollback (§6).
 
-**Paso 1 — Cerrar la decision sobre RR de sesion en `analysis`.**
+**Paso 1 — Verificar el gate funcional ya cerrado en `AYO-24`.**
 
-Antes de borrar la ultima rama legacy de `analysis`, fijar una de dos:
+Antes de borrar la ultima rama legacy de `analysis`, comprobar que la validación
+de `AYO-24` sigue vigente para el árbol exacto que se va a cortar. F6 no diseña
+capacidad nueva ni reabre esa decisión.
 
-- `analysis` final no soporta RR de sesion desde Polar en v4
-- existe una tarea separada que implementa esa capacidad sobre v4
-
-F6 no debe diseñar esa capacidad nueva.
-
-**Paso 2 — `polar_oauth_local.py` a v4** (o borrado, según §9/D4).
+**Paso 2 — Borrar `polar_oauth_local.py`.**
+Adaptar antes los consumidores auxiliares que aún dependan de `load_tokens()`,
+`do_oauth_flow()` o helpers de callback. No mantener un segundo flujo OAuth
+local por inercia.
+Consumidores no-runtime identificados al ejecutar este paso:
+- `scripts/capture_v4_fixtures.py` — inlineó `_CallbackState` y `start_callback_server` directamente (D4: borrar, no migrar).
+- `research/audits/intervals_vs_polar_stream/scripts/compare_session_streams.py` — import retirado; script marcado con NOTE de actualización pendiente a V4Client.
+No se encontraron otros consumidores fuera de runtime ni de tests.
 
 **Paso 3 — `web_ui.py` a v4 único.**
 Eliminar `?provider=v3|v4` (queda v4 implícito), `_register_polar_user`, la rama
@@ -240,7 +241,8 @@ genérico reutilizable, conservar solo eso.
 
 **Paso 5 — Limpiar `config.py`.**
 Eliminar `SCOPE`, `API_BASE`, `AUTH_URL`, `TOKEN_URL` v3 y la maquinaria del flag
-`POLAR_API_VERSION` (validación + modos). Conservar `POLAR_V4_SCOPES`,
+`POLAR_API_VERSION` (validación + modos), junto con `POLAR_V4_SESSIONS` como
+flag transitorio ya obsoleto. Conservar `POLAR_V4_SCOPES`,
 `TOKEN_FILE_V4`/`POLAR_TOKEN_PATH_V4`, `CLIENT_ID`/`CLIENT_SECRET` (compartidos),
 `SPORTS_FILTER`, etc.
 
@@ -250,8 +252,8 @@ Eliminar `polar_shadow.py` del flujo `--process` y la rama `shadow` de
 
 **Paso 7 — Tests.**
 Borrar `test_polar_client_contract.py`, `test_polar_shadow_contract.py`,
-`test_polar_oauth_local_contract.py` (o reescribirlo a v4 si se mantiene el
-helper), fixtures `tests/fixtures/polar_v3/`, y limpiar ramas v3/provider en
+`test_polar_oauth_local_contract.py` (D4 fija borrar, no migrar; no hay helper
+que mantener), fixtures `tests/fixtures/polar_v3/`, y limpiar ramas v3/provider en
 `test_web_ui_security.py` y `test_polar_hrv_automation_cli.py`. Confirmar que la
 suite v4 (`test_polar_*_v4*.py`, `test_polar_auth_v4.py`) cubre lo retirado.
 
@@ -262,16 +264,16 @@ de entorno, snapshot), `docs/contracts/GUIA_PYTHON_SCRIPTS.md`,
 añadir el bloque de cierre F6 al doc padre AYO-13. Cualquier mención a v3 pasa a
 histórico.
 
-**Paso 9 — Railway / entorno.**
-Quitar `POLAR_API_VERSION` (ya implícito v4). **No tocar** `POLAR_CLIENT_ID(2)` ni
-`POLAR_CLIENT_SECRET` (son la **misma app/credenciales** que v4 — ver matriz,
-"misma app y credenciales"; borrarlas rompería v4). Mantener `POLAR_V4_SCOPES` y
-`POLAR_TOKEN_PATH_V4`.
-
-**Paso 10 — Verificación end-to-end.**
+**Paso 9 — Verificación end-to-end.**
 `pytest` completo verde; smoke de `/auth` → callback → `/api/status` → `/api/sync`
 → `/api/sync-sessions`; redeploy Railway con volumen y sync completo; grep de
 ausencia de secretos en logs; confirmar esquemas CSV intactos (nº de columnas).
+
+**Checklist operativa de despliegue — Railway / entorno.**
+Quitar `POLAR_API_VERSION` y `POLAR_V4_SESSIONS` del entorno de Railway.
+**No tocar** `POLAR_CLIENT_ID(2)` ni `POLAR_CLIENT_SECRET` (son la **misma
+app/credenciales** que v4 — ver matriz, "misma app y credenciales"; borrarlas
+rompería v4). Mantener `POLAR_V4_SCOPES` y `POLAR_TOKEN_PATH_V4`.
 
 ---
 
@@ -280,11 +282,11 @@ ausencia de secretos en logs; confirmar esquemas CSV intactos (nº de columnas).
 1. No queda referencia operativa a `polaraccesslink.com/v3`, `flow.polar.com`,
    `polarremote.com`, `accesslink.read_all` ni `POST /users` fuera de `docs`
    históricas.
-2. `POLAR_API_VERSION` no existe en código ni en variables de Railway.
+2. `POLAR_API_VERSION` y `POLAR_V4_SESSIONS` no existen en código ni en
+   variables de Railway.
 3. `/auth`, callback y `/api/status` operan solo en v4; `state` validado.
-4. Si se ha decidido abandonar RR de sesion en `analysis`, el contrato queda
-   documentado y testado. Si se ha decidido preservarlo, esa capacidad ya esta
-   resuelta fuera de F6 antes de ejecutar el corte.
+4. La retirada de la rama legacy de RR de sesion en `analysis` se apoya en el
+   gate funcional ya resuelto en `AYO-24`; F6 no introduce regresión ahí.
 5. Sync completo (sleep, nightly, sesiones) verde tras redeploy con volumen;
    esquemas y nº de columnas de CSV canónicos sin cambios.
 6. `/api/sync` y `/api/sync-sessions` mantienen exclusividad mutua.
@@ -298,16 +300,10 @@ ausencia de secretos en logs; confirmar esquemas CSV intactos (nº de columnas).
 
 ## 9. Preguntas abiertas para el usuario (antes de ejecutar)
 
-1. **OAuth local (`polar_oauth_local.py`)**: ¿lo usas en tu flujo local, o todo
-   pasa por el web `/auth`? Define si en F6 se **migra a v4** o se **borra**
-   (D4). Recomendación: borrar si no se usa (más simple).
-2. **AYO-24**: confirmar que la tarea de paridad funcional en `analysis`
-   esta cerrada antes de ejecutar F6.
-3. **`scripts/shadow_report.py` y captura v4**: ¿conservar en `research/` para
+1. **`scripts/shadow_report.py` y captura v4**: ¿conservar en `research/` para
    auditorías puntuales o eliminar del repo? (D5).
-4. **Momento**: ¿quieres que F6 se prepare ahora como PR "listo para mergear tras
-   AYO-23", o se mantiene en backlog hasta que la ventana shadow y la decision
-   sobre RR de sesion esten cerradas?
+2. **Momento**: ¿quieres que F6 se prepare ahora como PR "listo para mergear tras
+   cerrar la ventana shadow", o se mantiene en backlog hasta ejecutar ese corte?
 
 ---
 
@@ -332,11 +328,12 @@ ausencia de secretos en logs; confirmar esquemas CSV intactos (nº de columnas).
   producción dejaría al sistema sin red de seguridad (riesgo explícito en el
   doc padre: "retirada prematura de v3 sin rollback real").
 
-**Recomendación:** mantener AYO-22 bloqueada hasta cerrar la ventana shadow y
-la decision de alcance sobre RR de sesion en `analysis`. Cuando eso ocurra,
-ejecutar F6 como un PR único, secuencial y acotado (§7), priorizando el orden
-seguro y el rollback por tag. Evitar sobreingeniería: nada de flags de
-compatibilidad nuevos ni de renombrar estado persistido.
+**Recomendación:** mantener AYO-22 acotada a retirada de legado hasta cerrar la
+ventana shadow. Cuando eso ocurra, ejecutar F6 como un PR único, secuencial y
+acotado (§7), priorizando el orden seguro, la retirada explícita de
+`POLAR_V4_SESSIONS` y el rollback por tag. Evitar sobreingeniería: nada de
+flags de compatibilidad nuevos, nada de reabrir `AYO-24` y nada de renombrar
+estado persistido por cosmética.
 
 ---
 

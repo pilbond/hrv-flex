@@ -97,11 +97,6 @@ CLIENT_ID = (
 CLIENT_SECRET = os.environ.get("POLAR_CLIENT_SECRET")
 POLAR_USER_NAME = os.environ.get("POLAR_USER_NAME") or "Polar_User"
 
-SCOPE = "accesslink.read_all"
-API_BASE = "https://www.polaraccesslink.com/v3"
-AUTH_URL = "https://flow.polar.com/oauth2/authorization"
-TOKEN_URL = "https://polarremote.com/v2/oauth2/token"
-
 
 def get_production_url():
     public_url = os.environ.get("PUBLIC_URL") or os.environ.get("RAILWAY_PUBLIC_DOMAIN") or ""
@@ -138,15 +133,6 @@ TOKEN_FILE = _resolve_writable_file(
     Path(os.environ.get("POLAR_TOKEN_PATH", ".polar_tokens.json")),
     DATA_DIR,
 )
-
-# --- Polar Dynamic API v4 (AYO-23): v4 es el runtime principal ---
-# v4: comportamiento por defecto (AYO-23). v3: legado temporal, solo rollback.
-# shadow: auditoria paralela v4/v3 (legado, fuera del camino normal).
-_raw_polar_api_version = (os.environ.get("POLAR_API_VERSION") or "v4").strip().lower()
-if _raw_polar_api_version not in ("v3", "v4", "shadow"):
-    _qprint(f"AVISO: POLAR_API_VERSION invalida ({_raw_polar_api_version!r}); se usa v4")
-    _raw_polar_api_version = "v4"
-POLAR_API_VERSION = _raw_polar_api_version
 
 POLAR_V4_SCOPES = (
     os.environ.get("POLAR_V4_SCOPES")
@@ -239,12 +225,6 @@ MAX_AUTO_DAYS = 30
 DATE_STRING_LENGTH = 10
 UNKNOWN_SESSION_ID = "unknown"
 DEBUG_JSON = False
-
-# Flag legado de transición F5.2/F5.3. Desde AYO-24 el selector efectivo del
-# backend de sesiones Polar es POLAR_API_VERSION: v4/shadow usan v4; v3 usa v3.
-# Se conserva temporalmente solo por compatibilidad documental/configuracional
-# hasta F6, pero ya no debe gobernar el comportamiento real.
-POLAR_V4_SESSIONS = env_flag("POLAR_V4_SESSIONS", POLAR_API_VERSION != "v3")
 
 DROPBOX_RR_ENABLED = env_flag("HRV_DROPBOX_RR_ENABLED", True)
 DROPBOX_RR_SCRIPT = (os.environ.get("HRV_DROPBOX_RR_SCRIPT") or "egc_to_rr.py").strip() or "egc_to_rr.py"

@@ -5900,9 +5900,8 @@ class TestFetchSessionRrCsvV4Behavior(unittest.TestCase):
 
     def test_v4_mode_writes_rr_csv_when_samples_exist(self):
         from analysis.session_analysis_pipeline import fetch_session_rr_csv
-        import hrv_app.config as cfg
 
-        with patch.object(cfg, "POLAR_API_VERSION", "v4"), TemporaryDirectory() as tmp:
+        with TemporaryDirectory() as tmp:
             target = Path(tmp) / "rr.csv"
             with patch(
                 "analysis.session_analysis_pipeline.fetch_session_rr_v4",
@@ -5928,32 +5927,10 @@ class TestFetchSessionRrCsvV4Behavior(unittest.TestCase):
         self.assertEqual(result["rr_count"], 3)
         self.assertEqual(result["offline_pct"], 33.333)
 
-    def test_shadow_mode_uses_v4_rr_path(self):
-        from analysis.session_analysis_pipeline import fetch_session_rr_csv
-        import hrv_app.config as cfg
-
-        with patch.object(cfg, "POLAR_API_VERSION", "shadow"), TemporaryDirectory() as tmp:
-            with patch(
-                "analysis.session_analysis_pipeline.fetch_session_rr_v4",
-                return_value={
-                    "exercise": {"id": "ts-shadow"},
-                    "match": {
-                        "exercise": {"id": "ts-shadow"},
-                        "start_delta_min": 0.0,
-                        "duration_gap_min": 0.0,
-                    },
-                    "rr": [(900.0, 0)],
-                },
-            ) as mock_fetch:
-                result = fetch_session_rr_csv(self._row(), Path(tmp) / "rr.csv")
-        self.assertEqual(mock_fetch.call_count, 1)
-        self.assertEqual(result["polar_exercise_id"], "ts-shadow")
-
     def test_v4_missing_exercise_id_returns_empty_identifier(self):
         from analysis.session_analysis_pipeline import fetch_session_rr_csv
-        import hrv_app.config as cfg
 
-        with patch.object(cfg, "POLAR_API_VERSION", "v4"), TemporaryDirectory() as tmp:
+        with TemporaryDirectory() as tmp:
             target = Path(tmp) / "rr.csv"
             with patch(
                 "analysis.session_analysis_pipeline.fetch_session_rr_v4",
@@ -5969,17 +5946,6 @@ class TestFetchSessionRrCsvV4Behavior(unittest.TestCase):
             ):
                 result = fetch_session_rr_csv(self._row(), target)
         self.assertEqual(result["polar_exercise_id"], "")
-
-    def test_v3_mode_missing_token_raises_runtime_error(self):
-        from analysis.session_analysis_pipeline import fetch_session_rr_csv
-        import hrv_app.config as cfg
-
-        with patch.object(cfg, "POLAR_API_VERSION", "v3"), \
-             patch("hrv_app.polar_oauth_local.load_tokens", return_value=(None, None)), \
-             TemporaryDirectory() as tmp:
-            with self.assertRaises(RuntimeError) as ctx:
-                fetch_session_rr_csv(self._row(), Path(tmp) / "rr.csv")
-        self.assertIn("v3", str(ctx.exception).lower())
 
     def test_v4_missing_rr_propagates_as_rr_unavailable_in_no_rr_summary(self):
         from analysis.session_analysis_pipeline import _build_no_rr_summary

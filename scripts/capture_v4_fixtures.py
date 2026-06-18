@@ -50,7 +50,45 @@ from hrv_app.polar_auth_v4 import (  # noqa: E402
     make_bundle,
 )
 from hrv_app.polar_client_v4 import API_BASE_V4  # noqa: E402
-from hrv_app.polar_oauth_local import _CallbackState, start_callback_server  # noqa: E402
+
+
+class _CallbackState:
+    def __init__(self):
+        self.code = None
+        self.error = None
+        self.raw_query = None
+
+
+def start_callback_server(redirect_uri: str, state_obj: _CallbackState, timeout_s: int = 180):
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from urllib.parse import urlparse
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            from urllib.parse import parse_qs, urlparse as _up
+            parsed = _up(self.path)
+            qs = parse_qs(parsed.query)
+            state_obj.raw_query = parsed.query
+            if "error" in qs:
+                state_obj.error = qs.get("error", ["unknown"])[0]
+            if "code" in qs:
+                state_obj.code = qs["code"][0]
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"<h3>OK. Ya puedes cerrar esta ventana.</h3>")
+
+        def log_message(self, fmt, *args):
+            return
+
+    u = urlparse(redirect_uri)
+    httpd = HTTPServer((u.hostname or "localhost", u.port or 80), _Handler)
+    httpd.timeout = 1.0
+    t0 = time.time()
+    while time.time() - t0 < timeout_s:
+        httpd.handle_request()
+        if state_obj.code or state_obj.error:
+            break
 
 LOCAL_REDIRECT_URI = "http://localhost:5050/oauth2/callback"
 CAPTURE_SCOPES = "sleep:read nightly_recharge:read training_sessions:read ppi_data:read tests:read"

@@ -1841,14 +1841,6 @@ def _target_session_datetime(row: dict[str, str]) -> datetime:
         raise ValueError("session row lacks Fecha/start_time")
     return datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
 
-def _match_polar_exercise(row: dict[str, str], exercises: list[dict[str, Any]]) -> dict[str, Any]:
-    return match_polar_exercise(
-        row,
-        exercises,
-        tz_offset_min=int(os.environ.get("POLAR_TZ_OFFSET_MIN", "0")),
-    )
-
-
 def fetch_session_rr_csv(
     row: dict[str, str],
     target_csv: Path,
@@ -1856,30 +1848,15 @@ def fetch_session_rr_csv(
     v4_client: Any | None = None,
     v4_sport_catalog: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    version = _hrv_config.POLAR_API_VERSION
-    if version == "v3":
-        from hrv_app.polar_client import get_exercise_with_samples, list_exercises  # noqa: PLC0415
-        from hrv_app.polar_oauth_local import load_tokens  # noqa: PLC0415
-
-        token, _user = load_tokens()
-        if not token:
-            raise RuntimeError("token Polar v3 ausente o expirado")
-
-        exercises = list_exercises(token)
-        match = _match_polar_exercise(row, exercises)
-        ex = get_exercise_with_samples(token, match["exercise"]["id"])
-        rr = extract_rr_ms(ex)
-    else:
-        sport = str(row.get("sport") or "").strip()
-        rr_info = fetch_session_rr_v4(
-            row,
-            allowed_polar_sports=POLAR_STANDING_SPORT_MAP.get(sport),
-            client=v4_client,
-            sport_catalog=v4_sport_catalog,
-        )
-        match = rr_info["match"]
-        ex = rr_info["exercise"]
-        rr = rr_info["rr"]
+    sport = str(row.get("sport") or "").strip()
+    rr_info = fetch_session_rr_v4(
+        row,
+        allowed_polar_sports=POLAR_STANDING_SPORT_MAP.get(sport),
+        client=v4_client,
+        sport_catalog=v4_sport_catalog,
+    )
+    match = rr_info["match"]
+    rr = rr_info["rr"]
 
     if not rr:
         raise RuntimeError("el ejercicio Polar no contiene RR exportable")

@@ -15,10 +15,6 @@ class PolarHrvAutomationCliTests(unittest.TestCase):
         ) as validation_mock, patch.object(
             polar_hrv_automation, "run_build_hrv_ssm_outcome_battery_only", return_value=True
         ) as battery_mock, patch.object(
-            polar_hrv_automation, "load_tokens"
-        ) as load_tokens_mock, patch.object(
-            polar_hrv_automation, "list_exercises"
-        ) as list_mock, patch.object(
             polar_hrv_automation, "sync_hrv_range"
         ) as sync_mock:
             exit_code = polar_hrv_automation.main()
@@ -27,8 +23,6 @@ class PolarHrvAutomationCliTests(unittest.TestCase):
         shadow_mock.assert_called_once()
         validation_mock.assert_called_once()
         battery_mock.assert_called_once()
-        load_tokens_mock.assert_not_called()
-        list_mock.assert_not_called()
         sync_mock.assert_not_called()
         self.assertIn("[RUN] Ejecutando build_hrv_ssm.py...", stdout.getvalue())
         self.assertIn("[OK] Auditoria SSM completada", stdout.getvalue())
@@ -40,71 +34,29 @@ class PolarHrvAutomationCliTests(unittest.TestCase):
 
         self.assertEqual(ctx.exception.code, 2)
 
-    def test_normal_run_does_not_fetch_polar_exercises(self):
+    def test_normal_run_calls_sync_with_no_token(self):
         with patch("sys.argv", ["polar_hrv_automation.py"]), \
-             patch.object(polar_hrv_automation, "POLAR_API_VERSION", "v3"), \
-             patch.object(polar_hrv_automation, "load_tokens", return_value=("token", "user")), \
-             patch.object(polar_hrv_automation, "register_user_if_needed", return_value={"status": "ok"}), \
-             patch.object(polar_hrv_automation, "list_exercises") as list_mock, \
              patch.object(polar_hrv_automation, "sync_hrv_range") as sync_mock, \
              patch.object(polar_hrv_automation, "run_dropbox_backup"):
             exit_code = polar_hrv_automation.main()
 
         self.assertEqual(exit_code, 0)
-        list_mock.assert_not_called()
-        sync_mock.assert_called_once_with(ANY, "token", "user", [])
-
-    def test_debug_sports_fetches_polar_exercises(self):
-        exercises = [{"id": "abc123"}]
-        with patch("sys.argv", ["polar_hrv_automation.py", "--debug-sports"]), \
-             patch.object(polar_hrv_automation, "POLAR_API_VERSION", "v3"), \
-             patch.object(polar_hrv_automation, "load_tokens", return_value=("token", "user")), \
-             patch.object(polar_hrv_automation, "register_user_if_needed", return_value={"status": "ok"}), \
-             patch.object(polar_hrv_automation, "list_exercises", return_value=exercises) as list_mock, \
-             patch.object(polar_hrv_automation, "sync_hrv_range") as sync_mock, \
-             patch.object(polar_hrv_automation, "run_dropbox_backup"):
-            exit_code = polar_hrv_automation.main()
-
-        self.assertEqual(exit_code, 0)
-        list_mock.assert_called_once_with("token")
-        sync_mock.assert_called_once_with(ANY, "token", "user", exercises)
-
-
-    def test_v4_mode_skips_v3_token_and_registration(self):
-        with patch("sys.argv", ["polar_hrv_automation.py"]), \
-                patch.object(polar_hrv_automation, "POLAR_API_VERSION", "v4"), \
-                patch.object(polar_hrv_automation, "load_tokens") as load_tokens_mock, \
-                patch.object(polar_hrv_automation, "do_oauth_flow") as oauth_mock, \
-                patch.object(polar_hrv_automation, "register_user_if_needed") as register_mock, \
-                patch.object(polar_hrv_automation, "list_exercises") as list_mock, \
-                patch.object(polar_hrv_automation, "sync_hrv_range") as sync_mock, \
-                patch.object(polar_hrv_automation, "run_dropbox_backup"):
-            exit_code = polar_hrv_automation.main()
-
-        self.assertEqual(exit_code, 0)
-        load_tokens_mock.assert_not_called()
-        oauth_mock.assert_not_called()
-        register_mock.assert_not_called()
-        list_mock.assert_not_called()
         sync_mock.assert_called_once_with(ANY, None, None, [])
 
-    def test_v4_mode_rejects_debug_sports(self):
+    def test_debug_sports_v4_runs_then_returns(self):
         with patch("sys.argv", ["polar_hrv_automation.py", "--debug-sports"]), \
-                patch.object(polar_hrv_automation, "POLAR_API_VERSION", "v4"):
+             patch.object(polar_hrv_automation, "_debug_sports_v4") as debug_mock:
+            exit_code = polar_hrv_automation.main()
+
+        self.assertEqual(exit_code, 0)
+        debug_mock.assert_called_once()
+
+    def test_auth_flag_exits_with_hint(self):
+        with patch("sys.argv", ["polar_hrv_automation.py", "--auth"]):
             with self.assertRaises(SystemExit) as ctx:
                 polar_hrv_automation.main()
 
         self.assertEqual(ctx.exception.code, 3)
-
-    def test_v4_mode_rejects_auth(self):
-        with patch("sys.argv", ["polar_hrv_automation.py", "--auth"]), \
-                patch.object(polar_hrv_automation, "POLAR_API_VERSION", "v4"), \
-                patch.object(polar_hrv_automation, "do_oauth_flow") as oauth_mock:
-            with self.assertRaises(SystemExit) as ctx:
-                polar_hrv_automation.main()
-
-        self.assertEqual(ctx.exception.code, 3)
-        oauth_mock.assert_not_called()
 
 
 if __name__ == "__main__":

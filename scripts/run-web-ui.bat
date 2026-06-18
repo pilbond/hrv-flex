@@ -29,6 +29,7 @@ if errorlevel 1 (
 
 if "%PORT%"=="" set "PORT=8080"
 if "%POLAR_TOKEN_PATH%"=="" set "POLAR_TOKEN_PATH=%cd%\.polar_tokens.json"
+set "HRV_BACKUP_DROPBOX_ENABLED=1"
 
 echo Iniciando Polar HRV Web UI...
 echo URL: http://localhost:%PORT%

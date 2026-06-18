@@ -175,7 +175,7 @@ python run_session_analysis.py \
 
 **Dependencias externas en runtime:**
 - `build_sessions.py` (IntervalsClient para descargar FIT y stream).
-- capa operativa Polar/HRV del repo (`hrv_app.polar_oauth_local`, `hrv_app.polar_client`, `hrv_app.hrv_sync_flow`) para tokens y descarga RR.
+- capa operativa Polar/HRV del repo (`hrv_app.hrv_sync_flow`) para tokens y descarga RR.
 - `analyst_prompt_rules.md` (plantilla de reglas para el prompt generado).
 
 **Cuando modificarlo:**

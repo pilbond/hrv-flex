@@ -38,7 +38,7 @@ _TIMEOUT_SEC = 60
 
 
 def _warn(message: str) -> None:
-    print(f"⚠️  Backup Dropbox: {message}", file=sys.stderr)
+    print(f"[WARN] Backup Dropbox: {message}", file=sys.stderr)
 
 
 def backup_enabled() -> bool:
@@ -148,7 +148,7 @@ def run_backup() -> dict:
 
         status = "ok" if failed == 0 else "partial"
         print(
-            f"💾 Backup Dropbox: {uploaded} archivos → {root}"
+            f"Backup Dropbox: {uploaded} archivos -> {root}"
             + (f" ({failed} fallidos)" if failed else "")
         )
         return {

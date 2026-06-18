@@ -17,8 +17,6 @@ import sys
 import argparse
 from hrv_app.config import (
     IS_PRODUCTION,
-    POLAR_API_VERSION,
-    POLAR_V4_SESSIONS,
     get_production_url,
 )
 from hrv_app.pipeline_runner import (
@@ -26,13 +24,7 @@ from hrv_app.pipeline_runner import (
     run_build_hrv_ssm_shadow_only,
     run_build_hrv_ssm_validation_only,
 )
-from hrv_app.polar_client import (
-    list_exercises,
-    register_user_if_needed,
-)
-from hrv_app.polar_oauth_local import do_oauth_flow, load_tokens
 from hrv_app.hrv_sync_flow import sync_hrv_range
-from hrv_app.polar_shadow import run_polar_v4_shadow
 from hrv_app.backup_dropbox import run_backup as run_dropbox_backup
 
 
@@ -130,68 +122,16 @@ def main():
 
     # _print_header("  POLAR HRV AUTOMATION")
 
-    if POLAR_API_VERSION == "v4":
-        # En v4 no se exige token ni registro v3: sleep/nightly se resuelven
-        # via hrv_app.polar_gateway con el bundle v4 (refresh transparente).
-        if args.debug_sports:
-            if not POLAR_V4_SESSIONS:
-                print(
-                    "❌ --debug-sports con POLAR_API_VERSION=v4 requiere POLAR_V4_SESSIONS=1 (F5.2).",
-                    file=sys.stderr,
-                )
-                sys.exit(3)
-            _debug_sports_v4()
-            return 0
-        if args.auth:
-            public_url = get_production_url()
-            hint = f"{public_url.rstrip('/')}/auth" if public_url else "/auth"
-            print(f"❌ --auth no aplica con POLAR_API_VERSION=v4. Autoriza vía {hint}.", file=sys.stderr)
-            sys.exit(3)
-        access_token, x_user_id = None, None
-        exercises: list = []
-    else:
-        # Autenticación
-        # En PRODUCCIÓN (Railway/Render/Heroku) NO se puede abrir navegador ni levantar callback server local.
-        # La autorización debe hacerse vía Web UI: /auth -> /auth/callback, que guarda TOKEN_FILE.
-        if args.auth:
-            if IS_PRODUCTION:
-                public_url = get_production_url()
-                hint = f"{public_url.rstrip('/')}/auth" if public_url else "/auth"
-                print(f"❌ En producción no se admite --auth interactivo. Abre {hint} para autorizar.", file=sys.stderr)
-                sys.exit(3)
-            access_token, x_user_id = do_oauth_flow()
-        else:
-            access_token, x_user_id = load_tokens()
-            if not access_token:
-                if IS_PRODUCTION:
-                    public_url = get_production_url()
-                    hint = f"{public_url.rstrip('/')}/auth" if public_url else "/auth"
-                    print(f"❌ Falta autorización. Abre {hint} para iniciar sesión en Polar y autorizar la app.", file=sys.stderr)
-                    sys.exit(3)
-                print("⚠️  Token ausente/expirado, iniciando OAuth local...")
-                access_token, x_user_id = do_oauth_flow()
+    if args.debug_sports:
+        _debug_sports_v4()
+        return 0
+    if args.auth:
+        public_url = get_production_url()
+        hint = f"{public_url.rstrip('/')}/auth" if public_url else "/auth"
+        print(f"❌ --auth no aplica con v4. Autoriza vía {hint}.", file=sys.stderr)
+        sys.exit(3)
 
-        # Registrar usuario (obligatorio)
-        member_id = f"local_{x_user_id or 'user'}"
-        reg = register_user_if_needed(access_token, member_id, allow_transient_failure=True)
-        if reg.get("status") == "temporary_failure":
-            print("⚠️  Registro Polar no confirmado por error temporal del servicio. Continuando con la sync.")
-        # print(f"📝 Usuario: {reg.get('status')}")
-
-        # Listar ejercicios solo para diagnóstico (--debug-sports); el flujo RR
-        # normal ya no depende de Polar (Dropbox es la única fuente de RR nuevos).
-        exercises = []
-        if args.debug_sports:
-            exercises = list_exercises(access_token)
-            if not isinstance(exercises, list):
-                raise RuntimeError(f"Respuesta inesperada: {type(exercises)}")
-
-    sync_hrv_range(args, access_token, x_user_id, exercises)
-
-    # Legado AYO-19: shadow de auditoría v4/v3 (no-op salvo POLAR_API_VERSION=shadow;
-    # shadow está fuera del camino normal desde AYO-23; nunca bloquea --process)
-    if args.process:
-        run_polar_v4_shadow()
+    sync_hrv_range(args, None, None, [])
 
     # Backup opcional del histórico fuera del volumen (opt-in, nunca rompe el sync)
     run_dropbox_backup()

@@ -6,7 +6,6 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from hrv_app import config
 import hrv_app.sleep_store as sleep_store
 
 
@@ -129,26 +128,12 @@ class SleepStoreContractTests(unittest.TestCase):
                 return {}
 
             with patch.object(sleep_store, "SLEEP_PATH", sleep_path), \
-                    patch.object(config, "POLAR_API_VERSION", "v4"), \
                     patch.object(sleep_store, "fetch_polar_sleep", side_effect=fake_sleep) as sleep_mock, \
                     patch.object(sleep_store, "fetch_polar_nightly_recharge", side_effect=fake_nightly) as nightly_mock:
                 self.assertTrue(sleep_store.fetch_and_upsert_sleep("ignored", None, date(2026, 3, 3)))
 
         sleep_mock.assert_any_call("ignored", None, "2026-03-03")
         nightly_mock.assert_any_call("ignored", None, "2026-03-03")
-
-    def test_fetch_and_upsert_sleep_v3_skips_without_user_id(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            sleep_path = Path(tmpdir) / "ENDURANCE_HRV_sleep.csv"
-
-            with patch.object(sleep_store, "SLEEP_PATH", sleep_path), \
-                    patch.object(config, "POLAR_API_VERSION", "v3"), \
-                    patch.object(sleep_store, "fetch_polar_sleep") as sleep_mock, \
-                    patch.object(sleep_store, "fetch_polar_nightly_recharge") as nightly_mock:
-                self.assertFalse(sleep_store.fetch_and_upsert_sleep("ignored", None, date(2026, 3, 3)))
-
-        sleep_mock.assert_not_called()
-        nightly_mock.assert_not_called()
 
     def test_update_sleep_for_dates_deduplicates_dates(self):
         calls = []

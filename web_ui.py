@@ -24,13 +24,11 @@ import secrets
 from hrv_app.config import (
     DATA_DIR,
     OUTDIR as RR_DOWNLOAD_DIR,
-    POLAR_API_VERSION,
     POLAR_V4_SCOPES,
-    TOKEN_FILE as TOKEN_PATH,
     TOKEN_FILE_V4 as TOKEN_PATH_V4,
 )
 from hrv_app.polar_utils import env_flag, response_excerpt
-from hrv_app.oauth_utils import exchange_code_for_token, register_polar_user, save_json_atomic
+from hrv_app.oauth_utils import save_json_atomic
 from hrv_app.polar_auth_v4 import (
     _safe_float as _v4_safe_float,
     build_auth_url_v4,
@@ -46,10 +44,6 @@ CORS(app)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 app.config["PREFERRED_URL_SCHEME"] = "https"
 
-# =========================
-# Polar OAuth (web flow)
-# =========================
-SCOPE = "accesslink.read_all"
 SEED_UPLOAD_DIR = Path((os.environ.get("HRV_SEED_UPLOAD_DIR") or "seed_upload").strip() or "seed_upload")
 ALLOWED_IMPORT_FILES = [
     "ENDURANCE_HRV_master_CORE.csv",
@@ -92,18 +86,6 @@ def _redirect_uri() -> str:
     return f"{_public_url()}/auth/callback"
 
 
-def _register_polar_user(access_token: str, x_user_id: str | None, allow_transient_failure: bool = False) -> dict:
-    member_id = f"local_{x_user_id or 'user'}"
-    return register_polar_user(
-        access_token=access_token,
-        member_id=member_id,
-        user_url="https://www.polaraccesslink.com/v3/users",
-        allow_transient_failure=allow_transient_failure,
-        response_excerpt_fn=response_excerpt,
-        transient_error_label="Registro usuario falló temporalmente",
-        network_error_label="Registro usuario falló por red",
-    )
-
 # Estado global de ejecución
 execution_state = {
     'running': False,
@@ -121,48 +103,32 @@ execution_state_lock = threading.Lock()
 UI_KEY = (os.environ.get("HRV_UI_KEY") or "").strip()
 
 # Estados OAuth emitidos pendientes de callback (anti-CSRF). Proceso único,
-# memoria local suficiente. Cada state lleva la versión de API (v3|v4) para
-# que un único callback despache el intercambio correcto (AYO-13).
+# memoria local suficiente.
 _OAUTH_STATE_TTL_SEC = 600
-_oauth_states: dict[str, tuple[float, str]] = {}
+_oauth_states: dict[str, float] = {}
 _oauth_states_lock = threading.Lock()
 
 
-def _issue_oauth_state(version: str = "v4") -> str:
+def _issue_oauth_state() -> str:
     state = secrets.token_urlsafe(24)
     now = time.time()
     with _oauth_states_lock:
-        expired = [s for s, (t, _v) in _oauth_states.items() if now - t > _OAUTH_STATE_TTL_SEC]
+        expired = [s for s, t in _oauth_states.items() if now - t > _OAUTH_STATE_TTL_SEC]
         for s in expired:
             _oauth_states.pop(s, None)
-        _oauth_states[state] = (now, version)
+        _oauth_states[state] = now
     return state
 
 
-def _consume_oauth_state(state: str) -> tuple[str | None, str | None]:
-    """Valida y consume el state (uso único). Devuelve (version, hint):
-    version es "v3"|"v4" si el state es válido, None si es inválido o caducó.
-    hint conserva la versión cuando el state existía pero caducó, para que
-    el enlace de reintento preserva el provider original (v3 o v4)."""
+def _consume_oauth_state(state: str) -> bool:
+    """Valida y consume el state (uso único). Devuelve True si válido."""
     if not state:
-        return None, None
+        return False
     with _oauth_states_lock:
-        entry = _oauth_states.pop(state, None)
-    if entry is None:
-        return None, None
-    issued_at, version = entry
-    if (time.time() - issued_at) > _OAUTH_STATE_TTL_SEC:
-        return None, version
-    return version, version
-
-
-def _oauth_effective_version() -> str:
-    """Versión OAuth para /auth: query param explícito > feature flag.
-    v4 es el default (AYO-23); v3 solo vía ?provider=v3 o POLAR_API_VERSION=v3."""
-    provider = (request.args.get("provider") or "").strip().lower()
-    if provider in ("v3", "v4"):
-        return provider
-    return "v3" if POLAR_API_VERSION == "v3" else "v4"
+        issued_at = _oauth_states.pop(state, None)
+    if issued_at is None:
+        return False
+    return (time.time() - issued_at) <= _OAUTH_STATE_TTL_SEC
 
 
 @app.before_request
@@ -298,8 +264,7 @@ def _sync_timeout_seconds(default: int = 1200) -> int:
 
 
 def _token_diagnostics_v4() -> dict:
-    # api_version fija "v4": este bloque describe el bundle v4 aunque se
-    # llame anidado desde modo shadow (donde POLAR_API_VERSION es "shadow").
+    # Describe el bundle v4 (único runtime desde AYO-22).
     info = {
         "api_version": "v4",
         "token_path": str(TOKEN_PATH_V4),
@@ -350,50 +315,7 @@ def _token_diagnostics_v4() -> dict:
     return info
 
 
-def _token_diagnostics() -> dict:
-    if POLAR_API_VERSION == "v4":
-        return _token_diagnostics_v4()
-
-    info = {
-        "token_path": str(TOKEN_PATH),
-        "token_exists": TOKEN_PATH.exists(),
-        "token_reason": "missing",
-        "token_expired": None,
-    }
-    if POLAR_API_VERSION != "v4":
-        # Solo en modos no-default (v3 rollback o shadow): señala explícitamente
-        # que el runtime no está en el camino normal v4 (AYO-23).
-        info["api_version"] = POLAR_API_VERSION
-
-    if POLAR_API_VERSION == "shadow":
-        # En shadow el runtime efectivo sigue siendo v3, pero el bundle v4
-        # puede ya estar autorizado (vía /auth) para diagnóstico.
-        info["token_v4"] = _token_diagnostics_v4()
-
-    if not info["token_exists"]:
-        return info
-
-    try:
-        token_json = json.loads(TOKEN_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        info["token_reason"] = "invalid_json"
-        return info
-
-    access_token = token_json.get("access_token")
-    if not access_token:
-        info["token_reason"] = "missing_access_token"
-        return info
-
-    obtained_at = float(token_json.get("obtained_at", 0) or 0)
-    expires_in = float(token_json.get("expires_in", 0) or 0)
-    if expires_in > 0 and (time.time() - obtained_at) > expires_in:
-        info["token_reason"] = "expired"
-        info["token_expired"] = True
-        return info
-
-    info["token_reason"] = "ok"
-    info["token_expired"] = False if expires_in > 0 else None
-    return info
+_token_diagnostics = _token_diagnostics_v4
 
 
 def _seed_upload_diagnostics() -> dict:
@@ -1209,7 +1131,7 @@ def index():
 @app.route('/api/sync', methods=['POST'])
 def sync():
     """Ejecutar sincronización Polar"""
-    if not TOKEN_PATH.exists():
+    if not TOKEN_PATH_V4.exists():
         return jsonify({
             'success': False,
             'error': 'Falta autorización. Abre /auth para iniciar sesión en Polar y autorizar la app.'
@@ -1259,7 +1181,6 @@ def run_sync():
         'Sincronización completada',
         env_extra={
             'PYTHONUTF8': '1',
-            'HRV_DISABLE_BACKUP': '1',
             'HRV_QUIET': '1',
         },
     )
@@ -1442,30 +1363,8 @@ def auth():
         return jsonify({'error': 'POLAR_CLIENT_ID o POLAR_CLIENT_SECRET no configurados'}), 500
 
     redirect_uri = _redirect_uri()
-    version = _oauth_effective_version()
-    state = _issue_oauth_state(version)
-
-    if version == "v4":
-        return redirect(build_auth_url_v4(client_id, redirect_uri, POLAR_V4_SCOPES, state))
-
-    # Polar AccessLink espera scope (en muchos casos es obligatorio)
-    params = {
-        'response_type': 'code',
-        'client_id': client_id,
-        'redirect_uri': redirect_uri,
-        'scope': SCOPE,
-        'state': state,
-    }
-
-    authorization_url = f"https://flow.polar.com/oauth2/authorization?{urlencode(params)}"
-
-#    print("🔐 OAuth /auth")
-#    print(f"   client_id_source: {client_id_source}")
-#    print(f"   client_id_len: {len(client_id)}")
-#    print(f"   client_id_tail: {client_id[-4:] if len(client_id) >= 4 else client_id}")
-#    print(f"   redirect_uri: {redirect_uri}")
-
-    return redirect(authorization_url)
+    state = _issue_oauth_state()
+    return redirect(build_auth_url_v4(client_id, redirect_uri, POLAR_V4_SCOPES, state))
 
 
 @app.route('/auth/callback', methods=['GET'], strict_slashes=False)
@@ -1513,15 +1412,8 @@ def oauth_callback():
         </html>
         """, 400
 
-    state_version, retry_version = _consume_oauth_state((request.args.get('state') or '').strip())
-    if state_version is None:
-        # El reintento debe conservar el provider del flujo original.
-        retry_href = f"/auth?provider={retry_version}" if retry_version in ("v3", "v4") else "/auth"
-        v4_hint = (
-            ""
-            if retry_version
-            else "<p style='font-size:13px;color:#666;'>Para autorizar, usa <a href='/auth'>/auth</a>.</p>"
-        )
+    state_valid = _consume_oauth_state((request.args.get('state') or '').strip())
+    if not state_valid:
         return f"""
         <html>
         <head>
@@ -1530,10 +1422,9 @@ def oauth_callback():
         </head>
         <body style="font-family: Arial; text-align: center; padding: 50px;">
             <h1>⚠️ Error</h1>
-            <p>Estado OAuth inválido o caducado. Vuelve a iniciar la autorización desde {retry_href}.</p>
-            {v4_hint}
+            <p>Estado OAuth inválido o caducado. Vuelve a iniciar la autorización desde <a href="/auth">/auth</a>.</p>
             <br>
-            <a href="{retry_href}" style="color: #667eea; text-decoration: none;">← Reintentar autorización</a>
+            <a href="/auth" style="color: #667eea; text-decoration: none;">← Reintentar autorización</a>
         </body>
         </html>
         """, 400
@@ -1546,34 +1437,10 @@ def oauth_callback():
 
         redirect_uri = _redirect_uri()
 
-        register_result = None
-        if state_version == "v4":
-            token_json = exchange_code_for_token_v4(code, client_id, client_secret, redirect_uri)
-            # Bajo el mismo lock que el refresh: una rotación en vuelo no
-            # debe sobrescribir el grant recién autorizado.
-            bundle = persist_authorized_bundle(TOKEN_PATH_V4, token_json, scopes=POLAR_V4_SCOPES)
-            # v4 no documenta registro de usuario; hook por si F0 demuestra
-            # lo contrario (POLAR_V4_REQUIRES_REGISTRATION).
-            if env_flag("POLAR_V4_REQUIRES_REGISTRATION", False) and bundle.get('access_token'):
-                register_result = _register_polar_user(
-                    bundle.get('access_token'), bundle.get('x_user_id'), allow_transient_failure=True
-                )
-        else:
-            token_url = "https://polarremote.com/v2/oauth2/token"
-            token_json = exchange_code_for_token(code, client_id, client_secret, token_url, redirect_uri)
-            token_json['obtained_at'] = time.time()
-            access_token = token_json.get('access_token')
-            x_user_id = token_json.get('x_user_id')
-            save_json_atomic(TOKEN_PATH, token_json)
-            if access_token:
-                register_result = _register_polar_user(access_token, x_user_id, allow_transient_failure=True)
+        token_json = exchange_code_for_token_v4(code, client_id, client_secret, redirect_uri)
+        persist_authorized_bundle(TOKEN_PATH_V4, token_json, scopes=POLAR_V4_SCOPES)
 
-        token_notice = (
-            "<p style='margin-top:8px;color:#a16207;'>Polar devolvió un error temporal al registrar el usuario. "
-            "El token ya está guardado y la app reintentará el registro automáticamente en la siguiente sincronización.</p>"
-            if register_result and register_result.get("status") == "temporary_failure"
-            else ""
-        )
+        token_notice = ""
 
         success_html = """
         <html>
@@ -1744,18 +1611,31 @@ def health():
     return jsonify(payload)
 
 
+def _safe_console_print(text: str) -> None:
+    """Evita que el banner local falle en consolas Windows con cp1252."""
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        fallback = (
+            text.replace("🌐", "[web]")
+            .replace("📱", "[ui]")
+            .replace("💡", "[tip]")
+        )
+        print(fallback.encode("ascii", errors="replace").decode("ascii"))
+ 
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
     
-    print("\n" + "="*60)
-    print("  POLAR HRV - WEB UI")
-    print("="*20)
-    print(f"\n🌐 Servidor iniciado en puerto {port}")
-    print(f"\n📱 Accede desde:")
-    print(f"   - Local: http://localhost:{port}")
-    print(f"   - Railway: https://tu-app.up.railway.app")
-    print("\n💡 Abre desde cualquier dispositivo (móvil, tablet, PC)")
-    print("="*20 + "\n")
+    _safe_console_print("\n" + "="*60)
+    _safe_console_print("  POLAR HRV - WEB UI")
+    _safe_console_print("="*20)
+    _safe_console_print(f"\n🌐 Servidor iniciado en puerto {port}")
+    _safe_console_print(f"\n📱 Accede desde:")
+    _safe_console_print(f"   - Local: http://localhost:{port}")
+    _safe_console_print(f"   - Railway: https://tu-app.up.railway.app")
+    _safe_console_print("\n💡 Abre desde cualquier dispositivo (móvil, tablet, PC)")
+    _safe_console_print("="*20 + "\n")
     
     app.run(host='0.0.0.0', port=port, debug=False)
 

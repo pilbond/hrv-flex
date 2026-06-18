@@ -404,32 +404,18 @@ def _load_v4_session_exercises_for_date_uncached(
 
 class PolarSessionClient:
     def __init__(self, token_path: Path | None = None, bundle_path_v4: Path | None = None):
-        # El runtime Polar ya se decide por POLAR_API_VERSION. POLAR_V4_SESSIONS
-        # queda como compatibilidad transitoria de config, no como selector real.
-        from .config import POLAR_API_VERSION as _api_version, TOKEN_FILE_V4 as _token_v4
-        self._v4_mode = _api_version != "v3"
+        from .config import TOKEN_FILE_V4 as _token_v4
+        from .polar_client_v4 import V4Client
+        from . import polar_auth_v4
 
-        # Estado v3 (siempre inicializado para facilitar rollback)
-        self.token_path = token_path or TOKEN_FILE
-        self.session = requests.Session()
-        self._last_request = 0.0
-        self._access_token = self._load_access_token()
-        self._exercises: list[dict[str, Any]] | None = None
         self._v4_available = False
-
-        # Estado v4 (activo por defecto en runtime v4/shadow)
-        if self._v4_mode:
-            from .polar_client_v4 import V4Client
-            from . import polar_auth_v4
-            self._v4_client = V4Client(bundle_path=bundle_path_v4 or _token_v4)
-            # Verificar disponibilidad una vez: el bundle no cambia durante el run.
-            # V4Client refresca el token en cada petición si está próximo a expirar.
-            try:
-                self._v4_available = bool(polar_auth_v4.get_valid_access_token(self._v4_client.bundle_path))
-            except Exception:
-                self._v4_available = False
-            self._v4_sport_catalog = None
-            self._v4_session_cache = {}
+        self._v4_client = V4Client(bundle_path=bundle_path_v4 or _token_v4)
+        try:
+            self._v4_available = bool(polar_auth_v4.get_valid_access_token(self._v4_client.bundle_path))
+        except Exception:
+            self._v4_available = False
+        self._v4_sport_catalog = None
+        self._v4_session_cache = {}
 
     def _load_access_token(self) -> str | None:
         if not self.token_path.exists():
@@ -448,7 +434,7 @@ class PolarSessionClient:
 
     @property
     def available(self) -> bool:
-        return self._v4_available if self._v4_mode else bool(self._access_token)
+        return self._v4_available
 
     def _rate_limit(self):
         elapsed = time.time() - self._last_request
@@ -542,7 +528,7 @@ class PolarSessionClient:
         defaults = _mechanics_defaults()
         sport = str(row.get("sport") or "").strip()
         if sport not in STANDING_SPORTS or not self.available:
-            if sport in STANDING_SPORTS and self._v4_mode and not self.available:
+            if sport in STANDING_SPORTS and not self.available:
                 log.warning(
                     "PolarSessionClient v4 sin bundle/token utilizable; enrichment mecánico desactivado para %s %s",
                     row.get("Fecha"),
@@ -550,21 +536,7 @@ class PolarSessionClient:
                 )
             return defaults
 
-        if self._v4_mode:
-            return self._enrich_row_v4(row, sport)
-
-        # Backend v3 (sin cambios)
-        match = match_polar_exercise(
-            {k: "" if v is None else str(v) for k, v in row.items()},
-            self.list_exercises(),
-            tz_offset_min=int(os.environ.get("POLAR_TZ_OFFSET_MIN", "0")),
-            allowed_polar_sports=POLAR_STANDING_SPORT_MAP.get(sport),
-        )
-        exercise = self.get_exercise_with_samples(match["exercise"]["id"])
-        metrics = extract_mechanical_metrics(exercise)
-        metrics["polar_start_delta_min"] = match["start_delta_min"]
-        metrics["polar_duration_gap_min"] = match["duration_gap_min"]
-        return {**defaults, **metrics}
+        return self._enrich_row_v4(row, sport)
 
 
 def extract_mechanical_metrics_from_fit_payload(payload: bytes, source: str = "intervals_fit") -> dict[str, Any]:

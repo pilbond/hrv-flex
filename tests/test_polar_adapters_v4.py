@@ -18,20 +18,17 @@ def _load(rel: str):
 
 
 class SleepAdapterTests(unittest.TestCase):
-    def test_v4_sleep_produces_same_extraction_as_v3(self):
+    def test_v4_sleep_extraction_produces_expected_fields(self):
+        # Values derived from tests/fixtures/polar_v4/sleeps.json (F0 capture).
         v4_item = _load("polar_v4/sleeps.json")["nightSleeps"][0]
-        v3_payload = _load("polar_v3/sleep.json")
+        fields = _extract_sleep_fields(v4_sleep_to_internal(v4_item))
 
-        adapted = v4_sleep_to_internal(v4_item)
-        fields_v4 = _extract_sleep_fields(adapted)
-        fields_v3 = _extract_sleep_fields(v3_payload)
-
-        # Métricas comunes a ambos shapes: el adaptador debe alimentar
-        # sleep_store igual que el JSON v3 nativo.
-        for key in ("polar_sleep_duration_min", "polar_sleep_span_min", "polar_deep_pct",
-                    "polar_rem_pct", "polar_sleep_score", "polar_continuity"):
-            self.assertIn(key, fields_v4, key)
-            self.assertAlmostEqual(fields_v4[key], fields_v3[key], places=3, msg=key)
+        self.assertAlmostEqual(fields["polar_sleep_duration_min"], 446.0, places=3)
+        self.assertAlmostEqual(fields["polar_sleep_span_min"], 467.0, places=3)
+        self.assertAlmostEqual(fields["polar_deep_pct"], 18.946, places=2)
+        self.assertAlmostEqual(fields["polar_rem_pct"], 21.749, places=2)
+        self.assertAlmostEqual(fields["polar_sleep_score"], 88.1296, places=3)
+        self.assertAlmostEqual(fields["polar_continuity"], 3.4, places=3)
 
     def test_v4_sleep_interruptions_via_evaluation(self):
         v4_item = _load("polar_v4/sleeps.json")["nightSleeps"][0]
@@ -123,20 +120,20 @@ class NightlyAdapterTests(unittest.TestCase):
 class SessionAdapterTests(unittest.TestCase):
     SPORT_CATALOG = {"22353647432": "BODY_AND_MIND", "10005": "TRAIL_RUNNING"}
 
-    def test_v4_session_maps_to_v3_exercise_shape(self):
+    def test_v4_session_adapts_to_internal_shape(self):
+        # Values derived from tests/fixtures/polar_v4/training_sessions_list.json (F0 capture).
         v4_item = _load("polar_v4/training_sessions_list.json")["trainingSessions"][0]
-        v3_exercise = _load("polar_v3/exercise_with_samples.json")
-
         adapted = v4_session_to_internal(v4_item, sport_catalog=self.SPORT_CATALOG)
+
         self.assertEqual(adapted["id"], "ts-001")
-        self.assertEqual(adapted["detailed-sport-info"], v3_exercise["detailed-sport-info"])
+        self.assertEqual(adapted["detailed-sport-info"], "BODY_AND_MIND")
         # durationMillis (510000) → "PT8M30S"
-        self.assertEqual(adapted["duration"], v3_exercise["duration"])
+        self.assertEqual(adapted["duration"], "PT8M30S")
         self.assertIn("start-time", adapted)
 
         rr = [s for s in adapted["samples"] if s.get("sample-type") == "11"]
         self.assertEqual(len(rr), 1)
-        self.assertEqual(rr[0]["data"], v3_exercise["samples"][0]["data"])
+        self.assertEqual(rr[0]["data"], "812,820,805,798")
 
     def test_session_without_rr_has_no_samples(self):
         v4_item = _load("polar_v4/training_sessions_list.json")["trainingSessions"][1]

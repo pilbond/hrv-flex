@@ -8,8 +8,6 @@ from unittest.mock import patch
 from hrv_app import config
 from hrv_app import polar_gateway as gateway
 from hrv_app.polar_client_v4 import PolarV4Error
-
-# Mismos fixtures oficiales v4 que test_polar_shadow_contract.
 V4_SLEEP_ITEM = {
     "date": "2026-06-10",
     "sleepResult": {"hypnogram": {"sleepStart": "2026-06-10T22:00:00", "sleepEnd": "2026-06-11T06:00:00"}},
@@ -52,36 +50,13 @@ class _Env(unittest.TestCase):
         }), encoding="utf-8")
 
 
-class V3AndShadowDelegationTests(_Env):
-    def test_v3_delegates_to_polar_client(self):
-        with patch.object(config, "POLAR_API_VERSION", "v3"), \
-                patch.object(gateway.polar_client, "fetch_polar_sleep", return_value={"ok": True}) as sleep_mock, \
-                patch.object(gateway.polar_client, "fetch_polar_nightly_recharge", return_value={"ok": True}) as nightly_mock:
-            sleep = gateway.fetch_polar_sleep("tok", "user", "2026-06-10")
-            nightly = gateway.fetch_polar_nightly_recharge("tok", "user", "2026-06-10")
-
-        sleep_mock.assert_called_once_with("tok", "user", "2026-06-10")
-        nightly_mock.assert_called_once_with("tok", "user", "2026-06-10")
-        self.assertEqual(sleep, {"ok": True})
-        self.assertEqual(nightly, {"ok": True})
-
-    def test_shadow_behaves_as_v3(self):
-        with patch.object(config, "POLAR_API_VERSION", "shadow"), \
-                patch.object(gateway.polar_client, "fetch_polar_sleep", return_value={"ok": True}) as sleep_mock:
-            gateway.fetch_polar_sleep("tok", "user", "2026-06-10")
-
-        sleep_mock.assert_called_once_with("tok", "user", "2026-06-10")
-
-
-class V4NoTokenTests(_Env):
+class NoTokenTests(_Env):
     def test_no_bundle_returns_none(self):
-        with patch.object(config, "POLAR_API_VERSION", "v4"):
-            self.assertIsNone(gateway.fetch_polar_sleep("ignored", None, "2026-06-10"))
-            self.assertIsNone(gateway.fetch_polar_nightly_recharge("ignored", None, "2026-06-10"))
+        self.assertIsNone(gateway.fetch_polar_sleep("ignored", None, "2026-06-10"))
+        self.assertIsNone(gateway.fetch_polar_nightly_recharge("ignored", None, "2026-06-10"))
 
     def test_no_bundle_logs_a_single_warning(self):
-        with patch.object(config, "POLAR_API_VERSION", "v4"), \
-                self.assertLogs("hrv_app.polar_gateway", level="WARNING") as logs:
+        with self.assertLogs("hrv_app.polar_gateway", level="WARNING") as logs:
             gateway.fetch_polar_sleep("ignored", None, "2026-06-10")
             gateway.fetch_polar_nightly_recharge("ignored", None, "2026-06-10")
             gateway.fetch_polar_sleep("ignored", None, "2026-06-11")
@@ -92,7 +67,7 @@ class V4NoTokenTests(_Env):
         self.assertTrue(any("/auth" in msg for msg in logs.output))
 
 
-class V4FetchTests(_Env):
+class FetchTests(_Env):
     def setUp(self):
         super().setUp()
         self._write_valid_bundle()
@@ -104,39 +79,33 @@ class V4FetchTests(_Env):
             captured["args"] = (date_from, date_to, features)
             return [V4_SLEEP_ITEM]
 
-        with patch.object(config, "POLAR_API_VERSION", "v4"), \
-                patch.object(gateway.V4Client, "fetch_sleeps", side_effect=_fake_fetch_sleeps):
+        with patch.object(gateway.V4Client, "fetch_sleeps", side_effect=_fake_fetch_sleeps):
             result = gateway.fetch_polar_sleep("ignored-token", None, "2026-06-10")
 
         self.assertEqual(captured["args"][0], "2026-06-10")
         self.assertEqual(captured["args"][1], "2026-06-11")
-        self.assertTrue(captured["args"][2])  # features no vacios
+        self.assertTrue(captured["args"][2])
         self.assertIsNotNone(result)
-        # shape interno v3: asleepDuration "24000s" -> PT24000S
         self.assertEqual(result["asleep_duration"], "PT24000S")
         self.assertEqual(result["sleep_score"], 75)
 
     def test_nightly_uses_day_window_with_features_and_adapts(self):
-        with patch.object(config, "POLAR_API_VERSION", "v4"), \
-                patch.object(gateway.V4Client, "fetch_nightly_recharges", return_value=[V4_NIGHTLY_ITEM]):
+        with patch.object(gateway.V4Client, "fetch_nightly_recharges", return_value=[V4_NIGHTLY_ITEM]):
             result = gateway.fetch_polar_nightly_recharge("ignored-token", None, "2026-06-10")
 
         self.assertIsNotNone(result)
         self.assertEqual(result["heart_rate_variability_avg"], 55)
 
     def test_missing_date_in_response_returns_none(self):
-        with patch.object(config, "POLAR_API_VERSION", "v4"), \
-                patch.object(gateway.V4Client, "fetch_sleeps", return_value=[]):
+        with patch.object(gateway.V4Client, "fetch_sleeps", return_value=[]):
             self.assertIsNone(gateway.fetch_polar_sleep("ignored", None, "2026-06-10"))
 
-    def test_v4_error_returns_none(self):
-        with patch.object(config, "POLAR_API_VERSION", "v4"), \
-                patch.object(gateway.V4Client, "fetch_sleeps", side_effect=PolarV4Error("boom")):
+    def test_error_returns_none(self):
+        with patch.object(gateway.V4Client, "fetch_sleeps", side_effect=PolarV4Error("boom")):
             self.assertIsNone(gateway.fetch_polar_sleep("ignored", None, "2026-06-10"))
 
     def test_client_instance_is_reused_across_calls_for_throttle(self):
-        with patch.object(config, "POLAR_API_VERSION", "v4"), \
-                patch.object(gateway.V4Client, "fetch_sleeps", return_value=[]), \
+        with patch.object(gateway.V4Client, "fetch_sleeps", return_value=[]), \
                 patch.object(gateway.V4Client, "fetch_nightly_recharges", return_value=[]):
             gateway.fetch_polar_sleep("ignored", None, "2026-06-10")
             client_after_sleep = gateway._shared_v4_client

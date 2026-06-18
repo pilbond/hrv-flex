@@ -186,8 +186,7 @@ class SportCatalogTests(unittest.TestCase):
                 "scopes": config.POLAR_V4_SCOPES,
             }), encoding="utf-8")
 
-            with patch.object(config, "POLAR_V4_SESSIONS", True), \
-                 patch.object(config, "TOKEN_FILE_V4", bundle):
+            with patch.object(config, "TOKEN_FILE_V4", bundle):
                 client = PolarSessionClient()
                 with patch.object(client._v4_client, "list_sports", return_value={"10005": "TRAIL_RUNNING"}) as mock_sports, \
                      patch.object(client._v4_client, "list_training_sessions", return_value=[]):
@@ -205,8 +204,7 @@ class SportCatalogTests(unittest.TestCase):
                 "scopes": config.POLAR_V4_SCOPES,
             }), encoding="utf-8")
 
-            with patch.object(config, "POLAR_V4_SESSIONS", True), \
-                 patch.object(config, "TOKEN_FILE_V4", bundle):
+            with patch.object(config, "TOKEN_FILE_V4", bundle):
                 client = PolarSessionClient()
                 call_count = {"n": 0}
 
@@ -233,8 +231,7 @@ class SportCatalogTests(unittest.TestCase):
                 "scopes": config.POLAR_V4_SCOPES,
             }), encoding="utf-8")
 
-            with patch.object(config, "POLAR_API_VERSION", "v4"), \
-                 patch.object(config, "TOKEN_FILE_V4", bundle):
+            with patch.object(config, "TOKEN_FILE_V4", bundle):
                 client = PolarSessionClient()
                 raw = _load("training_sessions_list.json")["trainingSessions"]
                 with patch.object(client._v4_client, "list_sports", side_effect=[RuntimeError("boom"), {"22353647432": "BODY_AND_MIND"}]), \
@@ -404,8 +401,7 @@ class SessionClientV4DateRangeTests(unittest.TestCase):
 
     def test_enrich_row_queries_by_date_not_global(self):
         """Cada enrich_row usa la fecha de la fila; no depende de una lista global."""
-        with TemporaryDirectory() as tmpdir, \
-             patch.object(config, "POLAR_API_VERSION", "v4"):
+        with TemporaryDirectory() as tmpdir:
             client = self._make_client(tmpdir)
             captured_dates: list = []
 
@@ -424,8 +420,7 @@ class SessionClientV4DateRangeTests(unittest.TestCase):
 
     def test_session_cache_reused_for_same_date(self):
         """Segunda llamada con la misma fecha usa caché: no HTTP duplicado."""
-        with TemporaryDirectory() as tmpdir, \
-             patch.object(config, "POLAR_API_VERSION", "v4"):
+        with TemporaryDirectory() as tmpdir:
             client = self._make_client(tmpdir)
 
             with patch.object(client._v4_client, "list_sports", return_value={}), \
@@ -437,8 +432,7 @@ class SessionClientV4DateRangeTests(unittest.TestCase):
 
     def test_v4_degradation_no_bundle_returns_defaults(self):
         """Sin bundle v4 utilizable, enrich_row devuelve defaults sin romper."""
-        with TemporaryDirectory() as tmpdir, \
-             patch.object(config, "POLAR_API_VERSION", "v4"):
+        with TemporaryDirectory() as tmpdir:
             # Token file no existe → available=False
             with patch.object(config, "TOKEN_FILE_V4", Path(tmpdir) / "nonexistent.json"):
                 client = PolarSessionClient()
@@ -449,8 +443,7 @@ class SessionClientV4DateRangeTests(unittest.TestCase):
                 self.assertIsNone(result["run_power_mean"])
 
     def test_v4_missing_bundle_logs_warning(self):
-        with TemporaryDirectory() as tmpdir, \
-             patch.object(config, "POLAR_API_VERSION", "v4"):
+        with TemporaryDirectory() as tmpdir:
             with patch.object(config, "TOKEN_FILE_V4", Path(tmpdir) / "nonexistent.json"):
                 client = PolarSessionClient()
                 with self.assertLogs("polar_sessions", level="WARNING") as logs:
@@ -459,8 +452,7 @@ class SessionClientV4DateRangeTests(unittest.TestCase):
         self.assertTrue(any("sin bundle/token utilizable" in line for line in logs.output))
 
     def test_v4_match_value_error_returns_defaults(self):
-        with TemporaryDirectory() as tmpdir, \
-             patch.object(config, "POLAR_API_VERSION", "v4"):
+        with TemporaryDirectory() as tmpdir:
             client = self._make_client(tmpdir)
             with patch.object(client, "_list_sessions_for_date", return_value=[]):
                 with self.assertLogs("polar_sessions", level="WARNING") as logs:
@@ -619,28 +611,12 @@ class FetchSessionRrV4Tests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class RuntimeSelectorTests(unittest.TestCase):
-    """El selector efectivo del backend de sesiones sigue POLAR_API_VERSION."""
-
-    def _client_defaults(self, api_version: str) -> dict:
-        with TemporaryDirectory() as tmpdir, \
-             patch.object(config, "POLAR_API_VERSION", api_version):
-            # Paths explícitos (inexistentes) para no usar tokens reales en disco.
+    def test_v4_path_returns_defaults_without_bundle(self):
+        with TemporaryDirectory() as tmpdir:
             client = PolarSessionClient(
-                token_path=Path(tmpdir) / "tok_v3.json",
                 bundle_path_v4=Path(tmpdir) / "tok_v4.json",
             )
-            return client.enrich_row({"sport": "road_run", "Fecha": "2025-07-01"})
-
-    def test_v3_uses_legacy_path(self):
-        result = self._client_defaults("v3")
-        self.assertEqual(result["run_power_available"], 0)
-
-    def test_shadow_uses_v4_path(self):
-        result = self._client_defaults("shadow")
-        self.assertEqual(result["run_power_available"], 0)
-
-    def test_v4_uses_v4_path(self):
-        result = self._client_defaults("v4")
+            result = client.enrich_row({"sport": "road_run", "Fecha": "2025-07-01"})
         self.assertEqual(result["run_power_available"], 0)
 
 

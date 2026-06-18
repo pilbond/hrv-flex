@@ -402,10 +402,9 @@ def fetch_and_upsert_sleep(token: str, user_id: Optional[str], processed_date) -
     sleep_row: Dict[str, Any] = {col: float("nan") for col in SLEEP_COLUMNS}
     sleep_row["Fecha"] = date_str
 
-    # En v4 los endpoints de sleep/nightly estan asociados al bearer token,
-    # no a un user_id: el gateway consulta aunque x_user_id sea None. En v3
-    # se conserva el guard historico (la llamada va con user_id en la URL).
-    if user_id or config.POLAR_API_VERSION == "v4":
+    # Los endpoints v4 de sleep/nightly están asociados al bearer token,
+    # no a un user_id: el gateway consulta aunque x_user_id sea None.
+    if True:
         sleep_json = None
         sleep_used_date = None
         nightly_json = None

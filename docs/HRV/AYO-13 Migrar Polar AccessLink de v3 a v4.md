@@ -1,6 +1,13 @@
 
 ## Estado
 
+**CERRADA — 2026-06-18.** Migración completada en fases F0–F6:
+- F0–F2: infraestructura v4 y dual-stack (AYO-13 inicial)
+- F3: shadow mode (AYO-19)
+- F4: Dropbox como única fuente de nuevos RR (AYO-20)
+- F5: corte controlado a v4 (AYO-21/AYO-23/AYO-24)
+- F6: retirada completa de v3 — `polar_client.py`, `polar_oauth_local.py`, `polar_shadow.py` eliminados; `POLAR_API_VERSION` y `POLAR_V4_SESSIONS` suprimidos (AYO-22)
+
 Propuesta de migracion tecnica creada el 2026-06-12.
 
 Actualizacion 2026-06-12 — F0/F1/F2 implementadas (runtime sigue en v3):

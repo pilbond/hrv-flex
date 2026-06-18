@@ -103,7 +103,7 @@ Estado actual de implementacion observado:
 - si `HRV_UI_KEY` esta definida, todos los `/api/*` exigen la clave via header `X-HRV-KEY` o `?key=`; el `state` de OAuth se valida con TTL y uso unico,
 - `build_hrv_core.py`, `build_hrv_final_dashboard.py` y `build_sessions.py` usan `hrv_app.io_utils` para escrituras atomicas (eliminadas las implementaciones locales duplicadas),
 - CI en `.github/workflows/tests.yml`: pytest en push/PR sobre Python 3.11.
-- `POLAR_API_VERSION` defaulta a `v4` desde AYO-23; v3 queda como rollback temporal (`POLAR_API_VERSION=v3`); shadow fuera del camino normal; `analysis` ya no importa top-level módulos legacy v3.
+- AYO-22 (AYO-13-F6): v3 completamente retirado; v4 es el único runtime Polar; `polar_client.py`, `polar_oauth_local.py` y `polar_shadow.py` eliminados; `POLAR_API_VERSION` y `POLAR_V4_SESSIONS` suprimidos.
 
 Si este bloque queda desactualizado, debe actualizarse o reducirse.
 
@@ -121,8 +121,7 @@ Si este bloque queda desactualizado, debe actualizarse o reducirse.
   Delega la logica operativa a `hrv_app.hrv_sync_flow` y modulos internos del paquete.
   Intenta cubrir RR nuevos faltantes desde Dropbox (unica fuente, AYO-13-F4); si Dropbox no cubre una fecha nueva, esa fecha no entra al pipeline en este ciclo (sin fallback Polar).
   `--all` reprocesa solo RR ya presentes en disco, sin descargar nada nuevo.
-  El runtime principal es v4 desde AYO-23; en v3 (rollback via `POLAR_API_VERSION=v3`) se usan tokens v3.
-  Solo consulta ejercicios Polar (`list_exercises`) en modo diagnostico `--debug-sports` con `POLAR_API_VERSION=v3`; con v4 requiere `POLAR_V4_SESSIONS=1`.
+  Runtime único: v4. No hay rollback flag ni modo v3.
   Actualiza `ENDURANCE_HRV_sleep.csv`.
   Ejecuta `build_hrv_core.py`, `build_hrv_final_dashboard.py` y `build_hrv_ssm.py` cuando corresponde.
   Al final del sync exitoso, ejecuta `hrv_app.backup_dropbox.run_backup()` (opt-in via `HRV_BACKUP_DROPBOX_ENABLED`; nunca rompe el sync).
