@@ -240,10 +240,11 @@ DATE_STRING_LENGTH = 10
 UNKNOWN_SESSION_ID = "unknown"
 DEBUG_JSON = False
 
-# Sesiones Polar via Dynamic API v4 (F5.2); requiere POLAR_API_VERSION=v4.
-# Default off: el backend v3 de PolarSessionClient es el activo hasta que se valide.
-# Rollback = POLAR_V4_SESSIONS=0 (o unset).
-POLAR_V4_SESSIONS = env_flag("POLAR_V4_SESSIONS", False)
+# Flag legado de transición F5.2/F5.3. Desde AYO-24 el selector efectivo del
+# backend de sesiones Polar es POLAR_API_VERSION: v4/shadow usan v4; v3 usa v3.
+# Se conserva temporalmente solo por compatibilidad documental/configuracional
+# hasta F6, pero ya no debe gobernar el comportamiento real.
+POLAR_V4_SESSIONS = env_flag("POLAR_V4_SESSIONS", POLAR_API_VERSION != "v3")
 
 DROPBOX_RR_ENABLED = env_flag("HRV_DROPBOX_RR_ENABLED", True)
 DROPBOX_RR_SCRIPT = (os.environ.get("HRV_DROPBOX_RR_SCRIPT") or "egc_to_rr.py").strip() or "egc_to_rr.py"

@@ -7,11 +7,12 @@ import time
 import gzip
 import tempfile
 from datetime import datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 import requests
-from .config import TOKEN_FILE
+from .config import TOKEN_FILE, TOKEN_FILE_V4
 from .polar_utils import get_field_variant, parse_duration_to_minutes, parse_float
 try:
     from fitparse import FitFile
@@ -301,11 +302,112 @@ def extract_mechanical_metrics_from_fit_file(fit_path: Path, source: str = "inte
     )
 
 
+def fetch_session_rr_v4(
+    row: dict[str, str],
+    bundle_path_v4: Path | None = None,
+    allowed_polar_sports: set[str] | None = None,
+    client: Any | None = None,
+    sport_catalog: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Recupera RR de una sesión v4 en el shape interno histórico.
+
+    Reutiliza el stack v4 ya existente (auth, cliente, adaptador y matcher)
+    sin depender del flag transitorio POLAR_V4_SESSIONS.
+    """
+    date_str = str(row.get("Fecha") or "").strip()
+    if not date_str:
+        raise ValueError("session row lacks Fecha")
+
+    exercises = list(
+        _load_v4_session_exercises_for_date(
+            bundle_path_v4 or TOKEN_FILE_V4,
+            date_str,
+            client=client,
+            sport_catalog=sport_catalog,
+        )
+    )
+    match = match_polar_exercise(
+        row,
+        exercises,
+        tz_offset_min=int(os.environ.get("POLAR_TZ_OFFSET_MIN", "0")),
+        allowed_polar_sports=allowed_polar_sports,
+    )
+    exercise = match["exercise"]
+
+    from .hrv_sync_flow import extract_rr_ms
+
+    rr = extract_rr_ms(exercise)
+    if not rr:
+        raise RuntimeError("el ejercicio Polar no contiene RR exportable")
+
+    return {
+        "exercise": exercise,
+        "match": match,
+        "rr": rr,
+    }
+
+
+@lru_cache(maxsize=32)
+def _load_v4_session_exercises_for_date_cached(bundle_path: Path, date_str: str) -> tuple[dict[str, Any], ...]:
+    return _load_v4_session_exercises_for_date_uncached(bundle_path, date_str)
+
+
+def _load_v4_session_exercises_for_date(
+    bundle_path: Path,
+    date_str: str,
+    client: Any | None = None,
+    sport_catalog: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], ...]:
+    """Carga por fecha el catálogo y las sesiones v4 adaptadas.
+
+    Cuando el caller pasa `client` o `sport_catalog`, se evita recrearlos para
+    reutilizar el stack v4 entre sesiones del mismo día.
+    """
+    if client is not None or sport_catalog is not None:
+        return _load_v4_session_exercises_for_date_uncached(
+            bundle_path,
+            date_str,
+            client=client,
+            sport_catalog=sport_catalog,
+        )
+    return _load_v4_session_exercises_for_date_cached(bundle_path, date_str)
+
+
+_load_v4_session_exercises_for_date.cache_clear = _load_v4_session_exercises_for_date_cached.cache_clear  # type: ignore[attr-defined]
+_load_v4_session_exercises_for_date.cache_info = _load_v4_session_exercises_for_date_cached.cache_info  # type: ignore[attr-defined]
+
+
+def _load_v4_session_exercises_for_date_uncached(
+    bundle_path: Path,
+    date_str: str,
+    client: Any | None = None,
+    sport_catalog: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], ...]:
+    """Carga el catálogo y las sesiones v4 adaptadas sin tocar la caché."""
+    from .polar_adapters_v4 import next_day_iso, v4_session_to_internal
+    from .polar_client_v4 import V4Client
+
+    client = client or V4Client(bundle_path=bundle_path)
+    if sport_catalog is None:
+        sport_catalog = client.list_sports()
+    raw_sessions = client.list_training_sessions(
+        date_from=date_str,
+        date_to=next_day_iso(date_str),
+        features=["samples"],
+    )
+    return tuple(
+        ex
+        for session in raw_sessions
+        if (ex := v4_session_to_internal(session, sport_catalog=sport_catalog))
+    )
+
+
 class PolarSessionClient:
     def __init__(self, token_path: Path | None = None, bundle_path_v4: Path | None = None):
-        # Leer flags en tiempo de init para que los patches de tests sean efectivos.
-        from .config import POLAR_V4_SESSIONS as _v4_flag, TOKEN_FILE_V4 as _token_v4
-        self._v4_mode = _v4_flag
+        # El runtime Polar ya se decide por POLAR_API_VERSION. POLAR_V4_SESSIONS
+        # queda como compatibilidad transitoria de config, no como selector real.
+        from .config import POLAR_API_VERSION as _api_version, TOKEN_FILE_V4 as _token_v4
+        self._v4_mode = _api_version != "v3"
 
         # Estado v3 (siempre inicializado para facilitar rollback)
         self.token_path = token_path or TOKEN_FILE
@@ -313,8 +415,9 @@ class PolarSessionClient:
         self._last_request = 0.0
         self._access_token = self._load_access_token()
         self._exercises: list[dict[str, Any]] | None = None
+        self._v4_available = False
 
-        # Estado v4 (solo activo cuando POLAR_V4_SESSIONS=1)
+        # Estado v4 (activo por defecto en runtime v4/shadow)
         if self._v4_mode:
             from .polar_client_v4 import V4Client
             from . import polar_auth_v4
@@ -384,12 +487,14 @@ class PolarSessionClient:
             return self._v4_session_cache[date_str]
 
         from .polar_adapters_v4 import v4_session_to_internal, next_day_iso
+        cacheable = True
         if self._v4_sport_catalog is None:
             try:
                 self._v4_sport_catalog = self._v4_client.list_sports()
             except Exception as exc:
                 # No cacheamos el fallo: se reintenta en la siguiente fecha.
                 log.warning("No se pudo cargar catálogo de deportes v4: %s", exc)
+                cacheable = False
         try:
             raw_sessions = self._v4_client.list_training_sessions(
                 date_from=date_str,
@@ -401,7 +506,8 @@ class PolarSessionClient:
             raw_sessions = []
 
         adapted = [ex for s in raw_sessions if (ex := v4_session_to_internal(s, sport_catalog=self._v4_sport_catalog or {}))]
-        self._v4_session_cache[date_str] = adapted
+        if cacheable:
+            self._v4_session_cache[date_str] = adapted
         return adapted
 
     def _enrich_row_v4(self, row: dict[str, Any], sport: str) -> dict[str, Any]:
@@ -418,7 +524,7 @@ class PolarSessionClient:
                 tz_offset_min=int(os.environ.get("POLAR_TZ_OFFSET_MIN", "0")),
                 allowed_polar_sports=POLAR_STANDING_SPORT_MAP.get(sport),
             )
-        except RuntimeError as exc:
+        except (RuntimeError, ValueError) as exc:
             log.warning("v4 session match fallido para %s: %s", date_str, exc)
             return defaults
 
@@ -436,6 +542,12 @@ class PolarSessionClient:
         defaults = _mechanics_defaults()
         sport = str(row.get("sport") or "").strip()
         if sport not in STANDING_SPORTS or not self.available:
+            if sport in STANDING_SPORTS and self._v4_mode and not self.available:
+                log.warning(
+                    "PolarSessionClient v4 sin bundle/token utilizable; enrichment mecánico desactivado para %s %s",
+                    row.get("Fecha"),
+                    row.get("session_id") or sport,
+                )
             return defaults
 
         if self._v4_mode:

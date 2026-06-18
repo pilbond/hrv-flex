@@ -39,9 +39,15 @@ class PolarV4Error(RuntimeError):
 
 
 def _extract_items(payload: Any, candidate_keys: tuple[str, ...], _depth: int = 2) -> list:
-    """Extrae la lista de items de una respuesta v4 tolerando variantes de
-    envoltorio, incluido el doble wrapper oficial (p.ej. nightly-recharge:
-    {"nightlyRechargeResults": {"nightlyRechargeResults": [...]}})."""
+    """Extrae la lista de items de una respuesta v4 con wrappers explícitos.
+
+    Acepta:
+    - payload ya es una lista
+    - payload dict con una de las claves candidatas apuntando a una lista
+    - doble wrapper oficial con la misma clave candidata en un dict hijo
+
+    Cualquier otro shape devuelve [] para fallar de forma visible en el
+    adaptador/endpoint correspondiente."""
     if payload is None:
         return []
     if isinstance(payload, list):
@@ -52,18 +58,9 @@ def _extract_items(payload: Any, candidate_keys: tuple[str, ...], _depth: int = 
             if isinstance(value, list):
                 return value
             if isinstance(value, dict) and _depth > 0:
-                inner = _extract_items(value, candidate_keys, _depth - 1)
-                if inner:
+                inner = value.get(key)
+                if isinstance(inner, list):
                     return inner
-        # Envoltorio de una sola lista: se acepta aunque la clave no esté
-        # entre las candidatas conocidas.
-        lists = [v for v in payload.values() if isinstance(v, list)]
-        if len(lists) == 1:
-            return lists[0]
-        # Envoltorio de un solo dict no reconocido: desciende un nivel.
-        dicts = [v for v in payload.values() if isinstance(v, dict)]
-        if len(dicts) == 1 and _depth > 0:
-            return _extract_items(dicts[0], candidate_keys, _depth - 1)
     return []
 
 

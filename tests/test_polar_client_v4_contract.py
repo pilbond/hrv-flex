@@ -200,9 +200,9 @@ class ExtractItemsTests(unittest.TestCase):
     def test_bare_list(self):
         self.assertEqual(_extract_items([{"a": 1}], ("whatever",)), [{"a": 1}])
 
-    def test_single_unknown_list_wrapper(self):
+    def test_single_unknown_list_wrapper_rejected(self):
         payload = {"futureKey": [{"a": 1}], "meta": "x"}
-        self.assertEqual(_extract_items(payload, ("nightSleeps",)), [{"a": 1}])
+        self.assertEqual(_extract_items(payload, ("nightSleeps",)), [])
 
     def test_official_double_wrapper_nightly(self):
         # Shape oficial v4: {"nightlyRechargeResults": {"nightlyRechargeResults": [...]}}
@@ -212,9 +212,9 @@ class ExtractItemsTests(unittest.TestCase):
             [{"sleepResultDate": "2026-06-10"}],
         )
 
-    def test_single_unknown_dict_wrapper_descends(self):
+    def test_single_unknown_dict_wrapper_rejected(self):
         payload = {"someResponse": {"nightSleeps": [{"a": 1}]}}
-        self.assertEqual(_extract_items(payload, ("nightSleeps",)), [{"a": 1}])
+        self.assertEqual(_extract_items(payload, ("nightSleeps",)), [])
 
     def test_fetch_nightly_with_official_payload_end_to_end(self):
         fixtures = Path(__file__).parent / "fixtures" / "polar_v4" / "nightly_recharge_results.json"

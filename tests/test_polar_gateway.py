@@ -81,16 +81,15 @@ class V4NoTokenTests(_Env):
 
     def test_no_bundle_logs_a_single_warning(self):
         with patch.object(config, "POLAR_API_VERSION", "v4"), \
-                patch("builtins.print") as print_mock:
+                self.assertLogs("hrv_app.polar_gateway", level="WARNING") as logs:
             gateway.fetch_polar_sleep("ignored", None, "2026-06-10")
             gateway.fetch_polar_nightly_recharge("ignored", None, "2026-06-10")
             gateway.fetch_polar_sleep("ignored", None, "2026-06-11")
 
-        messages = [str(call.args[0]) for call in print_mock.call_args_list]
-        warning_messages = [msg for msg in messages if "bundle v4 utilizable" in msg]
+        warning_messages = [msg for msg in logs.output if "bundle v4 utilizable" in msg]
         self.assertEqual(len(warning_messages), 1)
         self.assertIn("sleep", warning_messages[0])
-        self.assertTrue(any("/auth" in msg for msg in messages))
+        self.assertTrue(any("/auth" in msg for msg in logs.output))
 
 
 class V4FetchTests(_Env):

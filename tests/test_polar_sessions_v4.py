@@ -24,6 +24,8 @@ from hrv_app.polar_adapters_v4 import (
 from hrv_app.polar_sessions import (
     PolarSessionClient,
     extract_mechanical_metrics,
+    fetch_session_rr_v4,
+    _load_v4_session_exercises_for_date,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "polar_v4"
@@ -221,6 +223,28 @@ class SportCatalogTests(unittest.TestCase):
                     client._list_sessions_for_date("2025-07-03")  # usa caché
                 self.assertEqual(call_count["n"], 2)  # 1 fallo + 1 éxito; tercera usa caché
 
+    def test_catalog_failure_does_not_cache_degraded_date(self):
+        """Si list_sports falla para una fecha, no se debe cachear la adaptación degradada."""
+        with TemporaryDirectory() as tmpdir:
+            bundle = Path(tmpdir) / "v4_tokens.json"
+            bundle.write_text(json.dumps({
+                "access_token": "at", "refresh_token": "rt",
+                "obtained_at": time.time(), "expires_in": 43200,
+                "scopes": config.POLAR_V4_SCOPES,
+            }), encoding="utf-8")
+
+            with patch.object(config, "POLAR_API_VERSION", "v4"), \
+                 patch.object(config, "TOKEN_FILE_V4", bundle):
+                client = PolarSessionClient()
+                raw = _load("training_sessions_list.json")["trainingSessions"]
+                with patch.object(client._v4_client, "list_sports", side_effect=[RuntimeError("boom"), {"22353647432": "BODY_AND_MIND"}]), \
+                     patch.object(client._v4_client, "list_training_sessions", return_value=raw) as mock_list:
+                    degraded = client._list_sessions_for_date("2025-06-10")
+                    recovered = client._list_sessions_for_date("2025-06-10")
+                self.assertEqual(mock_list.call_count, 2)
+                self.assertEqual(degraded[0]["detailed_sport_info"], "22353647432")
+                self.assertEqual(recovered[0]["detailed_sport_info"], "BODY_AND_MIND")
+
 
 # ---------------------------------------------------------------------------
 # V4Client.list_sports endpoint
@@ -381,7 +405,7 @@ class SessionClientV4DateRangeTests(unittest.TestCase):
     def test_enrich_row_queries_by_date_not_global(self):
         """Cada enrich_row usa la fecha de la fila; no depende de una lista global."""
         with TemporaryDirectory() as tmpdir, \
-             patch.object(config, "POLAR_V4_SESSIONS", True):
+             patch.object(config, "POLAR_API_VERSION", "v4"):
             client = self._make_client(tmpdir)
             captured_dates: list = []
 
@@ -401,7 +425,7 @@ class SessionClientV4DateRangeTests(unittest.TestCase):
     def test_session_cache_reused_for_same_date(self):
         """Segunda llamada con la misma fecha usa caché: no HTTP duplicado."""
         with TemporaryDirectory() as tmpdir, \
-             patch.object(config, "POLAR_V4_SESSIONS", True):
+             patch.object(config, "POLAR_API_VERSION", "v4"):
             client = self._make_client(tmpdir)
 
             with patch.object(client._v4_client, "list_sports", return_value={}), \
@@ -414,7 +438,7 @@ class SessionClientV4DateRangeTests(unittest.TestCase):
     def test_v4_degradation_no_bundle_returns_defaults(self):
         """Sin bundle v4 utilizable, enrich_row devuelve defaults sin romper."""
         with TemporaryDirectory() as tmpdir, \
-             patch.object(config, "POLAR_V4_SESSIONS", True):
+             patch.object(config, "POLAR_API_VERSION", "v4"):
             # Token file no existe → available=False
             with patch.object(config, "TOKEN_FILE_V4", Path(tmpdir) / "nonexistent.json"):
                 client = PolarSessionClient()
@@ -424,19 +448,182 @@ class SessionClientV4DateRangeTests(unittest.TestCase):
                 self.assertEqual(result["run_power_available"], 0)
                 self.assertIsNone(result["run_power_mean"])
 
+    def test_v4_missing_bundle_logs_warning(self):
+        with TemporaryDirectory() as tmpdir, \
+             patch.object(config, "POLAR_API_VERSION", "v4"):
+            with patch.object(config, "TOKEN_FILE_V4", Path(tmpdir) / "nonexistent.json"):
+                client = PolarSessionClient()
+                with self.assertLogs("polar_sessions", level="WARNING") as logs:
+                    result = client.enrich_row({"sport": "road_run", "Fecha": "2025-07-01", "session_id": "s1"})
+        self.assertEqual(result["run_power_available"], 0)
+        self.assertTrue(any("sin bundle/token utilizable" in line for line in logs.output))
+
+    def test_v4_match_value_error_returns_defaults(self):
+        with TemporaryDirectory() as tmpdir, \
+             patch.object(config, "POLAR_API_VERSION", "v4"):
+            client = self._make_client(tmpdir)
+            with patch.object(client, "_list_sessions_for_date", return_value=[]):
+                with self.assertLogs("polar_sessions", level="WARNING") as logs:
+                    result = client._enrich_row_v4({"Fecha": "2025-07-01", "sport": "road_run"}, "road_run")
+        self.assertEqual(result["run_power_available"], 0)
+        self.assertTrue(any("session row lacks Fecha/start_time" in line for line in logs.output))
+
+
+class FetchSessionRrV4Tests(unittest.TestCase):
+    def _row(self) -> dict[str, str]:
+        return {
+            "Fecha": "2025-06-10",
+            "start_time": "07:30",
+            "duration_min": "8.5",
+            "sport": "road_run",
+            "session_id": "s1",
+        }
+
+    def test_fetch_session_rr_v4_matches_and_extracts_rr(self):
+        row = self._row()
+        raw_sessions = _load("training_sessions_list.json")["trainingSessions"]
+
+        with TemporaryDirectory() as tmpdir:
+            bundle = Path(tmpdir) / "v4_tokens.json"
+            bundle.write_text(json.dumps({
+                "access_token": "at",
+                "refresh_token": "rt",
+                "obtained_at": time.time(),
+                "expires_in": 43200,
+                "scopes": config.POLAR_V4_SCOPES,
+            }), encoding="utf-8")
+
+            with patch("hrv_app.polar_client_v4.polar_auth_v4.get_valid_access_token", return_value="at"), \
+                 patch("hrv_app.polar_client_v4.requests.get") as mock_get:
+                mock_get.side_effect = [
+                    MagicMock(status_code=200, json=lambda: _load("sports_list.json"), reason="OK"),
+                    MagicMock(status_code=200, json=lambda: {"trainingSessions": raw_sessions}, reason="OK"),
+                ]
+                result = fetch_session_rr_v4(
+                    row,
+                    bundle_path_v4=bundle,
+                    allowed_polar_sports={"BODY_AND_MIND"},
+                )
+
+        self.assertEqual(result["exercise"]["id"], "ts-001")
+        self.assertEqual(result["match"]["start_delta_min"], 0.0)
+        self.assertEqual([pair[0] for pair in result["rr"]], [812.0, 820.0, 805.0, 798.0])
+        self.assertEqual([pair[1] for pair in result["rr"]], [0, 0, 0, 0])
+
+    def test_fetch_session_rr_v4_raises_when_rr_missing(self):
+        row = {
+            "Fecha": "2025-06-10",
+            "start_time": "18:05",
+            "duration_min": "72",
+            "sport": "trail_run",
+            "session_id": "s2",
+        }
+        raw_sessions = [_load("training_sessions_list.json")["trainingSessions"][1]]
+
+        with TemporaryDirectory() as tmpdir:
+            bundle = Path(tmpdir) / "v4_tokens.json"
+            bundle.write_text(json.dumps({
+                "access_token": "at",
+                "refresh_token": "rt",
+                "obtained_at": time.time(),
+                "expires_in": 43200,
+                "scopes": config.POLAR_V4_SCOPES,
+            }), encoding="utf-8")
+
+            with patch("hrv_app.polar_client_v4.polar_auth_v4.get_valid_access_token", return_value="at"), \
+                 patch("hrv_app.polar_client_v4.requests.get") as mock_get:
+                mock_get.side_effect = [
+                    MagicMock(status_code=200, json=lambda: {"sports": [{"id": "10005", "name": "Trail running"}]}, reason="OK"),
+                    MagicMock(status_code=200, json=lambda: {"trainingSessions": raw_sessions}, reason="OK"),
+                ]
+                with self.assertRaises(RuntimeError) as ctx:
+                    fetch_session_rr_v4(
+                        row,
+                        bundle_path_v4=bundle,
+                        allowed_polar_sports={"TRAIL_RUNNING"},
+                    )
+
+        self.assertIn("RR exportable", str(ctx.exception))
+
+    def test_fetch_session_rr_v4_reuses_cached_date_payload(self):
+        row = self._row()
+        raw_sessions = _load("training_sessions_list.json")["trainingSessions"]
+        _load_v4_session_exercises_for_date.cache_clear()
+
+        with TemporaryDirectory() as tmpdir:
+            bundle = Path(tmpdir) / "v4_tokens.json"
+            bundle.write_text(json.dumps({
+                "access_token": "at",
+                "refresh_token": "rt",
+                "obtained_at": time.time(),
+                "expires_in": 43200,
+                "scopes": config.POLAR_V4_SCOPES,
+            }), encoding="utf-8")
+
+            with patch("hrv_app.polar_client_v4.polar_auth_v4.get_valid_access_token", return_value="at"), \
+                 patch("hrv_app.polar_client_v4.requests.get") as mock_get:
+                mock_get.side_effect = [
+                    MagicMock(status_code=200, json=lambda: _load("sports_list.json"), reason="OK"),
+                    MagicMock(status_code=200, json=lambda: {"trainingSessions": raw_sessions}, reason="OK"),
+                ]
+                first = fetch_session_rr_v4(
+                    row,
+                    bundle_path_v4=bundle,
+                    allowed_polar_sports={"BODY_AND_MIND"},
+                )
+                second = fetch_session_rr_v4(
+                    row,
+                    bundle_path_v4=bundle,
+                    allowed_polar_sports={"BODY_AND_MIND"},
+                )
+
+        self.assertEqual(first["exercise"]["id"], second["exercise"]["id"])
+        self.assertEqual(mock_get.call_count, 2)
+
+    def test_fetch_session_rr_v4_forwards_injected_client_and_catalog(self):
+        row = self._row()
+        fake_client = object()
+        sport_catalog = {"10005": "BODY_AND_MIND"}
+        exercises = tuple([
+            {
+                "id": "ts-001",
+                "samples": {"rrSamples": [{"durationMillis": 812, "offline": False}]},
+            }
+        ])
+
+        with patch("hrv_app.polar_sessions._load_v4_session_exercises_for_date", return_value=exercises) as mock_load, \
+             patch("hrv_app.polar_sessions.match_polar_exercise", return_value={
+                 "exercise": exercises[0],
+                 "start_delta_min": 0.0,
+                 "duration_gap_min": 0.0,
+             }), \
+             patch("hrv_app.hrv_sync_flow.extract_rr_ms", return_value=[(812.0, 0)]):
+            result = fetch_session_rr_v4(
+                row,
+                bundle_path_v4=Path("/tmp/v4_tokens.json"),
+                client=fake_client,
+                sport_catalog=sport_catalog,
+            )
+
+        mock_load.assert_called_once_with(
+            Path("/tmp/v4_tokens.json"),
+            "2025-06-10",
+            client=fake_client,
+            sport_catalog=sport_catalog,
+        )
+        self.assertEqual(result["exercise"]["id"], "ts-001")
+
 
 # ---------------------------------------------------------------------------
 # Matriz de flags (§6): 4 combinaciones no rompen PolarSessionClient
 # ---------------------------------------------------------------------------
 
-class FlagMatrixTests(unittest.TestCase):
-    """Las 4 combinaciones POLAR_API_VERSION × POLAR_V4_SESSIONS se instancian
-    y devuelven defaults cuando no hay backend disponible."""
+class RuntimeSelectorTests(unittest.TestCase):
+    """El selector efectivo del backend de sesiones sigue POLAR_API_VERSION."""
 
-    def _client_defaults(self, api_version: str, v4_sessions: bool) -> dict:
+    def _client_defaults(self, api_version: str) -> dict:
         with TemporaryDirectory() as tmpdir, \
-             patch.object(config, "POLAR_API_VERSION", api_version), \
-             patch.object(config, "POLAR_V4_SESSIONS", v4_sessions):
+             patch.object(config, "POLAR_API_VERSION", api_version):
             # Paths explícitos (inexistentes) para no usar tokens reales en disco.
             client = PolarSessionClient(
                 token_path=Path(tmpdir) / "tok_v3.json",
@@ -444,20 +631,16 @@ class FlagMatrixTests(unittest.TestCase):
             )
             return client.enrich_row({"sport": "road_run", "Fecha": "2025-07-01"})
 
-    def test_v3_sessions_off(self):
-        result = self._client_defaults("v3", False)
+    def test_v3_uses_legacy_path(self):
+        result = self._client_defaults("v3")
         self.assertEqual(result["run_power_available"], 0)
 
-    def test_shadow_sessions_off(self):
-        result = self._client_defaults("shadow", False)
+    def test_shadow_uses_v4_path(self):
+        result = self._client_defaults("shadow")
         self.assertEqual(result["run_power_available"], 0)
 
-    def test_v4_sessions_off(self):
-        result = self._client_defaults("v4", False)
-        self.assertEqual(result["run_power_available"], 0)
-
-    def test_v4_sessions_on_no_bundle(self):
-        result = self._client_defaults("v4", True)
+    def test_v4_uses_v4_path(self):
+        result = self._client_defaults("v4")
         self.assertEqual(result["run_power_available"], 0)
 
 

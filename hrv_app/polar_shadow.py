@@ -38,11 +38,6 @@ from .sleep_store import SLEEP_COLUMNS, _extract_nightly_fields, _extract_sleep_
 
 SHADOW_PATH = config.DATA_DIR / "audit" / "polar_v4_shadow.jsonl"
 
-# Sentinel para distinguir "el caller no pasa v3_row" de "el caller pasa
-# explicitamente None porque la fecha no tiene fila en el CSV". Sin esto,
-# el cache por-fecha de run_shadow_for_dates es inutil para fechas sin v3.
-_UNSET = object()
-
 SESSION_FEATURES = ["samples"]
 
 
@@ -130,9 +125,15 @@ def _call_v4(bundle_path: Path, fn, *args, **kwargs) -> dict:
     }
 
 
-def _shadow_sleep(client: V4Client, bundle_path: Path, date_str: str,
-                   v3_row: Any = _UNSET) -> dict:
-    if v3_row is _UNSET:
+def _shadow_sleep(
+    client: V4Client,
+    bundle_path: Path,
+    date_str: str,
+    v3_row: Any = None,
+    *,
+    load_v3_row: bool = True,
+) -> dict:
+    if load_v3_row and v3_row is None:
         v3_row = _v3_sleep_row(date_str)
     v3_present = _v3_sleep_present(v3_row)
 
@@ -163,9 +164,15 @@ def _shadow_sleep(client: V4Client, bundle_path: Path, date_str: str,
     return out
 
 
-def _shadow_nightly(client: V4Client, bundle_path: Path, date_str: str,
-                     v3_row: Any = _UNSET) -> dict:
-    if v3_row is _UNSET:
+def _shadow_nightly(
+    client: V4Client,
+    bundle_path: Path,
+    date_str: str,
+    v3_row: Any = None,
+    *,
+    load_v3_row: bool = True,
+) -> dict:
+    if load_v3_row and v3_row is None:
         v3_row = _v3_sleep_row(date_str)
     v3_present = v3_row is not None and any(
         _round(v3_row.get(c)) is not None
@@ -258,8 +265,8 @@ def run_shadow_for_dates(dates: list, bundle_path: Optional[Path] = None) -> lis
             "date": date_str,
             "captured_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "domains": {
-                "sleep": _shadow_sleep(client, bundle_path, date_str, v3_row=v3_row),
-                "nightly": _shadow_nightly(client, bundle_path, date_str, v3_row=v3_row),
+                "sleep": _shadow_sleep(client, bundle_path, date_str, v3_row=v3_row, load_v3_row=False),
+                "nightly": _shadow_nightly(client, bundle_path, date_str, v3_row=v3_row, load_v3_row=False),
                 "sessions": _shadow_sessions(client, bundle_path, date_str),
             },
         }

@@ -35,7 +35,7 @@ from fit_terrain_utils import analyze_fit_climbs, compute_matched_climbs_context
 import hrv_app.config as _hrv_config
 from hrv_app.config import ATHLETE_WEIGHT_KG, SYSTEM_BIKE_WEIGHT_KG
 from hrv_app.hrv_sync_flow import extract_rr_ms, write_rr_csv
-from hrv_app.polar_sessions import match_polar_exercise
+from hrv_app.polar_sessions import POLAR_STANDING_SPORT_MAP, fetch_session_rr_v4, match_polar_exercise
 from hrv_app.polar_utils import parse_float, weighted_mean as _weighted_mean
 from training_audit_utils import (
     session_report_evidence,
@@ -1849,20 +1849,38 @@ def _match_polar_exercise(row: dict[str, str], exercises: list[dict[str, Any]]) 
     )
 
 
-def fetch_session_rr_csv(row: dict[str, str], target_csv: Path) -> dict[str, Any]:
-    if _hrv_config.POLAR_API_VERSION != "v3":
-        raise RuntimeError("RR de entrenamiento desde Polar no disponible en modo v4")
-    from hrv_app.polar_client import get_exercise_with_samples, list_exercises  # noqa: PLC0415
-    from hrv_app.polar_oauth_local import load_tokens  # noqa: PLC0415
+def fetch_session_rr_csv(
+    row: dict[str, str],
+    target_csv: Path,
+    *,
+    v4_client: Any | None = None,
+    v4_sport_catalog: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    version = _hrv_config.POLAR_API_VERSION
+    if version == "v3":
+        from hrv_app.polar_client import get_exercise_with_samples, list_exercises  # noqa: PLC0415
+        from hrv_app.polar_oauth_local import load_tokens  # noqa: PLC0415
 
-    token, _user = load_tokens()
-    if not token:
-        raise RuntimeError("token Polar v3 ausente o expirado")
+        token, _user = load_tokens()
+        if not token:
+            raise RuntimeError("token Polar v3 ausente o expirado")
 
-    exercises = list_exercises(token)
-    match = _match_polar_exercise(row, exercises)
-    ex = get_exercise_with_samples(token, match["exercise"]["id"])
-    rr = extract_rr_ms(ex)
+        exercises = list_exercises(token)
+        match = _match_polar_exercise(row, exercises)
+        ex = get_exercise_with_samples(token, match["exercise"]["id"])
+        rr = extract_rr_ms(ex)
+    else:
+        sport = str(row.get("sport") or "").strip()
+        rr_info = fetch_session_rr_v4(
+            row,
+            allowed_polar_sports=POLAR_STANDING_SPORT_MAP.get(sport),
+            client=v4_client,
+            sport_catalog=v4_sport_catalog,
+        )
+        match = rr_info["match"]
+        ex = rr_info["exercise"]
+        rr = rr_info["rr"]
+
     if not rr:
         raise RuntimeError("el ejercicio Polar no contiene RR exportable")
 
@@ -1870,7 +1888,7 @@ def fetch_session_rr_csv(row: dict[str, str], target_csv: Path) -> dict[str, Any
     write_rr_csv(rr, str(target_csv))
     offline_pct = 100.0 * sum(1 for _, off in rr if off == 1) / max(1, len(rr))
     return {
-        "polar_exercise_id": match["exercise"]["id"],
+        "polar_exercise_id": match["exercise"].get("id", ""),
         "polar_start_delta_min": match["start_delta_min"],
         "polar_duration_gap_min": match["duration_gap_min"],
         "rr_count": len(rr),

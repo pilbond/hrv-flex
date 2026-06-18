@@ -133,11 +133,11 @@ def v4_sleep_to_internal(item: Optional[dict]) -> Optional[dict]:
         out["date"] = str(date)
 
     mapping = [
-        ("sleep_start_time", ("sleepResult.hypnogram.sleepStart", "sleepStartTime", "sleep_start_time", "startTime")),
-        ("sleep_end_time", ("sleepResult.hypnogram.sleepEnd", "sleepEndTime", "sleep_end_time", "endTime")),
-        ("deep_sleep", ("sleepEvaluation.phaseDurations.deep", "deepSleep", "deep_sleep")),
-        ("rem_sleep", ("sleepEvaluation.phaseDurations.rem", "remSleep", "rem_sleep")),
-        ("light_sleep", ("sleepEvaluation.phaseDurations.light", "lightSleep", "light_sleep")),
+        ("sleep_start_time", ("sleepResult.hypnogram.sleepStart", "sleepStartTime")),
+        ("sleep_end_time", ("sleepResult.hypnogram.sleepEnd", "sleepEndTime")),
+        ("deep_sleep", ("sleepEvaluation.phaseDurations.deep", "deepSleep")),
+        ("rem_sleep", ("sleepEvaluation.phaseDurations.rem", "remSleep")),
+        ("light_sleep", ("sleepEvaluation.phaseDurations.light", "lightSleep")),
         # Métricas autoritativas de Polar: si están, sleep_store las usa en
         # vez de recalcular duración/eficiencia desde fases y horas.
         ("asleep_duration", ("sleepEvaluation.asleepDuration",)),
@@ -182,7 +182,7 @@ def v4_nightly_to_internal(item: Optional[dict]) -> Optional[dict]:
     if date is not None:
         out["date"] = str(date)
 
-    rmssd = _first(item, "meanNightlyRecoveryRmssd", "heartRateVariabilityAvg", "heart_rate_variability_avg", "hrvAvg")
+    rmssd = _first(item, "meanNightlyRecoveryRmssd", "heartRateVariabilityAvg")
     if rmssd is not None:
         out["heart_rate_variability_avg"] = rmssd
 
@@ -191,7 +191,7 @@ def v4_nightly_to_internal(item: Optional[dict]) -> Optional[dict]:
     if rri is not None:
         out["nightly_rri"] = rri
 
-    hr = _first(item, "heartRateAvg", "heart_rate_avg", "hrAvg")
+    hr = _first(item, "heartRateAvg", "heart_rate_avg")
     if hr is not None:
         out["heart_rate_avg"] = hr
 
@@ -354,12 +354,10 @@ def _sport_to_v3(sport: Any, sport_catalog: Optional[dict] = None) -> Any:
     así que devolvemos el id crudo y dejamos que el gateway de la fase de
     corte resuelva el nombre antes de pasar el filtro de deportes."""
     if isinstance(sport, dict):
-        sport_id = _first(sport, "id", "sportId", "identifier")
+        sport_id = _first(sport, "id", "sportId")
         if sport_catalog and sport_id is not None and str(sport_id) in sport_catalog:
             return sport_catalog[str(sport_id)]
-        # Shapes provisionales: si el objeto trae name/detailedSportInfo, se
-        # respeta — útil para tests y para shapes legacy.
-        labelled = _first(sport, "detailedSportInfo", "name", "sport")
+        labelled = _first(sport, "name", "sport")
         if labelled is not None:
             return labelled
         return sport_id
@@ -378,22 +376,22 @@ def v4_session_to_internal(item: Optional[dict], sport_catalog: Optional[dict] =
         return None
     out: dict[str, Any] = {}
 
-    session_id = _first(item, "identifier", "id", "trainingSessionId", "training_session_id")
+    session_id = _first(item, "identifier", "id")
     if isinstance(session_id, dict):
-        session_id = _first(session_id, "id", "identifier", "value")
+        session_id = _first(session_id, "id")
     if session_id is not None:
         out["id"] = session_id
 
-    start_time = _first(item, "startTime", "start_time", "start-time")
+    start_time = _first(item, "startTime", "start_time")
     if start_time is not None:
         out["start-time"] = start_time
 
-    sport_raw = _first(item, "detailedSportInfo", "detailed_sport_info", "sport", "sportReference", "sportProfile")
+    sport_raw = _first(item, "sport", "sportReference")
     if sport_raw is None:
         # El deporte puede vivir en el primer exercise anidado.
         exercises = item.get("exercises")
         if isinstance(exercises, list) and exercises and isinstance(exercises[0], dict):
-            sport_raw = _first(exercises[0], "detailedSportInfo", "sport", "sportReference")
+            sport_raw = _first(exercises[0], "sport", "sportReference")
     sport = _sport_to_v3(sport_raw, sport_catalog=sport_catalog)
     if sport is not None:
         # Ambas variantes: hrv_sync_flow lee vía FIELD_SPORT (kebab primero),

@@ -371,7 +371,7 @@ class GetValidAccessTokenTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "b.json"
             self._write_bundle(path, scopes="sleep:read")
-            with patch("builtins.print") as mock_print:
+            with self.assertLogs("hrv_app.polar_auth_v4", level="WARNING") as logs:
                 token = auth.get_valid_access_token(
                     path,
                     client_id="cid",
@@ -379,8 +379,8 @@ class GetValidAccessTokenTests(unittest.TestCase):
                     expected_scopes="sleep:read sports:read",
                 )
         self.assertIsNone(token)
-        mock_print.assert_called_once()
-        self.assertIn("re-auth requerida", mock_print.call_args[0][0])
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn("re-auth requerida", logs.output[0])
 
 
 if __name__ == "__main__":

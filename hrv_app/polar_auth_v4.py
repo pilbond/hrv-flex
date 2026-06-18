@@ -17,6 +17,7 @@ Reglas:
 
 import json
 import os
+import logging
 import threading
 import time
 from contextlib import contextmanager
@@ -27,6 +28,8 @@ from urllib.parse import urlencode
 import requests
 
 from .oauth_utils import build_basic_auth_header, save_json_atomic
+
+log = logging.getLogger(__name__)
 
 AUTH_URL_V4 = "https://auth.polar.com/oauth/authorize"
 TOKEN_URL_V4 = "https://auth.polar.com/oauth/token"
@@ -350,7 +353,7 @@ def get_valid_access_token(
     if not bundle_scopes_match(bundle, expected):
         # Distinguible en logs de Railway de un fallo de refresh: este caso
         # solo se resuelve re-autorizando con los scopes ampliados.
-        print("AVISO: Bundle v4: scopes concedidos no cubren los configurados; re-auth requerida (/auth).")
+        log.warning("Bundle v4: scopes concedidos no cubren los configurados; re-auth requerida (/auth).")
         return None
 
     if not force_refresh and not bundle_needs_refresh(bundle):
@@ -369,18 +372,18 @@ def get_valid_access_token(
             # Otro proceso está refrescando. No corremos riesgo de quemar el
             # refresh token: el caller degradará (None → re-auth manual o
             # 401-retry en el siguiente uso).
-            print("⚠️ Refresh v4: lockfile ocupado por otro proceso, se cede.")
+            log.warning("Refresh v4: lockfile ocupado por otro proceso, se cede.")
             return None
 
         refresh_token = current.get("refresh_token")
         if not refresh_token or not client_id or not client_secret:
             missing = "refresh_token en bundle" if not refresh_token else "credenciales OAuth en entorno"
-            print(f"⚠️ Refresh v4 no viable: falta {missing}.")
+            log.warning("Refresh v4 no viable: falta %s.", missing)
             return None
         try:
             token_json = refresh_access_token_v4(refresh_token, client_id, client_secret, timeout=timeout)
         except (PolarAuthV4Error, requests.RequestException) as exc:
-            print(f"⚠️ Refresh token v4 falló: {exc}")
+            log.warning("Refresh token v4 falló: %s", exc)
             return None
 
         new_bundle = make_bundle(token_json, scopes=current.get("scopes") or expected, previous=current, refresh=True)
