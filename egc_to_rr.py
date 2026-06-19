@@ -34,6 +34,7 @@ import os
 import re
 import shutil
 import sys
+import tempfile
 import zipfile
 from collections import defaultdict
 from dataclasses import dataclass
@@ -59,6 +60,10 @@ DELTA_RR_MAX = 0.20
 DROPBOX_API_ROOT = "https://api.dropboxapi.com/2"
 DROPBOX_CONTENT_ROOT = "https://content.dropboxapi.com/2"
 SUPPORTED_INPUT_EXTS = {".jsonl", ".zip"}
+TARGET_DATE_PATTERNS = [
+    re.compile(r"(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)"),
+    re.compile(r"(?<!\d)(\d{4})(\d{2})(\d{2})(?!\d)"),
+]
 
 
 @dataclass
@@ -199,7 +204,54 @@ def _normalize_dropbox_folder_path(folder_path: str) -> str:
     return raw.rstrip("/")
 
 
-def list_dropbox_input_files(access_token: str, folder_path: str, recursive: bool = True) -> List[FileEntry]:
+def _normalize_target_dates(raw_dates: Iterable[str]) -> set[str]:
+    normalized: set[str] = set()
+    for raw in raw_dates:
+        value = str(raw or "").strip()
+        if not value:
+            continue
+        try:
+            normalized.add(datetime.strptime(value, "%Y-%m-%d").date().isoformat())
+        except ValueError as exc:
+            raise ValueError(f"Invalid --target-date value: {value!r}. Expected YYYY-MM-DD.") from exc
+    return normalized
+
+
+def _extract_dates_from_text(raw_text: str) -> set[str]:
+    text = str(raw_text or "")
+    found: set[str] = set()
+    for pattern in TARGET_DATE_PATTERNS:
+        for match in pattern.finditer(text):
+            yyyy, mm, dd = match.groups()
+            try:
+                found.add(datetime(int(yyyy), int(mm), int(dd)).date().isoformat())
+            except ValueError:
+                continue
+    return found
+
+
+def _matches_target_dates(file_entry: FileEntry, target_dates: set[str]) -> bool:
+    if not target_dates:
+        return True
+    searchable_parts = [
+        file_entry.name,
+        file_entry.parent,
+        file_entry.cloud_id or "",
+    ]
+    candidate_dates: set[str] = set()
+    for part in searchable_parts:
+        candidate_dates.update(_extract_dates_from_text(part))
+    if not candidate_dates and str(file_entry.name).lower().endswith(".zip"):
+        return True
+    return bool(candidate_dates & target_dates)
+
+
+def list_dropbox_input_files(
+    access_token: str,
+    folder_path: str,
+    recursive: bool = True,
+    target_dates: Optional[set[str]] = None,
+) -> List[FileEntry]:
     folder_api = _normalize_dropbox_folder_path(folder_path)
     files: List[FileEntry] = []
     headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
@@ -252,17 +304,18 @@ def list_dropbox_input_files(access_token: str, folder_path: str, recursive: boo
             if "/" in rel:
                 parent = rel.rsplit("/", 1)[0]
 
-            files.append(
-                FileEntry(
-                    source="dropbox",
-                    name=name,
-                    parent=parent,
-                    sort_key=_modified_to_ts(server_modified),
-                    path=None,
-            cloud_id=path_lower or path_display,
-                    modified_time=server_modified,
-                )
+            file_entry = FileEntry(
+                source="dropbox",
+                name=name,
+                parent=parent,
+                sort_key=_modified_to_ts(server_modified),
+                path=None,
+                cloud_id=path_lower or path_display,
+                modified_time=server_modified,
             )
+            if target_dates and not _matches_target_dates(file_entry, target_dates):
+                continue
+            files.append(file_entry)
 
         if not data.get("has_more"):
             break
@@ -680,13 +733,24 @@ def _cloud_file_to_local_path(download_dir: Path, file_entry: FileEntry) -> Path
     return dest
 
 
-def unique_output_stem(outdir: Path, stem: str) -> str:
-    candidate = stem
-    idx = 2
-    while (outdir / f"{candidate}_RR.CSV").exists():
-        candidate = f"{stem}_v{idx}"
-        idx += 1
-    return candidate
+def canonical_output_stem(prefix: str, date_str: str) -> str:
+    return f"{sanitize_fragment(prefix, 18)}_{date_str}_from_jsonl"
+
+
+def _write_dataframe_atomic(df: pd.DataFrame, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.stem}_", suffix=path.suffix, dir=str(path.parent))
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        df.to_csv(tmp_path, index=False)
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            tmp_path.unlink()
+        except OSError:
+            pass
+        raise
 
 
 def validate_rr_df(rr_csv: pd.DataFrame) -> Dict[str, object]:
@@ -759,8 +823,8 @@ def process_pair(
 
     resp = resp_rate_from_acc(ts_acc, ax, ay, az)
 
-    stem_base = f"{sanitize_fragment(prefix, 18)}_{date_str}_from_jsonl"
-    stem = unique_output_stem(outdir, stem_base)
+    stem_base = canonical_output_stem(prefix, date_str)
+    stem = stem_base
 
     rr_path = outdir / f"{stem}_RR.CSV"
     aux_base = aux_dir if aux_dir is not None else outdir
@@ -768,11 +832,11 @@ def process_pair(
     acc_motion_path = aux_base / f"{stem}_acc_motion_windows.csv"
     resp_path = aux_base / f"{stem}_resp_rate.csv"
 
-    rr_csv.to_csv(rr_path, index=False)
+    _write_dataframe_atomic(rr_csv, rr_path)
     if write_aux:
-        rr_ev.to_csv(rr_events_path, index=False)
-        acc_win.to_csv(acc_motion_path, index=False)
-        resp.to_csv(resp_path, index=False)
+        _write_dataframe_atomic(rr_ev, rr_events_path)
+        _write_dataframe_atomic(acc_win, acc_motion_path)
+        _write_dataframe_atomic(resp, resp_path)
 
     return {
         "rr_path": rr_path,
@@ -943,6 +1007,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--prefix", default="ENDURANCE", help="Output filename prefix")
     parser.add_argument("--pair-limit", type=int, default=0, help="Max number of pairs to process (0 = all)")
+    parser.add_argument(
+        "--target-date",
+        action="append",
+        default=[],
+        help="Restrict Dropbox files to target dates (repeatable, YYYY-MM-DD).",
+    )
     parser.add_argument("--use-acc-gate", action="store_true", help="Mark RR as offline on ACC high-motion windows")
     parser.add_argument("--no-aux", action="store_true", help="Do not write RR_events/resp/acc_motion side files")
     parser.add_argument("--dry-run", action="store_true", help="Only list pairs; do not convert")
@@ -1012,6 +1082,7 @@ def main() -> None:
     download_dir: Optional[Path] = None
     temp_cloud_download_dir: Optional[Path] = None
     temp_local_extract_dir: Optional[Path] = None
+    target_dates = _normalize_target_dates(args.target_date)
 
     if mode == "single":
         ecg_path = Path(args.ecg)
@@ -1058,7 +1129,11 @@ def main() -> None:
             dropbox_access_token,
             args.dropbox_folder,
             recursive=args.dropbox_recursive,
+            target_dates=target_dates,
         )
+        if target_dates:
+            print(f"[INFO] Dropbox target dates: {', '.join(sorted(target_dates))}")
+            print(f"[INFO] Dropbox files after date filter: {len(dropbox_files)}")
         if args.dropbox_download_dir:
             download_dir = Path(args.dropbox_download_dir)
             download_dir.mkdir(parents=True, exist_ok=True)

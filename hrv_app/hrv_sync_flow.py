@@ -29,6 +29,7 @@ from .config import (
 )
 from .dropbox_rr import (
     _compute_target_missing_dates,
+    _promote_operational_rr_files,
     _run_dropbox_rr_import_for_dates,
     _scan_rr_files_by_date,
 )
@@ -208,6 +209,10 @@ def _process_rr_files(
 
     if result.stdout:
         print(result.stdout)
+
+    promoted = _promote_operational_rr_files(rr_files, OUTDIR)
+    if promoted:
+        _qprint(f"☁️  RR operativos promovidos: {promoted}")
 
     post_process_dates = get_existing_dates_from_master() if PANDAS_AVAILABLE else set()
     new_dates = sorted(post_process_dates - pre_process_dates) if PANDAS_AVAILABLE else []

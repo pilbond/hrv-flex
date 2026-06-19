@@ -25,6 +25,31 @@ def _extract_date_from_rr_filename(rr_filename: str) -> Optional[date]:
         return None
 
 
+def _is_excluded_rr_path(path: Path, root: Path) -> bool:
+    try:
+        rel_parts = path.relative_to(root).parts[:-1]
+    except ValueError:
+        rel_parts = path.parts[:-1]
+    return any(part.startswith("_audit_") or part == "_incoming_dropbox_rr" for part in rel_parts)
+
+
+def _dropbox_stage_dir(rr_dir: Path | str = OUTDIR) -> Path:
+    return Path(rr_dir) / "_incoming_dropbox_rr"
+
+
+def _clear_dropbox_stage_dir(stage_dir: Path) -> None:
+    if stage_dir.exists():
+        for path in sorted(stage_dir.rglob("*"), reverse=True):
+            if path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                try:
+                    path.rmdir()
+                except OSError:
+                    pass
+    stage_dir.mkdir(parents=True, exist_ok=True)
+
+
 def _scan_rr_files_by_date(rr_dir: Path | str = OUTDIR, source_tag: Optional[str] = None) -> Dict[date, Path]:
     """Indexa RR.CSV por fecha, usando el fichero más reciente si hay colisiones.
 
@@ -38,6 +63,8 @@ def _scan_rr_files_by_date(rr_dir: Path | str = OUTDIR, source_tag: Optional[str
     indexed: Dict[date, tuple[float, Path]] = {}
     for path in root.rglob("*"):
         if not path.is_file():
+            continue
+        if _is_excluded_rr_path(path, root):
             continue
         if not path.name.upper().endswith("_RR.CSV"):
             continue
@@ -77,7 +104,7 @@ def _compute_target_missing_dates(
     return [d for d in _iter_dates(date_from, date_to) if d not in existing]
 
 
-def _build_dropbox_rr_cmd(outdir: Path) -> list[str]:
+def _build_dropbox_rr_cmd(outdir: Path, target_dates: Iterable[date] = ()) -> list[str]:
     cmd = [sys.executable, DROPBOX_RR_SCRIPT, "--dropbox-folder", DROPBOX_FOLDER_PATH, "--outdir", str(outdir)]
     if DROPBOX_RECURSIVE:
         cmd.append("--dropbox-recursive")
@@ -85,7 +112,31 @@ def _build_dropbox_rr_cmd(outdir: Path) -> list[str]:
         cmd.append("--no-aux")
     if DROPBOX_RR_PAIR_LIMIT:
         cmd.extend(["--pair-limit", str(DROPBOX_RR_PAIR_LIMIT)])
+    for target_date in sorted({d for d in target_dates if d is not None}):
+        cmd.extend(["--target-date", target_date.isoformat()])
     return cmd
+
+
+def _promote_operational_rr_files(rr_files: Iterable[Path | str], rr_dir: Path | str = OUTDIR) -> int:
+    root = Path(rr_dir)
+    promoted = 0
+    for rr_file in rr_files:
+        path = Path(rr_file)
+        if not path.exists():
+            continue
+        if path.parent == root:
+            continue
+        rr_date = _extract_date_from_rr_filename(path.name)
+        if rr_date is None:
+            continue
+        canonical = root / f"ENDURANCE_{rr_date.isoformat()}_from_jsonl_RR.CSV"
+        canonical.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(path, canonical)
+        for duplicate in root.glob(f"ENDURANCE_{rr_date.isoformat()}_from_jsonl_v*_RR.CSV"):
+            if duplicate != canonical and duplicate.is_file():
+                duplicate.unlink()
+        promoted += 1
+    return promoted
 
 
 def _run_dropbox_rr_import_for_dates(
@@ -100,6 +151,7 @@ def _run_dropbox_rr_import_for_dates(
 
     outdir = Path(rr_dir)
     pre_map = _scan_rr_files_by_date(outdir, source_tag="from_jsonl")
+    stage_dir = _dropbox_stage_dir(outdir)
 
     if not DROPBOX_RR_ENABLED:
         result = {d: pre_map[d] for d in target_set if d in pre_map}
@@ -120,7 +172,9 @@ def _run_dropbox_rr_import_for_dates(
         result = {d: pre_map[d] for d in target_set if d in pre_map}
         return result, 0
 
-    cmd = _build_dropbox_rr_cmd(outdir)
+    _clear_dropbox_stage_dir(stage_dir)
+
+    cmd = _build_dropbox_rr_cmd(stage_dir, target_set)
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
 
@@ -150,7 +204,7 @@ def _run_dropbox_rr_import_for_dates(
         if exc.stderr:
             print(exc.stderr)
 
-    post_map = _scan_rr_files_by_date(outdir, source_tag="from_jsonl")
+    post_map = _scan_rr_files_by_date(stage_dir, source_tag="from_jsonl")
     merged_map: Dict[date, Path] = dict(pre_map)
     merged_map.update(post_map)
 

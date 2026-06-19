@@ -124,6 +124,8 @@ class HrvSyncFlowContractTests(unittest.TestCase):
             ), patch.object(
                 hrv_sync_flow, "_run_dropbox_rr_import_for_dates", return_value=(dropbox_map, 1)
             ) as dropbox_mock, patch.object(
+                hrv_sync_flow, "_promote_operational_rr_files", return_value=1
+            ) as promote_mock, patch.object(
                 hrv_sync_flow, "run_build_hrv_core", return_value=_Result()
             ) as run_core_mock, patch.object(
                 hrv_sync_flow, "run_build_hrv_final_dashboard_only"
@@ -136,6 +138,7 @@ class HrvSyncFlowContractTests(unittest.TestCase):
 
         dropbox_mock.assert_called_once()
         run_core_mock.assert_called_once_with([rr_path])
+        promote_mock.assert_called_once_with([rr_path], Path(tmpdir))
         final_mock.assert_called_once()
         ssm_mock.assert_called_once()
         sleep_mock.assert_called_once()
@@ -241,7 +244,7 @@ class HrvSyncFlowContractTests(unittest.TestCase):
                 hrv_sync_flow, "get_existing_dates_from_master", return_value=set()
             ), patch.object(
                 hrv_sync_flow, "_run_dropbox_rr_import_for_dates", return_value=(dropbox_map, 1)
-            ), patch.object(hrv_sync_flow, "run_build_hrv_core", return_value=None), patch.object(
+            ), patch.object(hrv_sync_flow, "_promote_operational_rr_files") as promote_mock, patch.object(hrv_sync_flow, "run_build_hrv_core", return_value=None), patch.object(
                 hrv_sync_flow, "run_build_hrv_final_dashboard_only"
             ) as final_mock, patch.object(hrv_sync_flow, "run_build_hrv_ssm_shadow_only") as ssm_mock, patch.object(
                 hrv_sync_flow, "_update_sleep_for_dates"
@@ -252,6 +255,7 @@ class HrvSyncFlowContractTests(unittest.TestCase):
 
         final_mock.assert_not_called()
         ssm_mock.assert_not_called()
+        promote_mock.assert_not_called()
         sleep_mock.assert_called_once()
         intervals_mock.assert_called_once()
         summary_mock.assert_called_once()

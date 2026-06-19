@@ -61,6 +61,21 @@ class DropboxRrContractTests(unittest.TestCase):
             self.assertEqual(indexed[date(2026, 3, 1)], dropbox_rr_path)
             self.assertEqual(indexed[date(2026, 3, 2)], polar_rr_path)
 
+    def test_scan_rr_files_by_date_ignores_audit_subdirectories(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            canonical = root / "ENDURANCE_2026-03-01_from_jsonl_RR.CSV"
+            audit_dir = root / "_audit_2026-03-01" / "rr_out"
+            audit_dir.mkdir(parents=True, exist_ok=True)
+            audit_rr = audit_dir / "ENDURANCE_2026-03-01_from_jsonl_v9_RR.CSV"
+
+            canonical.write_text("duration,offline\n100,0\n", encoding="utf-8")
+            audit_rr.write_text("duration,offline\n200,0\n", encoding="utf-8")
+
+            indexed = dropbox_rr._scan_rr_files_by_date(root, source_tag="from_jsonl")
+
+            self.assertEqual(indexed[date(2026, 3, 1)], canonical)
+
     def test_run_dropbox_rr_import_for_dates_updates_index_from_subprocess(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -71,7 +86,9 @@ class DropboxRrContractTests(unittest.TestCase):
             buffer = io.StringIO()
 
             def fake_run(cmd, **kwargs):
-                new_file = root / "fresh_2026-03-02_from_jsonl_RR.CSV"
+                outdir = Path(cmd[cmd.index("--outdir") + 1])
+                outdir.mkdir(parents=True, exist_ok=True)
+                new_file = outdir / "fresh_2026-03-02_from_jsonl_RR.CSV"
                 new_file.write_text("duration,offline\n100,0\n", encoding="utf-8")
                 return fake_result
 
@@ -89,10 +106,14 @@ class DropboxRrContractTests(unittest.TestCase):
 
             self.assertEqual(new_count, 1)
             self.assertEqual(result[date(2026, 3, 1)], preexisting)
-            self.assertEqual(result[date(2026, 3, 2)], root / "fresh_2026-03-02_from_jsonl_RR.CSV")
+            self.assertEqual(result[date(2026, 3, 2)].name, "fresh_2026-03-02_from_jsonl_RR.CSV")
             run_mock.assert_called_once()
             self.assertIn("--dropbox-folder", run_mock.call_args.args[0])
             self.assertIn("--outdir", run_mock.call_args.args[0])
+            self.assertEqual(run_mock.call_args.args[0].count("--target-date"), 2)
+            self.assertIn("2026-03-01", run_mock.call_args.args[0])
+            self.assertIn("2026-03-02", run_mock.call_args.args[0])
+            self.assertIn("_incoming_dropbox_rr", run_mock.call_args.args[0][run_mock.call_args.args[0].index("--outdir") + 1])
 
     def test_run_dropbox_rr_import_for_dates_passes_timeout_and_survives_timeout(self):
         with tempfile.TemporaryDirectory() as tmpdir:
