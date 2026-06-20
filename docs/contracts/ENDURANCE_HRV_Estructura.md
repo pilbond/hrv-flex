@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Estructura de Datos
 
-**Revisión:** r2026-06-11 v3.17 (manifests de trazabilidad de corrida)
+**Revisión:** r2026-06-19 v3.18 (fix sessions_day 61 cols en diagrama)
 **Estado:** Producción
 
 **Documentos relacionados:**
@@ -381,7 +381,7 @@ Muestra qué entra y qué sale de cada script, y cómo se encadenan:
                     │
   Intervals.icu ────┤
 ├──► build_sessions.py ──► SESSIONS.csv (73 cols)
-│                     ├──► SESSIONS_DAY.csv (60 cols)
+│                     ├──► SESSIONS_DAY.csv (61 cols)
 │                     ├──► INTENSITY_DISTRIBUTION_WEEKLY.csv (21 cols)
                     │                     ├──► ENDURANCE_HRV_weekly_coach.json
                     │                     └──► ENDURANCE_HRV_sessions_metadata.json

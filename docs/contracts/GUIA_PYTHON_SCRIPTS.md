@@ -72,6 +72,13 @@ Importante:
   - Mantiene el contrato CLI historico del repo sin reabrir el alcance funcional.
 - Cuando usarlo:
   - Sync operativo principal (CLI o disparado desde web).
+- Flags:
+  - `--process`: flujo completo (cubrir fechas + CORE + FINAL + DASHBOARD + SSM).
+  - `--all`: reprocesa RR ya existentes en `rr_downloads/` sin descargar nada nuevo.
+  - `--days N`: limita la ventana de fechas a los ultimos N dias.
+  - `--ssm-audit`: ejecuta SSM shadow + validacion + outcome battery (no combina con `--process`).
+  - `--debug-sports`: muestra deportes de sesiones Polar de los ultimos 7 dias (diagnostico).
+  - `--verbose`: detalles de cada archivo procesado.
 - Entradas:
   - Tokens, credenciales Polar, RR ya existentes, configuracion de `HRV_DATA_DIR`.
 - Salidas:
@@ -340,6 +347,7 @@ Importante:
   - `--date YYYY-MM-DD`: un dia concreto.
   - `--no-streams`: omite descarga y procesado de streams cuando quieres una corrida mas ligera.
   - `--no-notes`: omite notas/wellness textual cuando quieres minimizar dependencias de contenido libre.
+  - `--output <dir>`: directorio de salida alternativo (por defecto usa `HRV_DATA_DIR`).
 - Salidas:
   - CSVs de sesiones, distribucion semanal, wellness subjetivo y metadata.
   - `sessions.csv` pasa a ser la fuente canonica de detalle por sesion, incluidos coste, zonas, drift, mecanica minima y la extracción mínima cerrada de coach metrics por sesión.
@@ -492,4 +500,22 @@ Y aparte, opcionales recomendados:
    - `narrative_targets` (`error_context`, `exit_context`, `final_reason_rendered`); `exit_context.block_role_signals.load_rank_in_sport_7d` usa una ventana real de 7 dias por deporte, no un recorte visual de sesiones recientes
    - para sesiones `trail_run`: capa shadow (`runaware_context`, `v1_shadow_history`) — validacion paralela del clustering v1 con senal de terreno y potencia de carrera; shadow-only, no modifica ningun contrato canonico
 4. `analysis\\hrv_rebound_profile.py` cuando quieras revisar la absorcion HRV de forma retrospectiva por semana o por bloque, sin mezclar esa lectura con el gate diario ni con `sessions_day`.
+
+## 4) Modulos de soporte en `analysis/` (no documentados como entrypoints)
+
+Los siguientes scripts son modulos internos de la capa analitica local. No son entrypoints independientes; los consumen `analyze_session.py`, `run_session_analysis.py` y `analyze_weekly.py`:
+
+- `session_analysis_pipeline.py` — Pipeline central: contiene `run_analysis()` y `prepare_bundle()`
+- `session_cost_model.py` — Scoring cardio/mecanico por sesion
+- `fit_speed_utils.py` — Calculo de metricas de velocidad desde FIT
+- `fit_terrain_utils.py` — Analisis de terreno desde FIT (GAP, VAM, climbs)
+- `training_audit_utils.py` — Utilidades de auditoria de calidad de entrenamiento
+- `prepare_session_bundle.py` — Empaquetado de datos de sesion para analisis
+- `run_session_analysis_batch.py` — Variante batch de `run_session_analysis.py`
+- `run_weekly_analysis_prep.py` — Etapa de preparacion para analisis semanal
+- `build_weekly_analysis_sidecars.py` — Generacion de sidecars semanales
+- `efficiency_context_audit.py` — Auditoria de contexto de eficiencia
+- `patch_speed_metrics.py` — Correccion/parche de metricas de velocidad
+- `sya15_continuity.py` — Analisis de continuidad deportiva (SYA-15)
+- `endurance_rr_session_v4.py` — Analisis RR de sesion con QA y gates DFA
 

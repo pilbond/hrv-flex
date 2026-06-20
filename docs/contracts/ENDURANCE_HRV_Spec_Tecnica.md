@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Especificación Técnica
 
-**Revisión:** r2026-06-11 v4.15 (manifests de corrida CORE/FINAL)
+**Revisión:** r2026-06-19 v4.16 (ANS balance §4.5, outputs SSM/wellness/reason_items en §17)
 **Estado:** Producción
 
 ---
@@ -39,7 +39,7 @@ Mapa operativo actual:
 - Sistema vigente: `ENDURANCE HRV V4.10`
 - Módulo RR -> CORE/BETA: `build_hrv_core.py`, revisión `r2026-03-19`
 - Módulo CORE -> FINAL/DASHBOARD: `build_hrv_final_dashboard.py`, revisión `r2026-04-08`
-- Contrato estructural HRV: `ENDURANCE_HRV_Estructura.md`, revisión `r2026-06-10 v3.16`
+- Contrato estructural HRV: `ENDURANCE_HRV_Estructura.md`, revisión `r2026-06-19 v3.18`
 - Contrato de sesiones: `ENDURANCE_HRV_Sessions_Schema.md`, revisión `r2026-05-18 v3.15`
 
 ---
@@ -329,6 +329,19 @@ Se evalúa si el tramo era realmente estable mirando la cola (últimos 120 s). C
 | Ninguna de las anteriores | Todo coherente | OK |
 
 **NOTA:** `Tiempo_Estabilizacion = NaN` NO fuerza Unstable. Son conceptos distintos: la latencia mide si la señal se estabilizó al principio; HRV_Stability mide si era estable al final. El "castigo" por latencia missing se materializa vía `Calidad` (FLAG_mecánico), no vía `HRV_Stability`.
+
+### 4.5 Métricas ANS complementarias (informativas)
+
+Se calculan sobre el tramo estabilizado como indicadores complementarios del balance autonómico. **No entran en el gate ni en la decisión operativa.**
+
+| Métrica | Cálculo | Qué representa |
+|---------|---------|----------------|
+| `SI_baevsky` | `AMo / (2 × Mo × MxDMn)` donde `Mo` = moda de RR (bin 50 ms), `AMo` = % de RR en el bin modal, `MxDMn` = max(RR) − min(RR) | Índice de estrés de Baevsky: estimación de activación simpática. Valores altos indican predominio simpático |
+| `SD1` | `std(diff(RR)) / sqrt(2) × 1000` [ms] | Eje corto del diagrama de Poincaré: variabilidad latido a latido (tono vagal rápido) |
+| `SD2` | `sqrt(2 × var(RR) − 0.5 × var(diff(RR))) × 1000` [ms] | Eje largo del diagrama de Poincaré: variabilidad a más largo plazo |
+| `SD1_SD2_ratio` | `SD1 / SD2` | Ratio entre variabilidad rápida y lenta. Valores bajos sugieren predominio simpático |
+
+Estas métricas se añaden a `ENDURANCE_HRV_master_CORE.csv` (columnas 14-17, entre `Flags` y `Notes`).
 
 ---
 
@@ -969,6 +982,10 @@ Si tu baseline actual está por debajo del P20 de todos tus baselines histórico
 | `ENDURANCE_HRV_intensity_distribution_weekly.csv` | Distribución observada de intensidad por deporte y semana ISO. Sidecar analítico; no alimenta el gate ni `reason_text`. | 21 |
 | `ENDURANCE_HRV_sessions_metadata.json` | Trazabilidad pipeline sesiones (versión, params, sampling rate) + auditoría ligera de interpretabilidad para coaching/carga | — |
 | `ENDURANCE_HRV_weekly_coach.json` | Sidecar semanal estructurado con `iso_week`, ventana, `as_of_date`, `generated_at`, `anchor_source`, `week_expected_days`, `week_data_coverage_pct`, `week_type`, `week_load`, `progression_risk`, `hrv_trend`, `data_quality` y claves opcionales de trazabilidad como `sleep_context` y `z3_budget_by_sport`. No alimenta el gate ni `reason_text`. | — |
+| `ENDURANCE_HRV_master_FINAL_reason_items.json` | Sidecar estable con `reason_items` por fecha para consumo de `analysis/`; conserva la separación entre dato medido, proxy, inferencia y acción | — |
+| `ENDURANCE_HRV_ssm_shadow.csv` | Sidecar sombra con estado latente HRV+carga (Banister 2-estados), observación nocturna auxiliar, incertidumbre y controles simples. No toca `FINAL` ni el gate | 30 |
+| `ENDURANCE_HRV_ssm_shadow_metadata.json` | Metadata de trazabilidad del modelo SSM: parámetros congelados, hashes, warm-up y calibración | — |
+| `ENDURANCE_HRV_wellness_subjective.csv` | Wellness subjetivo diario desde Intervals (fatigue, stress, mood, motivation, soreness, injury) con labels y cobertura. Se reserva para análisis retrospectivo; no alimenta `reason_text` | 17 |
 | `ENDURANCE_HRV_master_BETA_AUDIT.csv` | Modelo beta del V3, para comparación histórica | 13 |
 
 El contrato exacto (columnas, orden, tipos) de CORE/FINAL/DASHBOARD/SLEEP está en `ENDURANCE_HRV_Estructura.md`.

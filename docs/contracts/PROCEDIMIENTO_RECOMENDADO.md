@@ -28,6 +28,34 @@ Esto hace:
 
 Si usas la Web UI, basta con presionar "Sincronizar".
 
+### Flags disponibles de `polar_hrv_automation.py`
+
+| Flag | Qué hace |
+|------|----------|
+| `--process` | Flujo completo: cubrir fechas faltantes + CORE + FINAL + DASHBOARD + SSM |
+| `--all` | Reprocesa RR ya existentes en `rr_downloads/` sin descargar nada nuevo |
+| `--days N` | Limita la ventana de fechas a buscar a los últimos N días |
+| `--ssm-audit` | Ejecuta SSM shadow + validación + outcome battery (manual, no combina con `--process`) |
+| `--debug-sports` | Muestra deportes de todas las sesiones Polar de los últimos 7 días (diagnóstico) |
+| `--verbose` | Muestra detalles de cada archivo procesado |
+
+### Endpoints Web UI
+
+| Método | Ruta | Qué hace |
+|--------|------|----------|
+| `GET` | `/` | Página de inicio |
+| `GET` | `/auth` | Redirige a Polar OAuth |
+| `GET` | `/auth/callback`, `/oauth/callback` | Intercambio code → tokens |
+| `POST` | `/api/sync` | Ejecuta `polar_hrv_automation.py --process` en background |
+| `POST` | `/api/sync-sessions` | Ejecuta `build_sessions.py --update` en background |
+| `GET` | `/api/status` | Estado actual del job, último output e info de weekly coach |
+| `POST` | `/api/import-seed` | Importa seed/artefactos auxiliares |
+| `POST` | `/api/restore-backup` | Restaura CSV canónicos desde el último backup en Dropbox |
+| `POST` | `/api/delete-latest-rr` | Elimina el último RR ingerido |
+| `GET` | `/health` | Health check (`?strict=1` para validar frescura de FINAL) |
+
+Todos los endpoints POST comparten estado y no deben ejecutarse en paralelo. Si `HRV_UI_KEY` está definida, los `/api/*` exigen la clave vía header `X-HRV-KEY` o `?key=`.
+
 ## Variables recomendadas
 Local:
 - `HRV_DATA_DIR=data`
@@ -58,7 +86,10 @@ python egc_to_rr.py --dropbox-folder /ruta/carpeta --dropbox-recursive --outdir 
 
 4) (Opcional) Actualizar carga de entrenamiento:
 
-python build_sessions.py --update
+python build_sessions.py --update          # desde último día con datos hasta hoy
+python build_sessions.py --backfill        # histórico completo
+python build_sessions.py --daily           # últimas 48h
+python build_sessions.py --date 2026-06-15 # un día concreto
 
 5) (Opcional) Usar utilidades manuales movidas a `scripts/python/`:
 
@@ -72,9 +103,16 @@ Si no hay sesión en un día, el CSV simplemente no incluye esa fecha. Es normal
 
 ## Notas operativas
 - El comando principal sigue siendo: `python polar_hrv_automation.py --process`.
-- Internamente, el flujo operativo vive hoy en modulos separados dentro de `hrv_app/` (`hrv_app.hrv_sync_flow`, `hrv_app.dropbox_rr`, `hrv_app.polar_client`, `hrv_app.sleep_store`, `hrv_app.intervals_sync`, `hrv_app.pipeline_runner`), pero el contrato CLI no cambia.
+- Internamente, el flujo operativo vive hoy en modulos separados dentro de `hrv_app/` (`hrv_app.hrv_sync_flow`, `hrv_app.dropbox_rr`, `hrv_app.polar_client_v4`, `hrv_app.sleep_store`, `hrv_app.intervals_sync`, `hrv_app.pipeline_runner`), pero el contrato CLI no cambia.
 - Para mantener la capa de carga al dia, usa `python build_sessions.py --update`.
 - Para evitar guardar artefactos JSONL auxiliares en entornos web, usa `HRV_DROPBOX_NO_AUX=1`.
+- Variables operativas adicionales (ver `CLAUDE.md` para lista completa):
+  - `HRV_QUIET=1` — logs mínimos
+  - `HRV_DISABLE_BACKUP=1` — no respaldar CSVs
+  - `HRV_UI_KEY=<clave>` — protege `/api/*` con header `X-HRV-KEY` o `?key=`
+  - `HRV_WARNING_MODE=adaptive90` — estrategia de warning (`adaptive90` | `healthy85` | `p20`)
+  - `HRV_BACKUP_DROPBOX_ENABLED=1` — backup de artefactos a Dropbox tras sync exitoso
+  - `HRV_STALE_MAX_DAYS=3` — umbral de `/health?strict=1`
 - No subir a Git: `.env`, `.polar_tokens.json` ni datos personales.
 
 ## Migración desde V3 (solo histórico)
