@@ -1,5 +1,9 @@
 import unittest
 from unittest.mock import patch
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+import pandas as pd
 
 import web_ui
 
@@ -404,6 +408,214 @@ class WebUiRestoreBackupTests(unittest.TestCase):
         data = resp.get_json()
         self.assertFalse(data["success"])
         self.assertIn("no creds", data["error"])
+
+
+class WebUiDeleteLatestRRTests(unittest.TestCase):
+    def test_delete_latest_rr_purges_date_and_creates_snapshot(self):
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            data_dir = root / "data"
+            rr_dir = root / "rr_downloads"
+            data_dir.mkdir()
+            rr_dir.mkdir()
+
+            older = rr_dir / "Polar_User_2026-06-18_RR.csv"
+            latest = rr_dir / "Polar_User_2026-06-19_RR.csv"
+            older.write_text("duration,offline\n1000,0\n1000,0\n", encoding="utf-8")
+            latest.write_text("duration,offline\n1000,0\n1000,0\n", encoding="utf-8")
+
+            pd.DataFrame(
+                [
+                    {"Fecha": "2026-06-18", "Calidad": "OK"},
+                    {"Fecha": "2026-06-19", "Calidad": "OK"},
+                ]
+            ).to_csv(data_dir / "ENDURANCE_HRV_master_CORE.csv", index=False)
+            pd.DataFrame(
+                [
+                    {"Fecha": "2026-06-18", "lnRMSSD": 4.2},
+                    {"Fecha": "2026-06-19", "lnRMSSD": 4.1},
+                ]
+            ).to_csv(data_dir / "ENDURANCE_HRV_master_BETA_AUDIT.csv", index=False)
+            pd.DataFrame(
+                [
+                    {"Fecha": "2026-06-18", "gate_badge": "VERDE"},
+                    {"Fecha": "2026-06-19", "gate_badge": "ROJO"},
+                ]
+            ).to_csv(data_dir / "ENDURANCE_HRV_master_FINAL.csv", index=False)
+            pd.DataFrame(
+                [
+                    {"Fecha": "2026-06-18", "reason_text": "ok"},
+                    {"Fecha": "2026-06-19", "reason_text": "bad"},
+                ]
+            ).to_csv(data_dir / "ENDURANCE_HRV_master_DASHBOARD.csv", index=False)
+            pd.DataFrame(
+                [
+                    {"Fecha": "2026-06-18", "ssm_input_ready": True},
+                    {"Fecha": "2026-06-19", "ssm_input_ready": True},
+                ]
+            ).to_csv(data_dir / "ENDURANCE_HRV_ssm_shadow.csv", index=False)
+            (data_dir / "ENDURANCE_HRV_master_FINAL_reason_items.json").write_text(
+                '{"items_by_date":{"2026-06-18":[{"type":"x"}],"2026-06-19":[{"type":"y"}]}}',
+                encoding="utf-8",
+            )
+            for name in (
+                "ENDURANCE_HRV_master_CORE_manifest.json",
+                "ENDURANCE_HRV_master_FINAL_manifest.json",
+                "ENDURANCE_HRV_ssm_shadow_metadata.json",
+            ):
+                (data_dir / name).write_text('{"stale":true}', encoding="utf-8")
+
+            with patch.object(web_ui, "DATA_DIR", data_dir), \
+                    patch.object(web_ui, "RR_DOWNLOAD_DIR", rr_dir):
+                result = web_ui._delete_latest_rr()
+
+            self.assertEqual(result["deleted_rr_date"], "2026-06-19")
+            self.assertEqual(result["remaining_rr_csv_count"], 1)
+            self.assertEqual(result["rebuild_status"], "not_requested")
+            self.assertTrue(result["rollback_available"])
+
+            self.assertFalse(latest.exists())
+            self.assertTrue(older.exists())
+            quarantined = Path(result["deleted_rr_backup"])
+            self.assertTrue(quarantined.exists())
+            snapshot_dir = Path(result["delete_snapshot_dir"])
+            self.assertTrue(snapshot_dir.exists())
+            self.assertTrue((snapshot_dir / "restore_manifest.json").exists())
+
+            for name in (
+                "ENDURANCE_HRV_master_CORE.csv",
+                "ENDURANCE_HRV_master_BETA_AUDIT.csv",
+                "ENDURANCE_HRV_master_FINAL.csv",
+                "ENDURANCE_HRV_master_DASHBOARD.csv",
+                "ENDURANCE_HRV_ssm_shadow.csv",
+            ):
+                df = pd.read_csv(data_dir / name)
+                self.assertEqual(df["Fecha"].astype(str).tolist(), ["2026-06-18"])
+
+            reason_items = (data_dir / "ENDURANCE_HRV_master_FINAL_reason_items.json").read_text(encoding="utf-8")
+            self.assertIn("2026-06-18", reason_items)
+            self.assertNotIn("2026-06-19", reason_items)
+            self.assertFalse((data_dir / "ENDURANCE_HRV_master_CORE_manifest.json").exists())
+            self.assertFalse((data_dir / "ENDURANCE_HRV_master_FINAL_manifest.json").exists())
+            self.assertFalse((data_dir / "ENDURANCE_HRV_ssm_shadow_metadata.json").exists())
+
+    def test_delete_latest_rr_can_restore_snapshot(self):
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            data_dir = root / "data"
+            rr_dir = root / "rr_downloads"
+            data_dir.mkdir()
+            rr_dir.mkdir()
+
+            latest = rr_dir / "Polar_User_2026-06-19_RR.csv"
+            latest.write_text("duration,offline\n1000,0\n1000,0\n", encoding="utf-8")
+            pd.DataFrame([{"Fecha": "2026-06-19", "Calidad": "OK"}]).to_csv(data_dir / "ENDURANCE_HRV_master_CORE.csv", index=False)
+
+            with patch.object(web_ui, "DATA_DIR", data_dir), \
+                    patch.object(web_ui, "RR_DOWNLOAD_DIR", rr_dir):
+                result = web_ui._delete_latest_rr()
+
+                with patch.object(web_ui.os, "replace", wraps=web_ui.os.replace) as replace_mock:
+                    restore = web_ui._restore_rr_delete_snapshot(Path(result["delete_snapshot_manifest"]))
+
+            self.assertTrue((rr_dir / "Polar_User_2026-06-19_RR.csv").exists())
+            core_df = pd.read_csv(data_dir / "ENDURANCE_HRV_master_CORE.csv")
+            self.assertEqual(core_df["Fecha"].astype(str).tolist(), ["2026-06-19"])
+            self.assertIn("Polar_User_2026-06-19_RR.csv", restore["restored"])
+            self.assertIn("ENDURANCE_HRV_master_CORE.csv", restore["restored"])
+            self.assertGreater(replace_mock.call_count, 0)
+
+    def test_delete_latest_rr_uses_latest_core_source_not_file_mtime(self):
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            data_dir = root / "data"
+            rr_dir = root / "rr_downloads"
+            audit_dir = rr_dir / "_audit_2026-06-20" / "rr_out"
+            data_dir.mkdir()
+            rr_dir.mkdir()
+            audit_dir.mkdir(parents=True)
+
+            root_rr = rr_dir / "ENDURANCE_2026-06-18_from_jsonl_RR.CSV"
+            core_rr = audit_dir / "ENDURANCE_2026-06-20_from_jsonl_RR.CSV"
+            root_rr.write_text("duration,offline\n1000,0\n", encoding="utf-8")
+            core_rr.write_text("duration,offline\n1000,0\n", encoding="utf-8")
+
+            pd.DataFrame(
+                [
+                    {"Fecha": "2026-06-18", "Notes": "src=ENDURANCE_2026-06-18_from_jsonl_RR.CSV"},
+                    {"Fecha": "2026-06-20", "Notes": "src=ENDURANCE_2026-06-20_from_jsonl_RR.CSV"},
+                ]
+            ).to_csv(data_dir / "ENDURANCE_HRV_master_CORE.csv", index=False)
+
+            with patch.object(web_ui, "DATA_DIR", data_dir), \
+                    patch.object(web_ui, "RR_DOWNLOAD_DIR", rr_dir):
+                diagnostics = web_ui._latest_rr_diagnostics()
+                result = web_ui._delete_latest_rr()
+
+            self.assertEqual(diagnostics["latest_rr_date"], "2026-06-20")
+            self.assertEqual(diagnostics["latest_rr_file"], "ENDURANCE_2026-06-20_from_jsonl_RR.CSV")
+            self.assertEqual(result["deleted_rr_date"], "2026-06-20")
+            self.assertFalse(core_rr.exists())
+            self.assertTrue(root_rr.exists())
+
+    def test_delete_latest_rr_rolls_back_if_purge_fails(self):
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            data_dir = root / "data"
+            rr_dir = root / "rr_downloads"
+            data_dir.mkdir()
+            rr_dir.mkdir()
+
+            latest = rr_dir / "Polar_User_2026-06-19_RR.csv"
+            latest.write_text("duration,offline\n1000,0\n1000,0\n", encoding="utf-8")
+            pd.DataFrame([{"Fecha": "2026-06-19", "Calidad": "OK"}]).to_csv(data_dir / "ENDURANCE_HRV_master_CORE.csv", index=False)
+
+            with patch.object(web_ui, "DATA_DIR", data_dir), \
+                    patch.object(web_ui, "RR_DOWNLOAD_DIR", rr_dir), \
+                    patch.object(web_ui, "_drop_csv_rows_for_date", side_effect=RuntimeError("boom")):
+                with self.assertRaisesRegex(RuntimeError, "boom"):
+                    web_ui._delete_latest_rr()
+
+            self.assertTrue(latest.exists())
+            core_df = pd.read_csv(data_dir / "ENDURANCE_HRV_master_CORE.csv")
+            self.assertEqual(core_df["Fecha"].astype(str).tolist(), ["2026-06-19"])
+
+    def test_delete_latest_rr_keeps_original_error_when_rollback_fails(self):
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            data_dir = root / "data"
+            rr_dir = root / "rr_downloads"
+            data_dir.mkdir()
+            rr_dir.mkdir()
+
+            latest = rr_dir / "Polar_User_2026-06-19_RR.csv"
+            latest.write_text("duration,offline\n1000,0\n1000,0\n", encoding="utf-8")
+            pd.DataFrame([{"Fecha": "2026-06-19", "Calidad": "OK"}]).to_csv(data_dir / "ENDURANCE_HRV_master_CORE.csv", index=False)
+
+            with patch.object(web_ui, "DATA_DIR", data_dir), \
+                    patch.object(web_ui, "RR_DOWNLOAD_DIR", rr_dir), \
+                    patch.object(web_ui, "_drop_csv_rows_for_date", side_effect=RuntimeError("boom")), \
+                    patch.object(web_ui, "_restore_rr_delete_snapshot", side_effect=RuntimeError("rollback boom")):
+                with self.assertRaises(RuntimeError) as ctx:
+                    web_ui._delete_latest_rr()
+
+            self.assertIn("rollback boom", str(ctx.exception))
+            self.assertIsNotNone(ctx.exception.__cause__)
+            self.assertIn("boom", str(ctx.exception.__cause__))
+
+    def test_rr_delete_snapshot_dirs_are_unique(self):
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            rr_dir = data_dir / "rr_downloads"
+            rr_dir.mkdir()
+            rr_file = rr_dir / "Polar_User_2026-06-19_RR.csv"
+            rr_file.write_text("duration,offline\n1000,0\n", encoding="utf-8")
+
+            with patch.object(web_ui, "DATA_DIR", data_dir):
+                first = web_ui._build_rr_delete_snapshot_dir()
+                second = web_ui._build_rr_delete_snapshot_dir()
+
+            self.assertNotEqual(first, second)
 
 
 if __name__ == "__main__":

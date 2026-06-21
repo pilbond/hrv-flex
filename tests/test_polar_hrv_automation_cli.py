@@ -36,11 +36,13 @@ class PolarHrvAutomationCliTests(unittest.TestCase):
 
     def test_normal_run_calls_sync_with_no_token(self):
         with patch("sys.argv", ["polar_hrv_automation.py"]), \
+             patch.object(polar_hrv_automation, "auto_restore_if_empty") as restore_mock, \
              patch.object(polar_hrv_automation, "sync_hrv_range") as sync_mock, \
              patch.object(polar_hrv_automation, "run_dropbox_backup"):
             exit_code = polar_hrv_automation.main()
 
         self.assertEqual(exit_code, 0)
+        restore_mock.assert_called_once()
         sync_mock.assert_called_once_with(ANY, None, None, [])
 
     def test_debug_sports_v4_runs_then_returns(self):

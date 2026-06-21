@@ -74,6 +74,8 @@ Importante:
   - Sync operativo principal (CLI o disparado desde web).
 - Flags:
   - `--process`: flujo completo (cubrir fechas + CORE + FINAL + DASHBOARD + SSM).
+  - `--auth`: forzar re-autenticacion Polar.
+  - `--auto`: detectar automaticamente dias faltantes desde ultimo registro.
   - `--all`: reprocesa RR ya existentes en `rr_downloads/` sin descargar nada nuevo.
   - `--days N`: limita la ventana de fechas a los ultimos N dias.
   - `--ssm-audit`: ejecuta SSM shadow + validacion + outcome battery (no combina con `--process`).
@@ -192,15 +194,31 @@ Importante:
   - Backup opcional de los `ENDURANCE_HRV_*.csv/.json` a Dropbox tras un sync exitoso.
   - Sube los artefactos canónicos a una carpeta plana (`/hrv_backups/`), sobrescribiendo cada archivo (Dropbox conserva versiones anteriores por su cuenta).
   - Restaura archivos desde Dropbox a `DATA_DIR` con escritura atómica y backup previo de los archivos existentes en `data/backup/pre_restore/`.
+  - Puede hacer auto-restore opt-in cuando `DATA_DIR` arranca vacío o con `CORE` ilegible, si `HRV_AUTO_RESTORE_ON_EMPTY_DATA=1`.
   - Reutiliza las credenciales Dropbox ya configuradas para la ingesta RR.
 - Cuando usarlo:
   - El backup se ejecuta automáticamente al final de cada sync si `HRV_BACKUP_DROPBOX_ENABLED=1`.
   - La restauración se invoca desde `POST /api/restore-backup` en la UI web.
-  - NUNCA lanza excepciones en el backup (el sync continua); la restauración sí lanza si falta credencial o no hay archivos en `/hrv_backups/`.
+  - El auto-restore bloquea el sync si no deja un `CORE` usable tras la restauración.
+  - NUNCA lanza excepciones en el backup (el sync continua); la restauración sí lanza si falta credencial, no hay archivos en `/hrv_backups/` o el restore no deja un `CORE` usable.
 - Entradas:
-  - Variables de entorno Dropbox (`DROPBOX_ACCESS_TOKEN` o refresh trio), `HRV_BACKUP_DROPBOX_PATH`.
+  - Variables de entorno Dropbox (`DROPBOX_ACCESS_TOKEN` o refresh trio), `HRV_BACKUP_DROPBOX_PATH`, `HRV_AUTO_RESTORE_ON_EMPTY_DATA`.
 - Salidas:
   - Archivos subidos/descargados a/desde Dropbox, dict de resultado con status.
+
+## `hrv_app.polar_gateway`
+- Que hace:
+  - Gateway de sleep/nightly Polar usando v4 como unico transporte (AYO-22).
+  - Coordina `polar_auth_v4`, `polar_client_v4` y `polar_adapters_v4` para obtener datos de sueno y nightly recharge.
+- Cuando usarlo:
+  - Lo importa `hrv_app.sleep_store`; no es un entrypoint.
+
+## `hrv_app.run_manifest`
+- Que hace:
+  - Genera sidecars atomicos de trazabilidad (`*_manifest.json`) con hashes de inputs/outputs, configuracion efectiva y timestamp.
+  - Proporciona `build_manifest()`, `file_sha256()` y `utc_now_iso()`.
+- Cuando usarlo:
+  - Lo importan `build_hrv_core.py` y `build_hrv_final_dashboard.py` para dejar manifests atomicos tras cada corrida.
 
 ## `hrv_app.eval_utils`
 - Que hace:
@@ -358,6 +376,7 @@ Importante:
     - `z3_budget_by_sport` como lectura retrospectiva estructurada de percentil historico de Z3 por deporte o familia
     - `z3_budget_summary` como resumen corto visible en UI (`Contexto Z3 semanal`), deliberadamente asimetrico y solo surfaceado para bandas `high/very_high`
   - Esta capa sigue siendo retrospectiva y no introduce prescripcion automatica ni modifica `sessions_day`, `FINAL`, `DASHBOARD` o `reason_text`.
+- Si `HRV_AUTO_RESTORE_ON_EMPTY_DATA=1`, el CLI intenta restaurar el directorio de salida antes de procesar cuando detecta un `CORE` vacío, ilegible o ausente.
   - `sessions_metadata.json` pasa a ser la fuente canonica de `training_audit` para rebajar confianza de coaching/carga sin bloquear pipeline.
 - Automatico o manual:
   - Manual (no lo llama el flujo principal por defecto).

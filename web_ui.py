@@ -14,6 +14,8 @@ import sys
 import time
 import os
 import csv
+import math
+import re
 import shutil
 from pathlib import Path
 from datetime import datetime
@@ -21,12 +23,15 @@ import threading
 import json
 from urllib.parse import urlencode
 import secrets
+import uuid
+import pandas as pd
 from hrv_app.config import (
     DATA_DIR,
     OUTDIR as RR_DOWNLOAD_DIR,
     POLAR_V4_SCOPES,
     TOKEN_FILE_V4 as TOKEN_PATH_V4,
 )
+from hrv_app.io_utils import write_csv_atomic, write_json_atomic
 from hrv_app.polar_utils import env_flag, response_excerpt
 from hrv_app.oauth_utils import save_json_atomic
 from hrv_app.polar_auth_v4 import (
@@ -54,6 +59,20 @@ ALLOWED_IMPORT_FILES = [
     "ENDURANCE_HRV_sessions.csv",
     "ENDURANCE_HRV_sessions_day.csv",
 ]
+
+_RR_DELETE_DERIVED_CSVS = (
+    "ENDURANCE_HRV_master_CORE.csv",
+    "ENDURANCE_HRV_master_BETA_AUDIT.csv",
+    "ENDURANCE_HRV_master_FINAL.csv",
+    "ENDURANCE_HRV_master_DASHBOARD.csv",
+    "ENDURANCE_HRV_ssm_shadow.csv",
+)
+_RR_DELETE_DERIVED_JSONS = (
+    "ENDURANCE_HRV_master_FINAL_reason_items.json",
+    "ENDURANCE_HRV_master_CORE_manifest.json",
+    "ENDURANCE_HRV_master_FINAL_manifest.json",
+    "ENDURANCE_HRV_ssm_shadow_metadata.json",
+)
 
 
 
@@ -391,7 +410,67 @@ def _list_rr_csv_files(rr_dir: Path) -> list[Path]:
     files = []
     for pattern in ("*_RR.csv", "*_RR.CSV", "*_rr.csv"):
         files.extend(path for path in rr_dir.glob(pattern) if path.is_file())
-    return sorted(files, key=lambda path: (path.stat().st_mtime, path.name))
+    unique_files = {path.resolve(): path for path in files}
+    return sorted(unique_files.values(), key=_rr_sort_key)
+
+
+def _rr_sort_key(path: Path) -> tuple[str, float, str]:
+    try:
+        rr_date = _extract_rr_date(path.name)
+    except ValueError:
+        rr_date = ""
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        mtime = 0.0
+    return (rr_date, mtime, path.name)
+
+
+def _latest_core_rr_reference() -> tuple[str, str] | None:
+    core_path = DATA_DIR / "ENDURANCE_HRV_master_CORE.csv"
+    if not core_path.exists():
+        return None
+    try:
+        df = pd.read_csv(core_path)
+    except (FileNotFoundError, pd.errors.EmptyDataError, OSError, ValueError):
+        return None
+    if df.empty or "Fecha" not in df.columns:
+        return None
+    last = df.tail(1).iloc[0]
+    date_str = str(last.get("Fecha") or "").strip()
+    notes = str(last.get("Notes") or "")
+    match = re.search(r"(?:^|;\s*)src=([^;]+)", notes)
+    source_name = match.group(1).strip() if match else ""
+    if not date_str:
+        return None
+    return date_str, source_name
+
+
+def _find_rr_path_by_name(rr_dir: Path, source_name: str) -> Path | None:
+    if not source_name:
+        return None
+    direct = rr_dir / source_name
+    if direct.is_file():
+        return direct
+    matches = [path for path in rr_dir.rglob(source_name) if path.is_file()]
+    if not matches:
+        return None
+    return sorted(matches, key=_rr_sort_key)[-1]
+
+
+def _select_latest_rr_for_delete(rr_dir: Path) -> tuple[Path, str]:
+    core_ref = _latest_core_rr_reference()
+    if core_ref:
+        core_date, source_name = core_ref
+        source_path = _find_rr_path_by_name(rr_dir, source_name)
+        if source_path:
+            return source_path, core_date
+
+    files = _list_rr_csv_files(rr_dir)
+    if not files:
+        raise FileNotFoundError(f"No hay archivos RR CSV en {rr_dir}")
+    latest = files[-1]
+    return latest, _extract_rr_date(latest.name)
 
 
 def _latest_rr_diagnostics() -> dict:
@@ -400,7 +479,11 @@ def _latest_rr_diagnostics() -> dict:
         files = _list_rr_csv_files(rr_dir) if rr_dir.exists() else []
     except Exception:
         files = []
-    latest = files[-1] if files else None
+    try:
+        latest, latest_date = _select_latest_rr_for_delete(rr_dir) if rr_dir.exists() else (None, None)
+    except Exception:
+        latest = files[-1] if files else None
+        latest_date = _extract_rr_date(latest.name) if latest else None
     latest_mtime = None
     if latest:
         try:
@@ -413,6 +496,7 @@ def _latest_rr_diagnostics() -> dict:
         "rr_csv_count": len(files),
         "latest_rr_file": latest.name if latest else None,
         "latest_rr_path": str(latest) if latest else None,
+        "latest_rr_date": latest_date,
         "latest_rr_mtime": latest_mtime,
     }
 
@@ -422,23 +506,177 @@ def _delete_latest_rr() -> dict:
     if not rr_dir.exists():
         raise FileNotFoundError(f"No existe el directorio RR: {rr_dir}")
 
-    files = _list_rr_csv_files(rr_dir)
-    if not files:
-        raise FileNotFoundError(f"No hay archivos RR CSV en {rr_dir}")
+    latest, latest_date = _select_latest_rr_for_delete(rr_dir)
+    snapshot_dir, snapshot_manifest = _snapshot_rr_delete_state(latest)
+    target = snapshot_dir / latest.name
 
-    latest = files[-1]
-    quarantine_dir = DATA_DIR / "backup" / "deleted_rr" / datetime.now().strftime("%Y%m%d_%H%M%S")
-    quarantine_dir.mkdir(parents=True, exist_ok=True)
-    target = quarantine_dir / latest.name
-    shutil.move(str(latest), str(target))
+    try:
+        shutil.move(str(latest), str(target))
+
+        purged_csvs = []
+        for name in _RR_DELETE_DERIVED_CSVS:
+            path = DATA_DIR / name
+            if _drop_csv_rows_for_date(path, latest_date):
+                purged_csvs.append(name)
+
+        purged_jsons = []
+        reason_items_path = DATA_DIR / "ENDURANCE_HRV_master_FINAL_reason_items.json"
+        if _drop_reason_items_for_date(reason_items_path, latest_date):
+            purged_jsons.append(reason_items_path.name)
+
+        for name in (
+            "ENDURANCE_HRV_master_CORE_manifest.json",
+            "ENDURANCE_HRV_master_FINAL_manifest.json",
+            "ENDURANCE_HRV_ssm_shadow_metadata.json",
+        ):
+            path = DATA_DIR / name
+            if path.exists():
+                path.unlink()
+                purged_jsons.append(name)
+    except Exception as exc:
+        try:
+            _restore_rr_delete_snapshot(snapshot_manifest)
+        except Exception as rollback_exc:
+            raise RuntimeError(
+                f"Borrado del último RR falló y el rollback también falló: {rollback_exc}"
+            ) from exc
+        raise
+
+    remaining_files = _list_rr_csv_files(rr_dir)
 
     return {
+        "deleted_rr_date": latest_date,
         "deleted_rr_name": latest.name,
         "deleted_rr_source": str(latest),
         "deleted_rr_backup": str(target),
+        "delete_snapshot_dir": str(snapshot_dir),
+        "delete_snapshot_manifest": str(snapshot_manifest),
         "rr_download_dir": str(rr_dir),
-        "remaining_rr_csv_count": len(files) - 1,
+        "remaining_rr_csv_count": len(remaining_files),
+        "purged_csvs": purged_csvs,
+        "purged_jsons": purged_jsons,
+        "rollback_available": True,
+        "rebuild_status": "not_requested",
     }
+
+
+def _extract_rr_date(filename: str) -> str:
+    match = re.search(r"(\d{4}-\d{2}-\d{2})", filename)
+    if not match:
+        raise ValueError(f"No puedo extraer la fecha del RR: {filename}")
+    return match.group(1)
+
+
+def _drop_csv_rows_for_date(path: Path, date_str: str) -> bool:
+    if not path.exists():
+        return False
+    try:
+        df = pd.read_csv(path)
+    except (FileNotFoundError, pd.errors.EmptyDataError, OSError, ValueError):
+        return False
+    if "Fecha" not in df.columns:
+        return False
+    filtered = df[df["Fecha"].astype(str) != date_str].copy()
+    if len(filtered) == len(df):
+        return False
+    write_csv_atomic(filtered.reindex(columns=df.columns), path)
+    return True
+
+
+def _drop_reason_items_for_date(path: Path, date_str: str) -> bool:
+    if not path.exists():
+        return False
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+    items_by_date = payload.get("items_by_date")
+    if not isinstance(items_by_date, dict) or date_str not in items_by_date:
+        return False
+    items_by_date.pop(date_str, None)
+    write_json_atomic(payload, path)
+    return True
+
+
+def _rr_delete_snapshot_manifest_path(snapshot_dir: Path) -> Path:
+    return snapshot_dir / "restore_manifest.json"
+
+
+def _build_rr_delete_snapshot_dir() -> Path:
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    return DATA_DIR / "backup" / "deleted_rr" / f"{stamp}_{uuid.uuid4().hex[:8]}"
+
+
+def _snapshot_rr_delete_state(latest_rr_path: Path) -> tuple[Path, Path]:
+    snapshot_dir = _build_rr_delete_snapshot_dir()
+    snapshot_dir.mkdir(parents=True, exist_ok=True)
+
+    artifacts = [{"path": str(latest_rr_path), "snapshot_name": latest_rr_path.name, "required": True}]
+    artifacts.extend(
+        {"path": str(DATA_DIR / name), "snapshot_name": name, "required": False}
+        for name in (*_RR_DELETE_DERIVED_CSVS, *_RR_DELETE_DERIVED_JSONS)
+    )
+
+    manifest_artifacts = []
+    for item in artifacts:
+        original_path = Path(item["path"])
+        entry = {
+            "path": str(original_path),
+            "snapshot_name": item["snapshot_name"],
+            "required": bool(item["required"]),
+            "existed": original_path.exists(),
+        }
+        if original_path.exists():
+            shutil.copy2(original_path, snapshot_dir / item["snapshot_name"])
+        manifest_artifacts.append(entry)
+
+    manifest = {
+        "created_at": datetime.now().isoformat(),
+        "snapshot_dir": str(snapshot_dir),
+        "artifacts": manifest_artifacts,
+    }
+    manifest_path = _rr_delete_snapshot_manifest_path(snapshot_dir)
+    write_json_atomic(manifest, manifest_path)
+    return snapshot_dir, manifest_path
+
+
+def _restore_rr_delete_snapshot(manifest_path: Path) -> dict:
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    snapshot_dir = Path(payload["snapshot_dir"])
+    restored = []
+    removed = []
+    for item in payload.get("artifacts", []):
+        original_path = Path(item["path"])
+        snapshot_path = snapshot_dir / str(item["snapshot_name"])
+        if item.get("existed"):
+            if not snapshot_path.exists():
+                raise FileNotFoundError(f"Falta snapshot para restaurar: {snapshot_path}")
+            _restore_file_atomic(snapshot_path, original_path)
+            restored.append(original_path.name)
+        elif original_path.exists():
+            original_path.unlink()
+            removed.append(original_path.name)
+    return {
+        "snapshot_dir": str(snapshot_dir),
+        "restored": restored,
+        "removed": removed,
+    }
+
+
+def _restore_file_atomic(snapshot_path: Path, target_path: Path) -> None:
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = target_path.parent / f".{target_path.name}.{uuid.uuid4().hex}.tmp"
+    try:
+        shutil.copy2(snapshot_path, tmp_path)
+        os.replace(tmp_path, target_path)
+    finally:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
 
 
 def _csv_runtime_diagnostics() -> dict:
@@ -579,6 +817,53 @@ def _build_status_payload() -> dict:
         **rr_info,
     }
     return payload
+
+
+def _hrv_summary_title_from_payload(payload: dict) -> str:
+    diagnostics = payload.get("diagnostics", {}) if isinstance(payload, dict) else {}
+    fecha = str(diagnostics.get("final_last_fecha") or "").strip()
+    return f"Lectura HRV de hoy ({fecha})" if fecha else "Lectura HRV de hoy"
+
+
+def _technical_summary_from_payload(payload: dict) -> str:
+    diagnostics = payload.get("diagnostics", {}) if isinstance(payload, dict) else {}
+
+    def _fmt_float(raw: object, decimals: int = 1) -> str:
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            return "-"
+        return f"{value:.{decimals}f}"
+
+    def _exp_from_log(raw: object) -> str:
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            return "-"
+        try:
+            return f"{math.exp(value):.1f}"
+        except OverflowError:
+            return "-"
+
+    lines = [
+        "Estado actual visible en UI",
+        f"Fecha FINAL: {str(diagnostics.get('final_last_fecha') or 'N/A')}",
+        f"RMSSD bruto: {_fmt_float(diagnostics.get('final_last_rmssd_stable'))} ms",
+        f"HR hoy: {_fmt_float(diagnostics.get('final_last_hr_today'))} lpm",
+        f"lnRMSSD bruto: {_fmt_float(diagnostics.get('final_last_lnrmssd_today'), 3)}",
+        f"RMSSD usado: {_exp_from_log(diagnostics.get('final_last_lnrmssd_used'))} ms",
+        f"lnRMSSD usado: {_fmt_float(diagnostics.get('final_last_lnrmssd_used'), 3)}",
+        f"Baseline 60d: {_exp_from_log(diagnostics.get('final_last_ln_base60'))} ms",
+        f"SWC_ln: {_fmt_float(diagnostics.get('final_last_swc_ln'), 3)}",
+        f"Gate: {str(diagnostics.get('final_last_gate_badge') or 'N/A')} - {str(diagnostics.get('final_last_gate_razon_base60') or 'N/A')}",
+        f"Acción: {str(diagnostics.get('final_last_action_detail') or 'N/A')}",
+        f"Último RR en disco: {str(diagnostics.get('latest_rr_file') or 'N/A')}",
+    ]
+
+    raw_text = str(payload.get("last_output") or payload.get("output") or payload.get("last_error") or "").strip()
+    if raw_text:
+        lines.extend(["", "Log de la última ejecución", raw_text])
+    return "\n".join(lines)
 
 
 # HTML Template (UI móvil-first)
@@ -785,7 +1070,7 @@ HTML_TEMPLATE = """
             <div id="status" class="status"></div>
         </section>
         <section id="hrvSummaryCard" class="card hrv-summary-card" hidden>
-            <div class="hrv-summary-title">Lectura HRV de hoy</div>
+            <div id="hrvSummaryTitle" class="hrv-summary-title">{{ hrv_summary_title }}</div>
             <div class="hrv-summary-grid">
                 <div class="hrv-summary-item">
                     <div class="hrv-summary-label">Dato bruto</div>
@@ -821,7 +1106,7 @@ HTML_TEMPLATE = """
         </section>
         <section class="card">
             <div class="section-title">Detalle técnico</div>
-            <pre id="rawOutput" class="raw-output">Esperando ejecución...</pre>
+            <pre id="rawOutput" class="raw-output">{{ initial_technical_output }}</pre>
             <div class="button-stack" style="margin-top: 14px;">
                 <button id="importBtn" class="ghost-button{% if not show_seed_import %} is-hidden{% endif %}" onclick="importSeedCsvs()" {% if not show_seed_import %}hidden{% endif %}><span id="importBtnText">Importar CSV seed</span></button>
                 <button id="restoreBackupBtn" class="ghost-button{% if not show_restore_backup %} is-hidden{% endif %}" onclick="restoreFromDropbox()" {% if not show_restore_backup %}hidden{% endif %}><span id="restoreBackupBtnText">Restaurar backup Dropbox</span></button>
@@ -844,6 +1129,23 @@ HTML_TEMPLATE = """
         function renderTechnicalOutput(rawText) {
             const rawOutput = document.getElementById('rawOutput');
             rawOutput.textContent = rawText || 'Esperando ejecución...';
+        }
+        function buildTechnicalSummary(data) {
+            const diagnostics = data?.diagnostics || {};
+            const lines = [];
+            lines.push('Estado actual visible en UI');
+            lines.push(`Fecha FINAL: ${String(diagnostics.final_last_fecha || 'N/A')}`);
+            lines.push(`RMSSD bruto: ${fmtNumber(diagnostics.final_last_rmssd_stable)} ms`);
+            lines.push(`HR hoy: ${fmtNumber(diagnostics.final_last_hr_today)} lpm`);
+            lines.push(`lnRMSSD bruto: ${fmtNumber(diagnostics.final_last_lnrmssd_today, 3)}`);
+            lines.push(`RMSSD usado: ${fmtNumber(expFromLog(diagnostics.final_last_lnrmssd_used))} ms`);
+            lines.push(`lnRMSSD usado: ${fmtNumber(diagnostics.final_last_lnrmssd_used, 3)}`);
+            lines.push(`Baseline 60d: ${fmtNumber(expFromLog(diagnostics.final_last_ln_base60))} ms`);
+            lines.push(`SWC_ln: ${fmtNumber(diagnostics.final_last_swc_ln, 3)}`);
+            lines.push(`Gate: ${String(diagnostics.final_last_gate_badge || 'N/A')} - ${String(diagnostics.final_last_gate_razon_base60 || 'N/A')}`);
+            lines.push(`Acción: ${String(diagnostics.final_last_action_detail || 'N/A')}`);
+            lines.push(`Último RR en disco: ${String(diagnostics.latest_rr_file || 'N/A')}`);
+            return lines.join('\\n');
         }
         function renderWeeklyCoachPanel(data) {
             const card = document.getElementById('weeklyCoachCard');
@@ -874,6 +1176,7 @@ HTML_TEMPLATE = """
         }
         function renderHrvSummaryPanel(data) {
             const card = document.getElementById('hrvSummaryCard');
+            const title = document.getElementById('hrvSummaryTitle');
             const raw = document.getElementById('hrvSummaryRaw');
             const used = document.getElementById('hrvSummaryUsed');
             const base = document.getElementById('hrvSummaryBase');
@@ -881,7 +1184,9 @@ HTML_TEMPLATE = """
             const note = document.getElementById('hrvSummaryNote');
             const diagnostics = data?.diagnostics || {};
             const exists = Boolean(diagnostics.final_exists);
+            const summaryDate = String(diagnostics.final_last_fecha || '').trim();
             card.hidden = !exists;
+            title.textContent = summaryDate ? `Lectura HRV de hoy (${summaryDate})` : 'Lectura HRV de hoy';
             if (!exists) {
                 raw.textContent = '-';
                 used.textContent = '-';
@@ -915,6 +1220,12 @@ HTML_TEMPLATE = """
             const n = Number(value);
             return Number.isFinite(n) ? Math.exp(n) : NaN;
         }
+        function fmtDateFromRrName(value) {
+            const raw = String(value || '').trim();
+            const match = raw.match(/(\\d{4})-(\\d{2})-(\\d{2})/);
+            if (!match) return '';
+            return `${match[3]}/${match[2]}/${match[1]}`;
+        }
         function setButtonState(jobType, state) {
             const mapping = { hrv: ['syncBtn', 'syncBtnText', 'Sincronizar HRV'], sessions: ['sessionsBtn', 'sessionsBtnText', 'Sincronizar sesiones'] };
             const target = mapping[jobType];
@@ -939,6 +1250,7 @@ HTML_TEMPLATE = """
             const importBtn = document.getElementById('importBtn');
             const deleteLastRrBtn = document.getElementById('deleteLastRrBtn');
             const rawText = data.last_output || data.output || data.last_error || '';
+            const summaryText = buildTechnicalSummary(data);
             setButtonState('hrv', 'idle');
             setButtonState('sessions', 'idle');
             if (data.running && data.job_type === 'hrv') setButtonState('hrv', 'running');
@@ -952,7 +1264,7 @@ HTML_TEMPLATE = """
             }
             renderHrvSummaryPanel(data);
             renderWeeklyCoachPanel(data);
-            renderTechnicalOutput(rawText);
+            renderTechnicalOutput(rawText ? `${summaryText}\\n\\nLog de la última ejecución\\n${rawText}` : summaryText);
         }
         async function refreshDashboard() {
             try {
@@ -1044,11 +1356,13 @@ HTML_TEMPLATE = """
                 showBanner('error', 'No hay ningún RR reciente para borrar.');
                 return;
             }
-            const confirmed = window.confirm(`Se moverá a backup el último RR: ${latest}. Después tendrás que repetir la medición y volver a sincronizar. ¿Continuar?`);
+            const latestDate = fmtDateFromRrName(latest);
+            const latestLabel = latestDate ? `${latest} (${latestDate})` : latest;
+            const confirmed = window.confirm(`Se moverá a backup el último RR: ${latestLabel}. Después tendrás que repetir la medición y volver a sincronizar. ¿Continuar?`);
             if (!confirmed) return;
             btn.disabled = true;
             btnText.innerHTML = '<span class="spinner"></span> Borrando...';
-            showBanner('info', `Moviendo ${latest} a backup...`);
+            showBanner('info', `Moviendo ${latestLabel} a backup...`);
             try {
                 const response = await apiFetch('/api/delete-latest-rr', { method: 'POST' });
                 const data = await response.json();
@@ -1120,11 +1434,14 @@ HTML_TEMPLATE = """
 @app.route('/')
 def index():
     """Interfaz web principal"""
+    initial_payload = _build_status_payload()
     return render_template_string(
         HTML_TEMPLATE,
         sync_timeout_sec=_sync_timeout_seconds(),
         show_seed_import=env_flag('HRV_SHOW_SEED_IMPORT', SEED_UPLOAD_DIR.exists()),
         show_restore_backup=env_flag('HRV_BACKUP_DROPBOX_ENABLED', False),
+        hrv_summary_title=_hrv_summary_title_from_payload(initial_payload),
+        initial_technical_output=_technical_summary_from_payload(initial_payload),
     )
 
 

@@ -20,6 +20,7 @@ Esto hace:
 - Dropbox es la **única** fuente de nuevos RR matinales (AYO-13-F4): no hay fallback Polar para fechas nuevas que Dropbox no cubra; si una fecha no está en Dropbox, esa fecha no entra al pipeline en este ciclo.
 - El historico de CORE generado anteriormente con RR de Polar se conserva sin migracion retroactiva.
 - Si CORE no existe o esta vacio y hay RR en `rr_downloads/`, reprocesa esos RR locales primero (sin Dropbox ni Polar); solo si tampoco hay RR locales recurre a Dropbox con la ventana por defecto.
+- Si `HRV_AUTO_RESTORE_ON_EMPTY_DATA=1`, el flujo intenta restaurar `DATA_DIR` desde Dropbox antes de cualquier sync mutante cuando no hay `CORE` usable; si el restore no deja un `CORE` valido, el sync se bloquea.
 - Actualiza `ENDURANCE_HRV_sleep.csv`.
 - Para el sueño Polar, el flujo prueba primero la fecha exacta y, si no hay datos, el dia anterior; el fallback existe para cubrir retrasos o desplazamientos alrededor de medianoche, no para inventar filas.
 - Genera ENDURANCE_HRV_master_CORE.csv y ENDURANCE_HRV_master_BETA_AUDIT.csv.
@@ -33,6 +34,8 @@ Si usas la Web UI, basta con presionar "Sincronizar".
 | Flag | Qué hace |
 |------|----------|
 | `--process` | Flujo completo: cubrir fechas faltantes + CORE + FINAL + DASHBOARD + SSM |
+| `--auth` | Forzar re-autenticación Polar |
+| `--auto` | Detectar automáticamente días faltantes desde último registro |
 | `--all` | Reprocesa RR ya existentes en `rr_downloads/` sin descargar nada nuevo |
 | `--days N` | Limita la ventana de fechas a buscar a los últimos N días |
 | `--ssm-audit` | Ejecuta SSM shadow + validación + outcome battery (manual, no combina con `--process`) |
@@ -111,8 +114,10 @@ Si no hay sesión en un día, el CSV simplemente no incluye esa fecha. Es normal
   - `HRV_DISABLE_BACKUP=1` — no respaldar CSVs
   - `HRV_UI_KEY=<clave>` — protege `/api/*` con header `X-HRV-KEY` o `?key=`
   - `HRV_WARNING_MODE=adaptive90` — estrategia de warning (`adaptive90` | `healthy85` | `p20`)
-  - `HRV_BACKUP_DROPBOX_ENABLED=1` — backup de artefactos a Dropbox tras sync exitoso
-  - `HRV_STALE_MAX_DAYS=3` — umbral de `/health?strict=1`
+- `HRV_BACKUP_DROPBOX_ENABLED=1` — backup de artefactos a Dropbox tras sync exitoso
+- `HRV_AUTO_RESTORE_ON_EMPTY_DATA=1` — auto-restore de `DATA_DIR` desde Dropbox cuando `CORE` falta, esta vacio o es ilegible
+- `HRV_STALE_MAX_DAYS=3` — umbral de `/health?strict=1`
+- `HRV_BACKUP_DROPBOX_PATH=/hrv_backups` — carpeta plana de backup en Dropbox
 - No subir a Git: `.env`, `.polar_tokens.json` ni datos personales.
 
 ## Migración desde V3 (solo histórico)

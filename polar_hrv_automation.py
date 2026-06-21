@@ -25,7 +25,7 @@ from hrv_app.pipeline_runner import (
     run_build_hrv_ssm_validation_only,
 )
 from hrv_app.hrv_sync_flow import sync_hrv_range
-from hrv_app.backup_dropbox import run_backup as run_dropbox_backup
+from hrv_app.backup_dropbox import auto_restore_if_empty, run_backup as run_dropbox_backup
 
 
 def _configure_stdio() -> None:
@@ -130,6 +130,12 @@ def main():
         hint = f"{public_url.rstrip('/')}/auth" if public_url else "/auth"
         print(f"❌ --auth no aplica con v4. Autoriza vía {hint}.", file=sys.stderr)
         sys.exit(3)
+
+    try:
+        auto_restore_if_empty()
+    except RuntimeError as exc:
+        print(f"❌ Auto-restore falló: {exc}", file=sys.stderr)
+        return 1
 
     sync_hrv_range(args, None, None, [])
 

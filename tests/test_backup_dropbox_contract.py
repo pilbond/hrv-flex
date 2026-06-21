@@ -204,5 +204,124 @@ class RestoreBackupContractTests(unittest.TestCase):
         self.assertEqual(len(result["failed"]), 1)
 
 
+class AutoRestoreIfEmptyContractTests(unittest.TestCase):
+    def test_auto_restore_skips_when_core_has_rows(self):
+        env = {"HRV_AUTO_RESTORE_ON_EMPTY_DATA": "1"}
+
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            (data_dir / "ENDURANCE_HRV_master_CORE.csv").write_text("Fecha\n2026-06-11\n", encoding="utf-8")
+
+            with patch.dict("os.environ", env, clear=False), \
+                    patch.object(backup_dropbox, "DATA_DIR", data_dir), \
+                    patch.object(backup_dropbox, "restore_backup") as restore_mock:
+                result = backup_dropbox.auto_restore_if_empty()
+
+        self.assertEqual(result["status"], "skipped")
+        self.assertFalse(result["data_empty"])
+        restore_mock.assert_not_called()
+
+    def test_data_dir_is_empty_treats_unreadable_core_as_empty(self):
+        with patch.object(backup_dropbox, "_core_row_count", return_value=None):
+            self.assertTrue(backup_dropbox.data_dir_is_empty(Path("/tmp/ignored")))
+
+    def test_core_row_count_returns_none_on_decode_error(self):
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            (data_dir / "ENDURANCE_HRV_master_CORE.csv").write_bytes(b"\xff\xfe\x00")
+
+            self.assertIsNone(backup_dropbox._core_row_count(data_dir))
+
+    def test_auto_restore_restores_when_core_missing(self):
+        env = {"HRV_AUTO_RESTORE_ON_EMPTY_DATA": "1"}
+        restore_result = {
+            "status": "ok",
+            "source_folder": "/hrv_backups",
+            "restored": ["ENDURANCE_HRV_master_CORE.csv"],
+            "failed": [],
+            "backed_up": [],
+            "backup_dir": None,
+        }
+
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+
+            with patch.dict("os.environ", env, clear=False), \
+                    patch.object(backup_dropbox, "DATA_DIR", data_dir), \
+                    patch.object(backup_dropbox, "_core_row_count", side_effect=[0, 1]), \
+                    patch.object(backup_dropbox, "restore_backup", return_value=dict(restore_result)) as restore_mock:
+                result = backup_dropbox.auto_restore_if_empty()
+
+        self.assertEqual(result["status"], "restored")
+        self.assertFalse(result["data_empty"])
+        self.assertEqual(result["source_folder"], "/hrv_backups")
+        restore_mock.assert_called_once()
+
+    def test_auto_restore_restores_when_core_is_unreadable(self):
+        env = {"HRV_AUTO_RESTORE_ON_EMPTY_DATA": "1"}
+        restore_result = {
+            "status": "ok",
+            "source_folder": "/hrv_backups",
+            "restored": ["ENDURANCE_HRV_master_CORE.csv"],
+            "failed": [],
+            "backed_up": [],
+            "backup_dir": None,
+        }
+
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            core_path = data_dir / "ENDURANCE_HRV_master_CORE.csv"
+            core_path.write_text("corrupt", encoding="utf-8")
+
+            with patch.dict("os.environ", env, clear=False), \
+                    patch.object(backup_dropbox, "DATA_DIR", data_dir), \
+                    patch.object(backup_dropbox, "_core_row_count", side_effect=[None, 1]), \
+                    patch.object(backup_dropbox, "restore_backup", return_value=dict(restore_result)) as restore_mock:
+                result = backup_dropbox.auto_restore_if_empty()
+
+        self.assertEqual(result["status"], "restored")
+        self.assertFalse(result["data_empty"])
+        restore_mock.assert_called_once()
+
+    def test_auto_restore_blocks_on_partial_restore(self):
+        env = {"HRV_AUTO_RESTORE_ON_EMPTY_DATA": "1"}
+        partial_result = {
+            "status": "partial",
+            "source_folder": "/hrv_backups",
+            "restored": ["ENDURANCE_HRV_master_CORE.csv"],
+            "failed": ["ENDURANCE_HRV_sleep.csv"],
+        }
+
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+
+            with patch.dict("os.environ", env, clear=False), \
+                    patch.object(backup_dropbox, "DATA_DIR", data_dir), \
+                    patch.object(backup_dropbox, "restore_backup", return_value=dict(partial_result)):
+                with self.assertRaises(RuntimeError):
+                    backup_dropbox.auto_restore_if_empty()
+
+    def test_auto_restore_blocks_when_restore_does_not_make_core_usable(self):
+        env = {"HRV_AUTO_RESTORE_ON_EMPTY_DATA": "1"}
+        restore_result = {
+            "status": "ok",
+            "source_folder": "/hrv_backups",
+            "restored": ["ENDURANCE_HRV_master_CORE.csv"],
+            "failed": [],
+            "backed_up": [],
+            "backup_dir": None,
+        }
+
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+
+            with patch.dict("os.environ", env, clear=False), \
+                    patch.object(backup_dropbox, "DATA_DIR", data_dir), \
+                    patch.object(backup_dropbox, "_core_row_count", side_effect=[0, 0]), \
+                    patch.object(backup_dropbox, "restore_backup", return_value=dict(restore_result)):
+                with self.assertRaises(RuntimeError):
+                    backup_dropbox.auto_restore_if_empty()
+
+
 if __name__ == "__main__":
     unittest.main()

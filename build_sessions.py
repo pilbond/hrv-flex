@@ -50,6 +50,7 @@ from hrv_app.config import (
     DATA_DIR as CONFIG_DATA_DIR,
     resolve_writable_dir,
 )
+from hrv_app.backup_dropbox import auto_restore_if_empty
 from hrv_app.io_utils import write_csv_atomic, write_json_atomic, write_text_atomic
 from hrv_app.polar_sessions import PolarSessionClient, extract_mechanical_metrics_from_fit_payload
 
@@ -3021,6 +3022,12 @@ def main():
     selected_modes = int(bool(args.backfill)) + int(bool(args.daily)) + int(bool(args.update)) + int(bool(args.date))
     if selected_modes > 1:
         parser.error("Use only one range mode: --backfill, --daily, --update, or --date")
+
+    try:
+        auto_restore_if_empty(data_dir=output_dir)
+    except RuntimeError as exc:
+        log.error("Auto-restore failed: %s", exc)
+        raise SystemExit(1)
 
     if args.daily:
         oldest = (today - timedelta(days=2)).isoformat()

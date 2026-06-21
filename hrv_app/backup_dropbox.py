@@ -17,6 +17,7 @@ Contrato operativo:
 
 from __future__ import annotations
 
+import csv
 import json
 import os
 import shutil
@@ -81,6 +82,25 @@ def _get_access_token() -> str | None:
 def _canonical_files() -> list[Path]:
     files = sorted(DATA_DIR.glob("ENDURANCE_HRV_*.csv")) + sorted(DATA_DIR.glob("ENDURANCE_HRV_*.json"))
     return [p for p in files if p.is_file()]
+
+
+def _core_row_count(data_dir: Path | None = None) -> int | None:
+    """Cuenta filas utiliables del CORE; None si el archivo no se puede leer."""
+    target_dir = Path(data_dir) if data_dir is not None else DATA_DIR
+    core_path = target_dir / "ENDURANCE_HRV_master_CORE.csv"
+    if not core_path.exists():
+        return 0
+    try:
+        with core_path.open("r", encoding="utf-8", newline="") as f:
+            return sum(1 for _ in csv.DictReader(f))
+    except (OSError, ValueError, UnicodeDecodeError, csv.Error):
+        return None
+
+
+def data_dir_is_empty(data_dir: Path | None = None) -> bool:
+    """Detecta el caso operativo que nos interesa: CORE ausente, vacío o ilegible."""
+    rows = _core_row_count(data_dir)
+    return rows is None or rows == 0
 
 
 def _upload_file(token: str, local_path: Path, dropbox_path: str) -> bool:
@@ -172,10 +192,11 @@ def list_available_backups() -> dict:
     return {"status": "ok", "files": sorted(files), "folder": root}
 
 
-def restore_backup() -> dict:
-    """Descarga el backup de Dropbox a DATA_DIR. Lanza en caso de error."""
+def restore_backup(data_dir: Path | None = None) -> dict:
+    """Descarga el backup de Dropbox al directorio indicado. Lanza en caso de error."""
     from .io_utils import _replace_atomic
 
+    target_dir = Path(data_dir) if data_dir is not None else DATA_DIR
     token = _get_access_token()
     if not token:
         raise RuntimeError("Sin credenciales Dropbox (DROPBOX_ACCESS_TOKEN o refresh trio)")
@@ -185,8 +206,8 @@ def restore_backup() -> dict:
     if not file_names:
         raise FileNotFoundError(f"No hay archivos en {root}")
 
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    backup_dir = DATA_DIR / "backup" / "pre_restore"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    backup_dir = target_dir / "backup" / "pre_restore"
 
     restored = []
     failed = []
@@ -197,13 +218,13 @@ def restore_backup() -> dict:
             failed.append(name)
             continue
 
-        dest = DATA_DIR / name
+        dest = target_dir / name
         if dest.exists():
             backup_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(dest, backup_dir / name)
             backed_up.append(name)
 
-        fd, tmp = tempfile.mkstemp(dir=DATA_DIR, prefix=f"{name}.", suffix=".tmp")
+        fd, tmp = tempfile.mkstemp(dir=target_dir, prefix=f"{name}.", suffix=".tmp")
         os.close(fd)
         tmp_path = Path(tmp)
         try:
@@ -227,4 +248,52 @@ def restore_backup() -> dict:
         "failed": failed,
         "backed_up": backed_up,
         "backup_dir": str(backup_dir) if backed_up else None,
+    }
+
+
+def auto_restore_if_empty(*, data_dir: Path | None = None, enabled: bool | None = None) -> dict:
+    """Restaura Dropbox si el dataset operativo está vacío.
+
+    Devuelve un dict de estado para que los entrypoints decidan si continúan.
+    Si el restore queda parcial o falla, lanza para bloquear el sync.
+    """
+    target_dir = Path(data_dir) if data_dir is not None else DATA_DIR
+    auto_restore_enabled = enabled if enabled is not None else env_flag("HRV_AUTO_RESTORE_ON_EMPTY_DATA", default=False)
+    rows = _core_row_count(target_dir)
+    empty = rows is None or rows == 0
+
+    if not auto_restore_enabled:
+        return {"status": "disabled", "data_empty": empty, "core_rows": rows}
+
+    if not empty:
+        return {"status": "skipped", "data_empty": False, "core_rows": rows}
+
+    if rows is None:
+        print(f"[INFO] Auto-restore Dropbox: CORE ilegible o ausente en {target_dir}; restaurando backup...")
+    else:
+        print(f"[INFO] Auto-restore Dropbox: DATA_DIR vacío en {target_dir}; restaurando backup...")
+    try:
+        result = restore_backup(target_dir)
+    except Exception as exc:
+        raise RuntimeError(f"Auto-restore falló: {exc}") from exc
+    if result.get("status") != "ok" or result.get("failed"):
+        raise RuntimeError(f"Auto-restore incompleto desde Dropbox: {result}")
+
+    post_rows = _core_row_count(target_dir)
+    if post_rows is None or post_rows == 0:
+        raise RuntimeError(
+            f"Auto-restore no dejó un CORE usable en {target_dir}: core_rows={post_rows}"
+        )
+
+    restored_count = len(result.get("restored", []))
+    print(
+        f"[OK] Auto-restore Dropbox: restaurado desde {result.get('source_folder')} "
+        f"({restored_count} archivos)"
+    )
+    return {
+        **result,
+        "status": "restored",
+        "data_empty": False,
+        "core_rows": post_rows,
+        "auto_restored": True,
     }
