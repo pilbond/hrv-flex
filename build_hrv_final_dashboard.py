@@ -2321,7 +2321,7 @@ def main(argv: List[str]) -> int:
     if not final.empty and "Fecha" in final.columns:
         last_fecha = str(final["Fecha"].iloc[-1])
     print(f"[OK] Archivos actualizados hasta {last_fecha}")
-    print(f"[OK] Manifest escrito en {OUT_FINAL_MANIFEST}")
+    #print(f"[OK] Manifest escrito en {OUT_FINAL_MANIFEST}")
     return 0
 
 

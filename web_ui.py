@@ -872,7 +872,7 @@ HTML_TEMPLATE = """
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Polar HRV Sync v4</title>
     <style>
         :root {
@@ -1108,7 +1108,7 @@ HTML_TEMPLATE = """
             <div class="section-title">Detalle técnico</div>
             <pre id="rawOutput" class="raw-output">{{ initial_technical_output }}</pre>
             <div class="button-stack" style="margin-top: 14px;">
-                <button id="importBtn" class="ghost-button{% if not show_seed_import %} is-hidden{% endif %}" onclick="importSeedCsvs()" {% if not show_seed_import %}hidden{% endif %}><span id="importBtnText">Importar CSV seed</span></button>
+                <!--<button id="importBtn" class="ghost-button{% if not show_seed_import %} is-hidden{% endif %}" onclick="importSeedCsvs()" {% if not show_seed_import %}hidden{% endif %}><span id="importBtnText">Importar CSV seed</span></button>-->
                 <button id="restoreBackupBtn" class="ghost-button{% if not show_restore_backup %} is-hidden{% endif %}" onclick="restoreFromDropbox()" {% if not show_restore_backup %}hidden{% endif %}><span id="restoreBackupBtnText">Restaurar backup Dropbox</span></button>
                 <button id="deleteLastRrBtn" class="danger-button" onclick="deleteLastRr()"><span id="deleteLastRrBtnText">Borrar último RR</span></button>
             </div>
@@ -1263,7 +1263,7 @@ HTML_TEMPLATE = """
                 deleteLastRrBtn.disabled = Boolean(data.running || !latestRrPath);
             }
             renderHrvSummaryPanel(data);
-            renderWeeklyCoachPanel(data);
+            /*renderWeeklyCoachPanel(data);*/
             renderTechnicalOutput(rawText ? `${summaryText}\\n\\nLog de la última ejecución\\n${rawText}` : summaryText);
         }
         async function refreshDashboard() {
@@ -1763,7 +1763,7 @@ def oauth_callback():
         <html>
         <head>
             <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"> 
             <title>Autorización Exitosa</title>
             <style>
                 body {
