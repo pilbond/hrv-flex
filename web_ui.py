@@ -7,12 +7,14 @@ Accesible desde cualquier dispositivo (móvil, tablet, PC)
 
 from flask import Flask, render_template, jsonify, request, redirect
 from flask_cors import CORS
+from jinja2 import TemplateNotFound
 from werkzeug.middleware.proxy_fix import ProxyFix
 import subprocess
 import sys
 import time
 import os
 import csv
+import html
 import re
 import shutil
 from pathlib import Path
@@ -100,13 +102,43 @@ def _redirect_uri() -> str:
     return f"{_public_url()}/auth/callback"
 
 
-def _load_template_json(template_name: str) -> dict:
-    template = app.jinja_env.get_template(template_name)
-    return json.loads(template.render())
+DEFAULT_UI_COPY = {
+    "dashboard_title": "HRV Sync",
+    "sync_hrv": "Sincronizar HRV",
+    "sync_sessions": "Sincronizar sesiones",
+    "hrv_summary_title_base": "Lectura HRV de hoy",
+    "hrv_summary_waiting": "Esperando disponibilidad del resumen HRV...",
+    "technical_title": "Detalle técnico",
+}
+
+DEFAULT_UI_RUNTIME_CONFIG = {
+    "text": {
+        "technicalOutputPlaceholder": "Esperando ejecución...",
+    },
+    "templates": {},
+}
 
 
-UI_COPY = _load_template_json("data/ui_copy.json.j2")
-UI_RUNTIME_CONFIG = _load_template_json("data/ui_runtime_config.json.j2")
+def _load_template_json(template_name: str, fallback: dict) -> dict:
+    try:
+        template = app.jinja_env.get_template(template_name)
+        payload = json.loads(template.render())
+    except (TemplateNotFound, json.JSONDecodeError, TypeError, ValueError) as exc:
+        app.logger.warning("Template JSON via Jinja fallback for %s: %s", template_name, exc)
+        template_path = Path(app.root_path) / "templates" / template_name
+        try:
+            payload = json.loads(template_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as raw_exc:
+            app.logger.warning("Template JSON file fallback for %s: %s", template_name, raw_exc)
+            return json.loads(json.dumps(fallback))
+    if not isinstance(payload, dict):
+        app.logger.warning("Template JSON fallback for %s: expected object", template_name)
+        return json.loads(json.dumps(fallback))
+    return payload
+
+
+UI_COPY = _load_template_json("data/ui_copy.json.j2", DEFAULT_UI_COPY)
+UI_RUNTIME_CONFIG = _load_template_json("data/ui_runtime_config.json.j2", DEFAULT_UI_RUNTIME_CONFIG)
 
 
 # Estado global de ejecución
@@ -896,20 +928,91 @@ def _technical_summary_from_payload(payload: dict) -> str:
     return str(payload.get("last_output") or payload.get("output") or payload.get("last_error") or "").strip()
 
 
+def _render_index_fallback(initial_payload: dict):
+    final_fecha = html.escape(str((initial_payload.get("diagnostics", {}) or {}).get("final_last_fecha") or "sin datos"))
+    technical_output = html.escape(_technical_summary_from_payload(initial_payload) or "Esperando ejecución...")
+    dashboard_title = html.escape(UI_COPY.get("dashboard_title", "HRV Sync"))
+    summary_title = html.escape(UI_COPY.get("hrv_summary_title_base", "Lectura HRV de hoy"))
+    summary_waiting = html.escape(UI_COPY.get("hrv_summary_waiting", "Esperando disponibilidad del resumen HRV..."))
+    technical_title = html.escape(UI_COPY.get("technical_title", "Detalle técnico"))
+    return f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Polar HRV Sync v4</title>
+</head>
+<body>
+    <main>
+        <h1>{dashboard_title}</h1>
+        <section id="hrvSummaryCard">
+            <h2>{summary_title} ({final_fecha})</h2>
+            <p>{summary_waiting}</p>
+        </section>
+        <section>
+            <h2>{technical_title}</h2>
+            <pre>{technical_output}</pre>
+        </section>
+    </main>
+</body>
+</html>"""
+
+
+def _render_oauth_success_fallback():
+    success = OAUTH_MSG["success"]
+    return f"""<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"><title>{html.escape(success['title'])}</title></head>
+<body>
+    <main>
+        <h1>{html.escape(success['heading'])}</h1>
+        <p>{html.escape(success['message_1'])}</p>
+        <p>{html.escape(success['message_2'])}</p>
+        <a href="/">{html.escape(success['button'])}</a>
+    </main>
+</body>
+</html>"""
+
+
+def _render_oauth_error_fallback(context: dict):
+    title = html.escape(str(context["title"]))
+    heading = html.escape(str(context["heading"]))
+    strong_message = html.escape(str(context.get("strong_message") or ""))
+    detail_message = html.escape(str(context["detail_message"]))
+    button_href = html.escape(str(context["button_href"]), quote=True)
+    button = html.escape(str(context["button"]))
+    return f"""<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"><title>{title}</title></head>
+<body>
+    <main>
+        <h1>{heading}</h1>
+        <p>{strong_message}</p>
+        <p>{detail_message}</p>
+        <a href="{button_href}">{button}</a>
+    </main>
+</body>
+</html>"""
+
+
 # HTML Template (UI móvil-first)
 @app.route('/')
 def index():
     """Interfaz web principal"""
     initial_payload = _build_status_payload()
-    return render_template(
-        'index.html',
-        ui_copy=UI_COPY,
-        runtime_config={**UI_RUNTIME_CONFIG, "sync_timeout_sec": _sync_timeout_seconds()},
-        show_seed_import=env_flag('HRV_SHOW_SEED_IMPORT', SEED_UPLOAD_DIR.exists()),
-        show_restore_backup=env_flag('HRV_BACKUP_DROPBOX_ENABLED', False),
-        initial_final_fecha=(initial_payload.get("diagnostics", {}) or {}).get("final_last_fecha"),
-        initial_technical_output=_technical_summary_from_payload(initial_payload),
-    )
+    try:
+        return render_template(
+            'index.html',
+            ui_copy=UI_COPY,
+            runtime_config={**UI_RUNTIME_CONFIG, "sync_timeout_sec": _sync_timeout_seconds()},
+            show_seed_import=env_flag('HRV_SHOW_SEED_IMPORT', SEED_UPLOAD_DIR.exists()),
+            show_restore_backup=env_flag('HRV_BACKUP_DROPBOX_ENABLED', False),
+            initial_final_fecha=(initial_payload.get("diagnostics", {}) or {}).get("final_last_fecha"),
+            initial_technical_output=_technical_summary_from_payload(initial_payload),
+        )
+    except TemplateNotFound as exc:
+        app.logger.warning("Index template fallback: %s", exc)
+        return _render_index_fallback(initial_payload)
 
 
 @app.route('/api/sync', methods=['POST'])
@@ -1105,14 +1208,29 @@ def oauth_callback():
     error_description = request.args.get('error_description')
 
     if error:
-        return render_template('oauth_error.html', **_oauth_error_context('oauth_provider_error', error, error_description or 'Error desconocido')), 400
+        context = _oauth_error_context('oauth_provider_error', error, error_description or 'Error desconocido')
+        try:
+            return render_template('oauth_error.html', **context), 400
+        except TemplateNotFound as exc:
+            app.logger.warning("OAuth error template fallback: %s", exc)
+            return _render_oauth_error_fallback(context), 400
 
     if not code:
-        return render_template('oauth_error.html', **_oauth_error_context('oauth_missing_code')), 400
+        context = _oauth_error_context('oauth_missing_code')
+        try:
+            return render_template('oauth_error.html', **context), 400
+        except TemplateNotFound as exc:
+            app.logger.warning("OAuth error template fallback: %s", exc)
+            return _render_oauth_error_fallback(context), 400
 
     state_valid = _consume_oauth_state((request.args.get('state') or '').strip())
     if not state_valid:
-        return render_template('oauth_error.html', **_oauth_error_context('oauth_state_error')), 400
+        context = _oauth_error_context('oauth_state_error')
+        try:
+            return render_template('oauth_error.html', **context), 400
+        except TemplateNotFound as exc:
+            app.logger.warning("OAuth error template fallback: %s", exc)
+            return _render_oauth_error_fallback(context), 400
 
     try:
         client_id = (os.environ.get("POLAR_CLIENT_ID2") or os.environ.get("POLAR_CLIENT_ID") or "").strip()
@@ -1125,10 +1243,19 @@ def oauth_callback():
         token_json = exchange_code_for_token_v4(code, client_id, client_secret, redirect_uri)
         persist_authorized_bundle(TOKEN_PATH_V4, token_json, scopes=POLAR_V4_SCOPES)
 
-        return render_template('oauth_success.html', **OAUTH_MSG["success"])
+        try:
+            return render_template('oauth_success.html', **OAUTH_MSG["success"])
+        except TemplateNotFound as exc:
+            app.logger.warning("OAuth success template fallback: %s", exc)
+            return _render_oauth_success_fallback()
 
     except Exception as e:
-        return render_template('oauth_error.html', **_oauth_error_context('oauth_persist_error', error_detail=str(e))), 500
+        context = _oauth_error_context('oauth_persist_error', error_detail=str(e))
+        try:
+            return render_template('oauth_error.html', **context), 500
+        except TemplateNotFound as exc:
+            app.logger.warning("OAuth error template fallback: %s", exc)
+            return _render_oauth_error_fallback(context), 500
 
 def _final_staleness() -> dict:
     """Última Fecha del FINAL y días transcurridos, para el monitor externo."""
