@@ -1,0 +1,16 @@
+<section class="card">
+    <div class="section-title">{{ ui_copy.technical_title }}</div>
+    <pre id="rawOutput" class="raw-output">{{ initial_technical_output }}</pre>
+    <div class="button-stack card-actions">
+        <!--<button id="importBtn" class="ghost-button{% if not show_seed_import %} is-hidden{% endif %}" {% if not show_seed_import %}hidden{% endif %}><span id="importBtnText">Importar CSV seed</span></button>-->
+        <button
+            id="restoreBackupBtn"
+            class="ghost-button{% if not show_restore_backup %} is-hidden{% endif %}"
+            {% if not show_restore_backup %}hidden{% endif %}
+        ><span id="restoreBackupBtnText">{{ ui_copy.restore_backup }}</span></button>
+        <button
+            id="deleteLastRrBtn"
+            class="danger-button"
+        ><span id="deleteLastRrBtnText">{{ ui_copy.delete_last_rr }}</span></button>
+    </div>
+</section>

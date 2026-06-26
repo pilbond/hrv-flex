@@ -7,11 +7,19 @@ from typing import List, Optional
 import pandas as pd
 
 from .cli_reporting import (
+    build_bulleted_report,
+    build_debug_session_report,
+    build_lines_report,
+    build_message_report,
+    build_no_rr_matinales_report,
+    build_pipeline_stage_report,
+    _render_report,
     _print_divider,
     _print_header,
     _print_master_already_updated,
     _print_no_local_rr_files,
     _print_sync_completed,
+    build_sync_completed_report,
     show_latest_hrv_summaries,
 )
 from .config import (
@@ -81,7 +89,7 @@ def write_rr_csv(rr, out_path: str) -> bool:
             for v, off in rr:
                 f.write(f"{v:.3f},{off}\n")
     except OSError as exc:
-        print(f"  ❌ Error escribiendo RR en {out_path}: {exc}")
+        _render_report(build_message_report(f"  ❌ Error escribiendo RR en {out_path}: {exc}"))
         return False
     return True
 
@@ -102,7 +110,7 @@ def get_last_date_from_master():
         last_date = datetime.strptime(last_date_str, "%Y-%m-%d").date()
         return last_date
     except (FileNotFoundError, pd.errors.EmptyDataError, ValueError, KeyError) as e:
-        print(f"⚠️  Error leyendo CORE: {e}")
+        _render_report(build_message_report(f"⚠️  Error leyendo CORE: {e}"))
         return None
 
 
@@ -128,7 +136,7 @@ def get_existing_dates_from_master():
 
         return dates
     except (FileNotFoundError, pd.errors.EmptyDataError, KeyError) as e:
-        print(f"⚠️  Error leyendo fechas del CORE: {e}")
+        _render_report(build_message_report(f"⚠️  Error leyendo fechas del CORE: {e}"))
         return set()
 
 
@@ -156,7 +164,7 @@ def _refresh_sleep_and_outputs(
     target_dates = dates if dates is not None else _default_sleep_refresh_dates()
     _update_sleep_for_dates(access_token, x_user_id, target_dates)
     if run_final_dashboard:
-        _qprint("▶️  Regenerando FINAL/DASHBOARD con sleep actualizado...")
+        _render_report(build_message_report("▶️  Regenerando FINAL/DASHBOARD con sleep actualizado..."))
         run_build_hrv_final_dashboard_only()
 
 
@@ -164,7 +172,7 @@ def _resolve_date_range(args, last_date=None):
     if args.days is not None:
         to_d = datetime.now().date()
         from_d = (datetime.now() - timedelta(days=args.days)).date()
-        _qprint(f"📅 Últimos {args.days} días: {from_d} → {to_d}")
+        _render_report(build_message_report(f"📅 Últimos {args.days} días: {from_d} → {to_d}"))
         return from_d, to_d, None, None
 
     days_missing, last_date = calculate_missing_days(last_date=last_date)
@@ -174,11 +182,13 @@ def _resolve_date_range(args, last_date=None):
     to_d = datetime.now().date()
     if last_date:
         from_d = last_date + timedelta(days=1)
-        _qprint(f"📅 Última medición: {last_date}")
-        _qprint(f"   Cubriendo desde {from_d} hasta {to_d} ({days_missing} días)")
+        _render_report(build_lines_report([
+            f"📅 Última medición: {last_date}",
+            f"   Cubriendo desde {from_d} hasta {to_d} ({days_missing} días)",
+        ]))
     else:
         from_d = (datetime.now() - timedelta(days=days_missing)).date()
-        _qprint(f"📅 Master sin datos, cubriendo últimos {days_missing} días")
+        _render_report(build_message_report(f"📅 Master sin datos, cubriendo últimos {days_missing} días"))
     return from_d, to_d, last_date, None
 
 
@@ -196,23 +206,23 @@ def _process_rr_files(
         return
 
     _print_header("🔧 PROCESANDO PIPELINE HRV")
-    _qprint("")
-    _qprint("▶️  Ejecutando build_hrv_core.py...")
-    _qprint("")
+    _render_report(build_pipeline_stage_report("Ejecutando build_hrv_core.py..."))
     result = run_build_hrv_core(rr_files)
     if result is None:
-        print("⚠️  build_hrv_core.py falló; se actualiza sleep.csv, pero no se regenera FINAL/DASHBOARD.")
+        _render_report(build_message_report("⚠️  build_hrv_core.py falló; se actualiza sleep.csv, pero no se regenera FINAL/DASHBOARD."))
         _refresh_sleep_and_outputs(access_token, x_user_id, run_final_dashboard=False)
         _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
         show_latest_hrv_summaries()
         return
 
     if result.stdout:
-        print(result.stdout)
+        stdout_lines = [line for line in result.stdout.splitlines() if line != ""]
+        if stdout_lines:
+            _render_report(build_lines_report(stdout_lines))
 
     promoted = _promote_operational_rr_files(rr_files, OUTDIR)
     if promoted:
-        _qprint(f"☁️  RR operativos promovidos: {promoted}")
+        _render_report(build_message_report(f"☁️  RR operativos promovidos: {promoted}"))
 
     post_process_dates = get_existing_dates_from_master() if PANDAS_AVAILABLE else set()
     new_dates = sorted(post_process_dates - pre_process_dates) if PANDAS_AVAILABLE else []
@@ -222,34 +232,35 @@ def _process_rr_files(
         target_dates = sorted(merged_dates)
     else:
         target_dates = _default_sleep_refresh_dates()
-    _qprint("")
-    _qprint(f"▶️  Actualizando sleep.csv ({len(target_dates)} fecha(s))...")
+    _render_report(build_pipeline_stage_report(f"Actualizando sleep.csv ({len(target_dates)} fecha(s))..."))
     _update_sleep_for_dates(access_token, x_user_id, target_dates)
 
-    _qprint("")
-    _qprint("▶️  Ejecutando build_hrv_final_dashboard.py...")
-    _qprint("")
+    _render_report(build_pipeline_stage_report("Ejecutando build_hrv_final_dashboard.py..."))
     run_build_hrv_final_dashboard_only()
 
-    _qprint("")
-    _qprint("▶️  Ejecutando build_hrv_ssm.py...")
-    _qprint("")
+    _render_report(build_pipeline_stage_report("Ejecutando build_hrv_ssm.py..."))
     ssm_ok = run_build_hrv_ssm_shadow_only()
     if not ssm_ok:
-        print("⚠️  build_hrv_ssm.py falló; FINAL/DASHBOARD se mantienen actualizados, pero no se regenera SSM shadow.")
+        _render_report(build_message_report("⚠️  build_hrv_ssm.py falló; FINAL/DASHBOARD se mantienen actualizados, pero no se regenera SSM shadow."))
 
     if not QUIET:
-        print("")
-        print("✅ Procesamiento HRV completado")
-        print("")
-        print("📄 Archivos actualizados:")
-        print("   - ENDURANCE_HRV_master_CORE.csv")
-        print("   - ENDURANCE_HRV_master_BETA_AUDIT.csv")
-        print("   - ENDURANCE_HRV_master_CORE_manifest.json")
-        print("   - ENDURANCE_HRV_master_FINAL.csv")
-        print("   - ENDURANCE_HRV_master_DASHBOARD.csv")
-        print("   - ENDURANCE_HRV_master_FINAL_manifest.json")
-        print("   - ENDURANCE_HRV_ssm_shadow.csv")
+        _render_report(
+            build_sync_completed_report()
+        )
+        _render_report(
+            build_bulleted_report(
+                "📄 Archivos actualizados:",
+                [
+                    "ENDURANCE_HRV_master_CORE.csv",
+                    "ENDURANCE_HRV_master_BETA_AUDIT.csv",
+                    "ENDURANCE_HRV_master_CORE_manifest.json",
+                    "ENDURANCE_HRV_master_FINAL.csv",
+                    "ENDURANCE_HRV_master_DASHBOARD.csv",
+                    "ENDURANCE_HRV_master_FINAL_manifest.json",
+                    "ENDURANCE_HRV_ssm_shadow.csv",
+                ],
+            )
+        )
     _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
     show_latest_hrv_summaries()
 
@@ -263,11 +274,11 @@ def sync_hrv_range(args, access_token: str, x_user_id: Optional[str], exercises:
             duration = e.get("duration", "N/A")
             dt = _iso_to_dt(st)
             date_str = dt.strftime("%Y-%m-%d") if dt else "N/A"
-            print(f"  [{i}] {date_str} | Sport: '{sport}' | Duration: {duration}")
+            _render_report(build_debug_session_report(i, date_str, sport, duration))
         _print_divider(trailing_blank=True)
 
     if args.all:
-        _qprint("📅 Reprocesando TODOS los RR locales (sin descargas nuevas)")
+        _render_report(build_message_report("📅 Reprocesando TODOS los RR locales (sin descargas nuevas)"))
         rr_map = _scan_rr_files_by_date(OUTDIR)
         rr_files = list(rr_map.values())
         pre_process_dates = get_existing_dates_from_master()
@@ -279,7 +290,7 @@ def sync_hrv_range(args, access_token: str, x_user_id: Optional[str], exercises:
             show_latest_hrv_summaries()
             return
 
-        _qprint(f"\n📊 {len(rr_files)} archivo(s) RR locales para reprocesar en {OUTDIR}/")
+        _render_report(build_message_report(f"📊 {len(rr_files)} archivo(s) RR locales para reprocesar en {OUTDIR}/", leading_blank=True))
         _process_rr_files(rr_files, pre_process_dates, access_token, x_user_id, args)
         return
 
@@ -288,7 +299,7 @@ def sync_hrv_range(args, access_token: str, x_user_id: Optional[str], exercises:
         rr_map = _scan_rr_files_by_date(OUTDIR)
         rr_files = list(rr_map.values())
         if rr_files:
-            _qprint(f"📅 CORE vacío: reprocesando {len(rr_files)} archivo(s) RR locales en {OUTDIR}/")
+            _render_report(build_message_report(f"📅 CORE vacío: reprocesando {len(rr_files)} archivo(s) RR locales en {OUTDIR}/"))
             pre_process_dates = set()
             _process_rr_files(rr_files, pre_process_dates, access_token, x_user_id, args)
             return
@@ -296,7 +307,7 @@ def sync_hrv_range(args, access_token: str, x_user_id: Optional[str], exercises:
     from_d, to_d, last_date, exit_mode = _resolve_date_range(args, last_date=last_date)
     if exit_mode == "no_missing":
         if args.process:
-            _qprint("▶️  Sin RR nuevos: actualizando sleep.csv (hoy)...")
+            _render_report(build_message_report("▶️  Sin RR nuevos: actualizando sleep.csv (hoy)..."))
             _refresh_sleep_and_outputs(access_token, x_user_id, run_final_dashboard=True)
         _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
         _print_sync_completed(updated_date=last_date)
@@ -322,25 +333,19 @@ def sync_hrv_range(args, access_token: str, x_user_id: Optional[str], exercises:
     )
     if dropbox_rr_map:
         reused = max(len(dropbox_rr_map) - dropbox_rr_new, 0)
-        _qprint(
-            f"☁️  Dropbox RR: {len(dropbox_rr_map)} fecha(s) cubierta(s) "
-            f"({dropbox_rr_new} nuevas, {reused} ya existentes)"
-        )
+        _render_report(build_message_report(f"☁️  Dropbox RR: {len(dropbox_rr_map)} fecha(s) cubierta(s) ({dropbox_rr_new} nuevas, {reused} ya existentes)"))
 
     rr_files = [path for _, path in sorted(dropbox_rr_map.items())]
 
     if not rr_files:
         if QUIET:
-            print("⚠️  No hay RR matinales disponibles para el periodo objetivo")
+            _render_report(build_message_report("⚠️  No hay RR matinales disponibles para el periodo objetivo"))
         else:
-            print("\n⚠️  No hay RR matinales disponibles para el periodo objetivo")
-            print(f"   Rango objetivo: {from_d} a {to_d}")
-            print("   Dropbox no cubre estas fechas todavía; no hay fallback Polar.")
-            print("   Usa --days N para reintentar más adelante o revisa Dropbox.")
+            _render_report(build_no_rr_matinales_report(from_d, to_d))
         _refresh_sleep_and_outputs(access_token, x_user_id, run_final_dashboard=args.process)
         _send_intervals_wellness_from_master(INTERVALS_SOURCE_PATH)
         show_latest_hrv_summaries()
         return
 
-    _qprint(f"\n📊 {len(rr_files)} archivo(s) RR desde Dropbox para procesar en {OUTDIR}/")
+    _render_report(build_message_report(f"📊 {len(rr_files)} archivo(s) RR desde Dropbox para procesar en {OUTDIR}/", leading_blank=True))
     _process_rr_files(rr_files, pre_process_dates, access_token, x_user_id, args)

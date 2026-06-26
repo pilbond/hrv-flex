@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Polar HRV Sync v4</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='ui.css') }}">
+</head>
+<body>
+    <div class="container">
+        {% include "partials/dashboard_actions.html" %}
+        {% include "partials/hrv_summary_card.html" %}
+        {% include "partials/technical_output_card.html" %}
+    </div>
+    {% include "partials/ui_runtime_config.html" %}
+    <script src="{{ url_for('static', filename='ui.js') }}"></script>
+</body>
+</html>

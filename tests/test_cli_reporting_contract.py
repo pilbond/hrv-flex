@@ -93,6 +93,7 @@ class CliReportingContractTests(unittest.TestCase):
                 contextlib.redirect_stdout(buffer),
             ):
                 cli_reporting.show_last_daily_summary()
+                report = cli_reporting.build_last_daily_summary()
 
             output = buffer.getvalue()
             self.assertIn("Última Medición HRV (V4)", output)
@@ -126,6 +127,11 @@ class CliReportingContractTests(unittest.TestCase):
             self.assertNotIn("Healthy period", output)
             self.assertNotIn("HR promedio", output)
 
+            self.assertIsInstance(report, dict)
+            self.assertEqual(report["title"], "💓 Última Medición HRV (V4)")
+            self.assertIn("📅 Fecha:           2024-01-01", report["lines"])
+            self.assertIn("🧠 Reason text:     VERDE con carga aguda 72h (acute_load_72h_rel=4.20x; load_3d=210): precaución con la intensidad", report["lines"])
+
     def test_show_last_daily_summary_falls_back_to_core(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
@@ -158,6 +164,21 @@ class CliReportingContractTests(unittest.TestCase):
             self.assertIn("Última Medición HRV (CORE)", output)
             self.assertIn("💓 HR promedio:    59.1 bpm", output)
             self.assertIn("🚩 Flags:          test-flag", output)
+
+    def test_event_report_builders_return_structured_data(self):
+        sync_report = cli_reporting.build_sync_completed_report(updated_date="2024-01-03")
+        self.assertEqual(sync_report["title"], None)
+        self.assertTrue(sync_report["leading_blank"])
+        self.assertIn("✅ SINCRONIZACIÓN COMPLETADA", sync_report["lines"])
+        self.assertIn("📊 CORE actualizado hasta hoy (2024-01-03)", sync_report["lines"])
+
+        rr_report = cli_reporting.build_no_local_rr_files_report()
+        self.assertEqual(rr_report["title"], None)
+        self.assertIn("rr_downloads/ está vacío", rr_report["lines"][1])
+
+        already_report = cli_reporting.build_master_already_updated_report()
+        self.assertEqual(already_report["title"], None)
+        self.assertIn("CORE ya está actualizado con todas las sesiones", already_report["lines"][0])
 
 
 if __name__ == "__main__":

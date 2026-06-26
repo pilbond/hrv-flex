@@ -5,23 +5,20 @@ Web UI para Polar HRV Automation
 Accesible desde cualquier dispositivo (móvil, tablet, PC)
 """
 
-from flask import Flask, render_template_string, jsonify, request, redirect
+from flask import Flask, render_template, jsonify, request, redirect
 from flask_cors import CORS
-from markupsafe import escape
 from werkzeug.middleware.proxy_fix import ProxyFix
 import subprocess
 import sys
 import time
 import os
 import csv
-import math
 import re
 import shutil
 from pathlib import Path
 from datetime import datetime
 import threading
 import json
-from urllib.parse import urlencode
 import secrets
 import uuid
 import pandas as pd
@@ -32,8 +29,8 @@ from hrv_app.config import (
     TOKEN_FILE_V4 as TOKEN_PATH_V4,
 )
 from hrv_app.io_utils import write_csv_atomic, write_json_atomic
-from hrv_app.polar_utils import env_flag, response_excerpt
-from hrv_app.oauth_utils import save_json_atomic
+from hrv_app.messages import API as MSG, OAUTH as OAUTH_MSG, CONSOLE as CONSOLE_MSG
+from hrv_app.polar_utils import env_flag
 from hrv_app.polar_auth_v4 import (
     _safe_float as _v4_safe_float,
     build_auth_url_v4,
@@ -74,8 +71,6 @@ _RR_DELETE_DERIVED_JSONS = (
     "ENDURANCE_HRV_ssm_shadow_metadata.json",
 )
 
-
-
 def _public_url() -> str:
     """URL pública base.
 
@@ -103,6 +98,15 @@ def _public_url() -> str:
 
 def _redirect_uri() -> str:
     return f"{_public_url()}/auth/callback"
+
+
+def _load_template_json(template_name: str) -> dict:
+    template = app.jinja_env.get_template(template_name)
+    return json.loads(template.render())
+
+
+UI_COPY = _load_template_json("data/ui_copy.json.j2")
+UI_RUNTIME_CONFIG = _load_template_json("data/ui_runtime_config.json.j2")
 
 
 # Estado global de ejecución
@@ -157,10 +161,7 @@ def _require_ui_key():
     provided = (request.headers.get("X-HRV-KEY") or request.args.get("key") or "").strip()
     if provided and secrets.compare_digest(provided, UI_KEY):
         return None
-    return jsonify({
-        "success": False,
-        "error": "No autorizado: falta la clave HRV_UI_KEY (header X-HRV-KEY o ?key=).",
-    }), 401
+    return _api_error(MSG["ui_key_missing"], 401)
 
 
 JOB_LABELS = {
@@ -174,6 +175,78 @@ JOB_LABELS = {
 
 def _job_label(job_type: str | None) -> str:
     return JOB_LABELS.get(job_type or '', 'proceso')
+
+
+def _api_error(error_message: str, status_code: int = 400, **payload):
+    if payload:
+        payload = {k: v for k, v in payload.items() if k not in {"success", "message", "error"}}
+    body = {"success": False, "error": error_message, **payload}
+    return jsonify(body), status_code
+
+
+def _api_success(message: str, status_code: int = 200, **payload):
+    if payload:
+        payload = {k: v for k, v in payload.items() if k not in {"success", "message", "error"}}
+    body = {"success": True, "message": message, **payload}
+    return jsonify(body), status_code
+
+
+def _in_progress_error(job_type: str | None, suffix: str = ""):
+    base = f"{MSG['sync_in_progress_prefix']}{_job_label(job_type)}"
+    return f"{base}.{suffix}" if suffix else base
+
+
+def _oauth_error_context(variant: str, strong_message: str | None = None, error_detail: str | None = None) -> dict:
+    error_copy = OAUTH_MSG["error"]
+    if variant == "oauth_provider_error":
+        return {
+            "title": error_copy["provider_title"],
+            "pill": error_copy["provider_pill"],
+            "heading": error_copy["provider_heading"],
+            "strong_message": strong_message,
+            "detail_message": error_detail or error_copy["provider_detail_fallback"],
+            "button": error_copy["default_button"],
+            "button_href": "/",
+        }
+    if variant == "oauth_missing_code":
+        return {
+            "title": error_copy["missing_code_title"],
+            "pill": error_copy["missing_code_pill"],
+            "heading": error_copy["missing_code_heading"],
+            "strong_message": None,
+            "detail_message": error_copy["missing_code_message"],
+            "button": error_copy["default_button"],
+            "button_href": "/",
+        }
+    if variant == "oauth_state_error":
+        return {
+            "title": error_copy["state_title"],
+            "pill": error_copy["state_pill"],
+            "heading": error_copy["state_heading"],
+            "strong_message": None,
+            "detail_message": error_copy["state_message"],
+            "button": error_copy["state_button"],
+            "button_href": "/auth",
+        }
+    if variant == "oauth_persist_error":
+        return {
+            "title": error_copy["missing_code_title"],
+            "pill": error_copy["missing_code_pill"],
+            "heading": error_copy["persist_heading"],
+            "strong_message": None,
+            "detail_message": f"{error_copy['persist_message_prefix']}{error_detail}" if error_detail else error_copy["provider_detail_fallback"],
+            "button": error_copy["default_button"],
+            "button_href": "/",
+        }
+    return {
+        "title": error_copy["missing_code_title"],
+        "pill": error_copy["missing_code_pill"],
+        "heading": error_copy["persist_heading"],
+        "strong_message": None,
+        "detail_message": error_detail or error_copy["provider_detail_fallback"],
+        "button": error_copy["default_button"],
+        "button_href": "/",
+    }
 
 
 def _execution_snapshot() -> dict:
@@ -819,628 +892,22 @@ def _build_status_payload() -> dict:
     return payload
 
 
-def _hrv_summary_title_from_payload(payload: dict) -> str:
-    diagnostics = payload.get("diagnostics", {}) if isinstance(payload, dict) else {}
-    fecha = str(diagnostics.get("final_last_fecha") or "").strip()
-    return f"Lectura HRV de hoy ({fecha})" if fecha else "Lectura HRV de hoy"
-
-
 def _technical_summary_from_payload(payload: dict) -> str:
-    diagnostics = payload.get("diagnostics", {}) if isinstance(payload, dict) else {}
-
-    def _fmt_float(raw: object, decimals: int = 1) -> str:
-        try:
-            value = float(raw)
-        except (TypeError, ValueError):
-            return "-"
-        return f"{value:.{decimals}f}"
-
-    def _exp_from_log(raw: object) -> str:
-        try:
-            value = float(raw)
-        except (TypeError, ValueError):
-            return "-"
-        try:
-            return f"{math.exp(value):.1f}"
-        except OverflowError:
-            return "-"
-
-    lines = [
-        "Estado actual visible en UI",
-        f"Fecha FINAL: {str(diagnostics.get('final_last_fecha') or 'N/A')}",
-        f"RMSSD bruto: {_fmt_float(diagnostics.get('final_last_rmssd_stable'))} ms",
-        f"HR hoy: {_fmt_float(diagnostics.get('final_last_hr_today'))} lpm",
-        f"lnRMSSD bruto: {_fmt_float(diagnostics.get('final_last_lnrmssd_today'), 3)}",
-        f"RMSSD usado: {_exp_from_log(diagnostics.get('final_last_lnrmssd_used'))} ms",
-        f"lnRMSSD usado: {_fmt_float(diagnostics.get('final_last_lnrmssd_used'), 3)}",
-        f"Baseline 60d: {_exp_from_log(diagnostics.get('final_last_ln_base60'))} ms",
-        f"SWC_ln: {_fmt_float(diagnostics.get('final_last_swc_ln'), 3)}",
-        f"Gate: {str(diagnostics.get('final_last_gate_badge') or 'N/A')} - {str(diagnostics.get('final_last_gate_razon_base60') or 'N/A')}",
-        f"Acción: {str(diagnostics.get('final_last_action_detail') or 'N/A')}",
-        f"Último RR en disco: {str(diagnostics.get('latest_rr_file') or 'N/A')}",
-    ]
-
-    raw_text = str(payload.get("last_output") or payload.get("output") or payload.get("last_error") or "").strip()
-    if raw_text:
-        lines.extend(["", "Log de la última ejecución", raw_text])
-    return "\n".join(lines)
+    return str(payload.get("last_output") or payload.get("output") or payload.get("last_error") or "").strip()
 
 
 # HTML Template (UI móvil-first)
-HTML_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Polar HRV Sync v4</title>
-    <style>
-        :root {
-            --bg: #f5f0e6;
-            --surface: rgba(255, 252, 247, 0.92);
-            --text: #16353a;
-            --muted: #5f7478;
-            --brand: #0f766e;
-            --brand-strong: #0a4b54;
-            --accent: #ea6a2a;
-            --ok-bg: #e3f3ea;
-            --ok-text: #1d6b3f;
-            --info-bg: #e3eff8;
-            --info-text: #215b79;
-            --warn-bg: #fff1dc;
-            --warn-text: #9a5a00;
-            --error-bg: #fde8e5;
-            --error-text: #9f2f2f;
-            --shadow: 0 18px 40px rgba(20, 48, 52, 0.12);
-            --radius-xl: 8px;
-            --radius-md: 4px;
-        }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-            color: var(--text);
-            min-height: 100vh;
-            padding: 14px;
-            background:
-                radial-gradient(circle at top left, rgba(234, 106, 42, 0.18), transparent 28%),
-                radial-gradient(circle at top right, rgba(15, 118, 110, 0.16), transparent 34%),
-                linear-gradient(180deg, var(--bg) 0%, #fbf7ef 100%);
-        }
-        .container { max-width: 720px; margin: 0 auto; display: grid; gap: 14px; }
-        .card {
-            background: var(--surface);
-            backdrop-filter: blur(14px);
-            border: 1px solid rgba(255, 255, 255, 0.7);
-            border-radius: var(--radius-xl);
-            box-shadow: var(--shadow);
-            padding: 18px;
-        }
-        h1 { font-size: 30px; line-height: 1; letter-spacing: -0.04em; margin-bottom: 14px; }
-        .subtitle { color: var(--muted); font-size: 14px; line-height: 1.4; margin-bottom: 18px; }
-        .button-stack { display: grid; gap: 10px; }
-        button {
-            appearance: none; width: 100%; min-height: 46px; padding: 8px 10px; border-radius: 8px;
-            border: none; font-size: 16px; font-weight: 700; display: inline-flex; align-items: center;
-            justify-content: center; gap: 10px; cursor: pointer; transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
-        }
-        button:hover:not(:disabled) { transform: translateY(-1px); }
-        button:disabled { opacity: 0.62; cursor: not-allowed; }
-        .sync-button { color: #fffdf9; background: linear-gradient(135deg, var(--brand-strong), var(--brand)); xxxbox-shadow: 0 14px 28px rgba(15,118,110,0.22); }
-        .sync-button.running, .sessions-button.running { background: linear-gradient(135deg, #215b79, #0f766e); color: #fffdf9; animation: pulse 1.8s ease-in-out infinite; }
-        .sync-button.success, .sessions-button.success { background: linear-gradient(135deg, #1d6b3f, #2a9d5b); color: #fffdf9; }
-        .sessions-button { color: var(--brand-strong); background: rgba(15,118,110,0.08); border: 1px solid rgba(15,118,110,0.14); }
-        .ghost-button { color: var(--accent); background: rgba(234,106,42,0.10); border: 1px solid rgba(234,106,42,0.14); }
-        .danger-button { color: #9f2f2f; background: rgba(159,47,47,0.10); border: 1px solid rgba(159,47,47,0.18); }
-        .is-hidden { display: none; }
-        .status { display: none; margin-top: 12px; padding: 8px 16px; border-radius: 0; font-size: 14px; line-height: 1.45; }
-        .status.show { display: block; }
-        .status.info { background: var(--info-bg); color: var(--info-text); }
-        .status.success { background: var(--ok-bg); color: var(--ok-text); }
-        .status.error { background: var(--error-bg); color: var(--error-text); }
-        .section-title { font-size: 16px; font-weight: 800; letter-spacing: -0.03em; color: var(--brand-strong); margin-bottom: 12px; }
-        .coach-card {
-            border: 1px solid rgba(15, 118, 110, 0.14);
-            background:
-                linear-gradient(180deg, rgba(227, 243, 234, 0.98), rgba(255, 252, 247, 0.96));
-        }
-        .coach-header {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px 10px;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 10px;
-        }
-        .coach-title {
-            font-size: 18px;
-            font-weight: 800;
-            letter-spacing: -0.03em;
-            color: var(--brand-strong);
-        }
-        .coach-meta {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin-bottom: 12px;
-        }
-        .coach-pill {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 4px 10px;
-            border-radius: 999px;
-            background: rgba(15, 118, 110, 0.09);
-            color: var(--brand-strong);
-            font-size: 12px;
-            font-weight: 700;
-            letter-spacing: 0.01em;
-        }
-        .coach-label {
-            color: var(--muted);
-            font-weight: 700;
-            margin-right: 4px;
-        }
-        .coach-note {
-            font-size: 15px;
-            line-height: 1.55;
-            color: var(--text);
-            white-space: pre-wrap;
-        }
-        .coach-z3 {
-            margin-top: 10px;
-            font-size: 13px;
-            line-height: 1.45;
-            color: var(--brand-strong);
-            background: rgba(15, 118, 110, 0.08);
-            border: 1px solid rgba(15, 118, 110, 0.12);
-            padding: 8px 10px;
-        }
-        .hrv-summary-card {
-            border: 1px solid rgba(234, 106, 42, 0.18);
-            background:
-                linear-gradient(180deg, rgba(255, 241, 220, 0.96), rgba(255, 252, 247, 0.97));
-        }
-        .hrv-summary-title {
-            font-size: 18px;
-            font-weight: 800;
-            letter-spacing: -0.03em;
-            color: var(--brand-strong);
-            margin-bottom: 10px;
-        }
-        .hrv-summary-grid {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 10px;
-            margin-bottom: 12px;
-        }
-        .hrv-summary-item {
-            padding: 10px 12px;
-            border-radius: 8px;
-            background: rgba(255, 255, 255, 0.78);
-            border: 1px solid rgba(234, 106, 42, 0.10);
-        }
-        .hrv-summary-label {
-            font-size: 11px;
-            font-weight: 800;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-            color: var(--muted);
-            margin-bottom: 4px;
-        }
-        .hrv-summary-value {
-            font-size: 15px;
-            font-weight: 750;
-            line-height: 1.35;
-            color: var(--text);
-        }
-        .hrv-summary-note {
-            font-size: 13px;
-            line-height: 1.45;
-            color: var(--brand-strong);
-            background: rgba(234, 106, 42, 0.08);
-            border: 1px solid rgba(234, 106, 42, 0.12);
-            padding: 8px 10px;
-        }
-        .coach-source {
-            margin-top: 12px;
-            font-size: 12px;
-            line-height: 1.4;
-            color: var(--muted);
-        }
-        .raw-output {
-            padding: 14px; border-radius: 4px; background: #16353a; color: #eef6f5; font-family: Consolas, "Courier New", monospace;
-            font-size: 12px; line-height: 1.5; min-height: 320px; max-height: 60vh; overflow-x: hidden; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word;
-        }
-        .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.32); border-radius: 50%; border-top-color: #fff; animation: spin 1s linear infinite; }
-        @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(0.99); } }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @media (min-width: 640px) { body { padding: 20px; } .card { padding: 22px; } }
-        @media (max-width: 420px) { body { padding: 10px; } .card { padding: 12px; border-radius: 12px; } h1 { font-size: 28px; } }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <section class="card">
-            <h1>⚡ HRV Sync</h1>
-            <!--<p class="subtitle">Sincronización automática de datos HRV</p>-->
-            <div class="button-stack">
-                <button id="syncBtn" class="sync-button" onclick="syncPolar()"><span id="syncBtnText">Sincronizar HRV</span></button>
-                <button id="sessionsBtn" class="sessions-button" onclick="syncSessions()"><span id="sessionsBtnText">Sincronizar sesiones</span></button>
-            </div>
-            <div id="status" class="status"></div>
-        </section>
-        <section id="hrvSummaryCard" class="card hrv-summary-card" hidden>
-            <div id="hrvSummaryTitle" class="hrv-summary-title">{{ hrv_summary_title }}</div>
-            <div class="hrv-summary-grid">
-                <div class="hrv-summary-item">
-                    <div class="hrv-summary-label">Dato bruto</div>
-                    <div id="hrvSummaryRaw" class="hrv-summary-value">-</div>
-                </div>
-                <div class="hrv-summary-item">
-                    <div class="hrv-summary-label">Dato usado por el gate</div>
-                    <div id="hrvSummaryUsed" class="hrv-summary-value">-</div>
-                </div>
-                <div class="hrv-summary-item">
-                    <div class="hrv-summary-label">Baseline 60d</div>
-                    <div id="hrvSummaryBase" class="hrv-summary-value">-</div>
-                </div>
-                <div class="hrv-summary-item">
-                    <div class="hrv-summary-label">Gate</div>
-                    <div id="hrvSummaryGate" class="hrv-summary-value">-</div>
-                </div>
-            </div>
-            <div id="hrvSummaryNote" class="hrv-summary-note">Esperando disponibilidad del resumen HRV...</div>
-        </section>
-        <section id="weeklyCoachCard" class="card coach-card" hidden>
-            <div class="coach-header">
-                <div class="coach-title">Coach semanal</div>
-            </div>
-            <div class="coach-meta">
-                <span class="coach-pill"><span class="coach-label">Semana</span><span id="weeklyCoachWeek">-</span></span>
-                <span class="coach-pill"><span class="coach-label">Cierre</span><span id="weeklyCoachWindowEnd">-</span></span>
-                <span class="coach-pill"><span class="coach-label">Calidad</span><span id="weeklyCoachQuality">-</span></span>
-            </div>
-            <div id="weeklyCoachNote" class="coach-note">Esperando disponibilidad del resumen semanal...</div>
-            <div id="weeklyCoachZ3" class="coach-z3" hidden title="Lectura retrospectiva de Z3 respecto al historico comparable por deporte. No es una prescripcion automatica."></div>
-            <div class="coach-source">Fuente visible en UI: <code>ENDURANCE_HRV_weekly_coach.json</code> vía <code>/api/status</code>. Fuentes primarias del método semanal: <code>sessions_day</code>, <code>sessions</code>, <code>FINAL</code>, <code>DASHBOARD</code> y <code>sleep</code>.</div>
-        </section>
-        <section class="card">
-            <div class="section-title">Detalle técnico</div>
-            <pre id="rawOutput" class="raw-output">{{ initial_technical_output }}</pre>
-            <div class="button-stack" style="margin-top: 14px;">
-                <!--<button id="importBtn" class="ghost-button{% if not show_seed_import %} is-hidden{% endif %}" onclick="importSeedCsvs()" {% if not show_seed_import %}hidden{% endif %}><span id="importBtnText">Importar CSV seed</span></button>-->
-                <button id="restoreBackupBtn" class="ghost-button{% if not show_restore_backup %} is-hidden{% endif %}" onclick="restoreFromDropbox()" {% if not show_restore_backup %}hidden{% endif %}><span id="restoreBackupBtnText">Restaurar backup Dropbox</span></button>
-                <button id="deleteLastRrBtn" class="danger-button" onclick="deleteLastRr()"><span id="deleteLastRrBtnText">Borrar último RR</span></button>
-            </div>
-        </section>
-    </div>
-    <script>
-        const UI_KEY = new URLSearchParams(window.location.search).get('key');
-        function apiFetch(url, options = {}) {
-            const headers = Object.assign({}, options.headers || {});
-            if (UI_KEY) headers['X-HRV-KEY'] = UI_KEY;
-            return fetch(url, Object.assign({}, options, { headers }));
-        }
-        function showBanner(kind, message) {
-            const status = document.getElementById('status');
-            status.className = `status ${kind} show`;
-            status.textContent = message;
-        }
-        function renderTechnicalOutput(rawText) {
-            const rawOutput = document.getElementById('rawOutput');
-            rawOutput.textContent = rawText || 'Esperando ejecución...';
-        }
-        function buildTechnicalSummary(data) {
-            const diagnostics = data?.diagnostics || {};
-            const lines = [];
-            lines.push('Estado actual visible en UI');
-            lines.push(`Fecha FINAL: ${String(diagnostics.final_last_fecha || 'N/A')}`);
-            lines.push(`RMSSD bruto: ${fmtNumber(diagnostics.final_last_rmssd_stable)} ms`);
-            lines.push(`HR hoy: ${fmtNumber(diagnostics.final_last_hr_today)} lpm`);
-            lines.push(`lnRMSSD bruto: ${fmtNumber(diagnostics.final_last_lnrmssd_today, 3)}`);
-            lines.push(`RMSSD usado: ${fmtNumber(expFromLog(diagnostics.final_last_lnrmssd_used))} ms`);
-            lines.push(`lnRMSSD usado: ${fmtNumber(diagnostics.final_last_lnrmssd_used, 3)}`);
-            lines.push(`Baseline 60d: ${fmtNumber(expFromLog(diagnostics.final_last_ln_base60))} ms`);
-            lines.push(`SWC_ln: ${fmtNumber(diagnostics.final_last_swc_ln, 3)}`);
-            lines.push(`Gate: ${String(diagnostics.final_last_gate_badge || 'N/A')} - ${String(diagnostics.final_last_gate_razon_base60 || 'N/A')}`);
-            lines.push(`Acción: ${String(diagnostics.final_last_action_detail || 'N/A')}`);
-            lines.push(`Último RR en disco: ${String(diagnostics.latest_rr_file || 'N/A')}`);
-            return lines.join('\\n');
-        }
-        function renderWeeklyCoachPanel(data) {
-            const card = document.getElementById('weeklyCoachCard');
-            const week = document.getElementById('weeklyCoachWeek');
-            const windowEnd = document.getElementById('weeklyCoachWindowEnd');
-            const quality = document.getElementById('weeklyCoachQuality');
-            const note = document.getElementById('weeklyCoachNote');
-            const z3 = document.getElementById('weeklyCoachZ3');
-            const diagnostics = data?.diagnostics || {};
-            const exists = Boolean(diagnostics.weekly_coach_exists);
-            card.hidden = !exists;
-            if (!exists) {
-                week.textContent = '-';
-                windowEnd.textContent = '-';
-                quality.textContent = '-';
-                note.textContent = 'Todavía no hay resumen semanal disponible.';
-                z3.hidden = true;
-                z3.textContent = '';
-                return;
-            }
-            week.textContent = diagnostics.weekly_coach_iso_week || 'Semana no declarada';
-            windowEnd.textContent = diagnostics.weekly_coach_window_end || 'Sin cierre';
-            quality.textContent = diagnostics.weekly_coach_data_quality || 'sin dato';
-            note.textContent = diagnostics.weekly_coach_planning_note || 'Sin planning note disponible.';
-            const z3Summary = diagnostics.weekly_coach_z3_budget_summary || '';
-            z3.hidden = !z3Summary;
-            z3.textContent = z3Summary ? `Contexto Z3 semanal: ${z3Summary}` : '';
-        }
-        function renderHrvSummaryPanel(data) {
-            const card = document.getElementById('hrvSummaryCard');
-            const title = document.getElementById('hrvSummaryTitle');
-            const raw = document.getElementById('hrvSummaryRaw');
-            const used = document.getElementById('hrvSummaryUsed');
-            const base = document.getElementById('hrvSummaryBase');
-            const gate = document.getElementById('hrvSummaryGate');
-            const note = document.getElementById('hrvSummaryNote');
-            const diagnostics = data?.diagnostics || {};
-            const exists = Boolean(diagnostics.final_exists);
-            const summaryDate = String(diagnostics.final_last_fecha || '').trim();
-            card.hidden = !exists;
-            title.textContent = summaryDate ? `Lectura HRV de hoy (${summaryDate})` : 'Lectura HRV de hoy';
-            if (!exists) {
-                raw.textContent = '-';
-                used.textContent = '-';
-                base.textContent = '-';
-                gate.textContent = '-';
-                note.textContent = 'Todavía no hay salida FINAL disponible.';
-                return;
-            }
-
-            const rmssdRaw = diagnostics.final_last_rmssd_stable;
-            const hrToday = diagnostics.final_last_hr_today;
-            const lnToday = diagnostics.final_last_lnrmssd_today;
-            const lnUsed = diagnostics.final_last_lnrmssd_used;
-            const lnBase = diagnostics.final_last_ln_base60;
-            const swcLn = diagnostics.final_last_swc_ln;
-            const gateBadge = diagnostics.final_last_gate_badge || 'N/A';
-            const gateReason = diagnostics.final_last_gate_razon_base60 || 'N/A';
-            const action = diagnostics.final_last_action_detail || 'N/A';
-
-            raw.textContent = `${fmtNumber(rmssdRaw)} ms · HR ${fmtNumber(hrToday)} lpm · lnRMSSD bruto ${fmtNumber(lnToday, 3)}`;
-            used.textContent = `${fmtNumber(expFromLog(lnUsed))} ms · lnRMSSD usado ${fmtNumber(lnUsed, 3)}`;
-            base.textContent = `${fmtNumber(expFromLog(lnBase))} ms · SWC_ln ${fmtNumber(swcLn, 3)}`;
-            gate.textContent = `${gateBadge} · ${gateReason}`;
-            note.textContent = `El gate compara el valor usado por la decisión con BASE60. Hoy la acción es ${action}.`;
-        }
-        function fmtNumber(value, decimals = 1) {
-            const n = Number(value);
-            return Number.isFinite(n) ? n.toFixed(decimals) : '-';
-        }
-        function expFromLog(value) {
-            const n = Number(value);
-            return Number.isFinite(n) ? Math.exp(n) : NaN;
-        }
-        function fmtDateFromRrName(value) {
-            const raw = String(value || '').trim();
-            const match = raw.match(/(\\d{4})-(\\d{2})-(\\d{2})/);
-            if (!match) return '';
-            return `${match[3]}/${match[2]}/${match[1]}`;
-        }
-        function setButtonState(jobType, state) {
-            const mapping = { hrv: ['syncBtn', 'syncBtnText', 'Sincronizar HRV'], sessions: ['sessionsBtn', 'sessionsBtnText', 'Sincronizar sesiones'] };
-            const target = mapping[jobType];
-            if (!target) return;
-            const [btnId, textId, idleText] = target;
-            const btn = document.getElementById(btnId);
-            const text = document.getElementById(textId);
-            btn.classList.remove('running', 'success');
-            if (state === 'running') {
-                btn.classList.add('running');
-                text.innerHTML = '<span class="spinner"></span> ' + (jobType === 'hrv' ? 'Sincronizando HRV...' : 'Sincronizando sesiones...');
-            } else if (state === 'success') {
-                btn.classList.add('success');
-                text.textContent = jobType === 'hrv' ? 'Sincronización HRV ok' : 'Sincronización sesiones ok';
-            } else {
-                text.textContent = idleText;
-            }
-        }
-        function applyUiState(data) {
-            const syncBtn = document.getElementById('syncBtn');
-            const sessionsBtn = document.getElementById('sessionsBtn');
-            const importBtn = document.getElementById('importBtn');
-            const deleteLastRrBtn = document.getElementById('deleteLastRrBtn');
-            const rawText = data.last_output || data.output || data.last_error || '';
-            const summaryText = buildTechnicalSummary(data);
-            setButtonState('hrv', 'idle');
-            setButtonState('sessions', 'idle');
-            if (data.running && data.job_type === 'hrv') setButtonState('hrv', 'running');
-            else if (data.running && data.job_type === 'sessions') setButtonState('sessions', 'running');
-            syncBtn.disabled = Boolean(data.running);
-            sessionsBtn.disabled = Boolean(data.running);
-            if (importBtn) importBtn.disabled = Boolean(data.running);
-            if (deleteLastRrBtn) {
-                const latestRrPath = data?.diagnostics?.latest_rr_path;
-                deleteLastRrBtn.disabled = Boolean(data.running || !latestRrPath);
-            }
-            renderHrvSummaryPanel(data);
-            /*renderWeeklyCoachPanel(data);*/
-            renderTechnicalOutput(rawText ? `${summaryText}\\n\\nLog de la última ejecución\\n${rawText}` : summaryText);
-        }
-        async function refreshDashboard() {
-            try {
-                const response = await apiFetch('/api/status');
-                const data = await response.json();
-                applyUiState(data);
-                if (data.running) showBanner('info', data.job_type === 'sessions' ? 'Procesando sincronización de sesiones...' : 'Procesando sincronización HRV...');
-                else if (data.success === true) showBanner('success', data.message || 'Última operación completada correctamente.');
-                else if (data.success === false) showBanner('error', data.last_error || data.message || 'La última operación terminó con error.');
-            } catch (error) {
-                console.error('Error actualizando status:', error);
-            }
-        }
-        async function syncPolar() { await startJob('/api/sync', 'hrv', 'Iniciando sincronización HRV...'); }
-        async function syncSessions() { await startJob('/api/sync-sessions', 'sessions', 'Iniciando sincronización de sesiones...'); }
-        async function startJob(url, jobType, startMessage) {
-            const stateTextId = jobType === 'hrv' ? 'syncBtnText' : 'sessionsBtnText';
-            const btn = document.getElementById(jobType === 'hrv' ? 'syncBtn' : 'sessionsBtn');
-            const btnText = document.getElementById(stateTextId);
-            document.getElementById('syncBtn').disabled = true;
-            document.getElementById('sessionsBtn').disabled = true;
-            btn.classList.add('running');
-            btnText.innerHTML = '<span class="spinner"></span> ' + (jobType === 'hrv' ? 'Sincronizando HRV...' : 'Sincronizando sesiones...');
-            showBanner('info', startMessage);
-            try {
-                const response = await apiFetch(url, { method: 'POST' });
-                const data = await response.json();
-                if (!response.ok) { showSyncError(data, jobType); return; }
-                if (data.message && /iniciada/i.test(data.message)) await pollSyncStatus();
-                else if (data.success) showSyncSuccess(data, jobType);
-                else showSyncError(data, jobType);
-            } catch (error) {
-                btn.classList.remove('running');
-                btnText.textContent = jobType === 'hrv' ? 'Sincronizar HRV' : 'Sincronizar sesiones';
-                document.getElementById('syncBtn').disabled = false;
-                document.getElementById('sessionsBtn').disabled = false;
-                showBanner('error', 'Error de conexión: ' + error.message);
-            }
-        }
-        async function importSeedCsvs() {
-            const btn = document.getElementById('importBtn');
-            const btnText = document.getElementById('importBtnText');
-            btn.disabled = true;
-            btnText.innerHTML = '<span class="spinner"></span> Importando...';
-            showBanner('info', 'Importando CSV seed a /data...');
-            try {
-                const response = await apiFetch('/api/import-seed', { method: 'POST' });
-                const data = await response.json();
-                if (!response.ok || !data.success) throw new Error(data.error || 'Error importando CSV seed');
-                renderTechnicalOutput(JSON.stringify(data, null, 2));
-                showBanner('success', 'CSV seed importados a /data');
-                await refreshDashboard();
-            } catch (error) {
-                showBanner('error', error.message);
-            } finally {
-                btn.disabled = false;
-                btnText.textContent = 'Importar CSV seed';
-            }
-        }
-        async function restoreFromDropbox() {
-            const btn = document.getElementById('restoreBackupBtn');
-            const btnText = document.getElementById('restoreBackupBtnText');
-            const confirmed = window.confirm('Se restaurarán los CSV del último backup en Dropbox. Los archivos actuales se guardarán en data/backup/. ¿Continuar?');
-            if (!confirmed) return;
-            btn.disabled = true;
-            btnText.innerHTML = '<span class="spinner"></span> Restaurando...';
-            showBanner('info', 'Descargando backup desde Dropbox...');
-            try {
-                const response = await apiFetch('/api/restore-backup', { method: 'POST' });
-                const data = await response.json();
-                if (!response.ok || !data.success) throw new Error(data.error || 'Error restaurando backup');
-                renderTechnicalOutput(JSON.stringify(data, null, 2));
-                showBanner('success', `Backup restaurado: ${data.restored?.length || 0} archivos desde ${data.source_folder || 'Dropbox'}`);
-                await refreshDashboard();
-            } catch (error) {
-                showBanner('error', error.message);
-            } finally {
-                btn.disabled = false;
-                btnText.textContent = 'Restaurar backup Dropbox';
-            }
-        }
-        async function deleteLastRr() {
-            const btn = document.getElementById('deleteLastRrBtn');
-            const btnText = document.getElementById('deleteLastRrBtnText');
-            const statusResponse = await apiFetch('/api/status');
-            const statusData = await statusResponse.json();
-            const latest = statusData?.diagnostics?.latest_rr_file;
-            if (!latest) {
-                showBanner('error', 'No hay ningún RR reciente para borrar.');
-                return;
-            }
-            const latestDate = fmtDateFromRrName(latest);
-            const latestLabel = latestDate ? `${latest} (${latestDate})` : latest;
-            const confirmed = window.confirm(`Se moverá a backup el último RR: ${latestLabel}. Después tendrás que repetir la medición y volver a sincronizar. ¿Continuar?`);
-            if (!confirmed) return;
-            btn.disabled = true;
-            btnText.innerHTML = '<span class="spinner"></span> Borrando...';
-            showBanner('info', `Moviendo ${latestLabel} a backup...`);
-            try {
-                const response = await apiFetch('/api/delete-latest-rr', { method: 'POST' });
-                const data = await response.json();
-                if (!response.ok || !data.success) throw new Error(data.error || 'Error borrando el último RR');
-                renderTechnicalOutput(JSON.stringify(data, null, 2));
-                showBanner('success', `Último RR movido a backup: ${data.deleted_rr_name}`);
-                await refreshDashboard();
-            } catch (error) {
-                showBanner('error', error.message);
-            } finally {
-                btn.disabled = false;
-                btnText.textContent = 'Borrar último RR';
-            }
-        }
-        async function pollSyncStatus() {
-            let attempts = 0;
-            const syncTimeoutSec = Number('{{ sync_timeout_sec }}') || 1200;
-            const pollIntervalSec = 2;
-            const maxAttempts = Math.ceil(syncTimeoutSec / pollIntervalSec);
-            while (attempts < maxAttempts) {
-                await new Promise(resolve => setTimeout(resolve, 2000));
-                try {
-                    const response = await apiFetch('/api/status');
-                    const data = await response.json();
-                    applyUiState(data);
-                    if (!data.running) {
-                        if (data.success) showSyncSuccess(data, data.job_type);
-                        else if (data.success === false) showSyncError(data, data.job_type);
-                        return;
-                    }
-                    showBanner('info', 'Procesando ' + (data.job_type === 'sessions' ? 'sincronización de sesiones' : 'sincronización HRV') + '... ' + Math.floor(attempts * pollIntervalSec / 60) + 'm ' + (attempts * pollIntervalSec % 60) + 's');
-                    attempts++;
-                } catch (error) {
-                    console.error('Error polling status:', error);
-                    attempts++;
-                }
-            }
-            document.getElementById('syncBtn').disabled = false;
-            document.getElementById('sessionsBtn').disabled = false;
-            setButtonState('hrv', 'idle');
-            setButtonState('sessions', 'idle');
-            showBanner('error', 'Timeout en UI: la sincronización tardó más de lo esperado');
-        }
-        function showSyncSuccess(data, jobType) {
-            document.getElementById('syncBtn').disabled = false;
-            document.getElementById('sessionsBtn').disabled = false;
-            setButtonState('hrv', 'idle');
-            setButtonState('sessions', 'idle');
-            if (jobType) setButtonState(jobType, 'success');
-            renderTechnicalOutput(data.last_output || data.output || '');
-            showBanner('success', data.message || 'Proceso completado');
-            setTimeout(() => { setButtonState('hrv', 'idle'); setButtonState('sessions', 'idle'); }, 3000);
-        }
-        function showSyncError(data, jobType) {
-            document.getElementById('syncBtn').disabled = false;
-            document.getElementById('sessionsBtn').disabled = false;
-            setButtonState('hrv', 'idle');
-            setButtonState('sessions', 'idle');
-            renderTechnicalOutput(data.last_output || data.output || data.error || data.last_error || 'Error desconocido');
-            showBanner('error', data.error || data.last_error || data.message || 'Error desconocido');
-        }
-        setInterval(refreshDashboard, 30000);
-        refreshDashboard();
-    </script>
-</body>
-</html>
-"""
-
 @app.route('/')
 def index():
     """Interfaz web principal"""
     initial_payload = _build_status_payload()
-    return render_template_string(
-        HTML_TEMPLATE,
-        sync_timeout_sec=_sync_timeout_seconds(),
+    return render_template(
+        'index.html',
+        ui_copy=UI_COPY,
+        runtime_config={**UI_RUNTIME_CONFIG, "sync_timeout_sec": _sync_timeout_seconds()},
         show_seed_import=env_flag('HRV_SHOW_SEED_IMPORT', SEED_UPLOAD_DIR.exists()),
         show_restore_backup=env_flag('HRV_BACKUP_DROPBOX_ENABLED', False),
-        hrv_summary_title=_hrv_summary_title_from_payload(initial_payload),
+        initial_final_fecha=(initial_payload.get("diagnostics", {}) or {}).get("final_last_fecha"),
         initial_technical_output=_technical_summary_from_payload(initial_payload),
     )
 
@@ -1449,45 +916,31 @@ def index():
 def sync():
     """Ejecutar sincronización Polar"""
     if not TOKEN_PATH_V4.exists():
-        return jsonify({
-            'success': False,
-            'error': 'Falta autorización. Abre /auth para iniciar sesión en Polar y autorizar la app.'
-        }), 400
+        return _api_error(MSG["sync_missing_auth"])
 
     if not _try_begin_execution('hrv'):
-        return jsonify({
-            'success': False,
-            'error': f'Ya hay un proceso en curso: {_job_label(_execution_snapshot().get("job_type"))}'
-        }), 409
+        return _api_error(_in_progress_error(_execution_snapshot().get("job_type")), 409)
 
     thread = threading.Thread(target=run_sync, daemon=True)
     try:
         thread.start()
     except Exception as exc:
-        _set_execution_result('hrv', False, '', str(exc), 'Error iniciando sincronización')
-        return jsonify({
-            'success': False,
-            'error': str(exc),
-            'job_type': 'hrv',
-        }), 500
+        _set_execution_result('hrv', False, '', str(exc), MSG["sync_start_error"])
+        return _api_error(str(exc), 500, job_type='hrv')
     thread.join(timeout=1)
 
     state = _execution_snapshot()
     if state['success'] is not None and state.get('job_type') == 'hrv':
-        return jsonify({
+        body = {
             'success': state['success'],
-            'message': 'Sincronización completada' if state['success'] else 'Error en sincronización',
+            'message': MSG["sync_success"] if state['success'] else MSG["sync_error"],
             'output': state['last_output'],
             'error': state['last_error'],
             'job_type': 'hrv',
-        })
+        }
+        return jsonify(body)
 
-    return jsonify({
-        'success': True,
-        'message': 'Sincronización iniciada',
-        'output': 'Procesando...',
-        'job_type': 'hrv',
-    }), 202
+    return _api_success(MSG["sync_started"], 202, output=MSG["sync_output_placeholder"], job_type='hrv')
 
 
 def run_sync():
@@ -1495,10 +948,10 @@ def run_sync():
     _run_subprocess_job(
         [sys.executable, 'polar_hrv_automation.py', '--process'],
         'hrv',
-        'Sincronización completada',
+        MSG["sync_success"],
         env_extra={
             'PYTHONUTF8': '1',
-            'HRV_QUIET': '1',
+            'HRV_QUIET': '0',
         },
     )
 
@@ -1507,39 +960,28 @@ def run_sync():
 def sync_sessions():
     """Ejecutar sincronización de sesiones desde Intervals."""
     if not _try_begin_execution('sessions'):
-        return jsonify({
-            'success': False,
-            'error': f'Ya hay un proceso en curso: {_job_label(_execution_snapshot().get("job_type"))}'
-        }), 409
+        return _api_error(_in_progress_error(_execution_snapshot().get("job_type")), 409)
 
     thread = threading.Thread(target=run_sessions_sync, daemon=True)
     try:
         thread.start()
     except Exception as exc:
-        _set_execution_result('sessions', False, '', str(exc), 'Error iniciando sincronización de sesiones')
-        return jsonify({
-            'success': False,
-            'error': str(exc),
-            'job_type': 'sessions',
-        }), 500
+        _set_execution_result('sessions', False, '', str(exc), MSG["sessions_start_error"])
+        return _api_error(str(exc), 500, job_type='sessions')
     thread.join(timeout=1)
 
     state = _execution_snapshot()
     if state['success'] is not None and state.get('job_type') == 'sessions':
-        return jsonify({
+        body = {
             'success': state['success'],
-            'message': state.get('message') or ('Sincronización de sesiones completada' if state['success'] else 'Error en sincronización de sesiones'),
+            'message': state.get('message') or (MSG["sessions_success"] if state['success'] else MSG["sessions_error"]),
             'output': state['last_output'],
             'error': state['last_error'],
             'job_type': 'sessions',
-        })
+        }
+        return jsonify(body)
 
-    return jsonify({
-        'success': True,
-        'message': 'Sincronización de sesiones iniciada',
-        'output': 'Procesando...',
-        'job_type': 'sessions',
-    }), 202
+    return _api_success(MSG["sessions_started"], 202, output=MSG["sync_output_placeholder"], job_type='sessions')
 
 
 def run_sessions_sync():
@@ -1547,7 +989,10 @@ def run_sessions_sync():
     _run_subprocess_job(
         [sys.executable, 'build_sessions.py', '--update'],
         'sessions',
-        'Sincronización de sesiones completada',
+        MSG["sessions_success"],
+        env_extra={
+            'HRV_QUIET': '0',
+        },
     )
 
 
@@ -1572,10 +1017,7 @@ def get_status():
 def import_seed():
     """Importar CSV canónicos desde seed_upload hacia HRV_DATA_DIR."""
     if not _try_begin_execution('seed_import'):
-        return jsonify({
-            'success': False,
-            'error': f'Hay un proceso en curso: {_job_label(_execution_snapshot().get("job_type"))}. Espera a que termine antes de importar.'
-        }), 409
+        return _api_error(_in_progress_error(_execution_snapshot().get('job_type'), MSG['seed_import_in_progress_suffix']), 409)
 
     try:
         result = _import_seed_csvs()
@@ -1584,31 +1026,19 @@ def import_seed():
             True,
             json.dumps(result, ensure_ascii=False, indent=2),
             '',
-            'CSV seed importados',
+            MSG["seed_import_started"],
         )
-        return jsonify({
-            'success': True,
-            'message': 'CSV seed importados',
-            'job_type': 'seed_import',
-            **result,
-        })
+        return _api_success(MSG["seed_import_started"], job_type='seed_import', **result)
     except Exception as exc:
-        _set_execution_result('seed_import', False, '', str(exc), 'Error importando CSV seed')
-        return jsonify({
-            'success': False,
-            'error': str(exc),
-            'job_type': 'seed_import',
-        }), 400
+        _set_execution_result('seed_import', False, '', str(exc), MSG["seed_import_error"])
+        return _api_error(str(exc), job_type='seed_import')
 
 
 @app.route('/api/restore-backup', methods=['POST'])
 def restore_backup_endpoint():
     """Restaurar CSV canónicos desde el último backup en Dropbox."""
     if not _try_begin_execution('restore_backup'):
-        return jsonify({
-            'success': False,
-            'error': f'Hay un proceso en curso: {_job_label(_execution_snapshot().get("job_type"))}. Espera a que termine antes de restaurar.'
-        }), 409
+        return _api_error(_in_progress_error(_execution_snapshot().get('job_type'), MSG['restore_in_progress_suffix']), 409)
 
     try:
         from hrv_app.backup_dropbox import restore_backup
@@ -1618,31 +1048,19 @@ def restore_backup_endpoint():
             True,
             json.dumps(result, ensure_ascii=False, indent=2),
             '',
-            'Backup restaurado desde Dropbox',
+            MSG["restore_started"],
         )
-        return jsonify({
-            'success': True,
-            'message': 'Backup restaurado desde Dropbox',
-            'job_type': 'restore_backup',
-            **result,
-        })
+        return _api_success(MSG["restore_started"], job_type='restore_backup', **result)
     except Exception as exc:
-        _set_execution_result('restore_backup', False, '', str(exc), 'Error restaurando backup')
-        return jsonify({
-            'success': False,
-            'error': str(exc),
-            'job_type': 'restore_backup',
-        }), 400
+        _set_execution_result('restore_backup', False, '', str(exc), MSG["restore_error"])
+        return _api_error(str(exc), job_type='restore_backup')
 
 
 @app.route('/api/delete-latest-rr', methods=['POST'])
 def delete_latest_rr():
     """Mover a backup el último RR CSV del directorio operativo."""
     if not _try_begin_execution('delete_rr'):
-        return jsonify({
-            'success': False,
-            'error': f'Hay un proceso en curso: {_job_label(_execution_snapshot().get("job_type"))}. Espera a que termine antes de borrar el último RR.'
-        }), 409
+        return _api_error(_in_progress_error(_execution_snapshot().get('job_type'), MSG['delete_in_progress_suffix']), 409)
 
     try:
         result = _delete_latest_rr()
@@ -1651,21 +1069,12 @@ def delete_latest_rr():
             True,
             json.dumps(result, ensure_ascii=False, indent=2),
             '',
-            'Último RR movido a backup',
+            MSG["delete_started"],
         )
-        return jsonify({
-            'success': True,
-            'message': 'Último RR movido a backup',
-            'job_type': 'delete_rr',
-            **result,
-        })
+        return _api_success(MSG["delete_started"], job_type='delete_rr', **result)
     except Exception as exc:
-        _set_execution_result('delete_rr', False, '', str(exc), 'Error borrando el último RR')
-        return jsonify({
-            'success': False,
-            'error': str(exc),
-            'job_type': 'delete_rr',
-        }), 400
+        _set_execution_result('delete_rr', False, '', str(exc), MSG["delete_error"])
+        return _api_error(str(exc), job_type='delete_rr')
 
 
 @app.route('/auth', strict_slashes=False)
@@ -1673,11 +1082,10 @@ def auth():
     """Iniciar flujo OAuth (web) con Polar"""
     raw_client_id2 = os.environ.get("POLAR_CLIENT_ID2")
     raw_client_id = os.environ.get("POLAR_CLIENT_ID")
-    client_id_source = "POLAR_CLIENT_ID2" if raw_client_id2 else "POLAR_CLIENT_ID"
     client_id = (raw_client_id2 or raw_client_id or "").strip()
     client_secret = (os.environ.get("POLAR_CLIENT_SECRET") or "").strip()
     if not client_id or not client_secret:
-        return jsonify({'error': 'POLAR_CLIENT_ID o POLAR_CLIENT_SECRET no configurados'}), 500
+        return _api_error(MSG["auth_missing_credentials"], 500)
 
     redirect_uri = _redirect_uri()
     state = _issue_oauth_state()
@@ -1697,54 +1105,14 @@ def oauth_callback():
     error_description = request.args.get('error_description')
 
     if error:
-        return f"""
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>Error de Autorización</title>
-        </head>
-        <body style="font-family: Arial; text-align: center; padding: 50px;">
-            <h1>❌ Error de Autorización</h1>
-            <p><strong>{escape(error)}</strong></p>
-            <p>{escape(error_description or 'Error desconocido')}</p>
-            <br>
-            <a href="/" style="color: #667eea; text-decoration: none;">← Volver a la app</a>
-        </body>
-        </html>
-        """, 400
+        return render_template('oauth_error.html', **_oauth_error_context('oauth_provider_error', error, error_description or 'Error desconocido')), 400
 
     if not code:
-        return """
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>Error</title>
-        </head>
-        <body style="font-family: Arial; text-align: center; padding: 50px;">
-            <h1>⚠️ Error</h1>
-            <p>No se recibió código de autorización</p>
-            <br>
-            <a href="/" style="color: #667eea; text-decoration: none;">← Volver a la app</a>
-        </body>
-        </html>
-        """, 400
+        return render_template('oauth_error.html', **_oauth_error_context('oauth_missing_code')), 400
 
     state_valid = _consume_oauth_state((request.args.get('state') or '').strip())
     if not state_valid:
-        return f"""
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>Error</title>
-        </head>
-        <body style="font-family: Arial; text-align: center; padding: 50px;">
-            <h1>⚠️ Error</h1>
-            <p>Estado OAuth inválido o caducado. Vuelve a iniciar la autorización desde <a href="/auth">/auth</a>.</p>
-            <br>
-            <a href="/auth" style="color: #667eea; text-decoration: none;">← Reintentar autorización</a>
-        </body>
-        </html>
-        """, 400
+        return render_template('oauth_error.html', **_oauth_error_context('oauth_state_error')), 400
 
     try:
         client_id = (os.environ.get("POLAR_CLIENT_ID2") or os.environ.get("POLAR_CLIENT_ID") or "").strip()
@@ -1757,119 +1125,10 @@ def oauth_callback():
         token_json = exchange_code_for_token_v4(code, client_id, client_secret, redirect_uri)
         persist_authorized_bundle(TOKEN_PATH_V4, token_json, scopes=POLAR_V4_SCOPES)
 
-        token_notice = ""
-
-        success_html = """
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"> 
-            <title>Autorización Exitosa</title>
-            <style>
-                body {
-                    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-                    background: linear-gradient(180deg, #f5f0e6 0%, #d8ebe6 100%);
-                    min-height: 100vh;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    margin: 0;
-                    padding: 20px;
-                    color: #16353a;
-                }
-                .card {
-                    width: min(100%, 420px);
-                    background: rgba(255, 252, 247, 0.92);
-                    border: 1px solid rgba(255,255,255,0.7);
-                    border-radius: 24px;
-                    box-shadow: 0 18px 40px rgba(20, 48, 52, 0.12);
-                    padding: 30px 24px;
-                    text-align: center;
-                }
-                .pill {
-                    display: inline-flex;
-                    padding: 7px 12px;
-                    border-radius: 999px;
-                    background: #e3f3ea;
-                    color: #1d6b3f;
-                    font-size: 12px;
-                    font-weight: 700;
-                    letter-spacing: 0.06em;
-                    text-transform: uppercase;
-                }
-                h1 {
-                    margin: 18px 0 10px;
-                    font-size: 30px;
-                    line-height: 1;
-                    letter-spacing: -0.04em;
-                }
-                p {
-                    margin: 0 0 12px;
-                    color: #5f7478;
-                    line-height: 1.45;
-                }
-                .btn {
-                    display: inline-flex;
-                    align-items: center;
-                    justify-content: center;
-                    width: 100%;
-                    min-height: 52px;
-                    margin-top: 10px;
-                    border-radius: 16px;
-                    text-decoration: none;
-                    color: #fffdf9;
-                    background: linear-gradient(135deg, #0a4b54, #0f766e);
-                    font-weight: 700;
-                }
-                .countdown {
-                    margin-top: 18px;
-                    font-size: 13px;
-                    color: #7a8a8d;
-                }
-            </style>
-        </head>
-        <body>
-            <div class="card">
-                <div class="pill">OAuth completado</div>
-                <h1>Polar autorizado</h1>
-                <p>Polar AccessLink ha sido autorizado correctamente.</p>
-                <p>Ya puedes volver a la app y lanzar la sincronización.</p>
-                __TOKEN_NOTICE__
-                <a href="/" class="btn">Volver a la App</a>
-                <p class="countdown">Esta ventana se cerrará en <span id="counter">5</span> segundos...</p>
-            </div>
-            <script>
-                let count = 5;
-                const counter = document.getElementById('counter');
-                const interval = setInterval(() => {
-                    count--;
-                    counter.textContent = count;
-                    if (count <= 0) {
-                        clearInterval(interval);
-                        window.close();
-                        setTimeout(() => {
-                            window.location.href = '/';
-                        }, 500);
-                    }
-                }, 1000);
-            </script>
-        </body>
-        </html>
-        """
-
-        return success_html.replace("__TOKEN_NOTICE__", token_notice)
+        return render_template('oauth_success.html', **OAUTH_MSG["success"])
 
     except Exception as e:
-        return f"""
-        <html>
-        <body style="font-family: Arial; text-align: center; padding: 50px;">
-            <h1>⚠️ Error</h1>
-            <p>No se pudo guardar el código de autorización: {escape(str(e))}</p>
-            <br>
-            <a href="/" style="color: #667eea; text-decoration: none;">← Volver a la app</a>
-        </body>
-        </html>
-        """, 500
+        return render_template('oauth_error.html', **_oauth_error_context('oauth_persist_error', error_detail=str(e))), 500
 
 def _final_staleness() -> dict:
     """Última Fecha del FINAL y días transcurridos, para el monitor externo."""
@@ -1939,21 +1198,24 @@ def _safe_console_print(text: str) -> None:
             .replace("💡", "[tip]")
         )
         print(fallback.encode("ascii", errors="replace").decode("ascii"))
+
+
+def _print_console_banner(port: int) -> None:
+    _safe_console_print("\n" + "=" * 60)
+    _safe_console_print(CONSOLE_MSG["title"])
+    _safe_console_print("=" * 20)
+    _safe_console_print(f"\n🌐 {CONSOLE_MSG['server_started'].format(port=port)}")
+    _safe_console_print(f"\n📱 {CONSOLE_MSG['access_from']}")
+    _safe_console_print(f"   - {CONSOLE_MSG['local'].format(port=port)}")
+    _safe_console_print(f"   - {CONSOLE_MSG['railway']}")
+    _safe_console_print(f"\n💡 {CONSOLE_MSG['tip']}")
+    _safe_console_print("=" * 20 + "\n")
  
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
-    
-    _safe_console_print("\n" + "="*60)
-    _safe_console_print("  POLAR HRV - WEB UI")
-    _safe_console_print("="*20)
-    _safe_console_print(f"\n🌐 Servidor iniciado en puerto {port}")
-    _safe_console_print(f"\n📱 Accede desde:")
-    _safe_console_print(f"   - Local: http://localhost:{port}")
-    _safe_console_print(f"   - Railway: https://tu-app.up.railway.app")
-    _safe_console_print("\n💡 Abre desde cualquier dispositivo (móvil, tablet, PC)")
-    _safe_console_print("="*20 + "\n")
-    
+
+    _print_console_banner(port)
     app.run(host='0.0.0.0', port=port, debug=False)
 
 

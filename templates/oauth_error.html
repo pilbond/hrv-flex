@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>{{ title }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='ui.css') }}">
+</head>
+<body class="auth-page auth-page-error">
+    <main class="auth-shell">
+        <section class="card auth-card">
+            <div class="auth-pill auth-pill-error">{{ pill }}</div>
+            <h1 class="auth-title">{{ heading }}</h1>
+            {% if strong_message %}
+            <p class="auth-copy"><strong>{{ strong_message }}</strong></p>
+            {% endif %}
+            {% if detail_message %}
+            <p class="auth-copy">{{ detail_message }}</p>
+            {% endif %}
+            <a href="{{ button_href }}" class="auth-button auth-button-secondary">{{ button }}</a>
+        </section>
+    </main>
+</body>
+</html>

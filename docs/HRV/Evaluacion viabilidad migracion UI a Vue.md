@@ -6,7 +6,7 @@ Fecha: 2026-06-17
 
 `No-Go` por ahora.
 
-La UI actual no justifica una migración a Vue como primera jugada. El problema principal no parece ser de framework, sino de empaquetado: hoy la UI vive embebida en `web_ui.py` dentro de `HTML_TEMPLATE`, mezclando HTML, CSS y JS en un único string. Eso penaliza mantenimiento, pero no implica que falte capacidad técnica en el frontend.
+La UI ya no vive embebida en `HTML_TEMPLATE`: ahora está separada en `templates/index.html`, `templates/oauth_success.html`, `templates/oauth_error.html`, `static/ui.css` y `static/ui.js`. La conclusión sigue siendo la misma: Vue no es la primera jugada razonable aquí. El problema principal no era falta de capacidad técnica en el frontend, sino empaquetado y mantenibilidad.
 
 Con el estado actual del repo, Vue sería razonable solo si aparece alguna de estas señales:
 
@@ -28,7 +28,7 @@ Conclusión directa: migrar a Vue hoy tiene más coste estructural que retorno f
 
 ## Qué haría en su lugar
 
-La alternativa correcta y más simple es:
+La alternativa correcta y más simple ya se ejecutó en la fase 1:
 
 1. extraer el HTML a `templates/index.html`,
 2. extraer CSS a `static/ui.css`,

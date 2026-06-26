@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>{{ title }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='ui.css') }}">
+</head>
+<body class="auth-page auth-page-success">
+    <main class="auth-shell">
+        <section class="card auth-card">
+            <div class="auth-pill auth-pill-success">{{ pill }}</div>
+            <h1 class="auth-title">{{ heading }}</h1>
+            <p class="auth-copy">{{ message_1 }}</p>
+            <p class="auth-copy">{{ message_2 }}</p>
+            <a href="/" class="auth-button">{{ button }}</a>
+            <p class="auth-countdown">{{ countdown_prefix }}<span id="counter">5</span>{{ countdown_suffix }}</p>
+        </section>
+    </main>
+    <script>
+        let count = 5;
+        const counter = document.getElementById('counter');
+        const interval = setInterval(() => {
+            count--;
+            counter.textContent = count;
+            if (count <= 0) {
+                clearInterval(interval);
+                window.close();
+                setTimeout(() => {
+                    window.location.href = '/';
+                }, 500);
+            }
+        }, 1000);
+    </script>
+</body>
+</html>

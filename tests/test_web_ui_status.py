@@ -44,7 +44,7 @@ class WebUiStatusTests(unittest.TestCase):
             "Z3 alto en bike (p87.5) y road run (p81.0).",
         )
 
-    def test_index_exposes_weekly_coach_panel_shell(self):
+    def test_index_exposes_hrv_dashboard_shell(self):
         with web_ui.app.test_client() as client:
             response = client.get("/")
 
@@ -52,11 +52,18 @@ class WebUiStatusTests(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn('id="hrvSummaryCard"', html)
         self.assertIn("Lectura HRV de hoy", html)
-        self.assertIn("renderHrvSummaryPanel", html)
-        self.assertIn('id="weeklyCoachCard"', html)
-        self.assertIn("Coach semanal", html)
-        self.assertIn("renderWeeklyCoachPanel", html)
-        self.assertIn('id="weeklyCoachZ3"', html)
+        self.assertNotIn('id="weeklyCoachCard"', html)
+        self.assertNotIn("Coach semanal", html)
+        self.assertNotIn("weeklyCoachUnavailable", html)
+        self.assertNotIn('onclick="syncPolar()"', html)
+        self.assertNotIn('data-start-message=', html)
+        self.assertNotIn('data-endpoint=', html)
+        self.assertIn('/static/ui.css', html)
+        self.assertIn('/static/ui.js', html)
+        self.assertIn('id="ui-runtime-config"', html)
+        self.assertNotIn("window.UI_TEXT", html)
+        self.assertNotIn("window.UI_TEMPLATES", html)
+        self.assertNotIn("window.SYNC_TIMEOUT_SEC", html)
 
 
 if __name__ == "__main__":
