@@ -7,10 +7,10 @@
             id="restoreBackupBtn"
             class="ghost-button{% if not show_restore_backup %} is-hidden{% endif %}"
             {% if not show_restore_backup %}hidden{% endif %}
-        ><span id="restoreBackupBtnText">{{ ui_copy.restore_backup }}</span></button>
+        ><span id="restoreBackupBtnText">{{ ui_copy.restore_backup or 'Restaurar backup Dropbox' }}</span></button>
         <button
             id="deleteLastRrBtn"
             class="danger-button"
-        ><span id="deleteLastRrBtnText">{{ ui_copy.delete_last_rr }}</span></button>
+        ><span id="deleteLastRrBtnText">{{ ui_copy.delete_last_rr or 'Borrar último RR' }}</span></button>
     </div>
 </section>

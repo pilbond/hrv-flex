@@ -107,16 +107,65 @@ DEFAULT_UI_COPY = {
     "sync_hrv": "Sincronizar HRV",
     "sync_sessions": "Sincronizar sesiones",
     "hrv_summary_title_base": "Lectura HRV de hoy",
+    "hrv_summary_raw": "Dato bruto",
+    "hrv_summary_used": "Dato usado por el gate",
+    "hrv_summary_base": "Baseline 60d",
+    "hrv_summary_gate": "Gate",
     "hrv_summary_waiting": "Esperando disponibilidad del resumen HRV...",
     "technical_title": "Detalle técnico",
+    "restore_backup": "Restaurar backup Dropbox",
+    "delete_last_rr": "Borrar último RR",
 }
 
 DEFAULT_UI_RUNTIME_CONFIG = {
     "text": {
         "technicalOutputPlaceholder": "Esperando ejecución...",
+        "hrvSummaryUnavailable": "Todavía no hay salida FINAL disponible.",
+        "syncRunningHrv": "Sincronizando HRV...",
+        "syncRunningSessions": "Sincronizando sesiones...",
+        "syncSuccessHrv": "Sincronización HRV ok",
+        "syncSuccessSessions": "Sincronización sesiones ok",
+        "bannerRunningHrv": "Procesando sincronización HRV...",
+        "bannerRunningSessions": "Procesando sincronización de sesiones...",
+        "bannerLastSuccess": "Última operación completada correctamente.",
+        "bannerLastError": "La última operación terminó con error.",
+        "bannerStartHrv": "Iniciando sincronización HRV...",
+        "bannerStartSessions": "Iniciando sincronización de sesiones...",
+        "bannerConnectionErrorPrefix": "Error de conexión: ",
+        "importStart": "Importando CSV seed a /data...",
+        "importSuccess": "CSV seed importados a /data",
+        "importButtonRunning": "Importando...",
+        "restoreConfirm": "Se restaurarán los CSV del último backup en Dropbox. Los archivos actuales se guardarán en data/backup/. ¿Continuar?",
+        "restoreStart": "Descargando backup desde Dropbox...",
+        "restoreSuccessFallbackSource": "Dropbox",
+        "restoreButtonRunning": "Restaurando...",
+        "deleteNoLatest": "No hay ningún RR reciente para borrar.",
+        "deleteButtonRunning": "Borrando...",
+        "pollStatusSessions": "sincronización de sesiones",
+        "pollStatusHrv": "sincronización HRV",
+        "pollTimeout": "Timeout en UI: la sincronización tardó más de lo esperado",
+        "processCompleted": "Proceso completado",
+        "unknownError": "Error desconocido",
     },
-    "templates": {},
+    "templates": {
+        "hrvSummaryActionNote": "El gate compara el valor usado por la decisión con BASE60. Hoy la acción es {action}.",
+        "restoreSuccess": "Backup restaurado: {count} archivos desde {source}",
+        "deleteConfirm": "Se moverá a backup el último RR: {label}. Después tendrás que repetir la medición y volver a sincronizar. ¿Continuar?",
+        "deleteStart": "Moviendo {label} a backup...",
+        "deleteSuccess": "Último RR movido a backup: {name}",
+        "pollStatus": "Procesando {jobLabel}... {minutes}m {seconds}s",
+    },
 }
+
+
+def _merge_template_json(fallback: dict, payload: dict) -> dict:
+    merged = json.loads(json.dumps(fallback))
+    for key, value in payload.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge_template_json(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
 
 
 def _load_template_json(template_name: str, fallback: dict) -> dict:
@@ -134,7 +183,7 @@ def _load_template_json(template_name: str, fallback: dict) -> dict:
     if not isinstance(payload, dict):
         app.logger.warning("Template JSON fallback for %s: expected object", template_name)
         return json.loads(json.dumps(fallback))
-    return payload
+    return _merge_template_json(fallback, payload)
 
 
 UI_COPY = _load_template_json("data/ui_copy.json.j2", DEFAULT_UI_COPY)
