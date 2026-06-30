@@ -69,7 +69,12 @@
             used: el('hrvSummaryUsed'),
             base: el('hrvSummaryBase'),
             gate: el('hrvSummaryGate'),
-            note: el('hrvSummaryNote'),
+            aiBlock: el('hrvSummaryAiBlock'),
+            ai: el('hrvSummaryAi'),
+            reasonBlock: el('hrvSummaryReasonBlock'),
+            reason: el('hrvSummaryReason'),
+            fallbackBlock: el('hrvSummaryFallbackBlock'),
+            fallback: el('hrvSummaryFallback'),
         },
     };
 
@@ -116,7 +121,9 @@
             panel.used.textContent = '-';
             panel.base.textContent = '-';
             panel.gate.textContent = '-';
-            panel.note.textContent = uiText('hrvSummaryUnavailable');
+            if (panel.aiBlock) panel.aiBlock.hidden = true;
+            if (panel.reasonBlock) panel.reasonBlock.hidden = true;
+            if (panel.fallbackBlock) panel.fallbackBlock.hidden = true;
             return;
         }
 
@@ -128,13 +135,22 @@
         const swcLn = diagnostics.final_last_swc_ln;
         const gateBadge = diagnostics.final_last_gate_badge || 'N/A';
         const gateReason = diagnostics.final_last_gate_razon_base60 || 'N/A';
-        const action = diagnostics.final_last_action_detail || 'N/A';
+        const aiText = String(diagnostics.hrv_summary_ai_text || '').trim();
+        const reasonText = String(diagnostics.hrv_summary_reason_text || '').trim();
+        const fallbackText = String(diagnostics.hrv_summary_fallback_text || '').trim();
+        const hasReasonText = Boolean(diagnostics.hrv_summary_has_reason_text);
+        const reasonIsFallback = Boolean(diagnostics.hrv_summary_reason_is_fallback);
 
         panel.raw.textContent = `${fmtNumber(rmssdRaw)} ms · HR ${fmtNumber(hrToday)} lpm · lnRMSSD bruto ${fmtNumber(lnToday, 3)}`;
         panel.used.textContent = `${fmtNumber(expFromLog(lnUsed))} ms · lnRMSSD usado ${fmtNumber(lnUsed, 3)}`;
         panel.base.textContent = `${fmtNumber(expFromLog(lnBase))} ms · SWC_ln ${fmtNumber(swcLn, 3)}`;
         panel.gate.textContent = `${gateBadge} · ${gateReason}`;
-        panel.note.textContent = renderTemplate('hrvSummaryActionNote', { action });
+        if (panel.aiBlock) panel.aiBlock.hidden = !aiText;
+        if (panel.ai) panel.ai.textContent = aiText;
+        if (panel.reasonBlock) panel.reasonBlock.hidden = !hasReasonText;
+        if (panel.reason) panel.reason.textContent = reasonText;
+        if (panel.fallbackBlock) panel.fallbackBlock.hidden = !reasonIsFallback;
+        if (panel.fallback) panel.fallback.textContent = fallbackText;
     }
 
     function fmtNumber(value, decimals = 1) {

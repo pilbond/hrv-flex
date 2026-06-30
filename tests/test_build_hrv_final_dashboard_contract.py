@@ -189,6 +189,26 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
         self.assertEqual(reason_items[0][2]["type"], "action_constraint")
         self.assertEqual(reason_items[0][2]["layer"], "action")
 
+    def test_raw_today_rebound_reason_is_rendered_as_non_decisive_context(self):
+        reason_items = [[]]
+        reason_parts = [[]]
+
+        final_builder._emit_raw_rebound_reason_if_needed(
+            reason_items,
+            reason_parts,
+            0,
+            gate_final=final_builder.ROJO,
+            gate_raw_today=final_builder.VERDE,
+            gate_raw_reason="2D_OK",
+            veto_agudo=False,
+        )
+
+        self.assertEqual(reason_items[0][0]["type"], "raw_today_rebound")
+        self.assertEqual(reason_items[0][0]["layer"], "measured")
+        self.assertEqual(reason_items[0][0]["variant"], "red_gate_with_green_raw")
+        self.assertIn("gate_raw_today=VERDE", reason_items[0][0]["evidence"])
+        self.assertIn("dato crudo de hoy rebota", final_builder._compose_reason_text(reason_items[0], final_builder.ROJO))
+
     def test_emit_reason_rejects_invalid_layer(self):
         with self.assertRaises(AssertionError):
             final_builder._emit_reason(

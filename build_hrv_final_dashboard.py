@@ -810,6 +810,38 @@ _RECOVERY_SUPPORT_REDUNDANT = (
 _RECOVERY_ECHO_TYPES = frozenset({"recovery_support", "recovery_discordance"})
 
 
+def _emit_raw_rebound_reason_if_needed(
+    reason_items: List[List[dict]],
+    reason_parts: List[List[str]],
+    idx: int,
+    *,
+    gate_final: str,
+    gate_raw_today: str,
+    gate_raw_reason: str,
+    veto_agudo: bool,
+) -> None:
+    if gate_final != ROJO or gate_raw_today != VERDE or veto_agudo:
+        return
+    _emit_reason(
+        reason_items,
+        reason_parts,
+        idx,
+        type="raw_today_rebound",
+        layer="measured",
+        source="hrv_pipeline",
+        variant="red_gate_with_green_raw",
+        gate_scope="red",
+        metric="gate_raw_today",
+        value=str(gate_raw_today),
+        threshold=str(gate_final),
+        evidence=[f"gate_raw_today={gate_raw_today}", f"gate_raw_reason={gate_raw_reason}"],
+        message=(
+            "El dato crudo de hoy rebota a zona verde, pero el gate sigue rojo "
+            "porque la señal suavizada de 3 días aún no confirma la recuperación"
+        ),
+    )
+
+
 def _empty_reason_text(gate: str) -> str:
     if gate == VERDE:
         return "VERDE: HRV en rango, sin señales que matizar"
@@ -1356,6 +1388,16 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
         clustering_flag = False
         support_codes: List[str] = []
         caution_codes: List[str] = []
+
+        _emit_raw_rebound_reason_if_needed(
+            reason_items,
+            reason_parts,
+            i,
+            gate_final=str(gate_final[i]),
+            gate_raw_today=str(gate_raw_today[i]),
+            gate_raw_reason=str(gate_raw_reason[i]),
+            veto_agudo=bool(veto_agudo[i]),
+        )
 
         # Saturación parasimpática
         if np.isfinite(d_ln[i]) and np.isfinite(swc_ln_floor_arr[i]):

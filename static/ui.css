@@ -307,6 +307,18 @@ button:disabled {
     padding: 8px 10px;
 }
 
+.hrv-summary-text-grid {
+    display: grid;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.hrv-summary-note-secondary {
+    color: var(--text);
+    background: rgba(255, 252, 247, 0.84);
+    border-color: rgba(234, 106, 42, 0.16);
+}
+
 .coach-source {
     margin-top: 12px;
     font-size: 12px;

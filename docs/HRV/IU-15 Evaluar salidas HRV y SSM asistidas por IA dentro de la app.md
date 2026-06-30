@@ -1,7 +1,7 @@
 # IU-15 Evaluar salidas HRV y SSM asistidas por IA dentro de la app
 
-> Fecha: 2026-06-26
-> Estado: propuesta
+> Fecha: 2026-06-29
+> Estado: analisis y diseno tecnico
 > Alcance: evaluacion funcional y tecnica. Sin analisis de coste.
 
 ## 1. Veredicto ejecutivo
@@ -30,6 +30,13 @@ Recorte de alcance importante:
 - fase 1: solo brief diario HRV;
 - fase 2: SSM;
 - fases posteriores: semanal, analysis y otras superficies.
+
+Decision adicional tras la evaluacion experimental:
+
+- `K2` pasa a ser el candidato de fase 1 para el brief diario;
+- deja de tener sentido seguir comparando modelos antes del MVP;
+- el siguiente paso correcto es integracion tecnica minima + revision semanal
+  de salidas reales.
 
 ## 2. Pregunta de producto que resuelve
 
@@ -164,7 +171,7 @@ Eso debe seguir en Python.
 
 ## 5. Arquitectura recomendada dentro de la app
 
-## 5.1 Principio
+### 5.1 Principio
 
 No empezar por MCP.
 
@@ -210,13 +217,13 @@ No tocar `FINAL.csv` de entrada.
 
 Propuesta inicial fase 1:
 
-- `data/ENDURANCE_HRV_ai_daily_brief.json`
-- `data/ENDURANCE_HRV_ai_daily_brief.md`
+- `data/ENDURANCE_HRV_ai_daily_brief_latest.json`
+- `data/ENDURANCE_HRV_ai_daily_brief_YYYY-MM-DD.json`
 
 Propuesta fase 2:
 
-- `data/ENDURANCE_HRV_ai_ssm_brief.json`
-- `data/ENDURANCE_HRV_ai_ssm_brief.md`
+- `data/ENDURANCE_HRV_ai_ssm_brief_latest.json`
+- `data/ENDURANCE_HRV_ai_ssm_brief_YYYY-MM-DD.json`
 
 Opcionalmente, si luego se estabiliza:
 
@@ -248,6 +255,10 @@ Minimo:
 - `HRV_AI_MODEL=<model>`
 - `HRV_AI_API_KEY=<secret>`
 - `HRV_AI_TIMEOUT_SEC`
+- `HRV_AI_TEMPERATURE`
+- `HRV_AI_TOP_P`
+- `HRV_AI_THINKING`
+- `HRV_AI_MAX_TOKENS`
 - `HRV_AI_LANGUAGE=es`
 - `HRV_AI_DAILY_ENABLED=0/1`
 - `HRV_AI_SSM_ENABLED=0/1`
@@ -269,84 +280,138 @@ Bloques:
 - `interpretation_contract`
 - `expected_output`
 
-Schema propuesto para fase 1:
+Schema propuesto para fase 1.
+
+Importante:
+
+- este schema ya no usa nombres "limpios" o normalizados;
+- refleja el payload real probado en la evaluacion experimental;
+- si en el futuro se quiere exponer una API externa con nombres renombrados,
+  eso debe documentarse como una traduccion explicita y no como el contrato
+  interno de fase 1.
 
 ```json
 {
   "meta": {
     "date": "YYYY-MM-DD",
-    "source_lag_notes": ["training load context is available through D-1"]
+    "generated_at": "ISO-8601",
+    "week_start": "YYYY-MM-DD",
+    "week_end": "YYYY-MM-DD",
+    "source_lag_notes": ["texto"],
+    "data_sources": ["data/ENDURANCE_HRV_master_FINAL.csv"]
   },
   "decision": {
     "gate_badge": "VERDE++",
     "gate_final": "VERDE",
-    "action": "INTENSIDAD_OK",
-    "action_detail": "EJECUTAR_PLAN",
+    "Action": "INTENSIDAD_OK",
+    "Action_detail": "EJECUTAR_PLAN",
     "quality_flag": false,
     "veto_agudo": false,
-    "baseline60_degraded": false
+    "baseline60_degraded": false,
+    "recovery_context_quality": "rich",
+    "recovery_support_class": "supported",
+    "recovery_discordance_flag": false
   },
   "reason_items": [
     {
-      "type": "sleep_fragmentation",
-      "source": "sleep",
+      "type": "monotony",
+      "layer": "inference",
+      "source": "sessions_day",
       "message": "texto",
-      "metric": "polar_interruptions_long",
-      "value": 8.0,
-      "threshold": 6.0
+      "metric": "monotony_7d_prev",
+      "value": 2.881,
+      "threshold": 2.0
     }
   ],
+  "reason_items_meta": {
+    "contains_message_overlap": false,
+    "overlap_groups": [],
+    "renderable_metrics": [
+      {
+        "type": "monotony",
+        "metric": "monotony_7d_prev",
+        "value": 2.881,
+        "threshold": 2.0,
+        "severity": "high",
+        "message": "texto"
+      }
+    ],
+    "rendering_note": "If multiple reason_items express the same practical caution, mention it once.",
+    "numeric_rendering_policy": "You may cite metric values and thresholds already present in reason_items_meta.renderable_metrics or reason_items. Do not compute derived statistics from morning_hrv, sleep_context, or recent_load_summary raw fields."
+  },
   "morning_hrv": {
-    "quality": "OK",
-    "stability": "OK",
-    "classification": "green",
-    "interpretation": "HRV matinal estable y compatible con gate favorable.",
-    "artifact_pct": 0.0,
-    "time_to_stabilization_sec": 390.0,
-    "hr_today": 49.38,
-    "rmssd_today": 48.86,
-    "lnrmssd_today": 3.8889,
-    "hr_baseline_60d": 48.84,
-    "lnrmssd_baseline_60d": 3.8598,
+    "Calidad": "OK",
+    "HRV_Stability": "OK",
+    "Artifact_pct": 0.0,
+    "Tiempo_Estabilizacion": 390.0,
+    "HR_today": 49.38,
+    "RMSSD_stable": 48.86,
+    "lnRMSSD_today": 3.8889,
+    "lnRMSSD_used": 3.9180,
+    "HR_used": 47.58,
+    "ln_base60": 3.8598,
+    "HR_base60": 48.84,
     "d_ln": 0.0588,
-    "d_hr": -1.2495,
-    "residual_tag": "++"
+    "d_HR": -1.2495,
+    "residual_tag": "++",
+    "tail_mismatch_pct": 0.91,
+    "classification_authoritative": true,
+    "classification": "green",
+    "interpretation": "HRV matinal estable y compatible con gate favorable."
   },
   "sleep_context": {
+    "polar_sleep_duration_min": 563.5,
+    "polar_sleep_span_min": 607.0,
+    "polar_deep_pct": 9.23,
+    "polar_rem_pct": 24.58,
+    "polar_efficiency_pct": 92.83,
+    "polar_continuity": 2.8,
+    "polar_continuity_index": 2.0,
+    "polar_interruptions_long": 8.0,
+    "polar_interruptions_total": 33.0,
+    "polar_sleep_score": 72.47,
+    "polar_night_rmssd": 58.0,
+    "sleep_dur_p10": 358.75,
+    "sleep_dur_p90": 519.0,
+    "sleep_int_p90": 5.5,
+    "classification_authoritative": true,
     "classification": "amber",
-    "interpretation": "Sueno mas fragmentado de lo habitual, como cautela contextual.",
-    "sleep_duration_min": 563.5,
-    "sleep_efficiency_pct": 92.83,
-    "sleep_score": 72.47,
-    "interruptions_long": 8.0,
-    "interruptions_total": 33.0,
-    "continuity": 2.8,
-    "continuity_index": 2.0,
-    "historical_interruption_threshold_p90": 6.0
+    "interpretation": "Sueno mas fragmentado de lo habitual, con cautela contextual.",
+    "sleep_duration_anomaly": {
+      "flag": false,
+      "reasons": []
+    }
   },
   "recent_load_summary": {
-    "as_of_date": "YYYY-MM-DD",
+    "Fecha": "YYYY-MM-DD",
+    "load_day": 16.0,
+    "load_3d": 150.0,
+    "load_7d": 362.0,
+    "load_14d": 588.0,
+    "acwr_simple_prev": 0.99,
+    "acute_load_72h_rel": 2.871,
+    "monotony_7d_prev": 2.666,
+    "strain_7d_prev": 965.2,
+    "intensity_clustering_flag": 0,
     "load_ctx_ready": true,
-    "load_3d": 152.0,
-    "load_7d": 337.0,
-    "load_14d": 561.0,
-    "acwr_simple_prev": 0.907,
-    "acute_load_72h_rel": 2.864,
-    "monotony_7d_prev": 2.881,
-    "strain_7d_prev": 970.9,
-    "intensity_clustering_flag": 0
+    "as_of_date": "YYYY-MM-DD"
   },
   "interpretation_contract": {
     "hard_rules": [
-      "Do not contradict gate_badge, action, or action_detail.",
+      "Do not contradict gate_badge, gate_final, Action, or Action_detail.",
       "Treat reason_items as the primary explanation layer for the day.",
       "If reason_items is empty, use decision and morning_hrv as primary context and set source_mode=reason_text_fallback.",
+      "Treat classification and interpretation fields as authoritative; do not reclassify from raw numbers.",
+      "If multiple reason_items overlap semantically, collapse them into one caution in the rendered text.",
+      "You may cite metric values and thresholds already present in reason_items or reason_items_meta.renderable_metrics.",
+      "Do not compute derived statistics from morning_hrv, sleep_context, or recent_load_summary raw fields.",
       "Do not diagnose illness, overtraining, or systemic fatigue."
     ]
   },
   "expected_output": {
     "language": "${HRV_AI_LANGUAGE:-es}",
-    "format": "json"
+    "format": "json",
+    "max_words": 220
   }
 }
 ```
@@ -355,7 +420,8 @@ El objetivo de este schema no es ser bonito, sino ser ejecutable:
 
 - usa solo campos ya existentes en `FINAL`, `sleep`, `sessions_day` y
   `reason_items`;
-- limita el payload a unas 15-20 señales;
+- limita el payload a un conjunto curado y acotado de senales relevantes, sin
+  reenviar tablas completas ni CSV crudos;
 - separa claramente decision, causa primaria y contexto;
 - anade clasificaciones simples calculadas en Python para evitar que el LLM
   interprete numeros crudos cuando el pipeline ya puede acotar la lectura.
@@ -393,11 +459,10 @@ Schema recomendado:
 
 ```json
 {
-  "payload_hash": "sha256-del-payload",
   "date": "YYYY-MM-DD",
   "summary": "string breve",
   "detail": "string algo mas explicativo",
-  "tone": "green|amber|red",
+  "tone": "green|amber|red|not_applicable",
   "source_mode": "reason_items|reason_text_fallback"
 }
 ```
@@ -407,8 +472,16 @@ Reglas:
 - `tone` debe ser compatible con `gate_final`;
 - `source_mode` debe ser `reason_items` si existen `reason_items` no vacios;
 - `source_mode` debe ser `reason_text_fallback` si `reason_items` esta vacio;
-- `payload_hash` debe guardarse en el sidecar para idempotencia y auditoria;
+- `tone=not_applicable` solo aplica a casos no publicables;
 - si el proveedor devuelve algo fuera de schema, la salida se descarta.
+
+Nota:
+
+- este es el contrato minimo de salida del LLM, no el schema completo del
+  sidecar;
+- `payload_hash`, `status`, `provider`, `model`, `published` y
+  `validation_errors` pertenecen al sidecar operativo que envuelve esta
+  respuesta para idempotencia, trazabilidad y control de publicacion.
 
 ## 7. Encaje concreto de `reason_text`
 
@@ -610,6 +683,8 @@ Diseno minimo de validacion:
 - si `gate_final=VERDE`, `tone` debe ser `green`;
 - si `gate_final=AMBAR`, `tone` debe ser `amber`;
 - si `gate_final=ROJO`, `tone` debe ser `red`;
+- si `gate_final=NO`, el brief no se publica y el caso se trata como
+  `not_applicable`;
 - si falla el parseo, el schema o esta compatibilidad, la respuesta IA no se
   publica y se conserva el render determinista.
 
@@ -672,7 +747,7 @@ Mitigacion:
 ### Fase 4. Consolidacion UI/API
 
 - endpoint propio read-only para briefs IA;
-- tarjeta UI;
+- refinar la tarjeta `Lectura HRV de hoy` si hiciera falta;
 - trazabilidad de freshness y fallback.
 
 ## 12. Cambios de repo que probablemente haran falta
@@ -729,17 +804,20 @@ dejar el SSM para fase 2.
 ### 14.2 Contraargumentos mas fuertes
 
 1. El documento asume que un brief IA aporta valor incremental frente a mejorar
-   el `reason_text` determinista. Esa hipotesis es plausible, pero todavia no
-   esta demostrada dentro de la app con una evaluacion comparativa estable.
+   el `reason_text` determinista. Esa hipotesis es plausible, pero necesita
+   validacion continua con uso real dentro de la app; no basta con una
+   comparacion puntual o una impresion aislada.
 
-2. El payload propuesto anade `classification` e `interpretation`, pero no
-   define todavia las reglas exactas para calcularlas. Si esas etiquetas se
-   implementan de forma laxa, se crea una segunda capa semantica paralela al
-   gate que puede divergir del contrato HRV.
+2. Historicamente, el payload propuesto anadia `classification` e
+   `interpretation` antes de tener reglas exactas para calcularlas. Ese riesgo
+   ya no esta abierto: las reglas quedaron alineadas con
+   `_classify_morning()` y `_classify_sleep()` y el problema pasa a ser de
+   mantener esa coherencia, no de definirla desde cero.
 
-3. La validacion `tone` contra `gate_final` cubre el caso normal
-   `VERDE/AMBAR/ROJO`, pero no explicita como tratar dias `NO`, `INVALID`,
-   ausencia de `FINAL`, `quality_flag=True` o cualquier estado no publicable.
+3. Historicamente, la validacion `tone` contra `gate_final` cubria solo el
+   caso normal `VERDE/AMBAR/ROJO`. Ese hueco ya quedo cubierto con
+   `not_applicable`, reglas de no publicacion y sidecar ampliado para dias
+   `NO` u otros estados no publicables.
 
 4. La integracion dentro del sync diario puede parecer barata, pero introduce
    una dependencia externa en un flujo operativo que hoy es reproducible sin
@@ -773,24 +851,24 @@ dejar el SSM para fase 2.
 - Afirmacion: `classification` e `interpretation` reduciran la especulacion del
   LLM.
   - Tipo: inferencial
-  - Confianza: 65/100
-  - Estado: especulativo hasta definir formulas y probar ejemplos reales
+  - Confianza: 80/100
+  - Estado: razonable; formulas implementadas y probadas en la muestra
 
 ### 14.4 Fallos potenciales y verificacion
 
 - Fallo: `classification` queda sin definicion normativa.
   - Plausibilidad: alta
-  - Estado de comprobacion: confirmado
-  - Justificacion: el documento propone el campo, pero no especifica aun reglas
-    para derivarlo desde `gate_final`, `residual_tag`, `quality_flag`,
-    `sleep_int_p90` u otros campos.
+  - Estado de comprobacion: resuelto
+  - Justificacion: la definicion operativa ya quedo aterrizada en
+    `_classify_morning()` y `_classify_sleep()`, y el documento actualizado
+    remite explicitamente a esa logica.
 
 - Fallo: estados no publicables no estan cubiertos por el contrato de salida.
   - Plausibilidad: media
-  - Estado de comprobacion: confirmado
-  - Justificacion: la validacion actual solo contempla `VERDE`, `AMBAR` y
-    `ROJO`; el sistema tambien maneja calidad, invalidacion y casos de ausencia
-    de dato que pueden requerir `status=not_applicable` o fallback directo.
+  - Estado de comprobacion: mitigado
+  - Justificacion: el documento ya cubre `gate_final=NO`,
+    `status=not_applicable`, `published=false` y el tratamiento de casos no
+    publicables tanto en riesgos como en sidecars y reglas de ejecucion.
 
 - Fallo: el sidecar IA podria quedar desfasado respecto a `FINAL` o
   `reason_items`.
@@ -818,8 +896,10 @@ dejar el SSM para fase 2.
   MVP, pero necesita estados de publicacion, errores y casos no aplicables.
 
 - Que se corrige:
-  Antes de implementar, hay que definir reglas de `classification` y ampliar la
-  validacion para estados no `VERDE/AMBAR/ROJO`.
+  La necesidad original de definir `classification` y cubrir estados no
+  `VERDE/AMBAR/ROJO` ya quedo absorbida por las secciones 15 a 17. El foco
+  pasa de "cerrar huecos de diseno" a "mantener coherencia entre documento,
+  payload y codigo".
 
 - Incertidumbres abiertas:
   Falta probar si el brief IA mejora de forma consistente el `reason_text`
@@ -828,14 +908,16 @@ dejar el SSM para fase 2.
 
 ### 14.6 Respuesta revisada
 
-IU-15 sigue siendo una propuesta valida, pero no deberia pasar directamente a
-implementacion sin cerrar tres detalles: reglas exactas para
-`classification`, estados de salida para dias no publicables, y contrato de
-sidecar con `payload_hash`, fecha, estado de publicacion y errores de
-validacion. Con esos ajustes, la fase 1 puede implementarse como un MVP
-acotado y reversible: brief diario HRV generado por API, guardado como sidecar,
-validado contra `gate_final`, y descartado automaticamente cuando no cumpla el
-contrato. El SSM debe permanecer fuera de fase 1.
+IU-15 sigue siendo una propuesta valida y los bloqueos principales detectados
+en esta revision critica ya quedaron cerrados en las secciones 15 a 17:
+
+- reglas de `classification` alineadas con el script real;
+- estados no publicables cubiertos;
+- contrato de sidecar ya ampliado.
+
+Por tanto, el documento ya no esta en fase de "no implementar todavia", sino
+en fase de MVP tecnico pequeno, reversible y auditable para el brief diario
+HRV. El SSM debe seguir fuera de fase 1.
 
 ## 15. Conclusiones
 
@@ -856,15 +938,18 @@ una fase 1 ejecutable.
 
 2. **Payload concreto.** El schema de la seccion 6.1 usa campos reales del
    pipeline (`gate_badge`, `gate_final`, `Action`, `Action_detail`,
-   `residual_tag`, `d_ln`, `d_hr`, `lnrmssd_today`, `sleep_score`,
-   `interruptions_long`, `load_3d`, `acwr_simple_prev`, etc.). Los nombres
-   son canonicos del repo. El payload es pequeno (~20 campos), plano, y
-   construible desde `FINAL`, `sleep` y `sessions_day` sin transformaciones
-   costosas.
+   `recovery_support_class`, `reason_items_meta`, `Calidad`,
+   `HRV_Stability`, `lnRMSSD_today`, `polar_sleep_score`,
+   `polar_interruptions_long`, `load_3d`, `acwr_simple_prev`,
+   `expected_output.max_words`, etc.). Los nombres son canonicos del repo.
+   El payload es pequeno, ejecutable y construible desde `FINAL`, `sleep`,
+   `sessions_day` y `reason_items` sin transformaciones costosas.
 
-3. **Contrato de salida.** El schema `{payload_hash, date, summary, detail,
-   tone, source_mode}` es minimo pero suficiente para fase 1. La validacion
-   `tone ↔ gate_final` tiene reglas explicitas.
+3. **Contrato de salida.** El JSON minimo del LLM
+   `{date, summary, detail, tone, source_mode}` y el sidecar operativo que lo
+   envuelve (`payload_hash`, `status`, `provider`, `published`, etc.) son
+   suficientes para fase 1. La validacion `tone ↔ gate_final` tiene reglas
+   explicitas.
 
 4. **Degradacion.** La IA no bloquea el sync. El sidecar es opcional. El
    fallback es el `reason_text` determinista existente. Idempotencia por
@@ -873,11 +958,11 @@ una fase 1 ejecutable.
 5. **Fases incrementales.** Brief diario → SSM → semanal → UI. Cada fase es
    independiente y reversible.
 
-### 15.3 Lo que queda abierto antes de implementar
+### 15.3 Decisiones operativas ya cerradas para el MVP
 
-1. **`gate_final = "NO"`.** La revision critica senala correctamente que la
-   validacion tone/gate solo contempla `VERDE`, `AMBAR` y `ROJO`. Pero el
-   pipeline real tiene un cuarto valor: `NO`, que se asigna a dias con
+1. **`gate_final = "NO"`.** La revision critica detecto correctamente que
+   hacia falta cubrir este caso. El pipeline real tiene un cuarto valor: `NO`,
+   que se asigna a dias con
    `Calidad=INVALID`, roll3 insuficiente, baseline60 insuficiente, o SWC
    degenerado (lineas 968, 1042, 1049, 1069, 1074 de
    `build_hrv_final_dashboard.py`). Para estos dias, el brief IA no tiene
@@ -893,31 +978,36 @@ una fase 1 ejecutable.
 2. **`quality_flag = True`.** Los dias con calidad degradada (`Calidad != OK`
    pero no `INVALID`) reciben un gate valido (`VERDE`, `AMBAR` o `ROJO`)
    pero con `quality_flag=True`. El payload ya incluye este campo. La
-   pregunta es si el brief IA debe mencionarlo o simplemente ignorarlo.
+   decision de MVP es que el brief IA debe mencionarlo como reduccion de
+   confianza, no usarlo como veto.
 
    Recomendacion: incluirlo como hard rule en el prompt —
    `If quality_flag is true, mention that the HRV reading has reduced
    confidence today` — pero no impedir la generacion del brief.
 
-3. **Reglas de `classification` para `morning_hrv` y `sleep_context`.** El
-   documento propone estos campos pero no define las reglas. Para fase 1,
-   la derivacion mas simple y coherente es:
-   - `morning_hrv.classification`: derivar de `residual_tag` → `++/+++` es
-     `green`, `""` o `+` es `green`, `-` es `amber`, `--/---` es `red`;
-   - `sleep_context.classification`: derivar de si `interruptions_long >
-     historical_interruption_threshold_p90` → `amber`, else `green`; o de
-     `sleep_score < 65` → `red`.
-   Esto es derivable sin logica nueva — son campos que ya existen.
+3. **Reglas de `classification` para `morning_hrv` y `sleep_context`.** Este
+   punto ya quedo resuelto para fase 1. La derivacion correcta debe quedar
+   alineada con la implementacion real del
+   paquete de evaluacion:
+   - `morning_hrv.classification`: anclada en `gate_final`, con `quality_flag`
+     como matiz de confianza, para no crear una segunda capa semantica que
+     diverja del gate;
+   - `sleep_context.classification`: derivada de `sleep_score`,
+     `interruptions_long` y `reason_items`, como capa secundaria de contexto.
+   La regla importante no es inventar una taxonomia nueva, sino reutilizar la
+   misma logica Python ya probada en `_classify_morning()` y
+   `_classify_sleep()`.
 
 4. **Contrato de sidecar ampliado.** Para cubrir los casos anteriores, el
-   sidecar deberia admitir al menos:
+   sidecar minimo quedo superado por el schema mas completo de la seccion 17.6,
+   pero este bloque conserva el nucleo funcional que debe mantenerse al menos:
 
    ```json
    {
      "status": "ok|not_applicable|error|validation_failed",
      "date": "YYYY-MM-DD",
      "payload_hash": "sha256",
-     "tone": "green|amber|red",
+     "tone": "green|amber|red|not_applicable",
      "summary": "...",
      "detail": "...",
      "source_mode": "reason_items|reason_text_fallback",
@@ -939,20 +1029,17 @@ una fase 1 ejecutable.
   justificacion para el coste operativo.
 
 - **Drift semantico.** Si `classification` e `interpretation` se calculan con
-  reglas distintas al gate, se crea una segunda capa semantica que puede
-  divergir. Mitigacion: derivar `classification` solo de campos que ya
-  participan en el gate (`residual_tag`, `d_ln`, `d_hr`, `quality_flag`), no
-  inventar logica nueva.
-
-- **Coste.** El documento excluye analisis de coste por diseno. Para fase 1
-  con un LLM tipo Haiku/Sonnet, ~1K tokens input + ~300 output, el coste es
-  <$0.01/dia. No es un blocker, pero deberia documentarse como baseline.
+  reglas distintas a las ya probadas en Python, se crea una segunda capa
+  semantica que puede divergir del gate o del contexto real. Mitigacion:
+  reutilizar la misma logica implementada en `_classify_morning()` y
+  `_classify_sleep()`, no inventar una clasificacion paralela en el documento
+  o en el prompt.
 
 ### 15.5 Veredicto final
 
-IU-15 es implementable como MVP si se cierran los cuatro puntos de la seccion
-15.3. La arquitectura es conservadora en el buen sentido: no toca outputs
-canonicos, degrada limpiamente, y el alcance de fase 1 es pequeno.
+IU-15 es implementable como MVP. La arquitectura es conservadora en el buen
+sentido: no toca outputs canonicos, degrada limpiamente, y el alcance de fase
+1 es pequeno.
 
 La pregunta real no es si se puede construir (se puede, en 1-2 sesiones), sino
 si el brief IA aporta valor perceptible frente al `reason_text` determinista.
@@ -961,11 +1048,11 @@ dias reales antes de comprometerse con fases posteriores.
 
 Orden de trabajo sugerido:
 
-1. Definir reglas de `classification` (seccion 15.3.3)
-2. Implementar `hrv_app/ai/config.py` + `daily_brief.py`
-3. Hook en `hrv_sync_flow.py` despues del SSM
-4. Generar briefs para 5-10 dias reales y comparar con `reason_text`
-5. Decidir si se expone en UI o se descarta
+1. Implementar `hrv_app/ai/config.py` + `daily_brief.py`
+2. Hook en `hrv_sync_flow.py` despues del SSM
+3. Generar briefs para 5-10 dias reales y comparar con `reason_text`
+4. Si supera esa revision, mantenerlo en la UI minima ya definida; si no,
+   dejarlo como sidecar interno y seguir con fallback determinista
 
 ## 16. Evaluacion del paquete de evaluacion experimental
 
@@ -1002,11 +1089,14 @@ contrato HRV de este repo: `gate_badge`, `gate_final`, `Action`,
 `load_ctx_ready`. No hay nombres importados de otro proyecto.
 
 **3. Pre-clasificacion implementada.** `_classify_morning()` y
-`_classify_sleep()` derivan `classification` e `interpretation` directamente
-desde `gate_final`, `quality_flag`, `residual_tag`, `sleep_score`,
-`interruptions_long` y `reason_items`. Esto cierra el punto 15.3.3 de la
-revision critica: las reglas de clasificacion ya tienen una implementacion
-concreta y verificable.
+`_classify_sleep()` derivan `classification` e `interpretation` con reglas ya
+implementadas y verificables:
+
+- `_classify_morning()` se ancla en `gate_final` y `quality_flag`;
+- `_classify_sleep()` usa `sleep_score`, `interruptions_long` y `reason_items`
+  como contexto secundario.
+
+Esto cierra el punto 15.3.3 de la revision critica.
 
 **4. Cobertura de variabilidad real.** Los 5 dias cubren:
 - 4x VERDE (con variantes `VERDE+`, `VERDE---`, `VERDE++`) y 1x ROJO;
@@ -1024,73 +1114,57 @@ criterios estan bien calibrados: gate fidelity, uso de reason_items,
 no especulacion, utilidad practica, brevedad. La regla de decision
 (8-10 = mejor, 6-7 = mixto, 0-5 = no mejor) es clara.
 
-### 16.3 Lo que puede mejorarse
+### 16.3 Lo que se mejoro y lo que sigue abierto
 
-**1. Redundancia en reason_items de los payloads.**
+**1. Redundancia en `reason_items`: sigue siendo un riesgo real, pero ya esta
+mitigado en el contrato.**
 
-Varios dias incluyen items que son variantes del mismo mensaje:
-- `recovery_support` y `recovery_discordance` emiten frases casi identicas
-  (`"VERDE, pero sueño y carga reciente piden prudencia"`);
-- `green_load_caution` resume lo que `monotony` + `strain` ya dicen.
+La redundancia del pipeline sigue existiendo en dias con
+`recovery_support`/`recovery_discordance` o con `green_load_caution` mas
+metricas base. Eso no se elimino del payload, pero ya se mitigo con:
 
-Esto no es un error del script — es lo que produce el pipeline real. Pero
-el LLM podria interpretar la redundancia como multiples cautelas distintas y
-amplificar el tono. Seria util que el prompt incluyera una regla como:
-`"Some reason_items are redundant by design (e.g. recovery_support and
-recovery_discordance may repeat the same message). Treat them as one caution,
-not multiple."`.
+- `reason_items_meta.contains_message_overlap`
+- `reason_items_meta.overlap_groups`
+- regla explicita de colapsar cautelas solapadas en el prompt y en
+  `interpretation_contract.hard_rules`
 
-**2. El payload del dia ROJO (26-jun) tiene `sleep_context.classification = green`
-a pesar de `polar_interruptions_total = 38`.**
+Este punto sigue siendo valido como foco de observacion semanal, no como hueco
+del diseno.
 
-`_classify_sleep()` solo mira `interruptions_long` vs `sleep_int_p90`, y
-38 interrupciones totales con 3 largas no lo dispara. Esto es tecnicament
-correcto por las reglas actuales, pero un LLM que lea
-`polar_interruptions_total: 38` podria percibir una incoherencia con
-`classification: green`. Opciones:
-- documentar en el prompt que `classification` es autoritativa y que el LLM
-  no debe re-clasificar por su cuenta;
-- o ampliar `_classify_sleep()` para considerar `interruptions_total` en
-  un threshold alto (p.ej. > 30).
+**2. Los datos anomicos del 26-jun ya no describen el estado actual.**
 
-**3. El payload del 26-jun tiene `polar_sleep_duration_min = 883.5`
-(14.7 horas).**
+Las observaciones historicas sobre:
 
-Esto parece un valor anomalo o un fin de semana con siesta incluida en el
-span. Si es un valor real (la medicion de Polar a veces captura siestas),
-no es un error del script, pero el LLM podria interpretarlo como dato
-sospechoso. Podria anadirse un flag `sleep_duration_anomaly` cuando la
-duracion exceda un umbral razonable (p.ej. > 12h).
+- `polar_interruptions_total = 38`
+- `polar_sleep_duration_min = 883.5`
 
-**4. Falta una regla en el prompt sobre `max_words`.**
+correspondian a una version anterior del CSV y de los payloads. Tras la
+regeneracion:
 
-El payload incluye `expected_output.max_words: 170`, pero el prompt no
-menciona explicitamente un limite de longitud. Conviene anadir una linea:
-`"Keep the total output under 170 words."`.
+- `polar_interruptions_total` del 26-jun es 34;
+- `polar_sleep_duration_min` del 26-jun es 474.5;
+- `sleep_duration_anomaly` ya existe en el payload como flag explicito.
 
-**5. El prompt no dice que `classification` e `interpretation` son
-autoritativos.**
+Por tanto, esas lineas deben leerse como hallazgos historicos ya cerrados, no
+como problemas vigentes del paquete.
 
-El LLM recibe los numeros crudos de HRV y sueno ademas de la
-clasificacion. Si no sabe que la clasificacion prevalece, podria reclasificar
-por su cuenta mirando los numeros. Sugerencia: anadir al prompt:
-`"The classification and interpretation fields in morning_hrv and
-sleep_context are pre-computed and authoritative. Do not override them."`.
+**3. `max_words`, autoridad de `classification` y regla eliminatoria ya fueron
+resueltos.**
 
-**6. No hay caso `gate_final = NO` en los 5 dias.**
+Estado actual del paquete:
 
-Los 5 payloads tienen gates validos (VERDE o ROJO). El script maneja `NO`
-correctamente en `_classify_morning()` (devuelve `not_applicable`), pero no
-hay ejemplo de ese caso en la evaluacion. Esto limita la cobertura pero no
-es un defecto del script — depende de los datos reales de la semana.
+- `expected_output.max_words` ya existe y esta fijado en 220;
+- el prompt ya trata `classification` e `interpretation` como autoritativos;
+- la rubrica ya hace `gate fidelity` eliminatoria.
 
-**7. La rubrica no pondera los criterios.**
+Estos puntos ya no son trabajo pendiente.
 
-Los 5 criterios valen 0-2 cada uno con peso igual. Pero `gate fidelity`
-deberia ser mas critico que `brevity`. Un brief que contradice el gate es
-inservible aunque sea breve y bien escrito. Sugerencia: hacer que `gate
-fidelity` sea eliminatorio — si es 0, la puntuacion total es 0
-independientemente de los demas criterios.
+**4. Sigue faltando cobertura real de `gate_final = NO`.**
+
+La limitacion que si sigue abierta es que la semana evaluada no contiene ningun
+dia `NO`. El script y el contrato ya contemplan `not_applicable`, pero no hay
+ejemplo real dentro del paquete de 5 dias. Esto no invalida la evaluacion, pero
+si deja una esquina sin probar con datos de la muestra actual.
 
 ### 16.4 Coherencia con IU-15
 
@@ -1114,13 +1188,279 @@ Los puntos abiertos de la seccion 15.3 de IU-15 quedan asi:
 
 ### 16.5 Veredicto del paquete
 
-El paquete esta bien construido y es coherente con la propuesta. Puede usarse
-directamente para la evaluacion manual. Las mejoras sugeridas (prompt mas
-explicito sobre redundancia, `max_words` y autoridad de `classification`)
-son afinaciones menores que mejorarian la calidad de los resultados sin
-cambiar la estructura.
+El paquete esta bien construido y es coherente con la propuesta. La mayoria de
+las mejoras detectadas durante la revision ya quedaron incorporadas en payload,
+prompt y rubrica; la unica limitacion real que sigue abierta en la muestra es
+la falta de un caso `gate_final = NO`.
 
-El paso siguiente es ejecutar la evaluacion: pegar cada payload con el prompt
-en el modelo elegido, recoger las 5 salidas, y puntuar con la rubrica
-comparando contra el baseline. Si la media esta en 8-10, la fase 1 tiene
-justificacion empirica para avanzar.
+La evaluacion ya ha cumplido su funcion: cerrar el payload, el prompt y el
+criterio de aceptacion lo suficiente como para pasar a un MVP tecnico con
+`K2`, fallback determinista y revision semanal de salidas reales.
+
+## 17. Diseno tecnico minimo aprobado para fase 1
+
+### 17.1 Decision de producto
+
+Tras la evaluacion manual de la semana 2026-06-22 a 2026-06-26, la decision
+operativa propuesta es:
+
+- pasar a implementacion tecnica del brief diario HRV dentro de la app;
+- fijar `K2` como renderer inicial de fase 1;
+- mantener `reason_text` determinista como fallback y referencia;
+- dejar el SSM fuera del MVP y tratarlo explicitamente como fase 2.
+
+La politica de calidad pasa a ser esta:
+
+- integrar primero;
+- revisar semanalmente las salidas reales;
+- ajustar prompt o payload solo si aparece un patron repetido de fallo.
+
+### 17.2 Objetivo exacto del MVP
+
+Generar automaticamente, dentro del sync diario, un `ai_daily_brief`
+adicional a partir de:
+
+- `ENDURANCE_HRV_master_FINAL.csv`
+- `ENDURANCE_HRV_sleep.csv`
+- `ENDURANCE_HRV_sessions_day.csv`
+- `ENDURANCE_HRV_master_FINAL_reason_items.json`
+
+El brief IA no cambia ningun output canonico. Solo crea una capa de
+presentacion adicional, publicable si valida y descartable si falla.
+
+### 17.3 Cambios minimos de codigo
+
+Estructura propuesta:
+
+```text
+hrv_app/ai/
+  __init__.py
+  config.py
+  daily_brief.py
+```
+
+Responsabilidades:
+
+- `config.py`
+  Lee feature flags, proveedor, modelo, timeout, idioma y version de prompt.
+
+- `daily_brief.py`
+  Construye payload, calcula `payload_hash`, decide skip/not_applicable,
+  llama al proveedor, valida la salida y escribe sidecars.
+
+No hace falta en fase 1:
+
+- capa compleja multi-provider;
+- endpoint nuevo dedicado;
+- cambiar `FINAL.csv`;
+- generar brief SSM;
+- persistir `.md` adicional para UI.
+
+### 17.4 Punto de enganche real en el flujo
+
+El hook natural esta en `hrv_app/hrv_sync_flow.py`, dentro de
+`_process_rr_files()`, despues de:
+
+1. `run_build_hrv_final_dashboard_only()`
+2. `run_build_hrv_ssm_shadow_only()`
+
+Orden recomendado del final del sync:
+
+1. RR -> `CORE`
+2. sleep -> `ENDURANCE_HRV_sleep.csv`
+3. `FINAL/DASHBOARD`
+4. `SSM shadow`
+5. `AI daily brief` (`best effort`)
+6. backup / reporting ya existentes
+
+Razon:
+
+- el payload necesita `FINAL` y `reason_items` ya cerrados;
+- el sync principal ya ha producido todo lo importante antes de llamar a IA;
+- un fallo IA no contamina los outputs operativos ni el diagnostico del dia.
+
+### 17.5 Sidecars propuestos
+
+#### Latest para UI
+
+`data/ENDURANCE_HRV_ai_daily_brief_latest.json`
+
+Uso:
+
+- lectura rapida por la UI del dia vigente;
+- depuracion simple;
+- no requiere buscar por fecha.
+
+#### Historico para revision semanal
+
+`data/ENDURANCE_HRV_ai_daily_brief_YYYY-MM-DD.json`
+
+Uso:
+
+- revisar ultimos 7 dias;
+- comparar versiones de prompt;
+- detectar drift o casos peores que `reason_text`;
+- no hace falta mostrar este historico en la UI del MVP.
+
+No hace falta `.md` en fase 1. La UI puede renderizar `summary` y `detail`
+directamente desde JSON.
+
+### 17.6 Contrato operativo del sidecar
+
+Schema minimo recomendado:
+
+```json
+{
+  "status": "ok|not_applicable|error|validation_failed|skipped_unchanged",
+  "date": "YYYY-MM-DD",
+  "payload_hash": "sha256",
+  "provider": "string",
+  "model": "string",
+  "prompt_version": "daily_brief_v1",
+  "published": true,
+  "summary": "texto",
+  "detail": "texto",
+  "tone": "green|amber|red|not_applicable",
+  "source_mode": "reason_items|reason_text_fallback",
+  "reason": null,
+  "validation_errors": [],
+  "model_output_preview": "",
+  "created_at": "ISO-8601"
+}
+```
+
+Reglas:
+
+- `status=ok` es el unico caso publicable;
+- `published=false` en cualquier error, validacion fallida o `gate_NO`;
+- `status=skipped_unchanged` evita llamadas repetidas si el hash no cambia;
+- `tone=not_applicable` solo para casos no publicables;
+- `validation_errors` debe registrar el motivo exacto del rechazo;
+- `model_output_preview` guarda una muestra acotada de la salida textual del
+  modelo cuando falla el parseo o la llamada, para depurar respuestas vacias,
+  prosa no JSON o modos de razonamiento que no publican en `message.content`.
+
+### 17.7 Reglas de ejecucion
+
+Reglas duras del MVP:
+
+- si `HRV_AI_ENABLED=0`, no hacer nada;
+- si `HRV_AI_DAILY_ENABLED=0`, no hacer nada;
+- si `gate_final=NO`, no llamar al LLM y escribir `not_applicable`;
+- si existe sidecar historico del dia con igual `payload_hash` y `status=ok`,
+  devolver `skipped_unchanged`;
+- si existe sidecar historico con el mismo `payload_hash` pero `status=error`
+  o `validation_failed`, el MVP reintenta en el siguiente sync; esto es
+  deliberado para no congelar un fallo transitorio del proveedor o del prompt.
+  No hay backoff en fase 1;
+- timeout corto;
+- cualquier excepcion termina en sidecar + log, nunca en fallo del sync.
+
+### 17.8 Validaciones minimas antes de publicar
+
+Validaciones requeridas:
+
+1. parseo JSON correcto;
+2. presencia de `date`, `summary`, `detail`, `tone`, `source_mode`;
+3. `date` igual a la del payload;
+4. `tone` compatible con `gate_final`;
+5. `source_mode` coherente con si hay o no `reason_items`;
+6. `summary` y `detail` no vacios;
+7. total de palabras de `summary + detail` no superior a
+   `expected_output.max_words * 1.2`.
+
+Si alguna falla:
+
+- escribir sidecar `validation_failed`;
+- registrar `validation_errors`;
+- no publicar el brief IA;
+- mantener visible el `reason_text` determinista.
+
+### 17.9 Variables de entorno minimas
+
+```text
+HRV_AI_ENABLED=0
+HRV_AI_DAILY_ENABLED=0
+HRV_AI_PROVIDER=<provider>
+HRV_AI_MODEL=<provider_model_id>
+HRV_AI_API_KEY=<secret>
+HRV_AI_BASE_URL=<openai_compatible_base_url>
+HRV_AI_TIMEOUT_SEC=12
+HRV_AI_TEMPERATURE=0.2
+HRV_AI_TOP_P=
+HRV_AI_THINKING=
+HRV_AI_MAX_TOKENS=400
+HRV_AI_LANGUAGE=es
+HRV_AI_PROMPT_VERSION=daily_brief_v1
+```
+
+Nota:
+
+- `HRV_AI_MODEL` queda configurable aunque el candidato inicial sea la familia
+  `K2`; el valor exacto debe ser el identificador real exigido por el
+  proveedor activo;
+- `HRV_AI_BASE_URL` permite apuntar a un endpoint compatible con
+  `chat/completions` sin hardcodear proveedor en la app;
+- `HRV_AI_TEMPERATURE`, `HRV_AI_TOP_P`, `HRV_AI_THINKING` y
+  `HRV_AI_MAX_TOKENS` gobiernan la generacion del proveedor activo; para
+  Kimi `k2.6` via Moonshot se ha validado `HRV_AI_THINKING=disabled`,
+  `HRV_AI_TEMPERATURE=0.6`, `HRV_AI_TOP_P=0.95` y
+  `HRV_AI_MAX_TOKENS=400`;
+- no hace falta ningun flag SSM en fase 1.
+
+### 17.10 Comportamiento de UI
+
+MVP recomendado:
+
+- la UI sigue calculando y mostrando las metricas HRV actuales;
+- si existe `ENDURANCE_HRV_ai_daily_brief_latest.json` con `status=ok` y fecha
+  igual al ultimo dia de `FINAL`, la UI muestra un bloque sobrio `Brief IA`
+  dentro de `Lectura HRV de hoy`;
+- la UI muestra `reason_text` en un bloque separado dentro de esa misma tarjeta;
+- no se anade una tarjeta aparte de historico, comparativa ni lista de briefs
+  recientes en fase 1;
+- si el brief IA no existe, falla o no publica, simplemente no se muestra el
+  bloque `Brief IA`; `reason_text` sigue visible como fallback determinista.
+
+Esto mantiene:
+
+- compatibilidad total con el flujo actual;
+- fallback inmediato;
+- riesgo de regresion muy bajo.
+
+### 17.11 Revision semanal como parte del diseno
+
+La revision semanal deja de ser opcional y pasa a formar parte del proceso:
+
+- conservar historico por fecha;
+- revisar una vez por semana los briefs de los ultimos 7 dias;
+- marcar manualmente:
+  - mejores que `reason_text`
+  - equivalentes
+  - peores
+  - patrones de fallo repetidos
+
+Solo si aparece un patron repetido se ajusta:
+
+- prompt;
+- payload;
+- validaciones.
+
+Esto es preferible a seguir afinando en abstracto antes de ver uso real.
+
+### 17.12 Orden de implementacion
+
+1. Crear `hrv_app/ai/config.py`
+2. Crear `hrv_app/ai/daily_brief.py`
+3. Hook en `hrv_app/hrv_sync_flow.py`
+4. Escribir `latest` + historico
+5. Tests minimos de payload, `gate_NO`, skip por hash, timeout y
+   validacion tone/gate
+6. Mostrar `Brief IA` y `reason_text` dentro de `Lectura HRV de hoy`,
+   sin tarjeta independiente de historico, y solo publicar `Brief IA`
+   si `status=ok`
+
+Veredicto:
+
+- la propuesta ya no necesita mas investigacion previa para arrancar;
+- necesita una implementacion pequena, reversible y auditable.

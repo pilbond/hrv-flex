@@ -1,4 +1,4 @@
-<section id="hrvSummaryCard" class="card hrv-summary-card" hidden>
+<section id="hrvSummaryCard" class="card hrv-summary-card"{% if not initial_final_exists %} hidden{% endif %}>
     <div id="hrvSummaryTitle" class="hrv-summary-title" data-title-base="{{ ui_copy.hrv_summary_title_base }}">
         {% if initial_final_fecha %}
         {{ ui_copy.hrv_summary_title_base }} ({{ initial_final_fecha }})
@@ -9,20 +9,32 @@
     <div class="hrv-summary-grid">
         <div class="hrv-summary-item">
             <div class="hrv-summary-label">{{ ui_copy.hrv_summary_raw }}</div>
-            <div id="hrvSummaryRaw" class="hrv-summary-value">-</div>
+            <div id="hrvSummaryRaw" class="hrv-summary-value">{{ initial_hrv_summary_raw or "-" }}</div>
         </div>
         <div class="hrv-summary-item">
             <div class="hrv-summary-label">{{ ui_copy.hrv_summary_used }}</div>
-            <div id="hrvSummaryUsed" class="hrv-summary-value">-</div>
+            <div id="hrvSummaryUsed" class="hrv-summary-value">{{ initial_hrv_summary_used or "-" }}</div>
         </div>
         <div class="hrv-summary-item">
             <div class="hrv-summary-label">{{ ui_copy.hrv_summary_base }}</div>
-            <div id="hrvSummaryBase" class="hrv-summary-value">-</div>
+            <div id="hrvSummaryBase" class="hrv-summary-value">{{ initial_hrv_summary_base or "-" }}</div>
         </div>
         <div class="hrv-summary-item">
             <div class="hrv-summary-label">{{ ui_copy.hrv_summary_gate }}</div>
-            <div id="hrvSummaryGate" class="hrv-summary-value">-</div>
+            <div id="hrvSummaryGate" class="hrv-summary-value">{{ initial_hrv_summary_gate or "-" }}</div>
         </div>
     </div>
-    <div id="hrvSummaryNote" class="hrv-summary-note">{{ ui_copy.hrv_summary_waiting }}</div>
+    <div class="hrv-summary-text-grid">
+        <div id="hrvSummaryAiBlock" class="hrv-summary-note hrv-summary-note-secondary"{% if not initial_hrv_summary_ai %} hidden{% endif %}>
+            <div class="hrv-summary-label">Brief IA</div>
+            <div id="hrvSummaryAi">{{ initial_hrv_summary_ai or "" }}</div>
+        </div>
+        <div id="hrvSummaryReasonBlock" class="hrv-summary-note hrv-summary-note-secondary"{% if not initial_hrv_summary_has_reason_text %} hidden{% endif %}>
+            <div class="hrv-summary-label">Reason text</div>
+            <div id="hrvSummaryReason">{{ initial_hrv_summary_reason or "" }}</div>
+        </div>
+        <div id="hrvSummaryFallbackBlock" class="hrv-summary-note hrv-summary-note-secondary"{% if not initial_hrv_summary_reason_is_fallback %} hidden{% endif %}>
+            <div id="hrvSummaryFallback">{{ initial_hrv_summary_fallback or "" }}</div>
+        </div>
+    </div>
 </section>

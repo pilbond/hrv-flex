@@ -22,6 +22,7 @@ from .cli_reporting import (
     build_sync_completed_report,
     show_latest_hrv_summaries,
 )
+from .ai import run_ai_daily_brief_for_latest_date
 from .config import (
     CORE_PATH,
     FIELD_SAMPLE_TYPE,
@@ -49,6 +50,20 @@ from .pipeline_runner import (
 )
 from .polar_utils import _iso_to_dt, get_field_variant
 from .sleep_store import _default_sleep_refresh_dates, _update_sleep_for_dates
+
+
+def _run_ai_daily_brief_best_effort() -> None:
+    try:
+        result = run_ai_daily_brief_for_latest_date()
+    except Exception as exc:
+        _render_report(build_message_report(f"🤖 AI daily brief: error ({exc})"))
+        return
+    status = str(result.get("status") or "").strip()
+    if status in {"", "disabled", "missing_final"}:
+        return
+    date_str = str(result.get("date") or "").strip()
+    suffix = f" ({date_str})" if date_str else ""
+    _render_report(build_message_report(f"🤖 AI daily brief: {status}{suffix}"))
 
 
 def extract_rr_ms(exercise_json: dict):
@@ -165,7 +180,9 @@ def _refresh_sleep_and_outputs(
     _update_sleep_for_dates(access_token, x_user_id, target_dates)
     if run_final_dashboard:
         _render_report(build_message_report("▶️  Regenerando FINAL/DASHBOARD con sleep actualizado..."))
-        run_build_hrv_final_dashboard_only()
+        final_ok = run_build_hrv_final_dashboard_only()
+        if final_ok:
+            _run_ai_daily_brief_best_effort()
 
 
 def _resolve_date_range(args, last_date=None):
@@ -236,12 +253,15 @@ def _process_rr_files(
     _update_sleep_for_dates(access_token, x_user_id, target_dates)
 
     _render_report(build_pipeline_stage_report("Ejecutando build_hrv_final_dashboard.py..."))
-    run_build_hrv_final_dashboard_only()
+    final_ok = run_build_hrv_final_dashboard_only()
 
     _render_report(build_pipeline_stage_report("Ejecutando build_hrv_ssm.py..."))
     ssm_ok = run_build_hrv_ssm_shadow_only()
     if not ssm_ok:
         _render_report(build_message_report("⚠️  build_hrv_ssm.py falló; FINAL/DASHBOARD se mantienen actualizados, pero no se regenera SSM shadow."))
+
+    if final_ok:
+        _run_ai_daily_brief_best_effort()
 
     if not QUIET:
         _render_report(

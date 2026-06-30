@@ -13,6 +13,15 @@ class _Result:
 
 
 class HrvSyncFlowContractTests(unittest.TestCase):
+    def test_ai_daily_brief_best_effort_never_raises(self):
+        with patch.object(hrv_sync_flow, "run_ai_daily_brief_for_latest_date", side_effect=ValueError("bad final csv")), patch.object(
+            hrv_sync_flow, "_render_report"
+        ) as render_mock:
+            hrv_sync_flow._run_ai_daily_brief_best_effort()
+
+        render_mock.assert_called_once()
+        self.assertIn("AI daily brief: error", render_mock.call_args.args[0]["lines"][0])
+
     def test_no_new_rr_auto_flow_without_process_shows_summaries_and_skips_sleep_refresh(self):
         args = argparse.Namespace(
             all=False,
@@ -93,7 +102,7 @@ class HrvSyncFlowContractTests(unittest.TestCase):
                 hrv_sync_flow, "run_build_hrv_final_dashboard_only"
             ) as final_mock, patch.object(
                 hrv_sync_flow, "run_build_hrv_ssm_shadow_only", return_value=True
-            ) as ssm_mock, patch.object(hrv_sync_flow, "_update_sleep_for_dates") as sleep_mock, patch.object(
+            ) as ssm_mock, patch.object(hrv_sync_flow, "_run_ai_daily_brief_best_effort") as ai_mock, patch.object(hrv_sync_flow, "_update_sleep_for_dates") as sleep_mock, patch.object(
                 hrv_sync_flow, "_send_intervals_wellness_from_master"
             ) as intervals_mock, patch.object(hrv_sync_flow, "show_latest_hrv_summaries") as summary_mock:
                 hrv_sync_flow.sync_hrv_range(args, "token", "user", [])
@@ -102,6 +111,7 @@ class HrvSyncFlowContractTests(unittest.TestCase):
         run_core_mock.assert_called_once_with([rr_path])
         final_mock.assert_called_once()
         ssm_mock.assert_called_once()
+        ai_mock.assert_called_once()
         sleep_mock.assert_called_once()
         intervals_mock.assert_called_once()
         summary_mock.assert_called_once()
@@ -131,7 +141,7 @@ class HrvSyncFlowContractTests(unittest.TestCase):
                 hrv_sync_flow, "run_build_hrv_final_dashboard_only"
             ) as final_mock, patch.object(
                 hrv_sync_flow, "run_build_hrv_ssm_shadow_only", return_value=True
-            ) as ssm_mock, patch.object(hrv_sync_flow, "_update_sleep_for_dates") as sleep_mock, patch.object(
+            ) as ssm_mock, patch.object(hrv_sync_flow, "_run_ai_daily_brief_best_effort") as ai_mock, patch.object(hrv_sync_flow, "_update_sleep_for_dates") as sleep_mock, patch.object(
                 hrv_sync_flow, "_send_intervals_wellness_from_master"
             ) as intervals_mock, patch.object(hrv_sync_flow, "show_latest_hrv_summaries") as summary_mock:
                 hrv_sync_flow.sync_hrv_range(args, "token", "user", [])
@@ -141,6 +151,7 @@ class HrvSyncFlowContractTests(unittest.TestCase):
         promote_mock.assert_called_once_with([rr_path], Path(tmpdir))
         final_mock.assert_called_once()
         ssm_mock.assert_called_once()
+        ai_mock.assert_called_once()
         sleep_mock.assert_called_once()
         intervals_mock.assert_called_once()
         summary_mock.assert_called_once()
@@ -247,6 +258,8 @@ class HrvSyncFlowContractTests(unittest.TestCase):
             ), patch.object(hrv_sync_flow, "_promote_operational_rr_files") as promote_mock, patch.object(hrv_sync_flow, "run_build_hrv_core", return_value=None), patch.object(
                 hrv_sync_flow, "run_build_hrv_final_dashboard_only"
             ) as final_mock, patch.object(hrv_sync_flow, "run_build_hrv_ssm_shadow_only") as ssm_mock, patch.object(
+                hrv_sync_flow, "_run_ai_daily_brief_best_effort"
+            ) as ai_mock, patch.object(
                 hrv_sync_flow, "_update_sleep_for_dates"
             ) as sleep_mock, patch.object(
                 hrv_sync_flow, "_send_intervals_wellness_from_master"
@@ -256,6 +269,7 @@ class HrvSyncFlowContractTests(unittest.TestCase):
         final_mock.assert_not_called()
         ssm_mock.assert_not_called()
         promote_mock.assert_not_called()
+        ai_mock.assert_not_called()
         sleep_mock.assert_called_once()
         intervals_mock.assert_called_once()
         summary_mock.assert_called_once()
@@ -281,13 +295,14 @@ class HrvSyncFlowContractTests(unittest.TestCase):
                 hrv_sync_flow, "run_build_hrv_final_dashboard_only"
             ) as final_mock, patch.object(
                 hrv_sync_flow, "run_build_hrv_ssm_shadow_only", return_value=False
-            ) as ssm_mock, patch.object(hrv_sync_flow, "_update_sleep_for_dates") as sleep_mock, patch.object(
+            ) as ssm_mock, patch.object(hrv_sync_flow, "_run_ai_daily_brief_best_effort") as ai_mock, patch.object(hrv_sync_flow, "_update_sleep_for_dates") as sleep_mock, patch.object(
                 hrv_sync_flow, "_send_intervals_wellness_from_master"
             ) as intervals_mock, patch.object(hrv_sync_flow, "show_latest_hrv_summaries") as summary_mock:
                 hrv_sync_flow.sync_hrv_range(args, "token", "user", [])
 
         final_mock.assert_called_once()
         ssm_mock.assert_called_once()
+        ai_mock.assert_called_once()
         sleep_mock.assert_called_once()
         intervals_mock.assert_called_once()
         summary_mock.assert_called_once()
@@ -314,7 +329,7 @@ class HrvSyncFlowContractTests(unittest.TestCase):
                 hrv_sync_flow, "run_build_hrv_final_dashboard_only"
             ) as final_mock, patch.object(
                 hrv_sync_flow, "run_build_hrv_ssm_shadow_only", return_value=True
-            ) as ssm_mock, patch.object(hrv_sync_flow, "_update_sleep_for_dates") as sleep_mock, patch.object(
+            ) as ssm_mock, patch.object(hrv_sync_flow, "_run_ai_daily_brief_best_effort") as ai_mock, patch.object(hrv_sync_flow, "_update_sleep_for_dates") as sleep_mock, patch.object(
                 hrv_sync_flow, "_send_intervals_wellness_from_master"
             ) as intervals_mock, patch.object(hrv_sync_flow, "show_latest_hrv_summaries") as summary_mock:
                 hrv_sync_flow.sync_hrv_range(args, "token", "user", [])
@@ -323,6 +338,7 @@ class HrvSyncFlowContractTests(unittest.TestCase):
         run_core_mock.assert_called_once_with([rr_path])
         final_mock.assert_called_once()
         ssm_mock.assert_called_once()
+        ai_mock.assert_called_once()
         sleep_mock.assert_called_once()
         intervals_mock.assert_called_once()
         summary_mock.assert_called_once()

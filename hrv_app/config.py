@@ -27,6 +27,26 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_float(name: str, default: float) -> float:
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+def _env_optional_float(name: str) -> float | None:
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
 def _dir_is_writable(path: Path) -> bool:
     try:
         path.mkdir(parents=True, exist_ok=True)
@@ -156,6 +176,9 @@ SSM_VALIDATION_REPORT_MD_PATH = DATA_DIR / "ENDURANCE_HRV_ssm_validation_report.
 SSM_OUTCOME_BATTERY_JSON_PATH = DATA_DIR / "ENDURANCE_HRV_ssm_outcome_battery.json"
 SSM_OUTCOME_BATTERY_MD_PATH = DATA_DIR / "ENDURANCE_HRV_ssm_outcome_battery.md"
 SLEEP_PATH = DATA_DIR / "ENDURANCE_HRV_sleep.csv"
+SESSIONS_DAY_PATH = DATA_DIR / "ENDURANCE_HRV_sessions_day.csv"
+FINAL_REASON_ITEMS_PATH = DATA_DIR / "ENDURANCE_HRV_master_FINAL_reason_items.json"
+AI_DAILY_BRIEF_LATEST_PATH = DATA_DIR / "ENDURANCE_HRV_ai_daily_brief_latest.json"
 
 INTERVALS_SOURCE_PATH = BETA_AUDIT_PATH
 INTERVALS_BASE_URL = (os.environ.get("INTERVALS_BASE_URL") or "https://intervals.icu").strip()
@@ -237,3 +260,17 @@ DROPBOX_FOLDER_PATH = (
     or ""
 ).strip()
 DROPBOX_RECURSIVE = env_flag("HRV_DROPBOX_RECURSIVE", True)
+
+HRV_AI_ENABLED = env_flag("HRV_AI_ENABLED", False)
+HRV_AI_DAILY_ENABLED = env_flag("HRV_AI_DAILY_ENABLED", False)
+HRV_AI_PROVIDER = (os.environ.get("HRV_AI_PROVIDER") or "").strip()
+HRV_AI_MODEL = (os.environ.get("HRV_AI_MODEL") or "").strip()
+HRV_AI_API_KEY = (os.environ.get("HRV_AI_API_KEY") or "").strip()
+HRV_AI_BASE_URL = (os.environ.get("HRV_AI_BASE_URL") or "").strip()
+HRV_AI_LANGUAGE = (os.environ.get("HRV_AI_LANGUAGE") or "es").strip() or "es"
+HRV_AI_PROMPT_VERSION = (os.environ.get("HRV_AI_PROMPT_VERSION") or "daily_brief_v1").strip() or "daily_brief_v1"
+HRV_AI_TEMPERATURE = _env_float("HRV_AI_TEMPERATURE", 0.2)
+HRV_AI_TOP_P = _env_optional_float("HRV_AI_TOP_P")
+HRV_AI_THINKING = (os.environ.get("HRV_AI_THINKING") or "").strip().lower()
+HRV_AI_MAX_TOKENS = _env_int("HRV_AI_MAX_TOKENS", 400)
+HRV_AI_TIMEOUT_SEC = _env_int("HRV_AI_TIMEOUT_SEC", 12)

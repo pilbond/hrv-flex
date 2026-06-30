@@ -15,6 +15,7 @@ import time
 import os
 import csv
 import html
+import math
 import re
 import shutil
 from pathlib import Path
@@ -148,7 +149,6 @@ DEFAULT_UI_RUNTIME_CONFIG = {
         "unknownError": "Error desconocido",
     },
     "templates": {
-        "hrvSummaryActionNote": "El gate compara el valor usado por la decisión con BASE60. Hoy la acción es {action}.",
         "restoreSuccess": "Backup restaurado: {count} archivos desde {source}",
         "deleteConfirm": "Se moverá a backup el último RR: {label}. Después tendrás que repetir la medición y volver a sincronizar. ¿Continuar?",
         "deleteStart": "Moviendo {label} a backup...",
@@ -156,6 +156,128 @@ DEFAULT_UI_RUNTIME_CONFIG = {
         "pollStatus": "Procesando {jobLabel}... {minutes}m {seconds}s",
     },
 }
+
+
+def _fmt_number(value, decimals: int = 1) -> str:
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return "-"
+    return f"{n:.{decimals}f}"
+
+
+def _fmt_exp_from_log(value) -> str:
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return "-"
+    return f"{math.exp(n):.1f}"
+
+
+def _normalize_summary_text(value) -> str:
+    return " ".join(str(value or "").split()).strip()
+
+
+def _render_ai_brief_text(summary: str | None, detail: str | None) -> str:
+    summary_text = _normalize_summary_text(summary)
+    detail_text = _normalize_summary_text(detail)
+    if not summary_text:
+        return detail_text
+    if not detail_text:
+        return summary_text
+    if detail_text.startswith(summary_text):
+        return detail_text
+    return f"{summary_text} {detail_text}"
+
+
+def _ai_daily_brief_diagnostics(final_date: str | None) -> dict:
+    brief_path = DATA_DIR / "ENDURANCE_HRV_ai_daily_brief_latest.json"
+    payload = {
+        "ai_daily_brief_path": str(brief_path),
+        "ai_daily_brief_exists": brief_path.exists(),
+        "ai_daily_brief_status": None,
+        "ai_daily_brief_date": None,
+        "ai_daily_brief_published": False,
+        "ai_daily_brief_summary": None,
+        "ai_daily_brief_detail": None,
+        "ai_daily_brief_tone": None,
+        "ai_daily_brief_source_mode": None,
+        "ai_daily_brief_reason": None,
+        "ai_daily_brief_matches_final": False,
+    }
+    if not brief_path.exists():
+        return payload
+
+    try:
+        brief = json.loads(brief_path.read_text(encoding="utf-8"))
+    except Exception:
+        return payload
+
+    brief_date = _normalize_summary_text(brief.get("date")) or None
+    payload.update(
+        {
+            "ai_daily_brief_status": brief.get("status"),
+            "ai_daily_brief_date": brief_date,
+            "ai_daily_brief_published": bool(brief.get("published")),
+            "ai_daily_brief_summary": brief.get("summary"),
+            "ai_daily_brief_detail": brief.get("detail"),
+            "ai_daily_brief_tone": brief.get("tone"),
+            "ai_daily_brief_source_mode": brief.get("source_mode"),
+            "ai_daily_brief_reason": brief.get("reason"),
+            "ai_daily_brief_matches_final": bool(brief_date and final_date and brief_date == final_date),
+        }
+    )
+    return payload
+
+
+def _compose_hrv_summary_diagnostics(diagnostics: dict) -> dict:
+    final_exists = bool(diagnostics.get("final_exists"))
+    final_date = _normalize_summary_text(diagnostics.get("final_last_fecha")) or None
+    ai_ready = (
+        diagnostics.get("ai_daily_brief_status") == "ok"
+        and bool(diagnostics.get("ai_daily_brief_published"))
+        and bool(diagnostics.get("ai_daily_brief_matches_final"))
+    )
+
+    ai_brief_text = None
+    if ai_ready:
+        ai_brief_text = _render_ai_brief_text(
+            diagnostics.get("ai_daily_brief_summary"),
+            diagnostics.get("ai_daily_brief_detail"),
+        )
+    reason_text = _normalize_summary_text(diagnostics.get("final_last_reason_text")) or None
+    fallback_text = None
+    if not ai_brief_text and not reason_text:
+        fallback_text = UI_RUNTIME_CONFIG.get("text", {}).get(
+            "hrvSummaryUnavailable",
+            "Todavia no hay salida FINAL disponible.",
+        )
+
+    return {
+        "hrv_summary_title_date": final_date,
+        "hrv_summary_raw_text": (
+            f"{_fmt_number(diagnostics.get('final_last_rmssd_stable'))} ms "
+            f"· HR {_fmt_number(diagnostics.get('final_last_hr_today'))} lpm "
+            f"· lnRMSSD bruto {_fmt_number(diagnostics.get('final_last_lnrmssd_today'), 3)}"
+        ),
+        "hrv_summary_used_text": (
+            f"{_fmt_exp_from_log(diagnostics.get('final_last_lnrmssd_used'))} ms "
+            f"· lnRMSSD usado {_fmt_number(diagnostics.get('final_last_lnrmssd_used'), 3)}"
+        ),
+        "hrv_summary_base_text": (
+            f"{_fmt_exp_from_log(diagnostics.get('final_last_ln_base60'))} ms "
+            f"· SWC_ln {_fmt_number(diagnostics.get('final_last_swc_ln'), 3)}"
+        ),
+        "hrv_summary_gate_text": (
+            f"{_normalize_summary_text(diagnostics.get('final_last_gate_badge')) or 'N/A'} "
+            f"· {_normalize_summary_text(diagnostics.get('final_last_gate_razon_base60')) or 'N/A'}"
+        ),
+        "hrv_summary_ai_text": ai_brief_text,
+        "hrv_summary_reason_text": reason_text,
+        "hrv_summary_fallback_text": fallback_text,
+        "hrv_summary_has_reason_text": bool(reason_text),
+        "hrv_summary_reason_is_fallback": bool(fallback_text),
+    }
 
 
 def _merge_template_json(fallback: dict, payload: dict) -> dict:
@@ -960,16 +1082,19 @@ def _build_status_payload() -> dict:
     seed_info = _seed_upload_diagnostics()
     rr_info = _latest_rr_diagnostics()
 
-    payload = _execution_snapshot()
-    payload["diagnostics"] = {
+    diagnostics = {
         "authorized": token_info.get("token_reason") == "ok",
         **token_info,
         **csv_info,
+        **_ai_daily_brief_diagnostics(csv_info.get("final_last_fecha")),
         **weekly_coach_info,
         **dropbox_info,
         **seed_info,
         **rr_info,
     }
+    diagnostics.update(_compose_hrv_summary_diagnostics(diagnostics))
+    payload = _execution_snapshot()
+    payload["diagnostics"] = diagnostics
     return payload
 
 
@@ -978,12 +1103,21 @@ def _technical_summary_from_payload(payload: dict) -> str:
 
 
 def _render_index_fallback(initial_payload: dict):
-    final_fecha = html.escape(str((initial_payload.get("diagnostics", {}) or {}).get("final_last_fecha") or "sin datos"))
+    diagnostics = initial_payload.get("diagnostics", {}) or {}
+    final_exists = bool(diagnostics.get("final_exists"))
+    final_fecha = html.escape(str(diagnostics.get("hrv_summary_title_date") or "sin datos"))
     technical_output = html.escape(_technical_summary_from_payload(initial_payload) or "Esperando ejecución...")
     dashboard_title = html.escape(UI_COPY.get("dashboard_title", "HRV Sync"))
     summary_title = html.escape(UI_COPY.get("hrv_summary_title_base", "Lectura HRV de hoy"))
-    summary_waiting = html.escape(UI_COPY.get("hrv_summary_waiting", "Esperando disponibilidad del resumen HRV..."))
+    ai_brief_text = html.escape(str(diagnostics.get("hrv_summary_ai_text") or "Sin brief IA publicado para este dia."))
+    reason_text = html.escape(str(diagnostics.get("hrv_summary_reason_text") or ""))
+    fallback_text = html.escape(str(diagnostics.get("hrv_summary_fallback_text") or ""))
     technical_title = html.escape(UI_COPY.get("technical_title", "Detalle técnico"))
+    raw_text = html.escape(str(diagnostics.get("hrv_summary_raw_text") or "-"))
+    used_text = html.escape(str(diagnostics.get("hrv_summary_used_text") or "-"))
+    base_text = html.escape(str(diagnostics.get("hrv_summary_base_text") or "-"))
+    gate_text = html.escape(str(diagnostics.get("hrv_summary_gate_text") or "-"))
+    hidden_attr = "" if final_exists else " hidden"
     return f"""<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -994,9 +1128,17 @@ def _render_index_fallback(initial_payload: dict):
 <body>
     <main>
         <h1>{dashboard_title}</h1>
-        <section id="hrvSummaryCard">
+        <section id="hrvSummaryCard"{hidden_attr}>
             <h2>{summary_title} ({final_fecha})</h2>
-            <p>{summary_waiting}</p>
+            <div>
+                <p>{raw_text}</p>
+                <p>{used_text}</p>
+                <p>{base_text}</p>
+                <p>{gate_text}</p>
+            </div>
+            <p>{ai_brief_text}</p>
+            <p>{reason_text}</p>
+            <p>{fallback_text}</p>
         </section>
         <section>
             <h2>{technical_title}</h2>
@@ -1049,6 +1191,7 @@ def _render_oauth_error_fallback(context: dict):
 def index():
     """Interfaz web principal"""
     initial_payload = _build_status_payload()
+    initial_diagnostics = (initial_payload.get("diagnostics", {}) or {})
     try:
         return render_template(
             'index.html',
@@ -1056,7 +1199,17 @@ def index():
             runtime_config={**UI_RUNTIME_CONFIG, "sync_timeout_sec": _sync_timeout_seconds()},
             show_seed_import=env_flag('HRV_SHOW_SEED_IMPORT', SEED_UPLOAD_DIR.exists()),
             show_restore_backup=env_flag('HRV_BACKUP_DROPBOX_ENABLED', False),
-            initial_final_fecha=(initial_payload.get("diagnostics", {}) or {}).get("final_last_fecha"),
+            initial_final_fecha=initial_diagnostics.get("hrv_summary_title_date"),
+            initial_final_exists=initial_diagnostics.get("final_exists"),
+            initial_hrv_summary_raw=initial_diagnostics.get("hrv_summary_raw_text"),
+            initial_hrv_summary_used=initial_diagnostics.get("hrv_summary_used_text"),
+            initial_hrv_summary_base=initial_diagnostics.get("hrv_summary_base_text"),
+            initial_hrv_summary_gate=initial_diagnostics.get("hrv_summary_gate_text"),
+            initial_hrv_summary_ai=initial_diagnostics.get("hrv_summary_ai_text"),
+            initial_hrv_summary_reason=initial_diagnostics.get("hrv_summary_reason_text"),
+            initial_hrv_summary_fallback=initial_diagnostics.get("hrv_summary_fallback_text"),
+            initial_hrv_summary_has_reason_text=initial_diagnostics.get("hrv_summary_has_reason_text"),
+            initial_hrv_summary_reason_is_fallback=initial_diagnostics.get("hrv_summary_reason_is_fallback"),
             initial_technical_output=_technical_summary_from_payload(initial_payload),
         )
     except TemplateNotFound as exc:

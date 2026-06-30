@@ -1,5 +1,6 @@
 import json
 import unittest
+from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -10,6 +11,16 @@ import web_ui
 
 
 class WebUiStatusTests(unittest.TestCase):
+    def _write_final_csv(self, data_dir: Path, fecha: str, reason_text: str = "Reason text base") -> None:
+        (data_dir / "ENDURANCE_HRV_master_FINAL.csv").write_text(
+            (
+                "Fecha,HR_today,RMSSD_stable,lnRMSSD_today,lnRMSSD_used,ln_base60,SWC_ln,"
+                "gate_badge,gate_razon_base60,reason_text,decision_path,Action_detail,recovery_support_class\n"
+                f"{fecha},51,42.0,3.73,3.70,3.68,0.12,VERDE,BASE60_OK,{reason_text},path,EJECUTAR_PLAN,supported\n"
+            ),
+            encoding="utf-8",
+        )
+
     def test_weekly_coach_diagnostics_exposes_planning_note(self):
         with TemporaryDirectory() as tmpdir:
             data_dir = Path(tmpdir)
@@ -46,6 +57,71 @@ class WebUiStatusTests(unittest.TestCase):
             "Z3 alto en bike (p87.5) y road run (p81.0).",
         )
 
+    def test_status_prefers_ai_daily_brief_when_published_for_latest_final(self):
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            fecha = date.today().isoformat()
+            self._write_final_csv(data_dir, fecha, reason_text="Texto determinista")
+            (data_dir / "ENDURANCE_HRV_ai_daily_brief_latest.json").write_text(
+                json.dumps(
+                    {
+                        "status": "ok",
+                        "date": fecha,
+                        "published": True,
+                        "summary": "Dia verde con carga alta.",
+                        "detail": "Monotonia 2.88 y strain 971, pero el gate sigue verde.",
+                        "tone": "green",
+                        "source_mode": "reason_items",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch.object(web_ui, "DATA_DIR", data_dir):
+                payload = web_ui._build_status_payload()
+
+        diagnostics = payload["diagnostics"]
+        self.assertTrue(diagnostics["ai_daily_brief_exists"])
+        self.assertTrue(diagnostics["ai_daily_brief_matches_final"])
+        self.assertIn("Dia verde con carga alta.", diagnostics["hrv_summary_ai_text"])
+        self.assertIn("Monotonia 2.88 y strain 971", diagnostics["hrv_summary_ai_text"])
+        self.assertEqual(diagnostics["hrv_summary_reason_text"], "Texto determinista")
+        self.assertIsNone(diagnostics["hrv_summary_fallback_text"])
+        self.assertTrue(diagnostics["hrv_summary_has_reason_text"])
+        self.assertFalse(diagnostics["hrv_summary_reason_is_fallback"])
+
+    def test_index_fallback_renders_ai_daily_brief_when_template_missing(self):
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            fecha = date.today().isoformat()
+            self._write_final_csv(data_dir, fecha, reason_text="Texto determinista")
+            (data_dir / "ENDURANCE_HRV_ai_daily_brief_latest.json").write_text(
+                json.dumps(
+                    {
+                        "status": "ok",
+                        "date": fecha,
+                        "published": True,
+                        "summary": "Dia rojo por caida aguda.",
+                        "detail": "La restriccion viene del gate rojo y se mantiene publicada.",
+                        "tone": "red",
+                        "source_mode": "reason_items",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch.object(web_ui, "DATA_DIR", data_dir), \
+                    patch.object(web_ui, "render_template", side_effect=TemplateNotFound("index.html")):
+                with web_ui.app.test_client() as client:
+                    response = client.get("/")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Dia rojo por caida aguda.", html)
+        self.assertIn("La restriccion viene del gate rojo", html)
+        self.assertIn("Texto determinista", html)
+        self.assertIn("VERDE", html)
+
     def test_index_exposes_hrv_dashboard_shell(self):
         with web_ui.app.test_client() as client:
             response = client.get("/")
@@ -53,6 +129,9 @@ class WebUiStatusTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn('id="hrvSummaryCard"', html)
+        self.assertIn('id="hrvSummaryAiBlock"', html)
+        self.assertIn('id="hrvSummaryReasonBlock"', html)
+        self.assertIn('id="hrvSummaryFallbackBlock"', html)
         self.assertIn("Lectura HRV de hoy", html)
         self.assertNotIn('id="weeklyCoachCard"', html)
         self.assertNotIn("Coach semanal", html)
@@ -77,6 +156,21 @@ class WebUiStatusTests(unittest.TestCase):
         self.assertIn('id="hrvSummaryCard"', html)
         self.assertIn("Lectura HRV de hoy", html)
         self.assertIn("Detalle técnico", html)
+
+    def test_status_uses_unavailable_fallback_when_ai_and_reason_are_missing(self):
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            self._write_final_csv(data_dir, date.today().isoformat(), reason_text="")
+
+            with patch.object(web_ui, "DATA_DIR", data_dir):
+                payload = web_ui._build_status_payload()
+
+        diagnostics = payload["diagnostics"]
+        self.assertIsNone(diagnostics["hrv_summary_ai_text"])
+        self.assertIsNone(diagnostics["hrv_summary_reason_text"])
+        self.assertEqual(diagnostics["hrv_summary_fallback_text"], "Todavía no hay salida FINAL disponible.")
+        self.assertFalse(diagnostics["hrv_summary_has_reason_text"])
+        self.assertTrue(diagnostics["hrv_summary_reason_is_fallback"])
 
     def test_template_json_loader_uses_fallback_when_template_missing(self):
         fallback = {"text": {"example": "ok"}}
