@@ -15,7 +15,6 @@ import time
 import os
 import csv
 import html
-import math
 import re
 import shutil
 from pathlib import Path
@@ -34,6 +33,7 @@ from hrv_app.config import (
 from hrv_app.io_utils import write_csv_atomic, write_json_atomic
 from hrv_app.messages import API as MSG, OAUTH as OAUTH_MSG, CONSOLE as CONSOLE_MSG
 from hrv_app.polar_utils import env_flag
+from hrv_app import ui_view
 from hrv_app.polar_auth_v4 import (
     _safe_float as _v4_safe_float,
     build_auth_url_v4,
@@ -158,36 +158,7 @@ DEFAULT_UI_RUNTIME_CONFIG = {
 }
 
 
-def _fmt_number(value, decimals: int = 1) -> str:
-    try:
-        n = float(value)
-    except (TypeError, ValueError):
-        return "-"
-    return f"{n:.{decimals}f}"
-
-
-def _fmt_exp_from_log(value) -> str:
-    try:
-        n = float(value)
-    except (TypeError, ValueError):
-        return "-"
-    return f"{math.exp(n):.1f}"
-
-
-def _normalize_summary_text(value) -> str:
-    return " ".join(str(value or "").split()).strip()
-
-
-def _render_ai_brief_text(summary: str | None, detail: str | None) -> str:
-    summary_text = _normalize_summary_text(summary)
-    detail_text = _normalize_summary_text(detail)
-    if not summary_text:
-        return detail_text
-    if not detail_text:
-        return summary_text
-    if detail_text.startswith(summary_text):
-        return detail_text
-    return f"{summary_text} {detail_text}"
+# Helpers de formato y composición del resumen HRV viven en hrv_app.ui_view.
 
 
 def _ai_daily_brief_diagnostics(final_date: str | None) -> dict:
@@ -213,7 +184,7 @@ def _ai_daily_brief_diagnostics(final_date: str | None) -> dict:
     except Exception:
         return payload
 
-    brief_date = _normalize_summary_text(brief.get("date")) or None
+    brief_date = ui_view.normalize_summary_text(brief.get("date")) or None
     payload.update(
         {
             "ai_daily_brief_status": brief.get("status"),
@@ -231,53 +202,11 @@ def _ai_daily_brief_diagnostics(final_date: str | None) -> dict:
 
 
 def _compose_hrv_summary_diagnostics(diagnostics: dict) -> dict:
-    final_exists = bool(diagnostics.get("final_exists"))
-    final_date = _normalize_summary_text(diagnostics.get("final_last_fecha")) or None
-    ai_ready = (
-        diagnostics.get("ai_daily_brief_status") == "ok"
-        and bool(diagnostics.get("ai_daily_brief_published"))
-        and bool(diagnostics.get("ai_daily_brief_matches_final"))
+    unavailable_text = UI_RUNTIME_CONFIG.get("text", {}).get(
+        "hrvSummaryUnavailable",
+        ui_view.DEFAULT_UNAVAILABLE_TEXT,
     )
-
-    ai_brief_text = None
-    if ai_ready:
-        ai_brief_text = _render_ai_brief_text(
-            diagnostics.get("ai_daily_brief_summary"),
-            diagnostics.get("ai_daily_brief_detail"),
-        )
-    reason_text = _normalize_summary_text(diagnostics.get("final_last_reason_text")) or None
-    fallback_text = None
-    if not ai_brief_text and not reason_text:
-        fallback_text = UI_RUNTIME_CONFIG.get("text", {}).get(
-            "hrvSummaryUnavailable",
-            "Todavia no hay salida FINAL disponible.",
-        )
-
-    return {
-        "hrv_summary_title_date": final_date,
-        "hrv_summary_raw_text": (
-            f"{_fmt_number(diagnostics.get('final_last_rmssd_stable'))} ms "
-            f"· HR {_fmt_number(diagnostics.get('final_last_hr_today'))} lpm "
-            f"· lnRMSSD bruto {_fmt_number(diagnostics.get('final_last_lnrmssd_today'), 3)}"
-        ),
-        "hrv_summary_used_text": (
-            f"{_fmt_exp_from_log(diagnostics.get('final_last_lnrmssd_used'))} ms "
-            f"· lnRMSSD usado {_fmt_number(diagnostics.get('final_last_lnrmssd_used'), 3)}"
-        ),
-        "hrv_summary_base_text": (
-            f"{_fmt_exp_from_log(diagnostics.get('final_last_ln_base60'))} ms "
-            f"· SWC_ln {_fmt_number(diagnostics.get('final_last_swc_ln'), 3)}"
-        ),
-        "hrv_summary_gate_text": (
-            f"{_normalize_summary_text(diagnostics.get('final_last_gate_badge')) or 'N/A'} "
-            f"· {_normalize_summary_text(diagnostics.get('final_last_gate_razon_base60')) or 'N/A'}"
-        ),
-        "hrv_summary_ai_text": ai_brief_text,
-        "hrv_summary_reason_text": reason_text,
-        "hrv_summary_fallback_text": fallback_text,
-        "hrv_summary_has_reason_text": bool(reason_text),
-        "hrv_summary_reason_is_fallback": bool(fallback_text),
-    }
+    return ui_view.compose_hrv_summary(diagnostics, unavailable_text=unavailable_text)
 
 
 def _merge_template_json(fallback: dict, payload: dict) -> dict:
@@ -1095,6 +1024,7 @@ def _build_status_payload() -> dict:
     diagnostics.update(_compose_hrv_summary_diagnostics(diagnostics))
     payload = _execution_snapshot()
     payload["diagnostics"] = diagnostics
+    payload["view"] = ui_view.build_view(diagnostics)
     return payload
 
 
@@ -1103,20 +1033,21 @@ def _technical_summary_from_payload(payload: dict) -> str:
 
 
 def _render_index_fallback(initial_payload: dict):
-    diagnostics = initial_payload.get("diagnostics", {}) or {}
-    final_exists = bool(diagnostics.get("final_exists"))
-    final_fecha = html.escape(str(diagnostics.get("hrv_summary_title_date") or "sin datos"))
+    view = initial_payload.get("view") or ui_view.build_view({})
+    hrv = view.get("hrv_today", {}) or {}
+    final_exists = bool(hrv.get("exists"))
+    final_fecha = html.escape(str(hrv.get("date") or "sin datos"))
     technical_output = html.escape(_technical_summary_from_payload(initial_payload) or "Esperando ejecución...")
     dashboard_title = html.escape(UI_COPY.get("dashboard_title", "HRV Sync"))
     summary_title = html.escape(UI_COPY.get("hrv_summary_title_base", "Lectura HRV de hoy"))
-    ai_brief_text = html.escape(str(diagnostics.get("hrv_summary_ai_text") or "Sin brief IA publicado para este dia."))
-    reason_text = html.escape(str(diagnostics.get("hrv_summary_reason_text") or ""))
-    fallback_text = html.escape(str(diagnostics.get("hrv_summary_fallback_text") or ""))
+    ai_brief_text = html.escape(str(hrv.get("ai_text") or ""))
+    reason_text = html.escape(str(hrv.get("reason_text") or ""))
+    fallback_text = html.escape(str(hrv.get("fallback_text") or ""))
     technical_title = html.escape(UI_COPY.get("technical_title", "Detalle técnico"))
-    raw_text = html.escape(str(diagnostics.get("hrv_summary_raw_text") or "-"))
-    used_text = html.escape(str(diagnostics.get("hrv_summary_used_text") or "-"))
-    base_text = html.escape(str(diagnostics.get("hrv_summary_base_text") or "-"))
-    gate_text = html.escape(str(diagnostics.get("hrv_summary_gate_text") or "-"))
+    raw_text = html.escape(str(hrv.get("raw_text") or "-"))
+    used_text = html.escape(str(hrv.get("used_text") or "-"))
+    base_text = html.escape(str(hrv.get("base_text") or "-"))
+    gate_text = html.escape(str(hrv.get("gate_text") or "-"))
     hidden_attr = "" if final_exists else " hidden"
     return f"""<!DOCTYPE html>
 <html lang="es">
@@ -1191,7 +1122,7 @@ def _render_oauth_error_fallback(context: dict):
 def index():
     """Interfaz web principal"""
     initial_payload = _build_status_payload()
-    initial_diagnostics = (initial_payload.get("diagnostics", {}) or {})
+    initial_view = initial_payload.get("view") or ui_view.build_view({})
     try:
         return render_template(
             'index.html',
@@ -1199,17 +1130,7 @@ def index():
             runtime_config={**UI_RUNTIME_CONFIG, "sync_timeout_sec": _sync_timeout_seconds()},
             show_seed_import=env_flag('HRV_SHOW_SEED_IMPORT', SEED_UPLOAD_DIR.exists()),
             show_restore_backup=env_flag('HRV_BACKUP_DROPBOX_ENABLED', False),
-            initial_final_fecha=initial_diagnostics.get("hrv_summary_title_date"),
-            initial_final_exists=initial_diagnostics.get("final_exists"),
-            initial_hrv_summary_raw=initial_diagnostics.get("hrv_summary_raw_text"),
-            initial_hrv_summary_used=initial_diagnostics.get("hrv_summary_used_text"),
-            initial_hrv_summary_base=initial_diagnostics.get("hrv_summary_base_text"),
-            initial_hrv_summary_gate=initial_diagnostics.get("hrv_summary_gate_text"),
-            initial_hrv_summary_ai=initial_diagnostics.get("hrv_summary_ai_text"),
-            initial_hrv_summary_reason=initial_diagnostics.get("hrv_summary_reason_text"),
-            initial_hrv_summary_fallback=initial_diagnostics.get("hrv_summary_fallback_text"),
-            initial_hrv_summary_has_reason_text=initial_diagnostics.get("hrv_summary_has_reason_text"),
-            initial_hrv_summary_reason_is_fallback=initial_diagnostics.get("hrv_summary_reason_is_fallback"),
+            view=initial_view,
             initial_technical_output=_technical_summary_from_payload(initial_payload),
         )
     except TemplateNotFound as exc:

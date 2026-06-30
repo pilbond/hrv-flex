@@ -107,11 +107,11 @@
     }
 
     function renderHrvSummaryPanel(data) {
-        const diagnostics = data?.diagnostics || {};
-        const exists = Boolean(diagnostics.final_exists);
-        const summaryDate = String(diagnostics.final_last_fecha || '').trim();
+        const hrv = data?.view?.hrv_today || {};
         const panel = DOM.hrvSummary;
         const titleBase = panel.title.dataset.titleBase || '';
+        const exists = Boolean(hrv.exists);
+        const summaryDate = String(hrv.date || '').trim();
 
         panel.card.hidden = !exists;
         panel.title.textContent = summaryDate ? `${titleBase} (${summaryDate})` : titleBase;
@@ -127,47 +127,20 @@
             return;
         }
 
-        const rmssdRaw = diagnostics.final_last_rmssd_stable;
-        const hrToday = diagnostics.final_last_hr_today;
-        const lnToday = diagnostics.final_last_lnrmssd_today;
-        const lnUsed = diagnostics.final_last_lnrmssd_used;
-        const lnBase = diagnostics.final_last_ln_base60;
-        const swcLn = diagnostics.final_last_swc_ln;
-        const gateBadge = diagnostics.final_last_gate_badge || 'N/A';
-        const gateReason = diagnostics.final_last_gate_razon_base60 || 'N/A';
-        const aiText = String(diagnostics.hrv_summary_ai_text || '').trim();
-        const reasonText = String(diagnostics.hrv_summary_reason_text || '').trim();
-        const fallbackText = String(diagnostics.hrv_summary_fallback_text || '').trim();
-        const hasReasonText = Boolean(diagnostics.hrv_summary_has_reason_text);
-        const reasonIsFallback = Boolean(diagnostics.hrv_summary_reason_is_fallback);
+        const aiText = String(hrv.ai_text || '').trim();
+        const reasonText = String(hrv.reason_text || '').trim();
+        const fallbackText = String(hrv.fallback_text || '').trim();
 
-        panel.raw.textContent = `${fmtNumber(rmssdRaw)} ms · HR ${fmtNumber(hrToday)} lpm · lnRMSSD bruto ${fmtNumber(lnToday, 3)}`;
-        panel.used.textContent = `${fmtNumber(expFromLog(lnUsed))} ms · lnRMSSD usado ${fmtNumber(lnUsed, 3)}`;
-        panel.base.textContent = `${fmtNumber(expFromLog(lnBase))} ms · SWC_ln ${fmtNumber(swcLn, 3)}`;
-        panel.gate.textContent = `${gateBadge} · ${gateReason}`;
+        panel.raw.textContent = String(hrv.raw_text || '-');
+        panel.used.textContent = String(hrv.used_text || '-');
+        panel.base.textContent = String(hrv.base_text || '-');
+        panel.gate.textContent = String(hrv.gate_text || '-');
         if (panel.aiBlock) panel.aiBlock.hidden = !aiText;
         if (panel.ai) panel.ai.textContent = aiText;
-        if (panel.reasonBlock) panel.reasonBlock.hidden = !hasReasonText;
+        if (panel.reasonBlock) panel.reasonBlock.hidden = !reasonText;
         if (panel.reason) panel.reason.textContent = reasonText;
-        if (panel.fallbackBlock) panel.fallbackBlock.hidden = !reasonIsFallback;
+        if (panel.fallbackBlock) panel.fallbackBlock.hidden = !fallbackText;
         if (panel.fallback) panel.fallback.textContent = fallbackText;
-    }
-
-    function fmtNumber(value, decimals = 1) {
-        const n = Number(value);
-        return Number.isFinite(n) ? n.toFixed(decimals) : '-';
-    }
-
-    function expFromLog(value) {
-        const n = Number(value);
-        return Number.isFinite(n) ? Math.exp(n) : NaN;
-    }
-
-    function fmtDateFromRrName(value) {
-        const raw = String(value || '').trim();
-        const match = raw.match(/(\d{4})-(\d{2})-(\d{2})/);
-        if (!match) return '';
-        return `${match[3]}/${match[2]}/${match[1]}`;
     }
 
     function setSyncButtonsDisabled(disabled) {
@@ -253,7 +226,7 @@
         setSyncButtonsDisabled(Boolean(data.running));
         setAuxButtonDisabled(DOM.auxiliary.importSeed, Boolean(data.running));
 
-        const latestRrPath = data?.diagnostics?.latest_rr_path;
+        const latestRrPath = data?.view?.system?.latest_rr_path;
         setAuxButtonDisabled(DOM.auxiliary.deleteLastRr, Boolean(data.running || !latestRrPath));
 
         renderHrvSummaryPanel(data);
@@ -365,15 +338,15 @@
         const control = DOM.auxiliary.deleteLastRr;
         const statusResponse = await apiFetch('/api/status');
         const statusData = await statusResponse.json();
-        const latest = statusData?.diagnostics?.latest_rr_file;
+        const system = statusData?.view?.system || {};
+        const latest = system.latest_rr_file;
 
         if (!latest) {
             showBanner('error', uiText('deleteNoLatest'));
             return;
         }
 
-        const latestDate = fmtDateFromRrName(latest);
-        const latestLabel = latestDate ? `${latest} (${latestDate})` : latest;
+        const latestLabel = system.latest_rr_label || latest;
         const confirmed = window.confirm(
             renderTemplate('deleteConfirm', { label: latestLabel })
         );

@@ -172,6 +172,28 @@ class WebUiStatusTests(unittest.TestCase):
         self.assertFalse(diagnostics["hrv_summary_has_reason_text"])
         self.assertTrue(diagnostics["hrv_summary_reason_is_fallback"])
 
+    def test_status_payload_includes_versioned_view_consistent_with_diagnostics(self):
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            fecha = date.today().isoformat()
+            self._write_final_csv(data_dir, fecha, reason_text="Texto de razon")
+
+            with patch.object(web_ui, "DATA_DIR", data_dir):
+                payload = web_ui._build_status_payload()
+
+        self.assertIn("view", payload)
+        view = payload["view"]
+        self.assertEqual(view["version"], 1)
+        self.assertIn("hrv_today", view)
+        self.assertIn("system", view)
+
+        diagnostics = payload["diagnostics"]
+        hrv = view["hrv_today"]
+        self.assertTrue(hrv["exists"])
+        self.assertEqual(hrv["gate_text"], diagnostics["hrv_summary_gate_text"])
+        self.assertEqual(hrv["raw_text"], diagnostics["hrv_summary_raw_text"])
+        self.assertEqual(hrv["reason_text"], diagnostics["hrv_summary_reason_text"])
+
     def test_template_json_loader_uses_fallback_when_template_missing(self):
         fallback = {"text": {"example": "ok"}}
         with patch.object(web_ui.app.jinja_env, "get_template", side_effect=TemplateNotFound("missing.json.j2")):
