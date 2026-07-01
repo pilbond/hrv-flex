@@ -10,7 +10,7 @@ class ComposeHrvSummaryTests(unittest.TestCase):
         self.assertEqual(out["hrv_summary_title_date"], None)
         self.assertEqual(
             out["hrv_summary_raw_text"],
-            "- ms · HR - lpm · lnRMSSD bruto -",
+            "- ms · HR - · ln -",
         )
         self.assertEqual(out["hrv_summary_gate_text"], "N/A · N/A")
         self.assertIsNone(out["hrv_summary_ai_text"])
@@ -44,8 +44,8 @@ class ComposeHrvSummaryTests(unittest.TestCase):
 
         self.assertEqual(out["hrv_summary_title_date"], "2026-06-30")
         self.assertIn("42.0 ms", out["hrv_summary_raw_text"])
-        self.assertIn("HR 51.0 lpm", out["hrv_summary_raw_text"])
-        self.assertIn("lnRMSSD bruto 3.730", out["hrv_summary_raw_text"])
+        self.assertIn("HR 51.0", out["hrv_summary_raw_text"])
+        self.assertIn("ln 3.730", out["hrv_summary_raw_text"])
         self.assertIn(f"{math.exp(ln_used):.1f} ms", out["hrv_summary_used_text"])
         self.assertIn(f"{math.exp(ln_base):.1f} ms", out["hrv_summary_base_text"])
         self.assertEqual(out["hrv_summary_gate_text"], "VERDE · BASE60_OK")
@@ -131,10 +131,47 @@ class BuildViewTests(unittest.TestCase):
         self.assertTrue(hrv["exists"])
         self.assertEqual(hrv["date"], "2026-06-30")
         self.assertIn("42.0 ms", hrv["raw_text"])
-        self.assertEqual(hrv["gate_text"], "VERDE · BASE60_OK")
+        self.assertIn("ln 3.700", hrv["used_text"])
+        self.assertIn("ln 3.680", hrv["base_text"])
+        self.assertNotIn("SWC", hrv["base_text"])
+        self.assertEqual(hrv["gate"]["badge"], "VERDE")
         self.assertIn("Dia verde.", hrv["ai_text"])
         self.assertEqual(hrv["reason_text"], "Reason canonico")
         self.assertIsNone(hrv["fallback_text"])
+
+    def test_base_text_uses_precomputed_base60_ms_when_present(self):
+        diagnostics = self._base_diagnostics()
+        diagnostics["final_last_base60_ms"] = 999.9
+        view = ui_view.build_view(diagnostics)
+        self.assertIn("999.9 ms", view["hrv_today"]["base_text"])
+
+    def test_base_text_falls_back_to_ln_base60_when_base60_ms_absent(self):
+        diagnostics = self._base_diagnostics()
+        diagnostics.pop("final_last_base60_ms", None)
+        view = ui_view.build_view(diagnostics)
+        self.assertIn(f"{math.exp(3.68):.1f} ms", view["hrv_today"]["base_text"])
+
+    def test_hrv_today_exposes_quality_stability_and_gate_block(self):
+        diagnostics = self._base_diagnostics()
+        diagnostics.update({
+            "final_last_calidad": "OK",
+            "final_last_hrv_stability": "OK",
+            "final_last_gate_badge": "ROJO---",
+            "final_last_action_detail": "SUAVE_O_DESCANSO",
+            "final_last_gate_what_happened": "La señal suavizada bajó...",
+            "final_last_gate_what_to_do": "Trata hoy como un día más delicado...",
+        })
+        view = ui_view.build_view(diagnostics)
+        hrv = view["hrv_today"]
+        self.assertEqual(hrv["quality"], "OK")
+        self.assertEqual(hrv["stability"], "OK")
+        self.assertEqual(hrv["gate"]["badge"], "ROJO---")
+        self.assertEqual(hrv["gate"]["action"], "SUAVE_O_DESCANSO")
+        self.assertIn("La señal suavizada bajó", hrv["gate"]["what_happened"])
+        self.assertIn("Trata hoy", hrv["gate"]["what_to_do"])
+
+    def test_view_version_is_two(self):
+        self.assertEqual(ui_view.VIEW_VERSION, 2)
 
     def test_hrv_today_when_final_missing(self):
         view = ui_view.build_view({"final_exists": False, **ui_view.compose_hrv_summary({})})

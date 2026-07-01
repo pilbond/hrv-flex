@@ -31,6 +31,8 @@
     const DOM = {
         status: el('status'),
         technicalOutput: el('rawOutput'),
+        technicalToggle: el('technicalToggleBtn'),
+        technicalToggleText: el('technicalToggleText'),
         sync: {
             hrv: {
                 button: el('syncBtn'),
@@ -65,10 +67,16 @@
         hrvSummary: {
             card: el('hrvSummaryCard'),
             title: el('hrvSummaryTitle'),
+            qc: el('hrvSummaryQc'),
+            quality: el('hrvSummaryQuality'),
+            stability: el('hrvSummaryStability'),
             raw: el('hrvSummaryRaw'),
             used: el('hrvSummaryUsed'),
             base: el('hrvSummaryBase'),
-            gate: el('hrvSummaryGate'),
+            gateBadge: el('hrvSummaryGateBadge'),
+            gateAction: el('hrvSummaryGateAction'),
+            gateWhatHappened: el('hrvSummaryGateWhatHappened'),
+            gateWhatToDo: el('hrvSummaryGateWhatToDo'),
             aiBlock: el('hrvSummaryAiBlock'),
             ai: el('hrvSummaryAi'),
             reasonBlock: el('hrvSummaryReasonBlock'),
@@ -108,6 +116,7 @@
 
     function renderHrvSummaryPanel(data) {
         const hrv = data?.view?.hrv_today || {};
+        const gate = hrv.gate || {};
         const panel = DOM.hrvSummary;
         const titleBase = panel.title.dataset.titleBase || '';
         const exists = Boolean(hrv.exists);
@@ -120,13 +129,27 @@
             panel.raw.textContent = '-';
             panel.used.textContent = '-';
             panel.base.textContent = '-';
-            panel.gate.textContent = '-';
+            if (panel.qc) panel.qc.hidden = true;
+            if (panel.quality) {
+                panel.quality.textContent = '-';
+                panel.quality.classList.remove('is-ok', 'is-warn');
+            }
+            if (panel.stability) {
+                panel.stability.textContent = '-';
+                panel.stability.classList.remove('is-ok', 'is-warn');
+            }
+            if (panel.gateBadge) panel.gateBadge.textContent = '-';
+            if (panel.gateAction) panel.gateAction.textContent = '-';
+            if (panel.gateWhatHappened) panel.gateWhatHappened.textContent = '-';
+            if (panel.gateWhatToDo) panel.gateWhatToDo.textContent = '-';
             if (panel.aiBlock) panel.aiBlock.hidden = true;
             if (panel.reasonBlock) panel.reasonBlock.hidden = true;
             if (panel.fallbackBlock) panel.fallbackBlock.hidden = true;
             return;
         }
 
+        const quality = String(hrv.quality || '').trim();
+        const stability = String(hrv.stability || '').trim();
         const aiText = String(hrv.ai_text || '').trim();
         const reasonText = String(hrv.reason_text || '').trim();
         const fallbackText = String(hrv.fallback_text || '').trim();
@@ -134,7 +157,21 @@
         panel.raw.textContent = String(hrv.raw_text || '-');
         panel.used.textContent = String(hrv.used_text || '-');
         panel.base.textContent = String(hrv.base_text || '-');
-        panel.gate.textContent = String(hrv.gate_text || '-');
+        if (panel.qc) panel.qc.hidden = !(quality || stability);
+        if (panel.quality) {
+            panel.quality.textContent = quality || '-';
+            panel.quality.classList.toggle('is-ok', quality === 'OK');
+            panel.quality.classList.toggle('is-warn', Boolean(quality) && quality !== 'OK');
+        }
+        if (panel.stability) {
+            panel.stability.textContent = stability || '-';
+            panel.stability.classList.toggle('is-ok', stability === 'OK');
+            panel.stability.classList.toggle('is-warn', Boolean(stability) && stability !== 'OK');
+        }
+        if (panel.gateBadge) panel.gateBadge.textContent = String(gate.badge || '-');
+        if (panel.gateAction) panel.gateAction.textContent = String(gate.action || '-');
+        if (panel.gateWhatHappened) panel.gateWhatHappened.textContent = String(gate.what_happened || '-');
+        if (panel.gateWhatToDo) panel.gateWhatToDo.textContent = String(gate.what_to_do || '-');
         if (panel.aiBlock) panel.aiBlock.hidden = !aiText;
         if (panel.ai) panel.ai.textContent = aiText;
         if (panel.reasonBlock) panel.reasonBlock.hidden = !reasonText;
@@ -411,6 +448,7 @@
         resetSyncButtons();
         if (jobType) setButtonState(jobType, 'success');
         renderTechnicalOutput(data.last_output || data.output || '');
+        setTechnicalCollapsed(true);
         showBanner('success', data.message || uiText('processCompleted'));
         setTimeout(resetSyncButtons, 3000);
     }
@@ -419,6 +457,7 @@
         setSyncButtonsDisabled(false);
         resetSyncButtons();
         renderTechnicalOutput(data.last_output || data.output || data.error || data.last_error || uiText('unknownError'));
+        setTechnicalCollapsed(false);
         showBanner('error', currentErrorText(data));
     }
 
@@ -450,8 +489,30 @@
         }
     }
 
+    function setTechnicalCollapsed(collapsed) {
+        if (!DOM.technicalOutput) return;
+        DOM.technicalOutput.classList.toggle('is-collapsed', collapsed);
+        if (DOM.technicalToggle) {
+            DOM.technicalToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        }
+        if (DOM.technicalToggleText) {
+            DOM.technicalToggleText.textContent = collapsed
+                ? uiText('technicalExpand') || 'Expandir'
+                : uiText('technicalCollapse') || 'Contraer';
+        }
+    }
+
+    function bindTechnicalToggle() {
+        if (!DOM.technicalToggle) return;
+        DOM.technicalToggle.addEventListener('click', () => {
+            const collapsed = DOM.technicalOutput?.classList.contains('is-collapsed');
+            setTechnicalCollapsed(!collapsed);
+        });
+    }
+
     bindSyncButtons();
     bindAuxiliaryButtons();
+    bindTechnicalToggle();
     setInterval(refreshDashboard, REFRESH_INTERVAL_MS);
     refreshDashboard();
 })();

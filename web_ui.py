@@ -14,6 +14,7 @@ import sys
 import time
 import os
 import csv
+import math
 import html
 import re
 import shutil
@@ -34,6 +35,7 @@ from hrv_app.io_utils import write_csv_atomic, write_json_atomic
 from hrv_app.messages import API as MSG, OAUTH as OAUTH_MSG, CONSOLE as CONSOLE_MSG
 from hrv_app.polar_utils import env_flag
 from hrv_app import ui_view
+from hrv_app.gate_text import format_gate_reason, format_gate_next_step
 from hrv_app.polar_auth_v4 import (
     _safe_float as _v4_safe_float,
     build_auth_url_v4,
@@ -108,12 +110,21 @@ DEFAULT_UI_COPY = {
     "sync_hrv": "Sincronizar HRV",
     "sync_sessions": "Sincronizar sesiones",
     "hrv_summary_title_base": "Lectura HRV de hoy",
-    "hrv_summary_raw": "Dato bruto",
-    "hrv_summary_used": "Dato usado por el gate",
-    "hrv_summary_base": "Baseline 60d",
+    "hrv_summary_raw": "RMSSD estable · HR · lnRMSSD bruto",
+    "hrv_summary_used": "lnRMSSD usado",
+    "hrv_summary_base": "Base60",
     "hrv_summary_gate": "Gate",
+    "hrv_summary_quality_label": "Calidad",
+    "hrv_summary_stability_label": "Estabilidad",
+    "hrv_summary_gate_action": "Acción",
+    "hrv_summary_gate_what_happened": "Qué pasó",
+    "hrv_summary_gate_what_to_do": "Qué hacer",
+    "hrv_summary_reason_label": "Reason text",
+    "hrv_summary_ai_label": "Brief IA",
     "hrv_summary_waiting": "Esperando disponibilidad del resumen HRV...",
     "technical_title": "Detalle técnico",
+    "technical_collapse": "Contraer",
+    "technical_expand": "Expandir",
     "restore_backup": "Restaurar backup Dropbox",
     "delete_last_rr": "Borrar último RR",
 }
@@ -147,6 +158,8 @@ DEFAULT_UI_RUNTIME_CONFIG = {
         "pollTimeout": "Timeout en UI: la sincronización tardó más de lo esperado",
         "processCompleted": "Proceso completado",
         "unknownError": "Error desconocido",
+        "technicalExpand": "Expandir",
+        "technicalCollapse": "Contraer",
     },
     "templates": {
         "restoreSuccess": "Backup restaurado: {count} archivos desde {source}",
@@ -951,7 +964,28 @@ def _csv_runtime_diagnostics() -> dict:
         "final_last_decision_path": last_final_row.get("decision_path") if last_final_row else None,
         "final_last_action_detail": last_final_row.get("Action_detail") if last_final_row else None,
         "final_last_recovery_support_class": last_final_row.get("recovery_support_class") if last_final_row else None,
+        "final_last_calidad": last_final_row.get("Calidad") if last_final_row else None,
+        "final_last_hrv_stability": last_final_row.get("HRV_Stability") if last_final_row else None,
+        "final_last_base60_ms": _base60_ms_from_row(last_final_row),
+        "final_last_gate_what_happened": (
+            format_gate_reason(last_final_row.get("gate_razon_base60"), last_final_row)
+            if last_final_row else None
+        ),
+        "final_last_gate_what_to_do": (
+            format_gate_next_step(last_final_row.get("gate_razon_base60"))
+            if last_final_row else None
+        ),
     }
+
+
+def _base60_ms_from_row(row: dict) -> float | None:
+    if not row:
+        return None
+    raw = row.get("ln_base60")
+    try:
+        return math.exp(float(raw))
+    except (TypeError, ValueError):
+        return None
 
 
 def _weekly_coach_diagnostics() -> dict:
@@ -1047,7 +1081,14 @@ def _render_index_fallback(initial_payload: dict):
     raw_text = html.escape(str(hrv.get("raw_text") or "-"))
     used_text = html.escape(str(hrv.get("used_text") or "-"))
     base_text = html.escape(str(hrv.get("base_text") or "-"))
-    gate_text = html.escape(str(hrv.get("gate_text") or "-"))
+    gate = hrv.get("gate") or {}
+    gate_badge = str(gate.get("badge") or "-")
+    gate_action = str(gate.get("action") or "-")
+    gate_what_happened = str(gate.get("what_happened") or "-")
+    gate_what_to_do = str(gate.get("what_to_do") or "-")
+    gate_text = html.escape(
+        f"{gate_badge} · {gate_action} · {gate_what_happened} · {gate_what_to_do}"
+    )
     hidden_attr = "" if final_exists else " hidden"
     return f"""<!DOCTYPE html>
 <html lang="es">

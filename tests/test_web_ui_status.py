@@ -122,6 +122,40 @@ class WebUiStatusTests(unittest.TestCase):
         self.assertIn("Texto determinista", html)
         self.assertIn("VERDE", html)
 
+    def test_technical_output_renders_collapsed_regardless_of_last_sync_outcome(self):
+        error_state = {
+            "running": False,
+            "success": False,
+            "job_type": "hrv",
+            "last_output": "",
+            "last_error": "boom",
+            "message": None,
+        }
+        with patch.object(web_ui, "execution_state", error_state):
+            with web_ui.app.test_client() as client:
+                response = client.get("/")
+
+        html = response.get_data(as_text=True)
+        self.assertIn('id="technicalToggleBtn"', html)
+        self.assertIn('class="raw-output is-collapsed"', html)
+        self.assertIn("Expandir", html)
+
+    def test_status_payload_reflects_last_sync_failure(self):
+        error_state = {
+            "running": False,
+            "success": False,
+            "job_type": "hrv",
+            "last_output": "traceback...",
+            "last_error": "boom",
+            "message": None,
+        }
+        with patch.object(web_ui, "execution_state", error_state):
+            payload = web_ui._build_status_payload()
+
+        self.assertFalse(payload["running"])
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["last_error"], "boom")
+
     def test_index_exposes_hrv_dashboard_shell(self):
         with web_ui.app.test_client() as client:
             response = client.get("/")
@@ -183,14 +217,14 @@ class WebUiStatusTests(unittest.TestCase):
 
         self.assertIn("view", payload)
         view = payload["view"]
-        self.assertEqual(view["version"], 1)
+        self.assertEqual(view["version"], 2)
         self.assertIn("hrv_today", view)
         self.assertIn("system", view)
 
         diagnostics = payload["diagnostics"]
         hrv = view["hrv_today"]
         self.assertTrue(hrv["exists"])
-        self.assertEqual(hrv["gate_text"], diagnostics["hrv_summary_gate_text"])
+        self.assertEqual(hrv["gate"]["badge"], diagnostics["final_last_gate_badge"])
         self.assertEqual(hrv["raw_text"], diagnostics["hrv_summary_raw_text"])
         self.assertEqual(hrv["reason_text"], diagnostics["hrv_summary_reason_text"])
 

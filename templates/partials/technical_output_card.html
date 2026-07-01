@@ -1,6 +1,9 @@
-<section class="card">
-    <div class="section-title">{{ ui_copy.technical_title }}</div>
-    <pre id="rawOutput" class="raw-output">{{ initial_technical_output }}</pre>
+<section id="technicalOutputCard" class="card">
+    <div class="technical-header">
+        <div class="section-title">{{ ui_copy.technical_title }}</div>
+        <button id="technicalToggleBtn" type="button" class="technical-toggle" aria-expanded="false"><span id="technicalToggleText">{{ ui_copy.technical_expand or 'Expandir' }}</span></button>
+    </div>
+    <pre id="rawOutput" class="raw-output is-collapsed">{{ initial_technical_output }}</pre>
     <div class="button-stack card-actions">
         <!--<button id="importBtn" class="ghost-button{% if not show_seed_import %} is-hidden{% endif %}" {% if not show_seed_import %}hidden{% endif %}><span id="importBtnText">Importar CSV seed</span></button>-->
         <button

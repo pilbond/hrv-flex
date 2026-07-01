@@ -1,16 +1,24 @@
 <section id="hrvSummaryCard" class="card hrv-summary-card"{% if not view.hrv_today.exists %} hidden{% endif %}>
-    <div id="hrvSummaryTitle" class="hrv-summary-title" data-title-base="{{ ui_copy.hrv_summary_title_base }}">
-        {% if view.hrv_today.date %}
-        {{ ui_copy.hrv_summary_title_base }} ({{ view.hrv_today.date }})
-        {% else %}
-        {{ ui_copy.hrv_summary_title_base }}
-        {% endif %}
-    </div>
-    <div class="hrv-summary-grid">
-        <div class="hrv-summary-item">
-            <div class="hrv-summary-label">{{ ui_copy.hrv_summary_raw }}</div>
-            <div id="hrvSummaryRaw" class="hrv-summary-value">{{ view.hrv_today.raw_text or "-" }}</div>
+    <div class="hrv-summary-header">
+        <div id="hrvSummaryTitle" class="hrv-summary-title" data-title-base="{{ ui_copy.hrv_summary_title_base }}">
+            {% if view.hrv_today.date %}
+            {{ ui_copy.hrv_summary_title_base }} ({{ view.hrv_today.date }})
+            {% else %}
+            {{ ui_copy.hrv_summary_title_base }}
+            {% endif %}
         </div>
+        <div id="hrvSummaryQc" class="hrv-summary-qc"{% if not view.hrv_today.quality and not view.hrv_today.stability %} hidden{% endif %}>
+            <span>{{ ui_copy.hrv_summary_quality_label }} <b id="hrvSummaryQuality" class="{% if view.hrv_today.quality == 'OK' %}is-ok{% elif view.hrv_today.quality %}is-warn{% endif %}">{{ view.hrv_today.quality or "-" }}</b></span>
+            <span>{{ ui_copy.hrv_summary_stability_label }} <b id="hrvSummaryStability" class="{% if view.hrv_today.stability == 'OK' %}is-ok{% elif view.hrv_today.stability %}is-warn{% endif %}">{{ view.hrv_today.stability or "-" }}</b></span>
+        </div>
+    </div>
+
+    <div class="hrv-summary-raw-item">
+        <div class="hrv-summary-label">{{ ui_copy.hrv_summary_raw }}</div>
+        <div id="hrvSummaryRaw" class="hrv-summary-raw-value">{{ view.hrv_today.raw_text or "-" }}</div>
+    </div>
+
+    <div class="hrv-summary-secondary">
         <div class="hrv-summary-item">
             <div class="hrv-summary-label">{{ ui_copy.hrv_summary_used }}</div>
             <div id="hrvSummaryUsed" class="hrv-summary-value">{{ view.hrv_today.used_text or "-" }}</div>
@@ -19,19 +27,35 @@
             <div class="hrv-summary-label">{{ ui_copy.hrv_summary_base }}</div>
             <div id="hrvSummaryBase" class="hrv-summary-value">{{ view.hrv_today.base_text or "-" }}</div>
         </div>
-        <div class="hrv-summary-item">
-            <div class="hrv-summary-label">{{ ui_copy.hrv_summary_gate }}</div>
-            <div id="hrvSummaryGate" class="hrv-summary-value">{{ view.hrv_today.gate_text or "-" }}</div>
+    </div>
+
+    <div id="hrvSummaryGateBlock" class="hrv-summary-gate-block">
+        <div class="hrv-summary-gate-row">
+            <span class="hrv-summary-gate-key">🚦 {{ ui_copy.hrv_summary_gate }}</span>
+            <span class="hrv-summary-gate-value hrv-summary-gate-badge" id="hrvSummaryGateBadge">{{ view.hrv_today.gate.badge or "-" }}</span>
+        </div>
+        <div class="hrv-summary-gate-row">
+            <span class="hrv-summary-gate-key">🧭 {{ ui_copy.hrv_summary_gate_action }}</span>
+            <span class="hrv-summary-gate-value" id="hrvSummaryGateAction">{{ view.hrv_today.gate.action or "-" }}</span>
+        </div>
+        <div class="hrv-summary-gate-row">
+            <span class="hrv-summary-gate-key">🧾 {{ ui_copy.hrv_summary_gate_what_happened }}</span>
+            <span class="hrv-summary-gate-value" id="hrvSummaryGateWhatHappened">{{ view.hrv_today.gate.what_happened or "-" }}</span>
+        </div>
+        <div class="hrv-summary-gate-row">
+            <span class="hrv-summary-gate-key">🧾 {{ ui_copy.hrv_summary_gate_what_to_do }}</span>
+            <span class="hrv-summary-gate-value" id="hrvSummaryGateWhatToDo">{{ view.hrv_today.gate.what_to_do or "-" }}</span>
         </div>
     </div>
+
     <div class="hrv-summary-text-grid">
-        <div id="hrvSummaryAiBlock" class="hrv-summary-note hrv-summary-note-secondary"{% if not view.hrv_today.ai_text %} hidden{% endif %}>
-            <div class="hrv-summary-label">Brief IA</div>
-            <div id="hrvSummaryAi">{{ view.hrv_today.ai_text or "" }}</div>
-        </div>
         <div id="hrvSummaryReasonBlock" class="hrv-summary-note hrv-summary-note-secondary"{% if not view.hrv_today.reason_text %} hidden{% endif %}>
-            <div class="hrv-summary-label">Reason text</div>
+            <div class="hrv-summary-label">{{ ui_copy.hrv_summary_reason_label }}</div>
             <div id="hrvSummaryReason">{{ view.hrv_today.reason_text or "" }}</div>
+        </div>
+        <div id="hrvSummaryAiBlock" class="hrv-summary-note hrv-summary-note-secondary"{% if not view.hrv_today.ai_text %} hidden{% endif %}>
+            <div class="hrv-summary-label">{{ ui_copy.hrv_summary_ai_label }}</div>
+            <div id="hrvSummaryAi">{{ view.hrv_today.ai_text or "" }}</div>
         </div>
         <div id="hrvSummaryFallbackBlock" class="hrv-summary-note hrv-summary-note-secondary"{% if not view.hrv_today.fallback_text %} hidden{% endif %}>
             <div id="hrvSummaryFallback">{{ view.hrv_today.fallback_text or "" }}</div>

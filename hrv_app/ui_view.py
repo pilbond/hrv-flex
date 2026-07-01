@@ -23,7 +23,7 @@ import re
 from typing import Any
 
 
-VIEW_VERSION = 1
+VIEW_VERSION = 2
 
 DEFAULT_UNAVAILABLE_TEXT = "Todavía no hay salida FINAL disponible."
 
@@ -99,8 +99,8 @@ def compose_hrv_summary(diagnostics: dict, *, unavailable_text: str | None = Non
         "hrv_summary_title_date": final_date,
         "hrv_summary_raw_text": (
             f"{fmt_number(diagnostics.get('final_last_rmssd_stable'))} ms "
-            f"· HR {fmt_number(diagnostics.get('final_last_hr_today'))} lpm "
-            f"· lnRMSSD bruto {fmt_number(diagnostics.get('final_last_lnrmssd_today'), 3)}"
+            f"· HR {fmt_number(diagnostics.get('final_last_hr_today'))} "
+            f"· ln {fmt_number(diagnostics.get('final_last_lnrmssd_today'), 3)}"
         ),
         "hrv_summary_used_text": (
             f"{fmt_exp_from_log(diagnostics.get('final_last_lnrmssd_used'))} ms "
@@ -146,15 +146,43 @@ def build_view(diagnostics: dict) -> dict:
         rr_date = fmt_rr_date_label(latest_rr_file)
         latest_rr_label = f"{latest_rr_file} ({rr_date})" if rr_date else str(latest_rr_file)
 
+    used_text = (
+        f"{fmt_exp_from_log(diagnostics.get('final_last_lnrmssd_used'))} ms "
+        f"· ln {fmt_number(diagnostics.get('final_last_lnrmssd_used'), 3)}"
+    )
+    base60_ms = diagnostics.get("final_last_base60_ms")
+    base60_ms_text = (
+        fmt_number(base60_ms, 1)
+        if base60_ms is not None
+        else fmt_exp_from_log(diagnostics.get("final_last_ln_base60"))
+    )
+    base_text = (
+        f"{base60_ms_text} ms "
+        f"· ln {fmt_number(diagnostics.get('final_last_ln_base60'), 3)}"
+    )
+    quality = normalize_summary_text(diagnostics.get("final_last_calidad")) or None
+    stability = normalize_summary_text(diagnostics.get("final_last_hrv_stability")) or None
+    gate_badge = normalize_summary_text(diagnostics.get("final_last_gate_badge")) or None
+    gate_action = normalize_summary_text(diagnostics.get("final_last_action_detail")) or None
+    gate_what_happened = normalize_summary_text(diagnostics.get("final_last_gate_what_happened")) or None
+    gate_what_to_do = normalize_summary_text(diagnostics.get("final_last_gate_what_to_do")) or None
+
     return {
         "version": VIEW_VERSION,
         "hrv_today": {
             "exists": exists,
             "date": title_date,
+            "quality": quality,
+            "stability": stability,
             "raw_text": diagnostics.get("hrv_summary_raw_text", "-"),
-            "used_text": diagnostics.get("hrv_summary_used_text", "-"),
-            "base_text": diagnostics.get("hrv_summary_base_text", "-"),
-            "gate_text": diagnostics.get("hrv_summary_gate_text", "-"),
+            "used_text": used_text,
+            "base_text": base_text,
+            "gate": {
+                "badge": gate_badge,
+                "action": gate_action,
+                "what_happened": gate_what_happened,
+                "what_to_do": gate_what_to_do,
+            },
             "ai_text": ai_text,
             "reason_text": reason_text,
             "fallback_text": fallback_text,
