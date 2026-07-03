@@ -57,6 +57,10 @@
             <div class="hrv-summary-label">{{ ui_copy.hrv_summary_ai_label }}</div>
             <div id="hrvSummaryAi">{{ view.hrv_today.ai_text or "" }}</div>
         </div>
+        <div id="hrvSummarySsmBlock" class="hrv-summary-note hrv-summary-note-ssm"{% if not view.hrv_today.ssm_text %} hidden{% endif %}>
+            <div class="hrv-summary-label">{{ ui_copy.hrv_summary_ssm_label }}</div>
+            <div id="hrvSummarySsm">{{ view.hrv_today.ssm_text or "" }}</div>
+        </div>
         <div id="hrvSummaryFallbackBlock" class="hrv-summary-note hrv-summary-note-secondary"{% if not view.hrv_today.fallback_text %} hidden{% endif %}>
             <div id="hrvSummaryFallback">{{ view.hrv_today.fallback_text or "" }}</div>
         </div>

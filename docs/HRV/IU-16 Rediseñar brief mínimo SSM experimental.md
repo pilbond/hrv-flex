@@ -157,6 +157,31 @@ Debe limitarse a:
 - y usar el registro prospectivo ya preparado para decidir si se queda o se
   descarta.
 
+### 7.1 Opción A implementada: renderer determinista mínimo
+
+La primera entrega adoptada es la opción A:
+
+- `hrv_app/ssm_brief.py` construye un brief SSM determinista y pequeño;
+- no llama a IA;
+- no escribe en `FINAL`, `DASHBOARD` ni contratos canónicos;
+- decide `ok`, `silent`, `not_applicable` o `missing` desde campos ya
+  calculados del sidecar SSM;
+- publica texto solo si hay señal material por `ssm_innovation`,
+  `sleep_innovation` usable o discrepancia suficiente frente al rolling;
+- expone la salida en `/api/status` y en `view.hrv_today.ssm_text`;
+- la UI lo muestra dentro de la tarjeta HRV actual como bloque `SSM shadow`.
+
+La salida visible sigue siendo una capa secundaria. El texto debe conservar
+siempre esta jerarquía:
+
+1. el gate y la acción operativa mandan;
+2. `reason_items` explican la decisión principal;
+3. el SSM solo añade un matiz experimental si hay señal material;
+4. si no hay señal material, el estado correcto es `silent`.
+
+Esta implementación no cubre todavía la opción B. La IA queda reservada como
+rewriter opcional sobre este brief determinista, no como generador primario.
+
 ## 8. Criterio de salida
 
 La tarea IU-16 queda bien resuelta si produce:

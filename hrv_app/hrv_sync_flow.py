@@ -22,7 +22,7 @@ from .cli_reporting import (
     build_sync_completed_report,
     show_latest_hrv_summaries,
 )
-from .ai import run_ai_daily_brief_for_latest_date
+from .ai import run_ai_daily_brief_for_latest_date, run_ai_ssm_brief_for_latest_date
 from .config import (
     CORE_PATH,
     FIELD_SAMPLE_TYPE,
@@ -64,6 +64,20 @@ def _run_ai_daily_brief_best_effort() -> None:
     date_str = str(result.get("date") or "").strip()
     suffix = f" ({date_str})" if date_str else ""
     _render_report(build_message_report(f"🤖 AI daily brief: {status}{suffix}"))
+
+
+def _run_ai_ssm_brief_best_effort() -> None:
+    try:
+        result = run_ai_ssm_brief_for_latest_date()
+    except Exception as exc:
+        _render_report(build_message_report(f"🤖 AI SSM brief: error ({exc})"))
+        return
+    status = str(result.get("status") or "").strip()
+    if status in {"", "disabled", "missing_ssm_shadow"}:
+        return
+    date_str = str(result.get("date") or "").strip()
+    suffix = f" ({date_str})" if date_str else ""
+    _render_report(build_message_report(f"🤖 AI SSM brief: {status}{suffix}"))
 
 
 def extract_rr_ms(exercise_json: dict):
@@ -262,6 +276,11 @@ def _process_rr_files(
 
     if final_ok:
         _run_ai_daily_brief_best_effort()
+    # El brief SSM IA se ancla en FINAL para gate/accion; si FINAL no se
+    # regenero en este ciclo, un FINAL en disco potencialmente stale podria
+    # producir un sidecar "ok" basado en el gate viejo. Exigimos ambos.
+    if final_ok and ssm_ok:
+        _run_ai_ssm_brief_best_effort()
 
     if not QUIET:
         _render_report(

@@ -37,7 +37,7 @@ Importante:
   - Expone endpoints: `/`, `/auth`, `/auth/callback`, `/oauth/callback`, `/api/sync`, `/api/sync-sessions`, `/api/status`, `/api/import-seed`, `/api/restore-backup`, `/api/delete-latest-rr`, `/health`.
   - En `/api/sync` dispara `polar_hrv_automation.py --process`.
   - En `/api/sync-sessions` dispara `build_sessions.py --update`.
-  - La UI prioriza los controles operativos, una tarjeta dedicada de `Coach semanal` cuando existe `ENDURANCE_HRV_weekly_coach.json`, y despues `Detalle tecnico` / `raw output`.
+  - La UI prioriza los controles operativos, despues la tarjeta `Lectura HRV de hoy` (viewmodel `hrv_app.ui_view`, con indicadores de Calidad/Estabilidad, bloque Gate/Accion/Que paso/Que hacer, reason text y brief IA), y por ultimo `Detalle tecnico` / `raw output` (colapsado por defecto, con boton para expandir).
 - Cuando usarlo:
   - Siempre que quieras usar OAuth web y lanzar sync desde navegador.
   - Es el entrypoint de Railway.
@@ -171,8 +171,45 @@ Importante:
 ## `hrv_app.cli_reporting`
 - Que hace:
   - Genera el reporting textual del CLI y los resumenes diarios/7d.
+  - Delega la traduccion humana de `gate_razon_base60` ("que paso"/"que hacer") a `hrv_app.gate_text`, manteniendo alias internos (`_format_gate_reason`, `_format_gate_next_step`) para no romper los call sites existentes.
 - Cuando usarlo:
   - Cuando necesites presentation/output humano del flujo sin mezclarlo con la logica operativa.
+
+## `hrv_app.gate_text`
+- Que hace:
+  - Traduce el codigo interno `gate_razon_base60` (ej. `2D_OK`, `2D_AMBOS`, `CAL/STAB/ART/NaN`, `BASE60_INSUF`) a dos textos independientes para el usuario: `format_gate_reason()` ("que paso") y `format_gate_next_step()` ("que hacer").
+  - Para `CAL/STAB/ART/NaN`, si recibe la fila FINAL puede anexar pistas concretas (`Artifact_pct`, `HRV_Stability`, `Stability_Subtype`, `Tiempo_Estabilizacion`).
+  - Es el modulo neutro compartido: antes esta logica vivia solo en `hrv_app.cli_reporting`; ahora tambien la consume `hrv_app.ui_view`/`web_ui.py` para que la web muestre el mismo texto que la CLI, sin duplicar el mapping.
+- Cuando usarlo:
+  - Siempre que necesites presentar `gate_razon_base60` en lenguaje humano (CLI o UI web). No cambia el gate ni su logica de decision, solo la traduccion textual.
+
+## `hrv_app.ai` (`daily_brief`, `ssm_brief`)
+- Que hace:
+  - Rendering opcional de dos briefs mediante LLM, ambos con fallback determinista garantizado:
+    - `daily_brief.run_ai_daily_brief_for_latest_date()`: reescribe la explicacion del gate HRV usando `reason_items` como capa primaria. Requiere `HRV_AI_ENABLED=1` y `HRV_AI_DAILY_ENABLED=1`. Persiste sidecar `ENDURANCE_HRV_ai_daily_brief_latest.json` (mas historial `_YYYY-MM-DD.json`).
+    - `ssm_brief.run_ai_ssm_brief_for_latest_date()`: reescribe el brief SSM shadow desde el payload validado en `research/reports/iu16_ssm_brief_eval/prompt.md` (v4). Requiere `HRV_AI_ENABLED=1` y `HRV_AI_SSM_ENABLED=1`. Persiste sidecar `ENDURANCE_HRV_ai_ssm_brief_latest.json` (mas historial).
+  - Ambos modulos construyen payloads pre-digeridos (sin campos crudos que el LLM pueda reinterpretar), llaman al modelo via OpenAI-compatible `chat/completions`, validan contrato de salida y persisten sidecars via `write_json_atomic`.
+  - Idempotencia por `payload_hash` (SHA-256 del payload sin `generated_at`); si el hash coincide con el sidecar previo, no se vuelve a llamar al modelo.
+  - Validacion `daily_brief`: `date`, `tone` alineado con `gate_final`, `source_mode` alineado con presencia de `reason_items`, `max_words` con margen 1.2x.
+  - Validacion `ssm_brief`: `date`, `trigger_echo` y `relation_to_gate_echo` deben coincidir con el payload (canary de obediencia), `max_words` con margen 1.2x.
+- Cuando usarlo:
+  - `_run_ai_daily_brief_best_effort()` se llama en `hrv_app.hrv_sync_flow` tras `run_build_hrv_final_dashboard_only()`; `_run_ai_ssm_brief_best_effort()` tras `run_build_hrv_ssm_shadow_only()`. Fallo del LLM nunca aborta el sync.
+  - La UI (`hrv_app.ui_view.build_view()`) prefiere el texto IA solo si el sidecar publica un texto validado; para el SSM exige ademas que `relation_to_gate` coincida con el calculado independientemente por Python. Cualquier divergencia cae al texto determinista.
+- Entradas:
+  - `daily_brief`: `ENDURANCE_HRV_master_FINAL.csv`, `ENDURANCE_HRV_sleep.csv`, `ENDURANCE_HRV_sessions_day.csv` (opcional), `ENDURANCE_HRV_master_FINAL_reason_items.json`.
+  - `ssm_brief`: `ENDURANCE_HRV_ssm_shadow.csv`, `ENDURANCE_HRV_master_FINAL.csv`.
+  - Variables `HRV_AI_*` (provider, model, base_url, api_key, temperature, top_p, max_tokens, thinking, timeout, language) definidas en `env.example`.
+- Salidas:
+  - Sidecars JSON con campos `status` (`ok`/`skipped_unchanged`/`not_applicable`/`validation_failed`/`error`/`disabled`/`missing_*`), `payload_hash`, `provider`, `model`, `prompt_version`, `published`, `summary`, `detail`, textos especificos por brief (`tone`/`source_mode` en daily; `relation_to_gate`/`trigger` en SSM), `validation_errors`, `model_output_preview`.
+
+## `hrv_app.ui_view`
+- Que hace:
+  - Capa de presentacion (viewmodel) de la UI web. Centraliza el formato de strings y la composicion del arbol que consumen tanto las plantillas Jinja (SSR) como `static/ui.js` (rehidratacion via `/api/status`).
+  - `compose_hrv_summary()` mantiene las claves historicas `hrv_summary_*` para no romper consumidores existentes.
+  - `build_view()` produce el viewmodel versionado (`VIEW_VERSION`, hoy `3`) con `hrv_today` (incluye `quality`, `stability`, `raw_text`, `used_text`, `base_text`, el bloque `gate` con `badge`/`action`/`what_happened`/`what_to_do`, y `ssm_text`/`ssm_relation_to_gate`/`ssm_source_mode` que exponen el brief SSM shadow con trazabilidad de si viene del renderer IA o del fallback determinista) y `system` (estado de autorizacion y ultimo RR).
+  - `base_text` usa `final_last_base60_ms` (precalculado por `web_ui.py`) si esta presente; si no, recalcula desde `ln_base60`.
+- Cuando usarlo:
+  - Es la unica fuente de verdad de textos/estructura para la tarjeta `Lectura HRV de hoy`; ni la plantilla Jinja ni `ui.js` deben conocer nombres crudos del pipeline (`gate_razon_base60`, `ln_base60`, etc.), solo el arbol que expone este modulo.
 
 ## `hrv_app.pipeline_runner`
 - Que hace:

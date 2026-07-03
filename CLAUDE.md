@@ -270,6 +270,24 @@ DROPBOX_ACCESS_TOKEN=<token>
 # O: DROPBOX_REFRESH_TOKEN + DROPBOX_APP_KEY + DROPBOX_APP_SECRET
 ```
 
+### IA briefs (opcional)
+```
+HRV_AI_ENABLED=0                     # prerequisito común
+HRV_AI_DAILY_ENABLED=0               # activa el brief diario HRV
+HRV_AI_SSM_ENABLED=0                 # activa el brief SSM shadow (payload v4)
+HRV_AI_PROVIDER=<moonshot|...>
+HRV_AI_MODEL=<kimi-k2.6|...>
+HRV_AI_API_KEY=<key>
+HRV_AI_BASE_URL=https://api.moonshot.ai/v1
+HRV_AI_LANGUAGE=es
+HRV_AI_PROMPT_VERSION=daily_brief_v1
+HRV_AI_SSM_PROMPT_VERSION=ssm_brief_v4
+HRV_AI_TEMPERATURE=0.6
+HRV_AI_MAX_TOKENS=400
+HRV_AI_TIMEOUT_SEC=12
+```
+Ambos briefs son opt-in con fallback determinista garantizado: cualquier fallo de validación del contrato de salida cae al texto Python (`build_hrv_final_dashboard.py` para el gate; `hrv_app/ssm_brief.py` para el SSM shadow). Los sidecars viven en `data/ENDURANCE_HRV_ai_{daily,ssm}_brief_*.json` y no son contratos canónicos.
+
 ---
 
 ## Persistencia & OAuth en Railway
@@ -425,6 +443,7 @@ python egc_to_rr.py --dropbox-folder /ruta/carpeta --dropbox-recursive --outdir 
 - ✅ Capa de recuperación multiseñal en FINAL (66 cols); `recovery_support_class`, `recovery_discordance_flag` y `recovery_discordance_reason` sin tocar el gate
 - ✅ RE-02: sidecar `ENDURANCE_HRV_wellness_subjective.csv` (17 cols) para análisis retrospectivo; no alimenta `reason_text`
 - ✅ DO-01: sidecar `ENDURANCE_HRV_intensity_distribution_weekly.csv` (21 cols); distribución observada por `sport × semana ISO` con patrón (`polarized`, `pyramidal`, `threshold`, `mixed`) y confianza explícita; no alimenta el gate
+- ✅ IU-15/IU-16: paquete `hrv_app/ai/` con `daily_brief` y `ssm_brief`. Ambos opt-in (`HRV_AI_ENABLED` + `HRV_AI_DAILY_ENABLED` / `HRV_AI_SSM_ENABLED`), best-effort tras el sync, con fallback determinista garantizado. Sidecars `ENDURANCE_HRV_ai_{daily,ssm}_brief_*.json`. El SSM brief usa el payload validado v4 (`research/reports/iu16_ssm_brief_eval/prompt.md`) y solo se muestra en UI si `relation_to_gate` coincide con el calculado por `hrv_app/ssm_brief.py`
 
 ### Análisis de sesiones
 - ✅ `analysis/analyze_session.py` tolera sesiones sin RR exportable

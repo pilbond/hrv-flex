@@ -23,7 +23,7 @@ import re
 from typing import Any
 
 
-VIEW_VERSION = 2
+VIEW_VERSION = 3
 
 DEFAULT_UNAVAILABLE_TEXT = "Todavía no hay salida FINAL disponible."
 
@@ -60,6 +60,10 @@ def render_ai_brief_text(summary: Any, detail: Any) -> str:
     if detail_text.startswith(summary_text):
         return detail_text
     return f"{summary_text} {detail_text}"
+
+
+def render_ssm_brief_text(summary: Any, detail: Any) -> str:
+    return render_ai_brief_text(summary, detail)
 
 
 def fmt_rr_date_label(rr_filename: Any) -> str:
@@ -138,6 +142,42 @@ def build_view(diagnostics: dict) -> dict:
     ai_text = diagnostics.get("hrv_summary_ai_text") or None
     reason_text = diagnostics.get("hrv_summary_reason_text") or None
     fallback_text = diagnostics.get("hrv_summary_fallback_text") or None
+    ssm_ready = (
+        diagnostics.get("ssm_minimal_brief_status") == "ok"
+        and bool(diagnostics.get("ssm_minimal_brief_published"))
+        and bool(diagnostics.get("ssm_minimal_brief_matches_final"))
+    )
+    # El SSM shadow siempre tiene un fallback determinista (ssm_minimal_brief_*).
+    # La IA solo se usa si publica un texto validado cuya relacion con el gate
+    # coincide con la calculada por Python de forma independiente; cualquier
+    # discrepancia hace caer al texto determinista.
+    ai_ssm_ready = (
+        diagnostics.get("ai_ssm_brief_status") == "ok"
+        and bool(diagnostics.get("ai_ssm_brief_published"))
+        and bool(diagnostics.get("ai_ssm_brief_matches_final"))
+        and ssm_ready
+        and diagnostics.get("ai_ssm_brief_relation_to_gate") == diagnostics.get("ssm_minimal_brief_relation_to_gate")
+    )
+
+    ssm_text = None
+    ssm_source_mode = None
+    ssm_relation_to_gate = None
+    if ai_ssm_ready:
+        ssm_text = render_ssm_brief_text(
+            diagnostics.get("ai_ssm_brief_summary"),
+            diagnostics.get("ai_ssm_brief_detail"),
+        ) or None
+        if ssm_text:
+            ssm_source_mode = "ai"
+            ssm_relation_to_gate = diagnostics.get("ai_ssm_brief_relation_to_gate")
+    if not ssm_text and ssm_ready:
+        ssm_text = render_ssm_brief_text(
+            diagnostics.get("ssm_minimal_brief_summary"),
+            diagnostics.get("ssm_minimal_brief_detail"),
+        ) or None
+        if ssm_text:
+            ssm_source_mode = "deterministic"
+            ssm_relation_to_gate = diagnostics.get("ssm_minimal_brief_relation_to_gate")
 
     latest_rr_file = diagnostics.get("latest_rr_file") or None
     latest_rr_path = diagnostics.get("latest_rr_path") or None
@@ -185,6 +225,9 @@ def build_view(diagnostics: dict) -> dict:
             },
             "ai_text": ai_text,
             "reason_text": reason_text,
+            "ssm_text": ssm_text,
+            "ssm_relation_to_gate": ssm_relation_to_gate,
+            "ssm_source_mode": ssm_source_mode,
             "fallback_text": fallback_text,
         },
         "system": {

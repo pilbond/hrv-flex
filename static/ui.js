@@ -81,6 +81,8 @@
             ai: el('hrvSummaryAi'),
             reasonBlock: el('hrvSummaryReasonBlock'),
             reason: el('hrvSummaryReason'),
+            ssmBlock: el('hrvSummarySsmBlock'),
+            ssm: el('hrvSummarySsm'),
             fallbackBlock: el('hrvSummaryFallbackBlock'),
             fallback: el('hrvSummaryFallback'),
         },
@@ -144,6 +146,7 @@
             if (panel.gateWhatToDo) panel.gateWhatToDo.textContent = '-';
             if (panel.aiBlock) panel.aiBlock.hidden = true;
             if (panel.reasonBlock) panel.reasonBlock.hidden = true;
+            if (panel.ssmBlock) panel.ssmBlock.hidden = true;
             if (panel.fallbackBlock) panel.fallbackBlock.hidden = true;
             return;
         }
@@ -152,6 +155,7 @@
         const stability = String(hrv.stability || '').trim();
         const aiText = String(hrv.ai_text || '').trim();
         const reasonText = String(hrv.reason_text || '').trim();
+        const ssmText = String(hrv.ssm_text || '').trim();
         const fallbackText = String(hrv.fallback_text || '').trim();
 
         panel.raw.textContent = String(hrv.raw_text || '-');
@@ -176,6 +180,8 @@
         if (panel.ai) panel.ai.textContent = aiText;
         if (panel.reasonBlock) panel.reasonBlock.hidden = !reasonText;
         if (panel.reason) panel.reason.textContent = reasonText;
+        if (panel.ssmBlock) panel.ssmBlock.hidden = !ssmText;
+        if (panel.ssm) panel.ssm.textContent = ssmText;
         if (panel.fallbackBlock) panel.fallbackBlock.hidden = !fallbackText;
         if (panel.fallback) panel.fallback.textContent = fallbackText;
     }

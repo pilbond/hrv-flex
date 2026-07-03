@@ -34,6 +34,7 @@ from hrv_app.config import (
 from hrv_app.io_utils import write_csv_atomic, write_json_atomic
 from hrv_app.messages import API as MSG, OAUTH as OAUTH_MSG, CONSOLE as CONSOLE_MSG
 from hrv_app.polar_utils import env_flag
+from hrv_app.ssm_brief import build_latest_minimal_ssm_brief
 from hrv_app import ui_view
 from hrv_app.gate_text import format_gate_reason, format_gate_next_step
 from hrv_app.polar_auth_v4 import (
@@ -121,6 +122,7 @@ DEFAULT_UI_COPY = {
     "hrv_summary_gate_what_to_do": "Qué hacer",
     "hrv_summary_reason_label": "Reason text",
     "hrv_summary_ai_label": "Brief IA",
+    "hrv_summary_ssm_label": "SSM shadow",
     "hrv_summary_waiting": "Esperando disponibilidad del resumen HRV...",
     "technical_title": "Detalle técnico",
     "technical_collapse": "Contraer",
@@ -212,6 +214,65 @@ def _ai_daily_brief_diagnostics(final_date: str | None) -> dict:
         }
     )
     return payload
+
+
+def _ai_ssm_brief_diagnostics(final_date: str | None) -> dict:
+    brief_path = DATA_DIR / "ENDURANCE_HRV_ai_ssm_brief_latest.json"
+    payload = {
+        "ai_ssm_brief_path": str(brief_path),
+        "ai_ssm_brief_exists": brief_path.exists(),
+        "ai_ssm_brief_status": None,
+        "ai_ssm_brief_date": None,
+        "ai_ssm_brief_published": False,
+        "ai_ssm_brief_summary": None,
+        "ai_ssm_brief_detail": None,
+        "ai_ssm_brief_relation_to_gate": None,
+        "ai_ssm_brief_trigger": None,
+        "ai_ssm_brief_reason": None,
+        "ai_ssm_brief_matches_final": False,
+    }
+    if not brief_path.exists():
+        return payload
+
+    try:
+        brief = json.loads(brief_path.read_text(encoding="utf-8"))
+    except Exception:
+        return payload
+
+    brief_date = ui_view.normalize_summary_text(brief.get("date")) or None
+    payload.update(
+        {
+            "ai_ssm_brief_status": brief.get("status"),
+            "ai_ssm_brief_date": brief_date,
+            "ai_ssm_brief_published": bool(brief.get("published")),
+            "ai_ssm_brief_summary": brief.get("summary"),
+            "ai_ssm_brief_detail": brief.get("detail"),
+            "ai_ssm_brief_relation_to_gate": brief.get("relation_to_gate"),
+            "ai_ssm_brief_trigger": brief.get("trigger"),
+            "ai_ssm_brief_reason": brief.get("reason"),
+            "ai_ssm_brief_matches_final": bool(brief_date and final_date and brief_date == final_date),
+        }
+    )
+    return payload
+
+
+def _ssm_minimal_brief_diagnostics(final_date: str | None) -> dict:
+    brief = build_latest_minimal_ssm_brief(
+        ssm_path=DATA_DIR / "ENDURANCE_HRV_ssm_shadow.csv",
+        final_path=DATA_DIR / "ENDURANCE_HRV_master_FINAL.csv",
+    )
+    brief_date = ui_view.normalize_summary_text(brief.get("date")) or None
+    return {
+        "ssm_minimal_brief_status": brief.get("status"),
+        "ssm_minimal_brief_date": brief_date,
+        "ssm_minimal_brief_published": bool(brief.get("published")),
+        "ssm_minimal_brief_summary": brief.get("summary"),
+        "ssm_minimal_brief_detail": brief.get("detail"),
+        "ssm_minimal_brief_relation_to_gate": brief.get("relation_to_gate"),
+        "ssm_minimal_brief_reason": brief.get("reason"),
+        "ssm_minimal_brief_source_mode": brief.get("source_mode"),
+        "ssm_minimal_brief_matches_final": bool(brief_date and final_date and brief_date == final_date),
+    }
 
 
 def _compose_hrv_summary_diagnostics(diagnostics: dict) -> dict:
@@ -1050,6 +1111,8 @@ def _build_status_payload() -> dict:
         **token_info,
         **csv_info,
         **_ai_daily_brief_diagnostics(csv_info.get("final_last_fecha")),
+        **_ssm_minimal_brief_diagnostics(csv_info.get("final_last_fecha")),
+        **_ai_ssm_brief_diagnostics(csv_info.get("final_last_fecha")),
         **weekly_coach_info,
         **dropbox_info,
         **seed_info,
@@ -1076,6 +1139,7 @@ def _render_index_fallback(initial_payload: dict):
     summary_title = html.escape(UI_COPY.get("hrv_summary_title_base", "Lectura HRV de hoy"))
     ai_brief_text = html.escape(str(hrv.get("ai_text") or ""))
     reason_text = html.escape(str(hrv.get("reason_text") or ""))
+    ssm_text = html.escape(str(hrv.get("ssm_text") or ""))
     fallback_text = html.escape(str(hrv.get("fallback_text") or ""))
     technical_title = html.escape(UI_COPY.get("technical_title", "Detalle técnico"))
     raw_text = html.escape(str(hrv.get("raw_text") or "-"))
@@ -1110,6 +1174,7 @@ def _render_index_fallback(initial_payload: dict):
             </div>
             <p>{ai_brief_text}</p>
             <p>{reason_text}</p>
+            <p>{ssm_text}</p>
             <p>{fallback_text}</p>
         </section>
         <section>

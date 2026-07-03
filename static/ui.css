@@ -401,6 +401,12 @@ button:disabled {
     border-color: rgba(234, 106, 42, 0.16);
 }
 
+.hrv-summary-note-ssm {
+    color: var(--brand-strong);
+    background: rgba(227, 239, 248, 0.72);
+    border-color: rgba(33, 91, 121, 0.18);
+}
+
 .coach-source {
     margin-top: 12px;
     font-size: 12px;
@@ -584,4 +590,3 @@ button:disabled {
         font-size: 28px;
     }
 }
-

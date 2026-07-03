@@ -179,6 +179,7 @@ SLEEP_PATH = DATA_DIR / "ENDURANCE_HRV_sleep.csv"
 SESSIONS_DAY_PATH = DATA_DIR / "ENDURANCE_HRV_sessions_day.csv"
 FINAL_REASON_ITEMS_PATH = DATA_DIR / "ENDURANCE_HRV_master_FINAL_reason_items.json"
 AI_DAILY_BRIEF_LATEST_PATH = DATA_DIR / "ENDURANCE_HRV_ai_daily_brief_latest.json"
+AI_SSM_BRIEF_LATEST_PATH = DATA_DIR / "ENDURANCE_HRV_ai_ssm_brief_latest.json"
 
 INTERVALS_SOURCE_PATH = BETA_AUDIT_PATH
 INTERVALS_BASE_URL = (os.environ.get("INTERVALS_BASE_URL") or "https://intervals.icu").strip()
@@ -263,6 +264,8 @@ DROPBOX_RECURSIVE = env_flag("HRV_DROPBOX_RECURSIVE", True)
 
 HRV_AI_ENABLED = env_flag("HRV_AI_ENABLED", False)
 HRV_AI_DAILY_ENABLED = env_flag("HRV_AI_DAILY_ENABLED", False)
+HRV_AI_SSM_ENABLED = env_flag("HRV_AI_SSM_ENABLED", False)
+HRV_AI_SSM_PROMPT_VERSION = (os.environ.get("HRV_AI_SSM_PROMPT_VERSION") or "ssm_brief_v4").strip() or "ssm_brief_v4"
 HRV_AI_PROVIDER = (os.environ.get("HRV_AI_PROVIDER") or "").strip()
 HRV_AI_MODEL = (os.environ.get("HRV_AI_MODEL") or "").strip()
 HRV_AI_API_KEY = (os.environ.get("HRV_AI_API_KEY") or "").strip()

@@ -113,6 +113,12 @@ class BuildViewTests(unittest.TestCase):
             "ai_daily_brief_summary": "Dia verde.",
             "ai_daily_brief_detail": "Monotonia 2.88.",
             "final_last_reason_text": "Reason canonico",
+            "ssm_minimal_brief_status": "ok",
+            "ssm_minimal_brief_published": True,
+            "ssm_minimal_brief_matches_final": True,
+            "ssm_minimal_brief_summary": "SSM shadow: matiz experimental.",
+            "ssm_minimal_brief_detail": "El gate sigue mandando.",
+            "ssm_minimal_brief_relation_to_gate": "adds_caution",
             "authorized": True,
             "latest_rr_file": "rr_2026-06-30_morning.csv",
             "latest_rr_path": "/data/rr_downloads/rr_2026-06-30_morning.csv",
@@ -137,7 +143,58 @@ class BuildViewTests(unittest.TestCase):
         self.assertEqual(hrv["gate"]["badge"], "VERDE")
         self.assertIn("Dia verde.", hrv["ai_text"])
         self.assertEqual(hrv["reason_text"], "Reason canonico")
+        self.assertIn("SSM shadow", hrv["ssm_text"])
+        self.assertEqual(hrv["ssm_relation_to_gate"], "adds_caution")
+        self.assertEqual(hrv["ssm_source_mode"], "deterministic")
         self.assertIsNone(hrv["fallback_text"])
+
+    def test_ssm_prefers_ai_brief_when_published_and_relation_matches_deterministic(self):
+        diagnostics = self._base_diagnostics()
+        diagnostics.update({
+            "ai_ssm_brief_status": "ok",
+            "ai_ssm_brief_published": True,
+            "ai_ssm_brief_matches_final": True,
+            "ai_ssm_brief_summary": "Señal nocturna por debajo, añade prudencia al gate verde.",
+            "ai_ssm_brief_detail": "La calidad degradada limita el peso de esta lectura.",
+            "ai_ssm_brief_relation_to_gate": "adds_caution",
+        })
+        view = ui_view.build_view(diagnostics)
+        hrv = view["hrv_today"]
+        self.assertIn("Señal nocturna", hrv["ssm_text"])
+        self.assertNotIn("SSM shadow", hrv["ssm_text"])
+        self.assertEqual(hrv["ssm_relation_to_gate"], "adds_caution")
+        self.assertEqual(hrv["ssm_source_mode"], "ai")
+
+    def test_ssm_falls_back_to_deterministic_when_ai_relation_diverges(self):
+        diagnostics = self._base_diagnostics()
+        diagnostics.update({
+            "ai_ssm_brief_status": "ok",
+            "ai_ssm_brief_published": True,
+            "ai_ssm_brief_matches_final": True,
+            "ai_ssm_brief_summary": "Texto IA con relacion divergente.",
+            "ai_ssm_brief_detail": "Detalle IA.",
+            "ai_ssm_brief_relation_to_gate": "aligned",
+        })
+        view = ui_view.build_view(diagnostics)
+        hrv = view["hrv_today"]
+        self.assertIn("SSM shadow", hrv["ssm_text"])
+        self.assertEqual(hrv["ssm_relation_to_gate"], "adds_caution")
+        self.assertEqual(hrv["ssm_source_mode"], "deterministic")
+
+    def test_ssm_falls_back_to_deterministic_when_ai_not_matching_final_date(self):
+        diagnostics = self._base_diagnostics()
+        diagnostics.update({
+            "ai_ssm_brief_status": "ok",
+            "ai_ssm_brief_published": True,
+            "ai_ssm_brief_matches_final": False,
+            "ai_ssm_brief_summary": "Texto IA de una fecha antigua.",
+            "ai_ssm_brief_detail": "Detalle IA.",
+            "ai_ssm_brief_relation_to_gate": "adds_caution",
+        })
+        view = ui_view.build_view(diagnostics)
+        hrv = view["hrv_today"]
+        self.assertIn("SSM shadow", hrv["ssm_text"])
+        self.assertEqual(hrv["ssm_source_mode"], "deterministic")
 
     def test_base_text_uses_precomputed_base60_ms_when_present(self):
         diagnostics = self._base_diagnostics()
@@ -170,8 +227,8 @@ class BuildViewTests(unittest.TestCase):
         self.assertIn("La señal suavizada bajó", hrv["gate"]["what_happened"])
         self.assertIn("Trata hoy", hrv["gate"]["what_to_do"])
 
-    def test_view_version_is_two(self):
-        self.assertEqual(ui_view.VIEW_VERSION, 2)
+    def test_view_version_is_three(self):
+        self.assertEqual(ui_view.VIEW_VERSION, 3)
 
     def test_hrv_today_when_final_missing(self):
         view = ui_view.build_view({"final_exists": False, **ui_view.compose_hrv_summary({})})
@@ -179,6 +236,7 @@ class BuildViewTests(unittest.TestCase):
         self.assertFalse(hrv["exists"])
         self.assertIsNone(hrv["date"])
         self.assertIsNone(hrv["ai_text"])
+        self.assertIsNone(hrv["ssm_text"])
         self.assertEqual(hrv["fallback_text"], ui_view.DEFAULT_UNAVAILABLE_TEXT)
 
     def test_system_section_includes_latest_rr_label(self):

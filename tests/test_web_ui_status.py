@@ -165,6 +165,7 @@ class WebUiStatusTests(unittest.TestCase):
         self.assertIn('id="hrvSummaryCard"', html)
         self.assertIn('id="hrvSummaryAiBlock"', html)
         self.assertIn('id="hrvSummaryReasonBlock"', html)
+        self.assertIn('id="hrvSummarySsmBlock"', html)
         self.assertIn('id="hrvSummaryFallbackBlock"', html)
         self.assertIn("Lectura HRV de hoy", html)
         self.assertNotIn('id="weeklyCoachCard"', html)
@@ -217,7 +218,7 @@ class WebUiStatusTests(unittest.TestCase):
 
         self.assertIn("view", payload)
         view = payload["view"]
-        self.assertEqual(view["version"], 2)
+        self.assertEqual(view["version"], 3)
         self.assertIn("hrv_today", view)
         self.assertIn("system", view)
 
@@ -227,6 +228,29 @@ class WebUiStatusTests(unittest.TestCase):
         self.assertEqual(hrv["gate"]["badge"], diagnostics["final_last_gate_badge"])
         self.assertEqual(hrv["raw_text"], diagnostics["hrv_summary_raw_text"])
         self.assertEqual(hrv["reason_text"], diagnostics["hrv_summary_reason_text"])
+
+    def test_status_exposes_minimal_ssm_brief_when_material(self):
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            fecha = date.today().isoformat()
+            self._write_final_csv(data_dir, fecha, reason_text="Texto de razon")
+            (data_dir / "ENDURANCE_HRV_ssm_shadow.csv").write_text(
+                (
+                    "Fecha,ssm_warmup_complete,ssm_recovery_state,ssm_innovation,"
+                    "sleep_innovation,sleep_input_quality,control_rolling_hrv_7d\n"
+                    f"{fecha},True,3.75,0.01,0.16,degraded,3.72\n"
+                ),
+                encoding="utf-8",
+            )
+
+            with patch.object(web_ui, "DATA_DIR", data_dir):
+                payload = web_ui._build_status_payload()
+
+        diagnostics = payload["diagnostics"]
+        self.assertEqual(diagnostics["ssm_minimal_brief_status"], "ok")
+        self.assertTrue(diagnostics["ssm_minimal_brief_published"])
+        self.assertTrue(diagnostics["ssm_minimal_brief_matches_final"])
+        self.assertIn("SSM shadow", payload["view"]["hrv_today"]["ssm_text"])
 
     def test_template_json_loader_uses_fallback_when_template_missing(self):
         fallback = {"text": {"example": "ok"}}
