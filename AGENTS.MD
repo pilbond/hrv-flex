@@ -98,7 +98,7 @@ Estado actual de implementacion observado:
   - `analysis_only_context` en `summary.json` y `session_payload.json`
   - `coach_metrics.json`, `coach_intervals.csv` y `coach_groups.csv` como sidecars locales reproducibles
   - esta capa no modifica `sessions.csv`, `sessions_day.csv`, `FINAL` ni `DASHBOARD`.
-- `hrv_app/backup_dropbox.py`: backup opcional de `ENDURANCE_HRV_*` a una carpeta plana en Dropbox (`HRV_BACKUP_DROPBOX_ENABLED`, sobrescribe en cada sync); restauracion via `POST /api/restore-backup` con escritura atomica y backup previo de los archivos existentes en `data/backup/pre_restore/`,
+- `hrv_app/backup_dropbox.py`: backup opcional de `ENDURANCE_HRV_*` de la raiz de `DATA_DIR` y del historial IA en `data/ai_briefs/` a Dropbox (`HRV_BACKUP_DROPBOX_ENABLED`, sobrescribe en cada sync); restauracion via `POST /api/restore-backup` con escritura atomica y backup previo de los archivos existentes en `data/backup/pre_restore/`,
 - `/health?strict=1` devuelve 503 si el FINAL falta o su ultima fecha supera `HRV_STALE_MAX_DAYS` (default 3); sin `strict` sigue siendo 200 (liveness),
 - si `HRV_UI_KEY` esta definida, todos los `/api/*` exigen la clave via header `X-HRV-KEY` o `?key=`; el `state` de OAuth se valida con TTL y uso unico,
 - `build_hrv_core.py`, `build_hrv_final_dashboard.py` y `build_sessions.py` usan `hrv_app.io_utils` para escrituras atomicas (eliminadas las implementaciones locales duplicadas),
@@ -226,7 +226,7 @@ Operativas:
 - `HRV_SHOW_SEED_IMPORT`
 - `HRV_UI_KEY` (opcional: si está definida, todos los `/api/*` exigen la clave vía header `X-HRV-KEY` o query `?key=`; sin definir, comportamiento histórico sin autenticación)
 - `HRV_STALE_MAX_DAYS` (umbral de `/health?strict=1`: devuelve 503 si el FINAL falta o su última fecha supera el umbral; default 3. `/health` sin `strict` sigue siendo 200 liveness)
-- `HRV_BACKUP_DROPBOX_ENABLED` (opcional: tras cada sync exitoso sube los `ENDURANCE_HRV_*.csv/.json` de `DATA_DIR` a una carpeta plana en Dropbox, sobrescribiendo; usa las credenciales Dropbox ya configuradas; nunca rompe el sync)
+- `HRV_BACKUP_DROPBOX_ENABLED` (opcional: tras cada sync exitoso sube los `ENDURANCE_HRV_*.csv/.json` de la raiz de `DATA_DIR` y el historial `DATA_DIR/ai_briefs/**/ENDURANCE_HRV_*.json` a Dropbox, sobrescribiendo; usa las credenciales Dropbox ya configuradas; nunca rompe el sync)
 - `HRV_BACKUP_DROPBOX_PATH` (carpeta del backup; default `/hrv_backups`)
 
 Especializadas:
@@ -260,7 +260,7 @@ IA briefs (opt-in, con fallback determinista garantizado):
 - `HRV_AI_PROVIDER`, `HRV_AI_MODEL`, `HRV_AI_API_KEY`, `HRV_AI_BASE_URL` (OpenAI-compatible)
 - `HRV_AI_LANGUAGE=es`, `HRV_AI_PROMPT_VERSION=daily_brief_v1`, `HRV_AI_SSM_PROMPT_VERSION=ssm_brief_v4`
 - `HRV_AI_TEMPERATURE`, `HRV_AI_TOP_P`, `HRV_AI_MAX_TOKENS`, `HRV_AI_TIMEOUT_SEC`, `HRV_AI_THINKING`
-- Sidecars `ENDURANCE_HRV_ai_{daily,ssm}_brief_*.json` en `DATA_DIR`; no son contratos canonicos
+- Los sidecars `*_latest.json` viven en `DATA_DIR`; el historial fechado vive en `DATA_DIR/ai_briefs/{daily,ssm}/`. No son contratos canonicos.
 - La UI (`hrv_app.ui_view.build_view`) solo muestra el texto IA si supera la validacion de contrato; el brief SSM ademas exige que `relation_to_gate` coincida con el calculado por Python. Cualquier discrepancia cae al texto determinista.
 
 ## 11. Persistencia, OAuth y despliegue

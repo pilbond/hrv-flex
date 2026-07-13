@@ -30,6 +30,7 @@ from hrv_app.ai.config import (
     SLEEP_PATH,
     ai_chat_completions_url,
     ai_daily_brief_history_path,
+    migrate_legacy_ai_brief_history,
 )
 from hrv_app.io_utils import write_json_atomic
 
@@ -710,6 +711,11 @@ def run_ai_daily_brief_for_latest_date() -> dict[str, Any]:
     if not HRV_AI_ENABLED or not HRV_AI_DAILY_ENABLED:
         return {"status": "disabled"}
 
+    # Ejecutar la migración en cualquier ciclo habilitado, incluso si el gate
+    # queda en NO o falta una entrada posterior. En tests, FINAL_PATH apunta al
+    # directorio temporal y evita tocar el DATA_DIR real.
+    migrate_legacy_ai_brief_history(FINAL_PATH.parent)
+
     if not FINAL_PATH.exists():
         return {"status": "missing_final"}
 
@@ -773,6 +779,12 @@ def run_ai_daily_brief_for_latest_date() -> dict[str, Any]:
     payload = _build_payload(final_row, sleep_row, sessions_row, reason_items)
     payload_hash = _hash_json(_payload_for_hash(payload))
 
+    gate_final = str(final_row.get("gate_final", "")).strip().upper()
+    if gate_final == "NO":
+        sidecar = _build_not_applicable_sidecar(date_str, payload_hash, reason_items)
+        _write_sidecars(sidecar, date_str)
+        return sidecar
+
     existing = _read_json(ai_daily_brief_history_path(date_str))
     if existing and existing.get("payload_hash") == payload_hash and existing.get("status") == "ok":
         write_json_atomic(existing, AI_DAILY_BRIEF_LATEST_PATH)
@@ -781,12 +793,6 @@ def run_ai_daily_brief_for_latest_date() -> dict[str, Any]:
             "date": date_str,
             "payload_hash": payload_hash,
         }
-
-    gate_final = str(final_row.get("gate_final", "")).strip().upper()
-    if gate_final == "NO":
-        sidecar = _build_not_applicable_sidecar(date_str, payload_hash, reason_items)
-        _write_sidecars(sidecar, date_str)
-        return sidecar
 
     raw_text = ""
     response_preview = ""

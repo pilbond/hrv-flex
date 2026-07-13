@@ -149,7 +149,7 @@ DEFAULT_UI_RUNTIME_CONFIG = {
         "importStart": "Importando CSV seed a /data...",
         "importSuccess": "CSV seed importados a /data",
         "importButtonRunning": "Importando...",
-        "restoreConfirm": "Se restaurarán los CSV del último backup en Dropbox. Los archivos actuales se guardarán en data/backup/. ¿Continuar?",
+        "restoreConfirm": "Se restaurarán los archivos HRV del último backup en Dropbox. Los archivos actuales se guardarán en data/backup/. ¿Continuar?",
         "restoreStart": "Descargando backup desde Dropbox...",
         "restoreSuccessFallbackSource": "Dropbox",
         "restoreButtonRunning": "Restaurando...",
@@ -1368,7 +1368,7 @@ def import_seed():
 
 @app.route('/api/restore-backup', methods=['POST'])
 def restore_backup_endpoint():
-    """Restaurar CSV canónicos desde el último backup en Dropbox."""
+    """Restaurar archivos HRV desde el último backup en Dropbox."""
     if not _try_begin_execution('restore_backup'):
         return _api_error(_in_progress_error(_execution_snapshot().get('job_type'), MSG['restore_in_progress_suffix']), 409)
 

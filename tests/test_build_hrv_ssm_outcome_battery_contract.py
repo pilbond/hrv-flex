@@ -85,12 +85,12 @@ class OutcomeBatteryContractTests(unittest.TestCase):
             _core().to_csv(data_dir / "ENDURANCE_HRV_master_CORE.csv", index=False)
             _ssm().to_csv(data_dir / "ENDURANCE_HRV_ssm_shadow.csv", index=False)
             _wellness().to_csv(data_dir / "ENDURANCE_HRV_wellness_subjective.csv", index=False)
-            exit_code = battery.main(["--data-dir", str(data_dir)])
+            output_dir = data_dir / "reports"
+            exit_code = battery.main(["--data-dir", str(data_dir), "--output-dir", str(output_dir)])
             self.assertEqual(exit_code, 0)
-            self.assertTrue((data_dir / "ENDURANCE_HRV_ssm_outcome_battery.json").exists())
-            self.assertTrue((data_dir / "ENDURANCE_HRV_ssm_outcome_battery.md").exists())
+            self.assertTrue((output_dir / "ENDURANCE_HRV_ssm_outcome_battery.json").exists())
             report = json.loads(
-                (data_dir / "ENDURANCE_HRV_ssm_outcome_battery.json").read_text(encoding="utf-8")
+                (output_dir / "ENDURANCE_HRV_ssm_outcome_battery.json").read_text(encoding="utf-8")
             )
             self.assertEqual(report["source"], "build_hrv_ssm_outcome_battery.py")
 

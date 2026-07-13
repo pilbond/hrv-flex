@@ -17,6 +17,7 @@ from scipy import stats
 
 import build_hrv_ssm as ssm_builder
 from hrv_app.config import DATA_DIR as CONFIG_DATA_DIR
+from hrv_app.config import SSM_RESEARCH_REPORT_DIR
 from hrv_app.config import resolve_writable_dir
 from hrv_app.io_utils import json_safe as _json_safe, write_json_atomic, write_text_atomic
 
@@ -30,8 +31,8 @@ IN_SESSIONS = DATA_DIR / "ENDURANCE_HRV_sessions.csv"
 IN_SLEEP = DATA_DIR / "ENDURANCE_HRV_sleep.csv"
 IN_WELLNESS = DATA_DIR / "ENDURANCE_HRV_wellness_subjective.csv"
 IN_FINAL = DATA_DIR / "ENDURANCE_HRV_master_FINAL.csv"
-OUT_REPORT_JSON = DATA_DIR / "ENDURANCE_HRV_ssm_validation_report.json"
-OUT_REPORT_MD = DATA_DIR / "ENDURANCE_HRV_ssm_validation_report.md"
+OUT_REPORT_JSON = SSM_RESEARCH_REPORT_DIR / "ENDURANCE_HRV_ssm_validation_report.json"
+OUT_REPORT_MD = SSM_RESEARCH_REPORT_DIR / "ENDURANCE_HRV_ssm_validation_report.md"
 DATE_FORMAT = "%Y-%m-%d"
 
 PRIMARY_CANDIDATES = [
@@ -88,6 +89,8 @@ def parse_args(argv: List[str]) -> Dict[str, str]:
     for idx, token in enumerate(argv):
         if token == "--data-dir" and idx + 1 < len(argv):
             parsed["data_dir"] = argv[idx + 1]
+        if token == "--output-dir" and idx + 1 < len(argv):
+            parsed["output_dir"] = argv[idx + 1]
     return parsed
 
 
@@ -2250,8 +2253,10 @@ def main(argv: List[str]) -> int:
         IN_SLEEP = DATA_DIR / "ENDURANCE_HRV_sleep.csv"
         IN_WELLNESS = DATA_DIR / "ENDURANCE_HRV_wellness_subjective.csv"
         IN_FINAL = DATA_DIR / "ENDURANCE_HRV_master_FINAL.csv"
-        OUT_REPORT_JSON = DATA_DIR / "ENDURANCE_HRV_ssm_validation_report.json"
-        OUT_REPORT_MD = DATA_DIR / "ENDURANCE_HRV_ssm_validation_report.md"
+    if "output_dir" in args:
+        output_dir = resolve_writable_dir(Path(args["output_dir"]), SSM_RESEARCH_REPORT_DIR)
+        OUT_REPORT_JSON = output_dir / "ENDURANCE_HRV_ssm_validation_report.json"
+        OUT_REPORT_MD = output_dir / "ENDURANCE_HRV_ssm_validation_report.md"
 
     try:
         core_df = _load_csv(IN_CORE, ["Fecha", "lnRMSSD", "Calidad", "HRV_Stability", "Artifact_pct", "Flags"])

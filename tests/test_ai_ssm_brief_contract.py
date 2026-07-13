@@ -62,10 +62,12 @@ class AiSsmBriefContractTests(unittest.TestCase):
                     patch.object(ssm_brief, "FINAL_PATH", final_path), \
                     patch.object(ssm_brief, "HRV_AI_ENABLED", False), \
                     patch.object(ssm_brief, "HRV_AI_SSM_ENABLED", True), \
+                    patch.object(ssm_brief, "migrate_legacy_ai_brief_history") as migrate_mock, \
                     patch.object(ssm_brief.requests, "post") as post_mock:
                 result = ssm_brief.run_ai_ssm_brief_for_latest_date()
 
         self.assertEqual(result["status"], "disabled")
+        migrate_mock.assert_not_called()
         post_mock.assert_not_called()
 
     def test_not_applicable_when_no_material_ssm_signal_skips_model_call(self):
@@ -82,12 +84,14 @@ class AiSsmBriefContractTests(unittest.TestCase):
                     patch.object(ssm_brief, "ai_ssm_brief_history_path", return_value=root / "ENDURANCE_HRV_ai_ssm_brief_2026-06-26.json"), \
                     patch.object(ssm_brief, "HRV_AI_ENABLED", True), \
                     patch.object(ssm_brief, "HRV_AI_SSM_ENABLED", True), \
+                    patch.object(ssm_brief, "migrate_legacy_ai_brief_history") as migrate_mock, \
                     patch.object(ssm_brief.requests, "post") as post_mock:
                 result = ssm_brief.run_ai_ssm_brief_for_latest_date()
                 self.assertTrue(latest_path.exists())
 
         self.assertEqual(result["status"], "not_applicable")
         self.assertFalse(result["published"])
+        migrate_mock.assert_called_once_with(final_path.parent)
         post_mock.assert_not_called()
 
     def test_successful_generation_is_idempotent_by_payload_hash(self):
@@ -95,7 +99,7 @@ class AiSsmBriefContractTests(unittest.TestCase):
             root = Path(tmpdir)
             ssm_path, final_path = self._write_minimal_inputs(root, gate_final="ROJO", veto_agudo=True)
             latest_path = root / "ENDURANCE_HRV_ai_ssm_brief_latest.json"
-            history_path = root / "ENDURANCE_HRV_ai_ssm_brief_2026-06-26.json"
+            history_path = root / "ai_briefs" / "ssm" / "ENDURANCE_HRV_ai_ssm_brief_2026-06-26.json"
 
             response = Mock()
             response.raise_for_status.return_value = None

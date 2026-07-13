@@ -281,11 +281,12 @@ class BuildHRVSSMValidationContractTests(unittest.TestCase):
             pd.DataFrame({"Fecha": []}).to_csv(data_dir / "ENDURANCE_HRV_wellness_subjective.csv", index=False)
             _final().to_csv(data_dir / "ENDURANCE_HRV_master_FINAL.csv", index=False)
 
-            exit_code = validation_builder.main(["--data-dir", str(data_dir)])
+            output_dir = data_dir / "reports"
+            exit_code = validation_builder.main(["--data-dir", str(data_dir), "--output-dir", str(output_dir)])
 
             self.assertEqual(exit_code, 0)
-            self.assertTrue((data_dir / "ENDURANCE_HRV_ssm_validation_report.json").exists())
-            self.assertTrue((data_dir / "ENDURANCE_HRV_ssm_validation_report.md").exists())
+            self.assertTrue((output_dir / "ENDURANCE_HRV_ssm_validation_report.json").exists())
+            self.assertTrue((output_dir / "ENDURANCE_HRV_ssm_validation_report.md").exists())
 
 
 if __name__ == "__main__":

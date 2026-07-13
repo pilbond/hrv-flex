@@ -53,7 +53,7 @@ Si usas la Web UI, basta con presionar "Sincronizar".
 | `POST` | `/api/sync-sessions` | Ejecuta `build_sessions.py --update` en background |
 | `GET` | `/api/status` | Estado actual del job, último output e info de weekly coach |
 | `POST` | `/api/import-seed` | Importa seed/artefactos auxiliares |
-| `POST` | `/api/restore-backup` | Restaura CSV canónicos desde el último backup en Dropbox |
+| `POST` | `/api/restore-backup` | Restaura archivos HRV desde el último backup en Dropbox |
 | `POST` | `/api/delete-latest-rr` | Elimina el último RR ingerido |
 | `GET` | `/health` | Health check (`?strict=1` para validar frescura de FINAL) |
 
@@ -117,7 +117,7 @@ Si no hay sesión en un día, el CSV simplemente no incluye esa fecha. Es normal
 - `HRV_BACKUP_DROPBOX_ENABLED=1` — backup de artefactos a Dropbox tras sync exitoso
 - `HRV_AUTO_RESTORE_ON_EMPTY_DATA=1` — auto-restore de `DATA_DIR` desde Dropbox cuando `CORE` falta, esta vacio o es ilegible
 - `HRV_STALE_MAX_DAYS=3` — umbral de `/health?strict=1`
-- `HRV_BACKUP_DROPBOX_PATH=/hrv_backups` — carpeta plana de backup en Dropbox
+- `HRV_BACKUP_DROPBOX_PATH=/hrv_backups` — carpeta de backup en Dropbox; conserva subrutas como `ai_briefs/`
 - No subir a Git: `.env`, `.polar_tokens.json` ni datos personales.
 
 ## Migración desde V3 (solo histórico)

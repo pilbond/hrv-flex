@@ -218,12 +218,12 @@ No tocar `FINAL.csv` de entrada.
 Propuesta inicial fase 1:
 
 - `data/ENDURANCE_HRV_ai_daily_brief_latest.json`
-- `data/ENDURANCE_HRV_ai_daily_brief_YYYY-MM-DD.json`
+- `data/ai_briefs/daily/ENDURANCE_HRV_ai_daily_brief_YYYY-MM-DD.json`
 
 Propuesta fase 2:
 
 - `data/ENDURANCE_HRV_ai_ssm_brief_latest.json`
-- `data/ENDURANCE_HRV_ai_ssm_brief_YYYY-MM-DD.json`
+- `data/ai_briefs/ssm/ENDURANCE_HRV_ai_ssm_brief_YYYY-MM-DD.json`
 
 Opcionalmente, si luego se estabiliza:
 
@@ -1293,7 +1293,7 @@ Uso:
 
 #### Historico para revision semanal
 
-`data/ENDURANCE_HRV_ai_daily_brief_YYYY-MM-DD.json`
+`data/ai_briefs/daily/ENDURANCE_HRV_ai_daily_brief_YYYY-MM-DD.json`
 
 Uso:
 

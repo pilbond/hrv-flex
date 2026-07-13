@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 
 from hrv_app.config import DATA_DIR as CONFIG_DATA_DIR
+from hrv_app.config import SSM_RESEARCH_REPORT_DIR
 from hrv_app.config import resolve_writable_dir
 from hrv_app.eval_utils import bootstrap_delta_mae, evaluate_predictor, ols_predict
 from hrv_app.io_utils import json_safe as _json_safe, write_json_atomic, write_text_atomic
@@ -28,8 +29,8 @@ DATA_DIR = CONFIG_DATA_DIR
 IN_CORE = DATA_DIR / "ENDURANCE_HRV_master_CORE.csv"
 IN_SSM = DATA_DIR / "ENDURANCE_HRV_ssm_shadow.csv"
 IN_WELLNESS = DATA_DIR / "ENDURANCE_HRV_wellness_subjective.csv"
-OUT_BATTERY_JSON = DATA_DIR / "ENDURANCE_HRV_ssm_outcome_battery.json"
-OUT_BATTERY_MD = DATA_DIR / "ENDURANCE_HRV_ssm_outcome_battery.md"
+OUT_BATTERY_JSON = SSM_RESEARCH_REPORT_DIR / "ENDURANCE_HRV_ssm_outcome_battery.json"
+OUT_BATTERY_MD = SSM_RESEARCH_REPORT_DIR / "ENDURANCE_HRV_ssm_outcome_battery.md"
 
 EWMA_ALPHA_GRID = [0.05, 0.10, 0.15, 0.20, 0.30, 0.40]
 VERDICT_MARGIN = 0.005
@@ -40,6 +41,8 @@ def parse_args(argv: List[str]) -> Dict[str, str]:
     for idx, token in enumerate(argv):
         if token == "--data-dir" and idx + 1 < len(argv):
             parsed["data_dir"] = argv[idx + 1]
+        if token == "--output-dir" and idx + 1 < len(argv):
+            parsed["output_dir"] = argv[idx + 1]
     return parsed
 
 
@@ -395,8 +398,10 @@ def main(argv: List[str]) -> int:
         IN_CORE = DATA_DIR / "ENDURANCE_HRV_master_CORE.csv"
         IN_SSM = DATA_DIR / "ENDURANCE_HRV_ssm_shadow.csv"
         IN_WELLNESS = DATA_DIR / "ENDURANCE_HRV_wellness_subjective.csv"
-        OUT_BATTERY_JSON = DATA_DIR / "ENDURANCE_HRV_ssm_outcome_battery.json"
-        OUT_BATTERY_MD = DATA_DIR / "ENDURANCE_HRV_ssm_outcome_battery.md"
+    if "output_dir" in args:
+        output_dir = resolve_writable_dir(Path(args["output_dir"]), SSM_RESEARCH_REPORT_DIR)
+        OUT_BATTERY_JSON = output_dir / "ENDURANCE_HRV_ssm_outcome_battery.json"
+        OUT_BATTERY_MD = output_dir / "ENDURANCE_HRV_ssm_outcome_battery.md"
 
     try:
         core_df = _load_csv(IN_CORE, ["Fecha", "lnRMSSD"])

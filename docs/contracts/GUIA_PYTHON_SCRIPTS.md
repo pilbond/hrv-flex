@@ -186,8 +186,8 @@ Importante:
 ## `hrv_app.ai` (`daily_brief`, `ssm_brief`)
 - Que hace:
   - Rendering opcional de dos briefs mediante LLM, ambos con fallback determinista garantizado:
-    - `daily_brief.run_ai_daily_brief_for_latest_date()`: reescribe la explicacion del gate HRV usando `reason_items` como capa primaria. Requiere `HRV_AI_ENABLED=1` y `HRV_AI_DAILY_ENABLED=1`. Persiste sidecar `ENDURANCE_HRV_ai_daily_brief_latest.json` (mas historial `_YYYY-MM-DD.json`).
-    - `ssm_brief.run_ai_ssm_brief_for_latest_date()`: reescribe el brief SSM shadow desde el payload validado en `research/reports/iu16_ssm_brief_eval/prompt.md` (v4). Requiere `HRV_AI_ENABLED=1` y `HRV_AI_SSM_ENABLED=1`. Persiste sidecar `ENDURANCE_HRV_ai_ssm_brief_latest.json` (mas historial).
+    - `daily_brief.run_ai_daily_brief_for_latest_date()`: reescribe la explicacion del gate HRV usando `reason_items` como capa primaria. Requiere `HRV_AI_ENABLED=1` y `HRV_AI_DAILY_ENABLED=1`. Persiste `ENDURANCE_HRV_ai_daily_brief_latest.json` en `DATA_DIR` y el historial fechado en `DATA_DIR/ai_briefs/daily/`.
+    - `ssm_brief.run_ai_ssm_brief_for_latest_date()`: reescribe el brief SSM shadow desde el payload validado en `research/reports/iu16_ssm_brief_eval/prompt.md` (v4). Requiere `HRV_AI_ENABLED=1` y `HRV_AI_SSM_ENABLED=1`. Persiste `ENDURANCE_HRV_ai_ssm_brief_latest.json` en `DATA_DIR` y el historial fechado en `DATA_DIR/ai_briefs/ssm/`.
   - Ambos modulos construyen payloads pre-digeridos (sin campos crudos que el LLM pueda reinterpretar), llaman al modelo via OpenAI-compatible `chat/completions`, validan contrato de salida y persisten sidecars via `write_json_atomic`.
   - Idempotencia por `payload_hash` (SHA-256 del payload sin `generated_at`); si el hash coincide con el sidecar previo, no se vuelve a llamar al modelo.
   - Validacion `daily_brief`: `date`, `tone` alineado con `gate_final`, `source_mode` alineado con presencia de `reason_items`, `max_words` con margen 1.2x.
@@ -228,9 +228,9 @@ Importante:
 
 ## `hrv_app.backup_dropbox`
 - Que hace:
-  - Backup opcional de los `ENDURANCE_HRV_*.csv/.json` a Dropbox tras un sync exitoso.
-  - Sube los artefactos canónicos a una carpeta plana (`/hrv_backups/`), sobrescribiendo cada archivo (Dropbox conserva versiones anteriores por su cuenta).
-  - Restaura archivos desde Dropbox a `DATA_DIR` con escritura atómica y backup previo de los archivos existentes en `data/backup/pre_restore/`.
+  - Backup opcional de los `ENDURANCE_HRV_*.csv/.json` de la raiz de `DATA_DIR` y del historial IA en `DATA_DIR/ai_briefs/**/ENDURANCE_HRV_*.json` a Dropbox tras un sync exitoso.
+  - Sube los artefactos a `HRV_BACKUP_DROPBOX_PATH`, preservando la ruta relativa de `ai_briefs/` y sobrescribiendo cada archivo (Dropbox conserva versiones anteriores por su cuenta).
+  - Restaura archivos desde Dropbox a `DATA_DIR` con escritura atómica, recreando subcarpetas como `ai_briefs/`, y backup previo de los archivos existentes en `data/backup/pre_restore/`.
   - Puede hacer auto-restore opt-in cuando `DATA_DIR` arranca vacío o con `CORE` ilegible, si `HRV_AUTO_RESTORE_ON_EMPTY_DATA=1`.
   - Reutiliza las credenciales Dropbox ya configuradas para la ingesta RR.
 - Cuando usarlo:
@@ -253,7 +253,7 @@ Importante:
 ## `hrv_app.run_manifest`
 - Que hace:
   - Genera sidecars atomicos de trazabilidad (`*_manifest.json`) con hashes de inputs/outputs, configuracion efectiva y timestamp.
-  - Proporciona `build_manifest()`, `file_sha256()` y `utc_now_iso()`.
+  - Proporciona `build_run_manifest()`, `artifact_signature()`, `file_digest()`, `stable_digest()`, `write_run_manifest_atomic()` y `utc_now_iso()`.
 - Cuando usarlo:
   - Lo importan `build_hrv_core.py` y `build_hrv_final_dashboard.py` para dejar manifests atomicos tras cada corrida.
 
@@ -502,18 +502,18 @@ Importante:
 ## `build_hrv_ssm_validation.py`
 - Que hace:
   - Genera el reporte reproducible de validacion Fase 1 del modelo SSM: elige el outcome principal (FDS sobre `cardiac_drift_worst` normalizado por deporte), construye pares temporales, evalua SSM vs rolling vs load vs EWMA con walk-forward, bootstrap CI, estratificacion por deporte, comparador estructural (beta=0 vs ARX) y comparador de sueno.
-  - Escribe `ENDURANCE_HRV_ssm_validation_report.json` y `.md`.
+  - Escribe `research/reports/ssm_validation/ENDURANCE_HRV_ssm_validation_report.json` y `.md`.
   - El resultado no forma parte del contrato estatico: debe leerse de `phase1_conclusion`, `go_no_go` y `primary_strict_by_sport` en el JSON regenerado.
   - No modifica el gate.
 - Cuando usarlo:
-  - Manualmente: `python build_hrv_ssm_validation.py [--data-dir <dir>]`.
-  - Su parser es minimo: solo reconoce `--data-dir`; no ofrece `--help` y los argumentos desconocidos se ignoran.
+  - Manualmente: `python build_hrv_ssm_validation.py [--data-dir <dir>] [--output-dir <dir>]`.
+  - Por defecto escribe en `research/reports/ssm_validation/`; `--output-dir` permite aislar los resultados de una ejecución.
   - Bajo demanda cuando se quiera reevaluar si el SSM aporta valor; no forma parte del sync HRV diario.
   - O de forma agrupada via `python polar_hrv_automation.py --ssm-audit`, que primero regenera `ssm_shadow`.
 - Entradas:
   - `ENDURANCE_HRV_ssm_shadow.csv`, `ENDURANCE_HRV_ssm_shadow_metadata.json`, `ENDURANCE_HRV_master_CORE.csv`, `ENDURANCE_HRV_sessions_day.csv`, `ENDURANCE_HRV_sessions.csv`, `ENDURANCE_HRV_sleep.csv`, `ENDURANCE_HRV_master_FINAL.csv`.
 - Salidas:
-  - `ENDURANCE_HRV_ssm_validation_report.json`, `ENDURANCE_HRV_ssm_validation_report.md`.
+  - `research/reports/ssm_validation/ENDURANCE_HRV_ssm_validation_report.json`, `research/reports/ssm_validation/ENDURANCE_HRV_ssm_validation_report.md`.
 - Automatico o manual:
   - Manual bajo demanda.
 
@@ -524,14 +524,14 @@ Importante:
   - Los hallazgos dependen del dataset: deben leerse en `outcomes` y `battery_conclusion` del JSON regenerado, no copiarse como una propiedad permanente del script.
   - No modifica el gate.
 - Cuando usarlo:
-  - Manualmente: `python build_hrv_ssm_outcome_battery.py [--data-dir <dir>]`.
-  - Su parser es minimo: solo reconoce `--data-dir`; no ofrece `--help` y los argumentos desconocidos se ignoran.
+  - Manualmente: `python build_hrv_ssm_outcome_battery.py [--data-dir <dir>] [--output-dir <dir>]`.
+  - Por defecto escribe en `research/reports/ssm_validation/`; `--output-dir` permite aislar los resultados de una ejecución.
   - Bajo demanda, normalmente despues de lanzar la validacion SSM manual.
   - O de forma agrupada via `python polar_hrv_automation.py --ssm-audit`.
 - Entradas:
   - `ENDURANCE_HRV_master_CORE.csv`, `ENDURANCE_HRV_ssm_shadow.csv`, `ENDURANCE_HRV_wellness_subjective.csv`.
 - Salidas:
-  - `ENDURANCE_HRV_ssm_outcome_battery.json`, `ENDURANCE_HRV_ssm_outcome_battery.md`.
+  - `research/reports/ssm_validation/ENDURANCE_HRV_ssm_outcome_battery.json`, `research/reports/ssm_validation/ENDURANCE_HRV_ssm_outcome_battery.md`.
 - Automatico o manual:
   - Manual bajo demanda.
 

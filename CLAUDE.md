@@ -70,16 +70,32 @@ Sistema automatizado HRV para un **único atleta**:
 ├── hrv_app/                           # Paquete interno Python (ARQ-02)
 │   ├── __init__.py
 │   ├── config.py
+│   ├── hrv_sync_flow.py               # Caso de uso principal del sync HRV
 │   ├── polar_utils.py
 │   ├── oauth_utils.py
-│   ├── pipeline_runner.py
-│   ├── cli_reporting.py
+│   ├── polar_auth_v4.py               # OAuth v4 (auth.polar.com, refresh obligatorio)
+│   ├── polar_client_v4.py             # Cliente HTTP Dynamic API v4
+│   ├── polar_adapters_v4.py           # Adaptación respuestas v4 → shape interno
+│   ├── polar_gateway.py               # Gateway sleep/nightly (v4, AYO-22)
 │   ├── polar_sessions.py
 │   ├── dropbox_rr.py
 │   ├── intervals_sync.py
 │   ├── sleep_store.py
-│   ├── hrv_sync_flow.py
-│   └── backup_dropbox.py
+│   ├── pipeline_runner.py             # Lanza builders como subprocess
+│   ├── cli_reporting.py
+│   ├── gate_text.py                   # Traducción humana de gate_razon_base60
+│   ├── ui_view.py                     # Viewmodel de la UI web
+│   ├── messages.py
+│   ├── io_utils.py                    # Escrituras atómicas (csv/json/text)
+│   ├── run_manifest.py                # Sidecars de trazabilidad de corrida
+│   ├── eval_utils.py                  # Helpers de evaluación SSM
+│   ├── ssm_brief.py                   # Fallback determinista del brief SSM
+│   ├── backup_dropbox.py
+│   └── ai/                            # Briefs IA opt-in (IU-15/IU-16)
+│       ├── __init__.py
+│       ├── config.py
+│       ├── daily_brief.py
+│       └── ssm_brief.py
 ├── analysis/                          # Módulo analítico local
 │   ├── AGENTS.md
 │   ├── ENDURANCE_AGENT_DOMAIN.md
@@ -95,6 +111,9 @@ Sistema automatizado HRV para un **único atleta**:
 ├── polar_hrv_automation.py            # Orquestador principal
 ├── build_hrv_core.py                   # RR → CORE + BETA_AUDIT
 ├── build_hrv_final_dashboard.py                # CORE + sleep → FINAL + DASHBOARD
+├── build_hrv_ssm.py                    # CORE + sessions_day + sleep → SSM shadow
+├── build_hrv_ssm_validation.py         # Validación SSM Fase 1 (manual, research/)
+├── build_hrv_ssm_outcome_battery.py    # Batería de outcomes SSM (manual, research/)
 ├── build_sessions.py                  # Pipeline sesiones Intervals.icu
 ├── egc_to_rr.py                       # ECG.jsonl + ACC.jsonl → RR
 ├── Dockerfile                         # Python 3.11-slim
@@ -136,7 +155,7 @@ Endpoints:
 - `POST /api/sync` — ejecuta `polar_hrv_automation.py --process` en thread
 - `POST /api/sync-sessions` — ejecuta `build_sessions.py --update` en thread
 - `POST /api/import-seed` — importa seed/artefactos auxiliares
-- `POST /api/restore-backup` — restaura CSV canónicos desde el último backup en Dropbox
+- `POST /api/restore-backup` — restaura archivos HRV desde el último backup en Dropbox
 - `POST /api/delete-latest-rr` — elimina el ultimo RR ingerido
 - `GET /api/status` — estado actual
 - `GET /health` — health check
@@ -240,7 +259,7 @@ HRV_DISABLE_BACKUP=1                 # no respaldar CSVs
 HRV_SYNC_TIMEOUT_SEC=300             # timeout sync
 HRV_UI_KEY=<clave>                   # opcional: protege /api/* (header X-HRV-KEY o ?key=); sin definir = sin auth
 HRV_STALE_MAX_DAYS=3                 # umbral de /health?strict=1 (503 si FINAL más viejo o ausente)
-HRV_BACKUP_DROPBOX_ENABLED=1         # opcional: backup de ENDURANCE_HRV_* a Dropbox (carpeta plana, overwrite) tras sync exitoso
+HRV_BACKUP_DROPBOX_ENABLED=1         # opcional: backup de ENDURANCE_HRV_* y data/ai_briefs a Dropbox (overwrite) tras sync exitoso
 HRV_BACKUP_DROPBOX_PATH=/hrv_backups # carpeta del backup en Dropbox
 ```
 
@@ -286,7 +305,7 @@ HRV_AI_TEMPERATURE=0.6
 HRV_AI_MAX_TOKENS=400
 HRV_AI_TIMEOUT_SEC=12
 ```
-Ambos briefs son opt-in con fallback determinista garantizado: cualquier fallo de validación del contrato de salida cae al texto Python (`build_hrv_final_dashboard.py` para el gate; `hrv_app/ssm_brief.py` para el SSM shadow). Los sidecars viven en `data/ENDURANCE_HRV_ai_{daily,ssm}_brief_*.json` y no son contratos canónicos.
+Ambos briefs son opt-in con fallback determinista garantizado: cualquier fallo de validación del contrato de salida cae al texto Python (`build_hrv_final_dashboard.py` para el gate; `hrv_app/ssm_brief.py` para el SSM shadow). Los sidecars `*_latest.json` viven en `data/`; el historial fechado vive en `data/ai_briefs/{daily,ssm}/` y no es contrato canónico.
 
 ---
 
@@ -373,8 +392,10 @@ GET  /health
 
 ### Windows local
 ```bash
-scripts\run-web-ui.bat
-scripts\run-hrv.bat
+scripts\run-web-ui.bat          # levanta la UI web (Flask)
+scripts\run-hrv.bat             # sync HRV (polar_hrv_automation.py --process)
+scripts\run-build-sessions.bat  # pipeline de sesiones (build_sessions.py)
+scripts\run-ssm-audit.bat       # auditoría SSM manual (--ssm-audit)
 ```
 
 ### Pipeline sesiones
@@ -429,7 +450,7 @@ python egc_to_rr.py --dropbox-folder /ruta/carpeta --dropbox-recursive --outdir 
 - ✅ AYO-22 (AYO-13-F6): v3 completamente retirado; v4 es el único runtime Polar; `polar_client.py`, `polar_oauth_local.py` y `polar_shadow.py` eliminados; `POLAR_API_VERSION` y `POLAR_V4_SESSIONS` suprimidos; `analysis/session_analysis_pipeline.py` sin dependencias legacy v3
 - ✅ `ENDURANCE_HRV_sleep.csv` es archivo canónico de sueño (17 cols; carga en sessions_day.csv)
 - ✅ Los jobs HRV, sesiones, import seed, restore backup y borrado del último RR comparten estado y no se ejecutan simultáneamente
-- ✅ `hrv_app/backup_dropbox.py`: backup opcional de `ENDURANCE_HRV_*` a carpeta plana en Dropbox (`HRV_BACKUP_DROPBOX_ENABLED`, overwrite tras cada sync); restauración vía `POST /api/restore-backup` con escritura atómica y backup previo en `data/backup/pre_restore/`
+- ✅ `hrv_app/backup_dropbox.py`: backup opcional de `ENDURANCE_HRV_*` de la raíz de `DATA_DIR` y del historial IA en `data/ai_briefs/` a Dropbox (`HRV_BACKUP_DROPBOX_ENABLED`, overwrite tras cada sync); restauración vía `POST /api/restore-backup` con escritura atómica y backup previo en `data/backup/pre_restore/`
 - ✅ `/health?strict=1` devuelve 503 si el FINAL falta o su última fecha supera `HRV_STALE_MAX_DAYS` (default 3); sin `strict` sigue siendo 200 (liveness)
 - ✅ Si `HRV_UI_KEY` está definida, todos los `/api/*` exigen la clave vía header `X-HRV-KEY` o `?key=`; OAuth `state` validado con TTL y uso único
 - ✅ `build_hrv_core.py`, `build_hrv_final_dashboard.py` y `build_sessions.py` usan `hrv_app.io_utils` para escrituras atómicas (eliminadas implementaciones locales duplicadas)
@@ -443,7 +464,7 @@ python egc_to_rr.py --dropbox-folder /ruta/carpeta --dropbox-recursive --outdir 
 - ✅ Capa de recuperación multiseñal en FINAL (66 cols); `recovery_support_class`, `recovery_discordance_flag` y `recovery_discordance_reason` sin tocar el gate
 - ✅ RE-02: sidecar `ENDURANCE_HRV_wellness_subjective.csv` (17 cols) para análisis retrospectivo; no alimenta `reason_text`
 - ✅ DO-01: sidecar `ENDURANCE_HRV_intensity_distribution_weekly.csv` (21 cols); distribución observada por `sport × semana ISO` con patrón (`polarized`, `pyramidal`, `threshold`, `mixed`) y confianza explícita; no alimenta el gate
-- ✅ IU-15/IU-16: paquete `hrv_app/ai/` con `daily_brief` y `ssm_brief`. Ambos opt-in (`HRV_AI_ENABLED` + `HRV_AI_DAILY_ENABLED` / `HRV_AI_SSM_ENABLED`), best-effort tras el sync, con fallback determinista garantizado. Sidecars `ENDURANCE_HRV_ai_{daily,ssm}_brief_*.json`. El SSM brief usa el payload validado v4 (`research/reports/iu16_ssm_brief_eval/prompt.md`) y solo se muestra en UI si `relation_to_gate` coincide con el calculado por `hrv_app/ssm_brief.py`
+- ✅ IU-15/IU-16: paquete `hrv_app/ai/` con `daily_brief` y `ssm_brief`. Ambos opt-in (`HRV_AI_ENABLED` + `HRV_AI_DAILY_ENABLED` / `HRV_AI_SSM_ENABLED`), best-effort tras el sync, con fallback determinista garantizado. Los `*_latest.json` quedan en `data/` y el historial fechado en `data/ai_briefs/{daily,ssm}/`. El SSM brief usa el payload validado v4 (`research/reports/iu16_ssm_brief_eval/prompt.md`) y solo se muestra en UI si `relation_to_gate` coincide con el calculado por `hrv_app/ssm_brief.py`
 
 ### Análisis de sesiones
 - ✅ `analysis/analyze_session.py` tolera sesiones sin RR exportable

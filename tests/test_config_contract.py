@@ -67,8 +67,12 @@ class ConfigContractTests(unittest.TestCase):
                 self.assertEqual(config.SSM_SHADOW_PATH, data_dir / "ENDURANCE_HRV_ssm_shadow.csv")
                 self.assertEqual(config.AI_DAILY_BRIEF_LATEST_PATH, data_dir / "ENDURANCE_HRV_ai_daily_brief_latest.json")
                 self.assertEqual(config.SSM_SHADOW_METADATA_PATH, data_dir / "ENDURANCE_HRV_ssm_shadow_metadata.json")
-                self.assertEqual(config.SSM_VALIDATION_REPORT_JSON_PATH, data_dir / "ENDURANCE_HRV_ssm_validation_report.json")
-                self.assertEqual(config.SSM_VALIDATION_REPORT_MD_PATH, data_dir / "ENDURANCE_HRV_ssm_validation_report.md")
+                report_dir = Path(config.__file__).resolve().parent.parent / "research" / "reports" / "ssm_validation"
+                self.assertEqual(config.SSM_RESEARCH_REPORT_DIR, report_dir)
+                self.assertEqual(config.SSM_VALIDATION_REPORT_JSON_PATH, report_dir / "ENDURANCE_HRV_ssm_validation_report.json")
+                self.assertEqual(config.SSM_VALIDATION_REPORT_MD_PATH, report_dir / "ENDURANCE_HRV_ssm_validation_report.md")
+                self.assertEqual(config.SSM_OUTCOME_BATTERY_JSON_PATH, report_dir / "ENDURANCE_HRV_ssm_outcome_battery.json")
+                self.assertEqual(config.SSM_OUTCOME_BATTERY_MD_PATH, report_dir / "ENDURANCE_HRV_ssm_outcome_battery.md")
                 self.assertEqual(config.DROPBOX_RR_TIMEOUT_SEC, 321)
 
     def test_path_resolution_falls_back_to_a_writable_storage_root(self):

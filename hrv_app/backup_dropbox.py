@@ -3,9 +3,10 @@
 
 El histórico del atleta vive en un único volumen (Railway); el sueño y el
 wellness subjetivo no son regenerables desde las APIs si ese volumen se pierde.
-Este módulo sube los `ENDURANCE_HRV_*.csv` / `*.json` de `DATA_DIR` a una
-carpeta plana en Dropbox, sobrescribiendo cada archivo (sin versionado propio:
-Dropbox ya conserva versiones anteriores de cada archivo).
+Este módulo sube los `ENDURANCE_HRV_*.csv` / `*.json` de `DATA_DIR`, más el
+histórico IA en `DATA_DIR/ai_briefs/`, a Dropbox sobrescribiendo cada archivo
+(sin versionado propio: Dropbox ya conserva versiones anteriores de cada
+archivo).
 
 Contrato operativo:
 - Opt-in vía `HRV_BACKUP_DROPBOX_ENABLED` (default off).
@@ -23,7 +24,7 @@ import os
 import shutil
 import sys
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import requests
 
@@ -31,7 +32,9 @@ from .config import DATA_DIR
 from .polar_utils import env_flag
 
 _UPLOAD_URL = "https://content.dropboxapi.com/2/files/upload"
+_CREATE_FOLDER_URL = "https://api.dropboxapi.com/2/files/create_folder_v2"
 _LIST_FOLDER_URL = "https://api.dropboxapi.com/2/files/list_folder"
+_LIST_FOLDER_CONTINUE_URL = "https://api.dropboxapi.com/2/files/list_folder/continue"
 _DOWNLOAD_URL = "https://content.dropboxapi.com/2/files/download"
 _TOKEN_URL = "https://api.dropboxapi.com/oauth2/token"
 
@@ -81,7 +84,24 @@ def _get_access_token() -> str | None:
 
 def _canonical_files() -> list[Path]:
     files = sorted(DATA_DIR.glob("ENDURANCE_HRV_*.csv")) + sorted(DATA_DIR.glob("ENDURANCE_HRV_*.json"))
+    ai_briefs_dir = DATA_DIR / "ai_briefs"
+    if ai_briefs_dir.exists():
+        files.extend(sorted(ai_briefs_dir.rglob("ENDURANCE_HRV_*.json")))
     return [p for p in files if p.is_file()]
+
+
+def _backup_relative_path(path: Path) -> str:
+    return path.relative_to(DATA_DIR).as_posix()
+
+
+def _safe_relative_path(raw_path: str) -> str | None:
+    rel = str(raw_path or "").strip().replace("\\", "/").lstrip("/")
+    if not rel:
+        return None
+    parts = PurePosixPath(rel).parts
+    if any(part in {"", ".", ".."} or ":" in part for part in parts):
+        return None
+    return PurePosixPath(*parts).as_posix()
 
 
 def _core_row_count(data_dir: Path | None = None) -> int | None:
@@ -120,15 +140,72 @@ def _upload_file(token: str, local_path: Path, dropbox_path: str) -> bool:
     return True
 
 
-def _list_folder_files(token: str, folder: str) -> list[str]:
+def _ensure_dropbox_folder(token: str, folder: str) -> bool:
+    """Crea una carpeta Dropbox si no existe; un conflicto de carpeta es válido."""
+    resp = requests.post(
+        _CREATE_FOLDER_URL,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json={"path": folder, "autorename": False},
+        timeout=_TIMEOUT_SEC,
+    )
+    if resp.status_code == 200:
+        return True
+    if resp.status_code == 409:
+        try:
+            error_summary = str(resp.json().get("error_summary") or "")
+        except (ValueError, TypeError):
+            error_summary = ""
+        if error_summary.startswith("path/conflict/folder"):
+            return True
+    _warn(f"creación de carpeta {folder} falló ({resp.status_code})")
+    return False
+
+
+def _dropbox_parent_dirs(dropbox_path: str) -> list[str]:
+    parent = PurePosixPath(dropbox_path).parent
+    dirs: list[str] = []
+    for index in range(1, len(parent.parts) + 1):
+        candidate = PurePosixPath(*parent.parts[:index]).as_posix()
+        if candidate != "/":
+            dirs.append(candidate)
+    return dirs
+
+
+def _entry_relative_path(entry: dict, root: str) -> str | None:
+    path_display = str(entry.get("path_display") or "")
+    root_prefix = root.rstrip("/") + "/"
+    if path_display.startswith(root_prefix):
+        return _safe_relative_path(path_display[len(root_prefix):])
+    return _safe_relative_path(str(entry.get("name") or ""))
+
+
+def _list_folder_files(token: str, folder: str, *, recursive: bool = False) -> list[str]:
     """Lista los archivos (no carpetas) dentro de una carpeta de Dropbox."""
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    resp = requests.post(_LIST_FOLDER_URL, headers=headers, json={"path": folder}, timeout=_TIMEOUT_SEC)
-    if resp.status_code != 200:
-        # 409 típico cuando la carpeta aún no existe: no hay nada que listar.
-        return []
-    entries = resp.json().get("entries", [])
-    return [e["name"] for e in entries if e.get(".tag") == "file"]
+    url = _LIST_FOLDER_URL
+    payload = {"path": folder, "recursive": recursive}
+    files: list[str] = []
+    while True:
+        resp = requests.post(url, headers=headers, json=payload, timeout=_TIMEOUT_SEC)
+        if resp.status_code != 200:
+            # 409 típico cuando la carpeta aún no existe: no hay nada que listar.
+            return []
+        response_json = resp.json()
+        entries = response_json.get("entries", [])
+        files.extend(
+            rel_path
+            for e in entries
+            if e.get(".tag") == "file"
+            for rel_path in [_entry_relative_path(e, folder)]
+            if rel_path is not None
+        )
+        if not response_json.get("has_more"):
+            return files
+        cursor = str(response_json.get("cursor") or "").strip()
+        if not cursor:
+            return []
+        url = _LIST_FOLDER_CONTINUE_URL
+        payload = {"cursor": cursor}
 
 
 def _download_file(token: str, dropbox_path: str) -> bytes | None:
@@ -160,8 +237,22 @@ def run_backup() -> dict:
         root = _backup_root()
         uploaded = 0
         failed = 0
+        ensured_dirs: set[str] = set()
         for path in files:
-            if _upload_file(token, path, f"{root}/{path.name}"):
+            dropbox_path = f"{root}/{_backup_relative_path(path)}"
+            parent_dirs = _dropbox_parent_dirs(dropbox_path)
+            folders_ready = True
+            for folder in parent_dirs:
+                if folder in ensured_dirs:
+                    continue
+                if not _ensure_dropbox_folder(token, folder):
+                    folders_ready = False
+                    break
+                ensured_dirs.add(folder)
+            if not folders_ready:
+                failed += 1
+                continue
+            if _upload_file(token, path, dropbox_path):
                 uploaded += 1
             else:
                 failed += 1
@@ -188,7 +279,7 @@ def list_available_backups() -> dict:
     if not token:
         return {"status": "no_credentials", "files": []}
     root = _backup_root()
-    files = _list_folder_files(token, root)
+    files = _list_folder_files(token, root, recursive=True)
     return {"status": "ok", "files": sorted(files), "folder": root}
 
 
@@ -202,7 +293,7 @@ def restore_backup(data_dir: Path | None = None) -> dict:
         raise RuntimeError("Sin credenciales Dropbox (DROPBOX_ACCESS_TOKEN o refresh trio)")
 
     root = _backup_root()
-    file_names = _list_folder_files(token, root)
+    file_names = _list_folder_files(token, root, recursive=True)
     if not file_names:
         raise FileNotFoundError(f"No hay archivos en {root}")
 
@@ -213,18 +304,25 @@ def restore_backup(data_dir: Path | None = None) -> dict:
     failed = []
     backed_up = []
     for name in file_names:
-        data = _download_file(token, f"{root}/{name}")
+        rel_path = _safe_relative_path(name)
+        if rel_path is None:
+            failed.append(name)
+            continue
+
+        data = _download_file(token, f"{root}/{rel_path}")
         if data is None:
             failed.append(name)
             continue
 
-        dest = target_dir / name
+        dest = target_dir / Path(rel_path)
         if dest.exists():
-            backup_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(dest, backup_dir / name)
+            backup_target = backup_dir / Path(rel_path)
+            backup_target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(dest, backup_target)
             backed_up.append(name)
 
-        fd, tmp = tempfile.mkstemp(dir=target_dir, prefix=f"{name}.", suffix=".tmp")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=dest.parent, prefix=f"{dest.name}.", suffix=".tmp")
         os.close(fd)
         tmp_path = Path(tmp)
         try:

@@ -490,7 +490,7 @@ Cada corrida del pipeline genera un `ENDURANCE_HRV_sessions_metadata.json` que d
 
 ```json
 {
-  "pipeline_version": "v3.11",
+  "pipeline_version": "v3.12",
   "params": {
     "VT1_DEFAULT": 143,
     "VT2_DEFAULT": 161,
@@ -773,7 +773,7 @@ F) effort split aerobic/strength
 
 ---
 
-## 10. Pipeline
+## 11. Pipeline
 
 ```bash
 # Reprocesar todo el histórico

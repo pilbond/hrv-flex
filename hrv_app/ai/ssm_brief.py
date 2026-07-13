@@ -30,6 +30,7 @@ from hrv_app.ai.config import (
     SSM_SHADOW_PATH,
     ai_chat_completions_url,
     ai_ssm_brief_history_path,
+    migrate_legacy_ai_brief_history,
 )
 from hrv_app.io_utils import write_json_atomic
 from hrv_app.ssm_brief import SSM_INNOVATION_THRESHOLD, build_minimal_ssm_brief
@@ -633,6 +634,10 @@ def _validate_output(
 def run_ai_ssm_brief_for_latest_date() -> dict[str, Any]:
     if not HRV_AI_ENABLED or not HRV_AI_SSM_ENABLED:
         return {"status": "disabled"}
+
+    # La limpieza del histórico legado no debe depender de que hoy haya una
+    # señal SSM publicable. FINAL_PATH permite aislarla al directorio de tests.
+    migrate_legacy_ai_brief_history(FINAL_PATH.parent)
 
     if not SSM_SHADOW_PATH.exists():
         return {"status": "missing_ssm_shadow"}

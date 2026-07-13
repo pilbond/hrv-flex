@@ -128,6 +128,7 @@ class AiDailyBriefContractTests(unittest.TestCase):
                     patch.object(daily_brief, "ai_daily_brief_history_path", return_value=root / "ENDURANCE_HRV_ai_daily_brief_2026-06-24.json"), \
                     patch.object(daily_brief, "HRV_AI_ENABLED", True), \
                     patch.object(daily_brief, "HRV_AI_DAILY_ENABLED", True), \
+                    patch.object(daily_brief, "migrate_legacy_ai_brief_history") as migrate_mock, \
                     patch.object(daily_brief.requests, "post") as post_mock:
                 result = daily_brief.run_ai_daily_brief_for_latest_date()
                 self.assertTrue(latest_path.exists())
@@ -135,6 +136,7 @@ class AiDailyBriefContractTests(unittest.TestCase):
         self.assertEqual(result["status"], "not_applicable")
         self.assertFalse(result["published"])
         self.assertEqual(result["reason"], "gate_NO")
+        migrate_mock.assert_called_once_with(final_path.parent)
         post_mock.assert_not_called()
 
     def test_missing_sleep_writes_error_sidecar(self):
@@ -163,7 +165,7 @@ class AiDailyBriefContractTests(unittest.TestCase):
             root = Path(tmpdir)
             final_path, sleep_path, sessions_day_path, reason_items_path = self._write_minimal_inputs(root, gate_final="VERDE")
             latest_path = root / "ENDURANCE_HRV_ai_daily_brief_latest.json"
-            history_path = root / "ENDURANCE_HRV_ai_daily_brief_2026-06-24.json"
+            history_path = root / "ai_briefs" / "daily" / "ENDURANCE_HRV_ai_daily_brief_2026-06-24.json"
 
             response = Mock()
             response.raise_for_status.return_value = None

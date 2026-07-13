@@ -908,7 +908,7 @@ Nota Fase 1: en `build_hrv_final_dashboard.py` existe un bloque latente que emit
 
 ## 5nonies. SSM_VALIDATION_REPORT (sidecar JSON + MD)
 
-Generado por `build_hrv_ssm_validation.py` como:
+Generado por `build_hrv_ssm_validation.py` en `research/reports/ssm_validation/` como:
 
 - `ENDURANCE_HRV_ssm_validation_report.json`
 - `ENDURANCE_HRV_ssm_validation_report.md`
@@ -985,7 +985,7 @@ El `.md` es un resumen humano del mismo análisis. Si hay discrepancia, manda el
 
 ## 5decies_bis. SSM_OUTCOME_BATTERY (sidecar exploratorio)
 
-Generado por `build_hrv_ssm_outcome_battery.py` como `ENDURANCE_HRV_ssm_outcome_battery.json` y `.md`.
+Generado por `build_hrv_ssm_outcome_battery.py` en `research/reports/ssm_validation/` como `ENDURANCE_HRV_ssm_outcome_battery.json` y `.md`.
 Se regenera solo bajo demanda, normalmente despues de ejecutar manualmente la validacion SSM.
 
 Prueba el predictor SSM contra outcomes alternativos a `cardiac_drift_worst`:
