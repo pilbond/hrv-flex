@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Especificación Técnica
 
-**Revisión:** r2026-06-19 v4.16 (ANS balance §4.5, outputs SSM/wellness/reason_items en §17)
+**Revisión:** r2026-07-14 v4.17 (referencia al contrato estructural fail-closed)
 **Estado:** Producción
 
 ---
@@ -39,7 +39,7 @@ Mapa operativo actual:
 - Sistema vigente: `ENDURANCE HRV V4.10`
 - Módulo RR -> CORE/BETA: `build_hrv_core.py`, revisión `r2026-03-19`
 - Módulo CORE -> FINAL/DASHBOARD: `build_hrv_final_dashboard.py`, revisión `r2026-04-08`
-- Contrato estructural HRV: `ENDURANCE_HRV_Estructura.md`, revisión `r2026-06-19 v3.18`
+- Contrato estructural HRV: `ENDURANCE_HRV_Estructura.md`, revisión `r2026-07-14 v3.19`
 - Contrato de sesiones: `ENDURANCE_HRV_Sessions_Schema.md`, revisión `r2026-05-18 v3.15`
 
 ---

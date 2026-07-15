@@ -716,20 +716,61 @@ def compute_day_from_rr_core_only(rr_path: Path, C: dict) -> Tuple[dict, None]:
 # ============================================================================
 
 def get_or_create_df(path: Path, columns: List[str]) -> pd.DataFrame:
-    """Carga CSV si existe, o crea DataFrame vacío."""
+    """Carga CSV si existe, o crea DataFrame vacío. Falla explícitamente si el archivo existe pero no es legible."""
     if path.exists():
         try:
             df = pd.read_csv(path)
+            missing = [c for c in columns if c not in df.columns]
+            if missing:
+                raise ValueError(
+                    f"columnas canónicas ausentes en {path.name}: {missing!r} — "
+                    f"archivo truncado o de generación incompatible"
+                )
+            extras = [c for c in df.columns if c not in set(columns)]
+            if extras:
+                raise ValueError(
+                    f"columnas no canónicas en {path.name}: {extras!r} — "
+                    f"esquema incompatible"
+                )
+            if df.empty or df.dropna(how="all").empty:
+                raise ValueError(
+                    f"archivo existente sin registros en {path.name} — "
+                    f"posible truncado; eliminar el archivo para iniciar desde cero"
+                )
             if "Fecha" in df.columns:
                 df["Fecha"] = df["Fecha"].astype(str)
-            for c in columns:
-                if c not in df.columns:
-                    df[c] = np.nan
-            df = df[[c for c in columns if c in df.columns] + [c for c in df.columns if c not in columns]]
+            df = df[columns]
             return df
         except Exception as e:
-            print(f"Advertencia: No se pudo leer {path} ({e}). Creando nuevo.")
-            return pd.DataFrame(columns=columns)
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            quarantine = None
+            for _attempt in range(100):
+                suffix = f"_{_attempt}" if _attempt else ""
+                candidate = path.with_name(path.name + f".corrupt.{ts}{suffix}")
+                try:
+                    candidate.open("x").close()
+                    quarantine = candidate
+                    break
+                except FileExistsError:
+                    continue
+                except OSError:
+                    break
+            copied = False
+            if quarantine is not None:
+                try:
+                    shutil.copy2(path, quarantine)
+                    copied = True
+                except OSError:
+                    try:
+                        quarantine.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                    quarantine = None
+            copy_msg = quarantine.name if copied else "(copia fallida)"
+            raise RuntimeError(
+                f"[FAIL-CLOSED] {path.name} existe pero no se puede leer ({e}). "
+                f"Copia en: {copy_msg}. Reparar o restaurar antes de continuar."
+            ) from e
     else:
         _qprint(f"Info: {path} no existe. Creando archivo nuevo.")
         return pd.DataFrame(columns=columns)

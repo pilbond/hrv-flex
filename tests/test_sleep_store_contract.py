@@ -153,5 +153,139 @@ class SleepStoreContractTests(unittest.TestCase):
         self.assertEqual(calls, [date(2026, 3, 4), date(2026, 3, 5)])
 
 
+class SleepStoreFailClosedTests(unittest.TestCase):
+    def test_corrupt_sleep_csv_raises_and_quarantines(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sleep_path = Path(tmpdir) / "ENDURANCE_HRV_sleep.csv"
+            sleep_path.write_bytes(b"\xff corrupt \x00")
+            original_bytes = sleep_path.read_bytes()
+
+            with patch.object(sleep_store, "SLEEP_PATH", sleep_path):
+                with self.assertRaises(RuntimeError) as ctx:
+                    sleep_store.upsert_sleep_row({"Fecha": "2026-07-14", "polar_sleep_duration_min": 360})
+
+            self.assertIn("FAIL-CLOSED", str(ctx.exception))
+            # original bytes preserved
+            self.assertEqual(sleep_path.read_bytes(), original_bytes)
+            # quarantine created with original content
+            quarantine_files = list(Path(tmpdir).glob("ENDURANCE_HRV_sleep.csv.corrupt.*"))
+            self.assertEqual(len(quarantine_files), 1)
+            self.assertEqual(quarantine_files[0].read_bytes(), original_bytes)
+
+    def test_empty_sleep_csv_raises_and_quarantines(self):
+        """Un sleep.csv existente pero vacío debe fallar con cuarentena, no sobrescribirse."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sleep_path = Path(tmpdir) / "ENDURANCE_HRV_sleep.csv"
+            sleep_path.write_bytes(b"")
+            original_bytes = sleep_path.read_bytes()
+
+            with patch.object(sleep_store, "SLEEP_PATH", sleep_path):
+                with self.assertRaises(RuntimeError) as ctx:
+                    sleep_store.upsert_sleep_row({"Fecha": "2026-07-14", "polar_sleep_duration_min": 360})
+
+            self.assertIn("FAIL-CLOSED", str(ctx.exception))
+            self.assertEqual(sleep_path.read_bytes(), original_bytes)
+            quarantine_files = list(Path(tmpdir).glob("ENDURANCE_HRV_sleep.csv.corrupt.*"))
+            self.assertEqual(len(quarantine_files), 1)
+
+    def test_invalid_schema_sleep_csv_raises_and_quarantines(self):
+        """Un sleep.csv legible pero sin columnas canónicas debe fallar con cuarentena."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sleep_path = Path(tmpdir) / "ENDURANCE_HRV_sleep.csv"
+            sleep_path.write_text("garbage\nfoo\n", encoding="utf-8")
+            original_bytes = sleep_path.read_bytes()
+
+            with patch.object(sleep_store, "SLEEP_PATH", sleep_path):
+                with self.assertRaises(RuntimeError) as ctx:
+                    sleep_store.upsert_sleep_row({"Fecha": "2026-07-14", "polar_sleep_duration_min": 360})
+
+            self.assertIn("FAIL-CLOSED", str(ctx.exception))
+            self.assertEqual(sleep_path.read_bytes(), original_bytes)
+            quarantine_files = list(Path(tmpdir).glob("ENDURANCE_HRV_sleep.csv.corrupt.*"))
+            self.assertEqual(len(quarantine_files), 1)
+
+    def test_truncated_sleep_csv_only_fecha_raises_and_quarantines(self):
+        """Un sleep.csv con solo 'Fecha' (truncado) debe fallar, no rellenarse con NaN."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sleep_path = Path(tmpdir) / "ENDURANCE_HRV_sleep.csv"
+            sleep_path.write_text("Fecha\n2026-07-14\n", encoding="utf-8")
+            original_bytes = sleep_path.read_bytes()
+
+            with patch.object(sleep_store, "SLEEP_PATH", sleep_path):
+                with self.assertRaises(RuntimeError) as ctx:
+                    sleep_store.upsert_sleep_row({"Fecha": "2026-07-14", "polar_sleep_duration_min": 360})
+
+            self.assertIn("FAIL-CLOSED", str(ctx.exception))
+            self.assertIn("polar_sleep_duration_min", str(ctx.exception))
+            self.assertEqual(sleep_path.read_bytes(), original_bytes)
+            quarantine_files = list(Path(tmpdir).glob("ENDURANCE_HRV_sleep.csv.corrupt.*"))
+            self.assertEqual(len(quarantine_files), 1)
+
+    def test_unexpected_sleep_column_raises_and_quarantines(self):
+        """Una columna ajena al contrato debe bloquear la actualización de sleep."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sleep_path = Path(tmpdir) / "ENDURANCE_HRV_sleep.csv"
+            header = ",".join(sleep_store.SLEEP_COLUMNS + ["extra"]) + "\n"
+            row = ",".join(["2026-07-13"] + [""] * (len(sleep_store.SLEEP_COLUMNS) - 1) + ["valor"]) + "\n"
+            sleep_path.write_text(header + row, encoding="utf-8")
+            original_bytes = sleep_path.read_bytes()
+
+            with patch.object(sleep_store, "SLEEP_PATH", sleep_path):
+                with self.assertRaises(RuntimeError) as ctx:
+                    sleep_store.upsert_sleep_row({"Fecha": "2026-07-14"})
+
+            self.assertIn("columnas no canónicas", str(ctx.exception))
+            self.assertEqual(sleep_path.read_bytes(), original_bytes)
+            quarantine_files = list(Path(tmpdir).glob("ENDURANCE_HRV_sleep.csv.corrupt.*"))
+            self.assertEqual(len(quarantine_files), 1)
+
+    def test_header_only_sleep_csv_raises_and_quarantines(self):
+        """Cabecera completa pero sin filas debe fallar con cuarentena."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sleep_path = Path(tmpdir) / "ENDURANCE_HRV_sleep.csv"
+            header = ",".join(sleep_store.SLEEP_COLUMNS) + "\n"
+            sleep_path.write_text(header, encoding="utf-8")
+            original_bytes = sleep_path.read_bytes()
+
+            with patch.object(sleep_store, "SLEEP_PATH", sleep_path):
+                with self.assertRaises(RuntimeError) as ctx:
+                    sleep_store.upsert_sleep_row({"Fecha": "2026-07-14", "polar_sleep_duration_min": 360})
+
+            self.assertIn("FAIL-CLOSED", str(ctx.exception))
+            self.assertEqual(sleep_path.read_bytes(), original_bytes)
+            quarantine_files = list(Path(tmpdir).glob("ENDURANCE_HRV_sleep.csv.corrupt.*"))
+            self.assertEqual(len(quarantine_files), 1)
+
+    def test_all_nan_row_sleep_csv_raises_and_quarantines(self):
+        """Una fila con cabecera correcta pero solo valores vacíos debe fallar, no publicarse."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sleep_path = Path(tmpdir) / "ENDURANCE_HRV_sleep.csv"
+            header = ",".join(sleep_store.SLEEP_COLUMNS) + "\n"
+            blank_row = "," * (len(sleep_store.SLEEP_COLUMNS) - 1) + "\n"
+            sleep_path.write_text(header + blank_row, encoding="utf-8")
+            original_bytes = sleep_path.read_bytes()
+
+            with patch.object(sleep_store, "SLEEP_PATH", sleep_path):
+                with self.assertRaises(RuntimeError) as ctx:
+                    sleep_store.upsert_sleep_row({"Fecha": "2026-07-14", "polar_sleep_duration_min": 360})
+
+            self.assertIn("FAIL-CLOSED", str(ctx.exception))
+            self.assertEqual(sleep_path.read_bytes(), original_bytes)
+            quarantine_files = list(Path(tmpdir).glob("ENDURANCE_HRV_sleep.csv.corrupt.*"))
+            self.assertEqual(len(quarantine_files), 1)
+
+    def test_upsert_sleep_row_calls_write_csv_atomic(self):
+        """write_csv_atomic debe usarse en vez de una escritura directa."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sleep_path = Path(tmpdir) / "ENDURANCE_HRV_sleep.csv"
+            with patch.object(sleep_store, "SLEEP_PATH", sleep_path), \
+                 patch("hrv_app.sleep_store.write_csv_atomic", wraps=sleep_store.write_csv_atomic) as mock_write:
+                sleep_store.upsert_sleep_row({"Fecha": "2026-07-14", "polar_sleep_duration_min": 360})
+
+            mock_write.assert_called_once()
+            _, call_path = mock_write.call_args[0]
+            self.assertEqual(call_path, sleep_path)
+
+
 if __name__ == "__main__":
     unittest.main()

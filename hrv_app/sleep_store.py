@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -10,6 +11,7 @@ except ImportError:  # pragma: no cover - pandas is expected in runtime requirem
 
 from . import config
 from .config import PANDAS_AVAILABLE, SLEEP_PATH
+from .io_utils import write_csv_atomic
 from .polar_gateway import fetch_polar_nightly_recharge, fetch_polar_sleep
 from .polar_utils import _parse_yyyy_mm_dd, parse_duration_to_minutes, parse_float
 
@@ -359,8 +361,53 @@ def upsert_sleep_row(sleep_row: Dict[str, Any]) -> bool:
     if SLEEP_PATH.exists():
         try:
             sleep_df = pd.read_csv(SLEEP_PATH)
-        except (FileNotFoundError, pd.errors.EmptyDataError, OSError, ValueError):
-            sleep_df = pd.DataFrame(columns=SLEEP_COLUMNS)
+            missing = [c for c in SLEEP_COLUMNS if c not in sleep_df.columns]
+            if missing:
+                raise ValueError(
+                    f"columnas canónicas ausentes en {SLEEP_PATH.name}: {missing!r} — "
+                    f"archivo truncado o de generación incompatible"
+                )
+            extras = [c for c in sleep_df.columns if c not in set(SLEEP_COLUMNS)]
+            if extras:
+                raise ValueError(
+                    f"columnas no canónicas en {SLEEP_PATH.name}: {extras!r} — "
+                    f"esquema incompatible"
+                )
+            if sleep_df.empty or sleep_df.dropna(how="all").empty:
+                raise ValueError(
+                    f"archivo existente sin registros en {SLEEP_PATH.name} — "
+                    f"posible truncado; eliminar el archivo para iniciar desde cero"
+                )
+        except Exception as e:
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            quarantine = None
+            for _attempt in range(100):
+                suffix = f"_{_attempt}" if _attempt else ""
+                candidate = SLEEP_PATH.with_name(SLEEP_PATH.name + f".corrupt.{ts}{suffix}")
+                try:
+                    candidate.open("x").close()
+                    quarantine = candidate
+                    break
+                except FileExistsError:
+                    continue
+                except OSError:
+                    break
+            copied = False
+            if quarantine is not None:
+                try:
+                    shutil.copy2(SLEEP_PATH, quarantine)
+                    copied = True
+                except OSError:
+                    try:
+                        quarantine.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                    quarantine = None
+            copy_msg = quarantine.name if copied else "(copia fallida)"
+            raise RuntimeError(
+                f"[FAIL-CLOSED] {SLEEP_PATH.name} existe pero no se puede leer ({e}). "
+                f"Copia en: {copy_msg}. Reparar o restaurar antes de continuar."
+            ) from e
     else:
         sleep_df = pd.DataFrame(columns=SLEEP_COLUMNS)
 
@@ -374,8 +421,7 @@ def upsert_sleep_row(sleep_row: Dict[str, Any]) -> bool:
     sleep_df = _recalculate_sleep_derived(sleep_df)
     sleep_df = sleep_df[SLEEP_COLUMNS]
 
-    SLEEP_PATH.parent.mkdir(parents=True, exist_ok=True)
-    sleep_df.to_csv(SLEEP_PATH, index=False)
+    write_csv_atomic(sleep_df, SLEEP_PATH)
     return True
 
 

@@ -91,7 +91,8 @@ Importante:
 ## `hrv_app.hrv_sync_flow`
 - Que hace:
   - Implementa el caso de uso principal del sync HRV.
-  - Si `CORE` esta vacio, primero intenta reprocesar RR locales de `data/rr_downloads/`; si no existen, hace bootstrap corto desde Dropbox.
+  - Si `CORE` no existe, primero intenta reprocesar RR locales de `data/rr_downloads/`; si no existen, hace bootstrap corto desde Dropbox.
+  - Si `CORE` existe pero esta vacio, es ilegible o tiene un esquema incompatible, el builder falla cerrado. El flujo solo puede continuar si el auto-restore opt-in deja un CORE valido o tras una recuperacion manual.
   - Resuelve rango de fechas y cubre `target_missing_dates` desde Dropbox (AYO-13-F4); si Dropbox no cubre una fecha nueva, esa fecha no entra al pipeline (sin fallback Polar).
   - Coordina escritura de RR, ejecucion de `build_hrv_core.py`, refresco de `sleep`, sync opcional con Intervals y reporting final.
 - Cuando usarlo:
@@ -158,6 +159,8 @@ Importante:
 - Que hace:
   - Persiste y recalcula `ENDURANCE_HRV_sleep.csv`.
   - Normaliza campos de sleep y nightly recharge, hace upsert por fecha y recalcula derivados.
+  - Exige que un `sleep.csv` existente tenga al menos una fila y el esquema canonico exacto de 17 columnas; si no, falla cerrado y conserva el original.
+  - Publica el CSV mediante `write_csv_atomic`; no escribe directamente sobre el canonico.
 - Cuando usarlo:
   - Siempre que el flujo HRV necesite actualizar sueno/capas de recuperacion.
 
@@ -224,7 +227,7 @@ Importante:
   - Proporciona `write_csv_atomic`, `write_json_atomic`, `write_text_atomic` y `json_safe` compartidos por todos los módulos que escriben artefactos canónicos.
   - Todas las escrituras usan `tempfile + os.replace` con retry ante `PermissionError`.
 - Cuando usarlo:
-  - Lo importan `build_hrv_core.py`, `build_hrv_final_dashboard.py`, `build_sessions.py`, `build_hrv_ssm.py` y `hrv_app/backup_dropbox.py`. No se llama directamente desde el flujo operativo.
+  - Lo importan `build_hrv_core.py`, `build_hrv_final_dashboard.py`, `build_sessions.py`, `build_hrv_ssm.py`, `hrv_app.sleep_store` y `hrv_app/backup_dropbox.py`. No se llama directamente desde el flujo operativo.
 
 ## `hrv_app.backup_dropbox`
 - Que hace:
@@ -288,6 +291,7 @@ Importante:
 - Que hace:
   - Procesa RR crudos.
   - Calcula metrica HRV estable por dia.
+  - Si CORE o BETA_AUDIT ya existen, exige al menos una fila y su esquema canonico exacto (18 y 13 columnas). Un archivo vacio, ilegible o incompatible provoca salida no cero, conserva el original en cuarentena cuando es posible y no publica un manifest nuevo.
   - Genera:
     - `ENDURANCE_HRV_master_CORE.csv`
     - `ENDURANCE_HRV_master_BETA_AUDIT.csv`
@@ -296,7 +300,7 @@ Importante:
 - Entradas:
   - RR (`--rr-file` o `--rr-dir`, normalmente `data/rr_downloads`).
 - Salidas:
-- CORE y BETA_AUDIT.
+  - CORE y BETA_AUDIT.
   - `ENDURANCE_HRV_master_CORE_manifest.json` como sidecar atómico de trazabilidad de la corrida.
 - Automatico o manual:
   - Automatico dentro de `polar_hrv_automation.py --process`.

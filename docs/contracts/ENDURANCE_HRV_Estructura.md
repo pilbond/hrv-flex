@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Estructura de Datos
 
-**Revisión:** r2026-06-19 v3.18 (fix sessions_day 61 cols en diagrama)
+**Revisión:** r2026-07-14 v3.19 (fail-closed de CORE, BETA_AUDIT y sleep)
 **Estado:** Producción
 
 **Documentos relacionados:**
@@ -72,6 +72,25 @@ Estas reglas aplican a todos los archivos CSV del sistema:
 - **Orden:** ascendente por Fecha (el día más antiguo arriba, el más reciente abajo).
 - **Codificación:** UTF-8
 - **Separador:** coma (CSV estándar)
+
+### Lectura fail-closed de canónicos
+
+`ENDURANCE_HRV_master_CORE.csv`, `ENDURANCE_HRV_master_BETA_AUDIT.csv` y
+`ENDURANCE_HRV_sleep.csv` deben contener el esquema exacto vigente indicado
+en este contrato: todas las columnas canónicas y ninguna columna adicional.
+La política operativa es deliberadamente simple:
+
+- si el archivo no existe, el pipeline puede inicializarlo;
+- si existe, debe ser legible, contener al menos una fila y coincidir con las
+  columnas canónicas vigentes;
+- si no cumple esas condiciones, el pipeline se detiene sin sobrescribirlo y
+  deja una copia de cuarentena cuando el sistema de archivos lo permite;
+- no hay migración automática de esquemas antiguos: deben repararse o
+  restaurarse antes de reintentar el sync.
+
+Esta regla protege los históricos frente a sustituciones silenciosas por un
+dataset vacío o parcial. Cualquier cambio futuro de columnas requiere adaptar
+el productor, sus tests y este contrato antes del despliegue.
 
 **Nota sobre sleep.csv:** Este archivo contiene solo datos de sueño/recuperación de Polar. Puede tener más filas que CORE/FINAL, porque registra noches aunque no haya habido medición HRV ese día. La carga de entrenamiento está en `sessions_day.csv` (generado por `build_sessions.py`). Su clave primaria sigue siendo Fecha (sin duplicados).
 
@@ -398,8 +417,16 @@ Tests que deben pasar después de cada procesamiento para garantizar que los arc
 ```python
 assert df["Fecha"].is_unique                                          # sin duplicados
 assert df["Fecha"].notna().all()                                      # siempre hay fecha
+assert df.shape[1] == 18                                               # esquema canónico completo
 assert df["Calidad"].isin(["OK", "FLAG_mecánico", "INVALID"]).all()   # vocabulario cerrado
 assert df["HRV_Stability"].isin(["OK", "Unstable"]).all()             # vocabulario cerrado
+```
+
+### BETA_AUDIT
+
+```python
+assert beta["Fecha"].is_unique                                        # sin duplicados
+assert beta.shape[1] == 13                                             # esquema canónico completo
 ```
 
 ### FINAL
