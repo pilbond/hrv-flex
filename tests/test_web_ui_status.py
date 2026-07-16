@@ -1,16 +1,127 @@
 import json
 import unittest
+import json
 from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from jinja2 import TemplateNotFound
 
 import web_ui
+from hrv_app.pipeline_status import PIPELINE_RESULT_PREFIX, PipelineResult
 
 
 class WebUiStatusTests(unittest.TestCase):
+    def test_hrv_subprocess_marker_populates_pipeline_status(self):
+        marker = (
+            '##HRV_RESULT##{"status":"degraded","success":true,"canonical_valid":true,'
+            '"stage":"sleep","date_from":"2026-07-14","date_to":"2026-07-15",'
+            '"processed_dates":["2026-07-15"],"uncovered_dates":["2026-07-14"],'
+            '"pending_sleep_dates":["2026-07-14"],'
+            '"source":{"name":"dropbox_rr","status":"ok","outcome":"data_found"},'
+            '"source_status":"ok","source_outcome":"data_found","error":null,'
+            '"degraded_stages":[{"stage":"sleep","status":"degraded","outcome":"pending",'
+            '"error":{"code":"sleep_not_ready","message":"Polar aún no publicó sleep"}}],'
+            '"stages":[{"stage":"sleep","status":"degraded","outcome":"pending"}]}'
+        )
+        with patch.object(web_ui.Path, "exists", return_value=True), patch.object(
+            web_ui.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout=marker, stderr="")
+        ):
+            web_ui._run_subprocess_job(["python", "polar_hrv_automation.py"], "hrv", "ok")
+
+        state = web_ui._execution_snapshot()
+        self.assertTrue(state["success"])
+        self.assertEqual(state["pipeline_status"], "degraded")
+        self.assertEqual(state["pipeline_stage"], "sleep")
+        self.assertEqual(state["pipeline_date_from"], "2026-07-14")
+        self.assertEqual(state["pipeline_date_to"], "2026-07-15")
+        self.assertEqual(state["processed_dates"], ["2026-07-15"])
+        self.assertEqual(state["uncovered_dates"], ["2026-07-14"])
+        self.assertEqual(state["source_status"], "ok")
+        self.assertEqual(state["source_outcome"], "data_found")
+        self.assertEqual(
+            state["degraded_stages"],
+            [{
+                "stage": "sleep",
+                "status": "degraded",
+                "outcome": "pending",
+                "error": {"code": "sleep_not_ready", "message": "Polar aún no publicó sleep"},
+            }],
+        )
+        self.assertEqual(state["pending_sleep_dates"], ["2026-07-14"])
+        self.assertEqual(state["pending_sleep_reason"], "awaiting_publication")
+
+    def test_pending_sleep_reason_distinguishes_transport_from_delayed_publication(self):
+        state = web_ui._pipeline_public_fields({
+            "degraded_stages": [{
+                "stage": "sleep",
+                "status": "degraded",
+                "outcome": "request_error",
+                "error": {"code": "sleep_transport_failed", "message": "Polar no respondió"},
+            }],
+            "pending_sleep_dates": ["2026-07-14"],
+        })
+
+        self.assertEqual(state["pending_sleep_reason"], "transport_error")
+
+    def test_sync_endpoint_to_status_preserves_terminal_pipeline_result(self):
+        terminal = {
+            "status": "failed",
+            "success": False,
+            "canonical_valid": False,
+            "stage": "core",
+            "date_from": "2026-07-14",
+            "date_to": "2026-07-15",
+            "error": {"code": "builder_failed", "message": "CORE falló"},
+            "pending_sleep_dates": [],
+        }
+
+        def complete_sync():
+            web_ui._set_execution_result("hrv", False, "", "CORE falló", "error", terminal)
+
+        token_path = SimpleNamespace(exists=lambda: True)
+        with patch.object(web_ui, "TOKEN_PATH_V4", token_path), patch.object(web_ui, "run_sync", side_effect=complete_sync):
+            with web_ui.app.test_client() as client:
+                response = client.post("/api/sync")
+                status_response = client.get("/api/status")
+
+        self.assertIn(response.status_code, {200, 202})
+        status = status_response.get_json()
+        self.assertFalse(status["success"])
+        self.assertEqual(status["pipeline_status"], "failed")
+        self.assertEqual(status["pipeline_stage"], "core")
+        self.assertEqual(status["pipeline_date_from"], "2026-07-14")
+        self.assertEqual(status["pipeline_result"]["error"]["code"], "builder_failed")
+
+    def test_sync_endpoint_worker_and_status_cover_terminal_outcomes(self):
+        cases = []
+        success = PipelineResult().ok("final_dashboard")
+        cases.append(("success", success, 0, True, "ok"))
+        degraded = PipelineResult().degrade("sleep", "request_error", "sleep_transport_failed", "Polar no respondió")
+        cases.append(("degraded", degraded, 0, True, "degraded"))
+        failed = PipelineResult().fail("core", "builder_failed", "CORE falló")
+        cases.append(("failed", failed, 1, False, "failed"))
+
+        token_path = SimpleNamespace(exists=lambda: True)
+        for name, terminal, returncode, expected_success, expected_status in cases:
+            marker = PIPELINE_RESULT_PREFIX + json.dumps(terminal.to_dict())
+            with self.subTest(name=name), patch.object(web_ui, "TOKEN_PATH_V4", token_path), patch.object(
+                web_ui, "_token_diagnostics", return_value={}
+            ), patch.object(
+                web_ui.subprocess, "run", return_value=SimpleNamespace(returncode=returncode, stdout=marker, stderr="")
+            ):
+                with web_ui.app.test_client() as client:
+                    response = client.post("/api/sync")
+                    status = client.get("/api/status").get_json()
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.get_json()["success"], expected_success)
+            self.assertEqual(status["success"], expected_success)
+            self.assertEqual(status["pipeline_status"], expected_status)
+            self.assertEqual(status["pipeline_result"]["stage"], terminal.stage)
+
     def _write_final_csv(self, data_dir: Path, fecha: str, reason_text: str = "Reason text base") -> None:
         (data_dir / "ENDURANCE_HRV_master_FINAL.csv").write_text(
             (

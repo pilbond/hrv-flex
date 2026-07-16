@@ -51,15 +51,15 @@ class _Env(unittest.TestCase):
 
 
 class NoTokenTests(_Env):
-    def test_no_bundle_returns_none(self):
-        self.assertIsNone(gateway.fetch_polar_sleep("ignored", None, "2026-06-10"))
-        self.assertIsNone(gateway.fetch_polar_nightly_recharge("ignored", None, "2026-06-10"))
+    def test_no_bundle_returns_transport_result(self):
+        self.assertEqual(gateway.fetch_polar_sleep_result("ignored", None, "2026-06-10"), {"outcome": "request_error", "data": None})
+        self.assertEqual(gateway.fetch_polar_nightly_recharge_result("ignored", None, "2026-06-10"), {"outcome": "request_error", "data": None})
 
     def test_no_bundle_logs_a_single_warning(self):
         with self.assertLogs("hrv_app.polar_gateway", level="WARNING") as logs:
-            gateway.fetch_polar_sleep("ignored", None, "2026-06-10")
-            gateway.fetch_polar_nightly_recharge("ignored", None, "2026-06-10")
-            gateway.fetch_polar_sleep("ignored", None, "2026-06-11")
+            gateway.fetch_polar_sleep_result("ignored", None, "2026-06-10")
+            gateway.fetch_polar_nightly_recharge_result("ignored", None, "2026-06-10")
+            gateway.fetch_polar_sleep_result("ignored", None, "2026-06-11")
 
         warning_messages = [msg for msg in logs.output if "bundle v4 utilizable" in msg]
         self.assertEqual(len(warning_messages), 1)
@@ -80,36 +80,36 @@ class FetchTests(_Env):
             return [V4_SLEEP_ITEM]
 
         with patch.object(gateway.V4Client, "fetch_sleeps", side_effect=_fake_fetch_sleeps):
-            result = gateway.fetch_polar_sleep("ignored-token", None, "2026-06-10")
+            result = gateway.fetch_polar_sleep_result("ignored-token", None, "2026-06-10")
 
         self.assertEqual(captured["args"][0], "2026-06-10")
         self.assertEqual(captured["args"][1], "2026-06-11")
         self.assertTrue(captured["args"][2])
-        self.assertIsNotNone(result)
-        self.assertEqual(result["asleep_duration"], "PT24000S")
-        self.assertEqual(result["sleep_score"], 75)
+        self.assertEqual(result["outcome"], "data_found")
+        self.assertEqual(result["data"]["asleep_duration"], "PT24000S")
+        self.assertEqual(result["data"]["sleep_score"], 75)
 
     def test_nightly_uses_day_window_with_features_and_adapts(self):
         with patch.object(gateway.V4Client, "fetch_nightly_recharges", return_value=[V4_NIGHTLY_ITEM]):
-            result = gateway.fetch_polar_nightly_recharge("ignored-token", None, "2026-06-10")
+            result = gateway.fetch_polar_nightly_recharge_result("ignored-token", None, "2026-06-10")
 
-        self.assertIsNotNone(result)
-        self.assertEqual(result["heart_rate_variability_avg"], 55)
+        self.assertEqual(result["outcome"], "data_found")
+        self.assertEqual(result["data"]["heart_rate_variability_avg"], 55)
 
     def test_missing_date_in_response_returns_none(self):
         with patch.object(gateway.V4Client, "fetch_sleeps", return_value=[]):
-            self.assertIsNone(gateway.fetch_polar_sleep("ignored", None, "2026-06-10"))
+            self.assertEqual(gateway.fetch_polar_sleep_result("ignored", None, "2026-06-10")["outcome"], "no_data_yet")
 
     def test_error_returns_none(self):
         with patch.object(gateway.V4Client, "fetch_sleeps", side_effect=PolarV4Error("boom")):
-            self.assertIsNone(gateway.fetch_polar_sleep("ignored", None, "2026-06-10"))
+            self.assertEqual(gateway.fetch_polar_sleep_result("ignored", None, "2026-06-10")["outcome"], "request_error")
 
     def test_client_instance_is_reused_across_calls_for_throttle(self):
         with patch.object(gateway.V4Client, "fetch_sleeps", return_value=[]), \
                 patch.object(gateway.V4Client, "fetch_nightly_recharges", return_value=[]):
-            gateway.fetch_polar_sleep("ignored", None, "2026-06-10")
+            gateway.fetch_polar_sleep_result("ignored", None, "2026-06-10")
             client_after_sleep = gateway._shared_v4_client
-            gateway.fetch_polar_nightly_recharge("ignored", None, "2026-06-10")
+            gateway.fetch_polar_nightly_recharge_result("ignored", None, "2026-06-10")
             client_after_nightly = gateway._shared_v4_client
 
         self.assertIsNotNone(client_after_sleep)

@@ -115,8 +115,9 @@ class IntervalsSyncContractTests(unittest.TestCase):
                 {"INTERVALS_API_KEY": "secret", "INTERVALS_ATHLETE_ID": "athlete"},
                 clear=False,
             ), patch.object(intervals_sync.requests, "put", return_value=_Resp()) as put_mock:
-                intervals_sync._send_intervals_wellness_from_master(master_path)
+                result = intervals_sync._send_intervals_wellness_from_master(master_path)
 
+        self.assertEqual(result, {"status": "ok", "outcome": "updated"})
         self.assertEqual(put_mock.call_args.args[0], "https://intervals.icu/api/v1/athlete/athlete/wellness/2026-03-02")
         self.assertEqual(put_mock.call_args.kwargs["json"]["CRMSSD"], 70.0)
         self.assertEqual(put_mock.call_args.kwargs["json"]["HRPolar"], 45.0)

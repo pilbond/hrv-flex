@@ -45,7 +45,13 @@ Importante:
   - Variables de entorno (`PORT`, `POLAR_CLIENT_ID`, `POLAR_CLIENT_SECRET`, `PUBLIC_URL`, etc.).
 - Salidas:
   - Respuestas HTTP y logs.
-  - `GET /api/status` devuelve estado actual del job, `job_type` y ultimo `output/error` relevante.
+  - `GET /api/status` devuelve el estado actual del job y los aliases planos
+    estables del pipeline (`pipeline_status`, `pipeline_stage`,
+    `pipeline_date_from`, `pipeline_date_to`, `pipeline_error`,
+    `source_status`, `source_outcome`, `processed_dates`,
+    `uncovered_dates`, `pending_sleep_dates` y `degraded_stages`).
+  - La misma respuesta conserva `pipeline_result` como registro diagnóstico
+    completo; no debe tratarse como un segundo contrato independiente.
   - `GET /api/status` incluye tambien el resumen semanal de `ENDURANCE_HRV_weekly_coach.json` para que la UI pinte `planning_note`, `iso_week`, `window_end`, `data_quality` y `weekly_coach_z3_budget_summary` sin crear un endpoint nuevo.
   - `POST /api/sync` y `POST /api/sync-sessions` devuelven `202 Accepted` cuando el job queda corriendo en background; si terminan practicamente al instante, pueden devolver el resultado final en la propia respuesta.
   - No genera CSV por si solo; delega al pipeline.
@@ -136,6 +142,10 @@ Importante:
   - Calcula fechas objetivo faltantes.
   - Lanza `egc_to_rr.py` para cubrir fechas desde Dropbox cuando esta habilitado.
   - Respeta `HRV_DROPBOX_RR_TIMEOUT_SEC` para evitar bloqueos indefinidos en el subprocess.
+  - Devuelve un `DropboxRRResult` estructurado con `files`, `new_count`,
+    `status`, `outcome` y, si procede, `error`. `status=not_requested` con
+    `outcome=local_coverage` indica que las fechas ya estaban cubiertas en
+    disco y Dropbox no se consultó.
 - Cuando usarlo:
   - Como capa operativa de cobertura RR principal.
 - Importante:
@@ -218,7 +228,10 @@ Importante:
 - Que hace:
   - Encapsula el lanzamiento de los scripts de pipeline como subprocesos: `build_hrv_core.py`, `build_hrv_final_dashboard.py`, `build_hrv_ssm.py`, `build_hrv_ssm_validation.py` y `build_hrv_ssm_outcome_battery.py`.
   - Centraliza el entorno de subprocess (UTF-8), la construccion de comandos y el manejo de errores.
-  - Expone funciones `run_build_hrv_*_only()` que devuelven bool segun exito.
+  - Expone funciones `run_build_hrv_*_only()` que devuelven un
+    `StageExecution` con `stage`, `status`, `outcome`, `returncode` y el error
+    estructurado sanitizado cuando el builder falla. `StageExecution` mantiene
+    compatibilidad booleana: evalua a verdadero solo cuando `status=ok`.
 - Cuando usarlo:
   - Siempre que el flujo principal necesite ejecutar builders sin mantener ese detalle en el entrypoint.
 
@@ -250,6 +263,9 @@ Importante:
 - Que hace:
   - Gateway de sleep/nightly Polar usando v4 como unico transporte (AYO-22).
   - Coordina `polar_auth_v4`, `polar_client_v4` y `polar_adapters_v4` para obtener datos de sueno y nightly recharge.
+  - Las consultas publican un resultado estructurado con `data` y `outcome`;
+    `outcome=request_error` representa un fallo de transporte y no debe
+    confundirse con `no_data_yet` (Polar aún no ha publicado el dato).
 - Cuando usarlo:
   - Lo importa `hrv_app.sleep_store`; no es un entrypoint.
 

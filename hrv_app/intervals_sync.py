@@ -245,22 +245,27 @@ def _build_intervals_payload(row: Dict[str, Any]) -> Dict[str, Any]:
     return payload
 
 
-def _send_intervals_wellness_from_master(master_path: Path) -> None:
+def _send_intervals_wellness_from_master(master_path: Path) -> dict[str, str]:
+    """Sync wellness and return a sanitized status for the HRV pipeline."""
     _print_header("🌐 INTERVALS SYNC")
     api_key = (os.environ.get("INTERVALS_API_KEY") or "").strip()
     athlete_id = (os.environ.get("INTERVALS_ATHLETE_ID") or "").strip()
     if not api_key or not athlete_id:
         print("⏭️  Intervals: faltan INTERVALS_API_KEY o INTERVALS_ATHLETE_ID, se omite sync")
-        return
+        return {"status": "disabled", "outcome": "not_configured"}
 
-    row = _read_latest_master_row(master_path)
+    try:
+        row = _read_latest_master_row(master_path)
+    except (OSError, UnicodeDecodeError, csv.Error) as exc:
+        print(f"⚠️  Intervals: no se pudo leer el master ({exc})")
+        return {"status": "error", "outcome": "master_read_error"}
     if not row:
-        return
+        return {"status": "not_applicable", "outcome": "missing_master_row"}
 
     payload = _build_intervals_payload(row)
     if not payload:
         print("⚠️  Intervals: no hay datos válidos para enviar")
-        return
+        return {"status": "not_applicable", "outcome": "no_payload"}
 
     date_value = row.get("_date")
     url = f"{_intervals_api_root()}/athlete/{athlete_id}/wellness/{date_value}"
@@ -273,14 +278,15 @@ def _send_intervals_wellness_from_master(master_path: Path) -> None:
         response = requests.put(url, headers=headers, json=payload, timeout=30)
     except requests.RequestException as exc:
         print(f"❌ Intervals: error de red: {exc}")
-        return
+        return {"status": "error", "outcome": "request_error"}
 
     if response.ok:
         print(f"✅ Intervals: wellness actualizado para {date_value}")
-        return
+        return {"status": "ok", "outcome": "updated"}
 
     print(f"⚠️  Intervals: error {response.status_code}")
     try:
         print(response.json())
     except ValueError:
         print(response.text)
+    return {"status": "error", "outcome": "http_error"}

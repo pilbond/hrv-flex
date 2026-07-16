@@ -1,6 +1,6 @@
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -76,33 +76,33 @@ class SleepStoreContractTests(unittest.TestCase):
 
             def fake_sleep(_token, _user_id, candidate_date):
                 if candidate_date == "2026-03-03":
-                    return {}
+                    return {"outcome": "no_data_yet", "data": None}
                 if candidate_date == "2026-03-02":
-                    return {
+                    return {"outcome": "data_found", "data": {
                         "sleepDuration": "PT6H",
                         "sleepSpan": "PT6H30M",
                         "deepSleep": "PT1H",
                         "remSleep": "PT2H",
                         "lightSleep": "PT3H",
-                    }
-                return {}
+                    }}
+                return {"outcome": "no_data_yet", "data": None}
 
             def fake_nightly(_token, _user_id, candidate_date):
                 if candidate_date == "2026-03-03":
-                    return {}
+                    return {"outcome": "no_data_yet", "data": None}
                 if candidate_date == "2026-03-02":
-                    return {
+                    return {"outcome": "data_found", "data": {
                         "heart_rate_variability_avg": 41,
                         "breathing_rate_avg": 6000,
-                    }
-                return {}
+                    }}
+                return {"outcome": "no_data_yet", "data": None}
 
             with patch.object(sleep_store, "SLEEP_PATH", sleep_path), patch.object(
-                sleep_store, "fetch_polar_sleep", side_effect=fake_sleep
+                sleep_store, "fetch_polar_sleep_result", side_effect=fake_sleep
             ) as sleep_mock, patch.object(
-                sleep_store, "fetch_polar_nightly_recharge", side_effect=fake_nightly
+                sleep_store, "fetch_polar_nightly_recharge_result", side_effect=fake_nightly
             ) as nightly_mock:
-                self.assertTrue(sleep_store.fetch_and_upsert_sleep("token", "user", date(2026, 3, 3)))
+                self.assertEqual(sleep_store.fetch_and_upsert_sleep_result("token", "user", date(2026, 3, 3))["status"], "ok")
 
                 out = pd.read_csv(sleep_path)
 
@@ -121,16 +121,16 @@ class SleepStoreContractTests(unittest.TestCase):
 
             def fake_sleep(_token, _user_id, candidate_date):
                 if candidate_date == "2026-03-03":
-                    return {"sleep_duration": "PT6H"}
-                return {}
+                    return {"outcome": "data_found", "data": {"sleep_duration": "PT6H"}}
+                return {"outcome": "no_data_yet", "data": None}
 
             def fake_nightly(_token, _user_id, candidate_date):
-                return {}
+                return {"outcome": "no_data_yet", "data": None}
 
             with patch.object(sleep_store, "SLEEP_PATH", sleep_path), \
-                    patch.object(sleep_store, "fetch_polar_sleep", side_effect=fake_sleep) as sleep_mock, \
-                    patch.object(sleep_store, "fetch_polar_nightly_recharge", side_effect=fake_nightly) as nightly_mock:
-                self.assertTrue(sleep_store.fetch_and_upsert_sleep("ignored", None, date(2026, 3, 3)))
+                    patch.object(sleep_store, "fetch_polar_sleep_result", side_effect=fake_sleep) as sleep_mock, \
+                    patch.object(sleep_store, "fetch_polar_nightly_recharge_result", side_effect=fake_nightly) as nightly_mock:
+                self.assertEqual(sleep_store.fetch_and_upsert_sleep_result("ignored", None, date(2026, 3, 3))["status"], "ok")
 
         sleep_mock.assert_any_call("ignored", None, "2026-03-03")
         nightly_mock.assert_any_call("ignored", None, "2026-03-03")
@@ -140,17 +140,59 @@ class SleepStoreContractTests(unittest.TestCase):
 
         def fake_fetch(token, user_id, processed_date):
             calls.append(processed_date)
-            return True
+            return {"status": "ok", "outcome": "data_found"}
 
-        with patch.object(sleep_store, "fetch_and_upsert_sleep", side_effect=fake_fetch):
-            done = sleep_store._update_sleep_for_dates(
+        with patch.object(sleep_store, "fetch_and_upsert_sleep_result", side_effect=fake_fetch):
+            result = sleep_store._update_sleep_for_dates_result(
                 "token",
                 "user",
                 [date(2026, 3, 4), date(2026, 3, 4), date(2026, 3, 5), None],
             )
 
-        self.assertEqual(done, 2)
+        self.assertEqual(result["updated"], ["2026-03-04", "2026-03-05"])
         self.assertEqual(calls, [date(2026, 3, 4), date(2026, 3, 5)])
+
+    def test_sleep_not_ready_is_pending_and_does_not_write_empty_row(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sleep_path = Path(tmpdir) / "ENDURANCE_HRV_sleep.csv"
+            with patch.object(sleep_store, "SLEEP_PATH", sleep_path), patch.object(
+                sleep_store, "fetch_polar_sleep_result", return_value={"outcome": "no_data_yet", "data": None}
+            ), patch.object(sleep_store, "fetch_polar_nightly_recharge_result", return_value={"outcome": "no_data_yet", "data": None}):
+                result = sleep_store.fetch_and_upsert_sleep_result("token", "user", date(2026, 3, 3))
+
+        self.assertEqual(result["status"], "pending")
+        self.assertEqual(result["outcome"], "no_data_yet")
+        self.assertFalse(sleep_path.exists())
+
+    def test_sleep_transport_error_is_distinguished_from_no_data(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sleep_path = Path(tmpdir) / "ENDURANCE_HRV_sleep.csv"
+            with patch.object(sleep_store, "SLEEP_PATH", sleep_path), patch.object(
+                sleep_store, "fetch_polar_sleep_result", return_value={"outcome": "request_error", "data": None}
+            ), patch.object(sleep_store, "fetch_polar_nightly_recharge_result", return_value={"outcome": "no_data_yet", "data": None}):
+                result = sleep_store.fetch_and_upsert_sleep_result("token", "user", date(2026, 3, 3))
+
+        self.assertEqual(result["status"], "pending")
+        self.assertEqual(result["outcome"], "request_error")
+        self.assertFalse(sleep_path.exists())
+
+    def test_pending_sleep_dates_are_limited_to_recent_core_window(self):
+        today = date.today()
+        recent_missing = today - timedelta(days=2)
+        recent_present = today - timedelta(days=3)
+        old_missing = today - timedelta(days=8)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sleep_path = Path(tmpdir) / "ENDURANCE_HRV_sleep.csv"
+            pd.DataFrame(
+                [
+                    {"Fecha": recent_present.isoformat(), "polar_sleep_duration_min": 360},
+                    {"Fecha": recent_missing.isoformat()},
+                ]
+            ).to_csv(sleep_path, index=False)
+            with patch.object(sleep_store, "SLEEP_PATH", sleep_path):
+                pending = sleep_store.pending_sleep_dates_for_core([recent_missing, recent_present, old_missing])
+
+        self.assertEqual(pending, [recent_missing.isoformat()])
 
 
 class SleepStoreFailClosedTests(unittest.TestCase):

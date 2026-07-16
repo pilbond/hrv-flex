@@ -98,15 +98,15 @@ class DropboxRrContractTests(unittest.TestCase):
                 patch.object(dropbox_rr.subprocess, "run", side_effect=fake_run) as run_mock,
                 contextlib.redirect_stdout(buffer),
             ):
-                result, new_count = dropbox_rr._run_dropbox_rr_import_for_dates(
+                result = dropbox_rr._run_dropbox_rr_import_for_dates(
                     [date(2026, 3, 1), date(2026, 3, 2)],
                     root,
                     verbose=True,
                 )
 
-            self.assertEqual(new_count, 1)
-            self.assertEqual(result[date(2026, 3, 1)], preexisting)
-            self.assertEqual(result[date(2026, 3, 2)].name, "fresh_2026-03-02_from_jsonl_RR.CSV")
+            self.assertEqual(result.new_count, 1)
+            self.assertEqual(result.files[date(2026, 3, 1)], preexisting)
+            self.assertEqual(result.files[date(2026, 3, 2)].name, "fresh_2026-03-02_from_jsonl_RR.CSV")
             run_mock.assert_called_once()
             self.assertIn("--dropbox-folder", run_mock.call_args.args[0])
             self.assertIn("--outdir", run_mock.call_args.args[0])
@@ -133,14 +133,16 @@ class DropboxRrContractTests(unittest.TestCase):
                 patch.object(dropbox_rr.subprocess, "run", side_effect=fake_run) as run_mock,
                 contextlib.redirect_stdout(buffer),
             ):
-                result, new_count = dropbox_rr._run_dropbox_rr_import_for_dates(
+                result = dropbox_rr._run_dropbox_rr_import_for_dates(
                     [date(2026, 3, 1), date(2026, 3, 2)],
                     root,
                     verbose=False,
                 )
 
-            self.assertEqual(new_count, 0)
-            self.assertEqual(result[date(2026, 3, 1)], preexisting)
+            self.assertEqual(result.new_count, 0)
+            self.assertEqual(result.files[date(2026, 3, 1)], preexisting)
+            self.assertEqual(result.status, "failed")
+            self.assertEqual(result.outcome, "timeout")
             self.assertIn("Timeout ejecutando importación Dropbox RR", buffer.getvalue())
             run_mock.assert_called_once()
             self.assertEqual(run_mock.call_args.kwargs["timeout"], 17)
@@ -162,17 +164,63 @@ class DropboxRrContractTests(unittest.TestCase):
                 contextlib.redirect_stdout(stdout_buffer),
                 contextlib.redirect_stderr(stderr_buffer),
             ):
-                result, new_count = dropbox_rr._run_dropbox_rr_import_for_dates(
+                result = dropbox_rr._run_dropbox_rr_import_for_dates(
                     [date(2026, 3, 1), date(2026, 3, 2)],
                     root,
                     verbose=False,
                 )
 
-            self.assertEqual(new_count, 0)
-            self.assertEqual(result[date(2026, 3, 1)], preexisting)
+            self.assertEqual(result.new_count, 0)
+            self.assertEqual(result.files[date(2026, 3, 1)], preexisting)
+            self.assertEqual(result.status, "failed")
             self.assertIn("falta HRV_DROPBOX_FOLDER_PATH/DROPBOX_FOLDER_PATH", stderr_buffer.getvalue())
             qprint_mock.assert_not_called()
             self.assertEqual(stdout_buffer.getvalue(), "")
+
+    def test_local_coverage_does_not_require_dropbox_folder_or_script(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            preexisting = root / "existing_2026-03-01_from_jsonl_RR.CSV"
+            preexisting.write_text("duration,offline\n90,0\n", encoding="utf-8")
+
+            with patch.object(dropbox_rr, "DROPBOX_RR_ENABLED", True), patch.object(
+                dropbox_rr, "DROPBOX_FOLDER_PATH", ""
+            ):
+                folder_result = dropbox_rr._run_dropbox_rr_import_for_dates([date(2026, 3, 1)], root)
+
+            with patch.object(dropbox_rr, "DROPBOX_RR_ENABLED", True), patch.object(
+                dropbox_rr, "DROPBOX_FOLDER_PATH", "/HRV/raw_jsonl"
+            ), patch.object(dropbox_rr, "DROPBOX_RR_SCRIPT", str(root / "missing_converter.py")):
+                script_result = dropbox_rr._run_dropbox_rr_import_for_dates([date(2026, 3, 1)], root)
+
+            with patch.object(dropbox_rr, "DROPBOX_RR_ENABLED", False):
+                disabled_result = dropbox_rr._run_dropbox_rr_import_for_dates([date(2026, 3, 1)], root)
+
+        for result in (folder_result, script_result, disabled_result):
+            self.assertEqual(result.status, "not_requested")
+            self.assertEqual(result.outcome, "local_coverage")
+            self.assertEqual(result.files[date(2026, 3, 1)], preexisting)
+
+    def test_partial_dropbox_coverage_uses_data_found_and_leaves_dates_uncovered(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            fake_result = SimpleNamespace(stdout="dropbox ok\n", stderr="", returncode=0)
+
+            def fake_run(cmd, **kwargs):
+                outdir = Path(cmd[cmd.index("--outdir") + 1])
+                (outdir / "fresh_2026-03-01_from_jsonl_RR.CSV").write_text("duration,offline\n100,0\n", encoding="utf-8")
+                return fake_result
+
+            with patch.object(dropbox_rr, "DROPBOX_RR_ENABLED", True), patch.object(
+                dropbox_rr, "DROPBOX_FOLDER_PATH", "/HRV/raw_jsonl"
+            ), patch.object(dropbox_rr.subprocess, "run", side_effect=fake_run):
+                result = dropbox_rr._run_dropbox_rr_import_for_dates(
+                    [date(2026, 3, 1), date(2026, 3, 2)], root
+                )
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(result.outcome, "data_found")
+        self.assertEqual(set(result.files), {date(2026, 3, 1)})
 
 
 if __name__ == "__main__":

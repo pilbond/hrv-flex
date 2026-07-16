@@ -133,7 +133,7 @@ Sistema automatizado HRV para un **único atleta**:
 | `ENDURANCE_HRV_master_BETA_AUDIT.csv` | 13 | Auditoría RR, diagnostics |
 | `ENDURANCE_HRV_master_FINAL.csv` | 66 | CORE + gates + contexto + reason_text + recuperación multiseñal |
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | 10 | Resumen operativo para dashboard |
-| `ENDURANCE_HRV_sleep.csv` | 17 | Sueño Polar (sidecar; carga en sessions_day.csv) |
+| `ENDURANCE_HRV_sleep.csv` | 17 | Sueño Polar canónico (carga también en sessions_day.csv) |
 | `ENDURANCE_HRV_sessions.csv` | - | Sesiones Intervals.icu (histórico) |
 | `ENDURANCE_HRV_sessions_day.csv` | 61 | Carga por día + rolling con cobertura + clustering reciente de intensidad + distribución rolling + `elev_loss_7d_sum` |
 | `ENDURANCE_HRV_sessions_metadata.json` | - | `training_audit` por capas (`dataset_level`, `signal_level`, `metric_level`) |

@@ -26,6 +26,7 @@ from hrv_app.pipeline_runner import (
 )
 from hrv_app.hrv_sync_flow import sync_hrv_range
 from hrv_app.backup_dropbox import auto_restore_if_empty, run_backup as run_dropbox_backup
+from hrv_app.pipeline_status import PipelineResult
 
 
 def _configure_stdio() -> None:
@@ -131,17 +132,31 @@ def main():
         print(f"❌ --auth no aplica con v4. Autoriza vía {hint}.", file=sys.stderr)
         sys.exit(3)
 
+    result = PipelineResult()
     try:
-        auto_restore_if_empty()
+        restore_result = auto_restore_if_empty()
+        if isinstance(restore_result, dict) and restore_result.get("status") == "restored":
+            result.ok("auto_restore", "restored")
     except RuntimeError as exc:
         print(f"❌ Auto-restore falló: {exc}", file=sys.stderr)
+        result.fail("auto_restore", "auto_restore_failed", "Auto-restore falló")
+        result.emit_marker()
         return 1
 
-    sync_hrv_range(args, None, None, [])
+    sync_result = sync_hrv_range(args, None, None, [])
+    result.merge(sync_result)
 
-    # Backup opcional del histórico fuera del volumen (opt-in, nunca rompe el sync)
-    run_dropbox_backup()
-    return 0
+    if args.process and result.canonical_valid and result.status != "failed":
+        # Backup opcional del histórico fuera del volumen. Solo se ejecuta
+        # cuando los canónicos de esta corrida son válidos.
+        backup_result = run_dropbox_backup()
+        backup_status = str((backup_result or {}).get("status") or "disabled")
+        if backup_status in {"error", "partial", "no_credentials", "no_files"}:
+            result.degrade("backup", "best_effort_error", "backup_failed", f"Backup Dropbox: {backup_status}")
+        else:
+            result.ok("backup", backup_status)
+    result.emit_marker()
+    return 0 if result.status in {"ok", "degraded"} else 1
 
 
 if __name__ == "__main__":
@@ -153,6 +168,9 @@ if __name__ == "__main__":
         print(f"\n❌ ERROR INESPERADO: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc()
+        fallback = PipelineResult()
+        fallback.fail("entrypoint", "unexpected_error", "Error inesperado en el entrypoint")
+        fallback.emit_marker()
         sys.exit(1)
 
 

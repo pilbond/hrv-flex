@@ -12,7 +12,7 @@ except ImportError:  # pragma: no cover - pandas is expected in runtime requirem
 from . import config
 from .config import PANDAS_AVAILABLE, SLEEP_PATH
 from .io_utils import write_csv_atomic
-from .polar_gateway import fetch_polar_nightly_recharge, fetch_polar_sleep
+from .polar_gateway import fetch_polar_nightly_recharge_result, fetch_polar_sleep_result
 from .polar_utils import _parse_yyyy_mm_dd, parse_duration_to_minutes, parse_float
 
 
@@ -35,6 +35,9 @@ SLEEP_COLUMNS = [
     "sleep_dur_p90",
     "sleep_int_p90",
 ]
+
+SLEEP_SIGNAL_COLUMNS = [col for col in SLEEP_COLUMNS if col not in {"Fecha", "sleep_dur_p10", "sleep_dur_p90", "sleep_int_p90"}]
+SLEEP_PENDING_WINDOW_DAYS = 7
 
 
 def _normalize_key(key: str) -> str:
@@ -437,77 +440,121 @@ def _polar_sleep_date_candidates(date_str: str) -> List[str]:
         return [date_str]
 
 
-def fetch_and_upsert_sleep(token: str, user_id: Optional[str], processed_date) -> bool:
+def fetch_and_upsert_sleep_result(token: str, user_id: Optional[str], processed_date) -> dict:
+    """Fetch+upsert one date with an explicit pending/error distinction."""
     if processed_date is None:
-        return False
+        return {"status": "pending", "outcome": "invalid_date", "date": None}
 
     date_str = processed_date.isoformat() if hasattr(processed_date, "isoformat") else str(processed_date)
     if not date_str:
-        return False
+        return {"status": "pending", "outcome": "invalid_date", "date": None}
 
     sleep_row: Dict[str, Any] = {col: float("nan") for col in SLEEP_COLUMNS}
     sleep_row["Fecha"] = date_str
+    sleep_json = None
+    sleep_used_date = None
+    nightly_json = None
+    nightly_used_date = None
+    request_error = False
 
-    # Los endpoints v4 de sleep/nightly están asociados al bearer token,
-    # no a un user_id: el gateway consulta aunque x_user_id sea None.
-    if True:
-        sleep_json = None
-        sleep_used_date = None
-        nightly_json = None
-        nightly_used_date = None
-        for candidate_date in _polar_sleep_date_candidates(date_str):
-            if sleep_json is None:
-                resp = fetch_polar_sleep(token, user_id, candidate_date)
-                if isinstance(resp, dict) and len(resp) > 0:
-                    sleep_json = resp
-                    sleep_used_date = candidate_date
-            if nightly_json is None:
-                resp2 = fetch_polar_nightly_recharge(token, user_id, candidate_date)
-                if isinstance(resp2, dict) and len(resp2) > 0:
-                    nightly_json = resp2
-                    nightly_used_date = candidate_date
-            if sleep_json is not None and nightly_json is not None:
-                break
+    for candidate_date in _polar_sleep_date_candidates(date_str):
+        if sleep_json is None:
+            response = fetch_polar_sleep_result(token, user_id, candidate_date)
+            resp = response.get("data")
+            outcome = str(response.get("outcome") or "no_data_yet")
+            if outcome == "request_error":
+                request_error = True
+            if isinstance(resp, dict) and resp:
+                sleep_json = resp
+                sleep_used_date = candidate_date
+        if nightly_json is None:
+            response2 = fetch_polar_nightly_recharge_result(token, user_id, candidate_date)
+            resp2 = response2.get("data")
+            outcome = str(response2.get("outcome") or "no_data_yet")
+            if outcome == "request_error":
+                request_error = True
+            if isinstance(resp2, dict) and resp2:
+                nightly_json = resp2
+                nightly_used_date = candidate_date
+        if sleep_json is not None and nightly_json is not None:
+            break
 
-        if sleep_json:
-            sleep_row.update(_extract_sleep_fields(sleep_json))
-            if sleep_used_date and sleep_used_date != date_str:
-                print(f"ℹ️  Sleep tomado desde {sleep_used_date} para fecha {date_str}")
-        if nightly_json:
-            sleep_row.update(_extract_nightly_fields(nightly_json))
-            if nightly_used_date and nightly_used_date != date_str:
-                print(f"ℹ️  Nightly tomado desde {nightly_used_date} para fecha {date_str}")
-    else:
-        print("⚠️  x_user_id ausente: se omite fetch Polar sleep/nightly")
+    if sleep_json:
+        sleep_row.update(_extract_sleep_fields(sleep_json))
+        if sleep_used_date and sleep_used_date != date_str:
+            print(f"ℹ️  Sleep tomado desde {sleep_used_date} para fecha {date_str}")
+    if nightly_json:
+        sleep_row.update(_extract_nightly_fields(nightly_json))
+        if nightly_used_date and nightly_used_date != date_str:
+            print(f"ℹ️  Nightly tomado desde {nightly_used_date} para fecha {date_str}")
 
-    if not any(pd.notna(sleep_row.get(col)) for col in SLEEP_COLUMNS if col != "Fecha"):
-        print(f"ℹ️  Sin datos de sueño para {date_str}; no se escribe fila")
-        return False
+    if not any(pd.notna(sleep_row.get(col)) for col in SLEEP_SIGNAL_COLUMNS):
+        outcome = "request_error" if request_error else "no_data_yet"
+        print(f"ℹ️  Sin datos de sueño para {date_str}; no se escribe fila ({outcome})")
+        return {"status": "pending", "outcome": outcome, "date": date_str}
 
-    saved = upsert_sleep_row(sleep_row)
-    return saved
+    try:
+        saved = upsert_sleep_row(sleep_row)
+    except Exception as exc:
+        return {
+            "status": "failed",
+            "outcome": "integrity_error" if "FAIL-CLOSED" in str(exc) else "write_error",
+            "date": date_str,
+            "error": {"code": "sleep_write_failed", "message": "No se pudo escribir sleep.csv"},
+        }
+    return {"status": "ok" if saved else "pending", "outcome": "data_found" if saved else "no_data_yet", "date": date_str}
 
 
-def _update_sleep_for_dates(token: str, user_id: Optional[str], dates_to_sync: List) -> int:
-    """Fetch+upsert sleep rows for a list of dates. Returns successful upserts."""
-    if not dates_to_sync:
-        return 0
-
-    done = 0
+def _update_sleep_for_dates_result(token: str, user_id: Optional[str], dates_to_sync: List) -> dict:
+    result = {"attempted": [], "updated": [], "pending": [], "failed": []}
     seen = set()
-    for d in dates_to_sync:
+    for d in dates_to_sync or []:
         if d is None:
             continue
         key = d.isoformat() if hasattr(d, "isoformat") else str(d)
         if key in seen:
             continue
         seen.add(key)
+        result["attempted"].append(key)
         try:
-            if fetch_and_upsert_sleep(token, user_id, d):
-                done += 1
+            item = fetch_and_upsert_sleep_result(token, user_id, d)
         except Exception as exc:
-            print(f"⚠️  Sleep fetch/upsert falló para {key}: {exc}")
-    return done
+            item = {"status": "failed", "outcome": "request_error", "date": key, "error": {"code": "sleep_fetch_failed", "message": "No se pudo consultar Polar sleep"}}
+        if item.get("status") == "ok":
+            result["updated"].append(key)
+        elif item.get("status") == "failed":
+            result["failed"].append({"date": key, "outcome": item.get("outcome"), "error": item.get("error")})
+        else:
+            result["pending"].append({"date": key, "outcome": item.get("outcome")})
+    return result
+
+
+def pending_sleep_dates_for_core(core_dates: List, window_days: int = SLEEP_PENDING_WINDOW_DAYS) -> list[str]:
+    """Find recent CORE dates without any usable sleep signal."""
+    if not core_dates or not PANDAS_AVAILABLE or pd is None:
+        return []
+    today = datetime.now().date()
+    lower = today - timedelta(days=max(window_days - 1, 0))
+    sleep_by_date = {}
+    if SLEEP_PATH.exists():
+        try:
+            sleep_df = pd.read_csv(SLEEP_PATH)
+            for _, row in sleep_df.iterrows():
+                key = str(row.get("Fecha") or "").strip()
+                if key:
+                    sleep_by_date[key] = any(pd.notna(row.get(col)) for col in SLEEP_SIGNAL_COLUMNS)
+        except Exception:
+            return []
+    pending = []
+    for raw in core_dates:
+        key = raw.isoformat() if hasattr(raw, "isoformat") else str(raw)
+        try:
+            day = _parse_yyyy_mm_dd(key)
+        except Exception:
+            continue
+        if lower <= day <= today and not sleep_by_date.get(key, False):
+            pending.append(key)
+    return sorted(set(pending))
 
 
 def _today_date():

@@ -7,10 +7,22 @@ import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, Iterable, Optional
+from dataclasses import dataclass
 
 from .config import DROPBOX_FOLDER_PATH, DROPBOX_RECURSIVE, DROPBOX_RR_ENABLED, DROPBOX_RR_NO_AUX, DROPBOX_RR_PAIR_LIMIT, DROPBOX_RR_SCRIPT, DROPBOX_RR_TIMEOUT_SEC, OUTDIR, _qprint
 
 _RR_DATE_RE = re.compile(r"(?P<date>\d{4}-\d{2}-\d{2})")
+
+
+@dataclass
+class DropboxRRResult:
+    """Cobertura y estado de una importación Dropbox RR."""
+
+    files: Dict[date, Path]
+    new_count: int
+    status: str = "ok"
+    outcome: str = "data_found"
+    error: dict | None = None
 
 
 def _extract_date_from_rr_filename(rr_filename: str) -> Optional[date]:
@@ -143,19 +155,30 @@ def _run_dropbox_rr_import_for_dates(
     target_dates: Iterable[date],
     rr_dir: Path | str = OUTDIR,
     verbose: bool = False,
-) -> tuple[Dict[date, Path], int]:
+) -> DropboxRRResult:
     """Asegura cobertura RR vía Dropbox para un conjunto de fechas."""
     target_set = {d for d in target_dates if d is not None}
     if not target_set:
-        return {}, 0
+        return DropboxRRResult({}, 0, status="not_requested", outcome="not_applicable")
 
     outdir = Path(rr_dir)
     pre_map = _scan_rr_files_by_date(outdir, source_tag="from_jsonl")
     stage_dir = _dropbox_stage_dir(outdir)
 
+    def local_coverage() -> Dict[date, Path]:
+        return {d: pre_map[d] for d in target_set if d in pre_map}
+
+    def local_coverage_is_complete(result: Dict[date, Path]) -> bool:
+        return len(result) == len(target_set)
+
     if not DROPBOX_RR_ENABLED:
-        result = {d: pre_map[d] for d in target_set if d in pre_map}
-        return result, 0
+        result = local_coverage()
+        if local_coverage_is_complete(result):
+            return DropboxRRResult(result, 0, status="not_requested", outcome="local_coverage")
+        return DropboxRRResult(result, 0, status="failed", outcome="disabled", error={
+            "code": "dropbox_rr_disabled",
+            "message": "Dropbox RR está deshabilitado para fechas no cubiertas",
+        })
 
     if not DROPBOX_FOLDER_PATH:
         print(
@@ -163,14 +186,24 @@ def _run_dropbox_rr_import_for_dates(
             "Se continuará solo con RR ya existentes.",
             file=sys.stderr,
         )
-        result = {d: pre_map[d] for d in target_set if d in pre_map}
-        return result, 0
+        result = local_coverage()
+        if local_coverage_is_complete(result):
+            return DropboxRRResult(result, 0, status="not_requested", outcome="local_coverage")
+        return DropboxRRResult(result, 0, status="failed", outcome="configuration_error", error={
+            "code": "dropbox_rr_folder_missing",
+            "message": "Falta la carpeta Dropbox RR",
+        })
 
     script_path = Path(DROPBOX_RR_SCRIPT)
     if not script_path.exists():
         _qprint(f"⚠️  No existe el script Dropbox RR: {script_path}")
-        result = {d: pre_map[d] for d in target_set if d in pre_map}
-        return result, 0
+        result = local_coverage()
+        if local_coverage_is_complete(result):
+            return DropboxRRResult(result, 0, status="not_requested", outcome="local_coverage")
+        return DropboxRRResult(result, 0, status="failed", outcome="configuration_error", error={
+            "code": "dropbox_rr_script_missing",
+            "message": f"No existe el script Dropbox RR: {script_path.name}",
+        })
 
     _clear_dropbox_stage_dir(stage_dir)
 
@@ -178,6 +211,8 @@ def _run_dropbox_rr_import_for_dates(
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
 
+    process_error: dict | None = None
+    process_outcome = "data_found"
     try:
         completed = subprocess.run(
             cmd,
@@ -197,12 +232,16 @@ def _run_dropbox_rr_import_for_dates(
             print(exc.stdout)
         if exc.stderr:
             print(exc.stderr)
+        process_error = {"code": "dropbox_rr_timeout", "message": "Timeout ejecutando importación Dropbox RR"}
+        process_outcome = "timeout"
     except subprocess.CalledProcessError as exc:
         print(f"⚠️  Error ejecutando importación Dropbox RR (código {exc.returncode})")
         if exc.stdout:
             print(exc.stdout)
         if exc.stderr:
             print(exc.stderr)
+        process_error = {"code": "dropbox_rr_converter_failed", "message": "El conversor Dropbox RR terminó con error"}
+        process_outcome = "converter_error"
 
     post_map = _scan_rr_files_by_date(stage_dir, source_tag="from_jsonl")
     merged_map: Dict[date, Path] = dict(pre_map)
@@ -210,4 +249,8 @@ def _run_dropbox_rr_import_for_dates(
 
     result = {d: merged_map[d] for d in target_set if d in merged_map}
     new_count = sum(1 for d in result if d not in pre_map and d in post_map)
-    return result, new_count
+    if process_error:
+        return DropboxRRResult(result, new_count, status="failed", outcome=process_outcome, error=process_error)
+    if not result:
+        return DropboxRRResult(result, new_count, status="ok", outcome="no_data")
+    return DropboxRRResult(result, new_count, status="ok", outcome="data_found")

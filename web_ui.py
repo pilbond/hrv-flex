@@ -45,6 +45,7 @@ from hrv_app.polar_auth_v4 import (
     persist_authorized_bundle,
     redact as redact_v4_bundle,
 )
+from hrv_app.pipeline_status import result_from_marker
 
 app = Flask(__name__)
 CORS(app)
@@ -324,6 +325,7 @@ execution_state = {
     'success': None,
     'job_type': None,
     'message': None,
+    'pipeline_result': None,
 }
 execution_state_lock = threading.Lock()
 
@@ -455,9 +457,47 @@ def _oauth_error_context(variant: str, strong_message: str | None = None, error_
     }
 
 
+def _pipeline_public_fields(pipeline_result: dict | None) -> dict:
+    """Derive stable UI aliases from the diagnostic terminal pipeline payload.
+
+    The flat fields below are the stable ``/api/status`` contract consumed by
+    the UI; ``pipeline_result`` remains the complete diagnostic record. Never
+    persist both representations independently.
+    """
+    payload = pipeline_result if isinstance(pipeline_result, dict) else {}
+    source = payload.get('source') if isinstance(payload.get('source'), dict) else {}
+    degraded_stages = list(payload.get('degraded_stages') or [])
+    sleep_stage = next(
+        (item for item in reversed(degraded_stages) if item.get('stage') == 'sleep'),
+        {},
+    )
+    sleep_code = (sleep_stage.get('error') or {}).get('code')
+    pending_sleep_reason = {
+        'sleep_transport_failed': 'transport_error',
+        'sleep_not_ready': 'awaiting_publication',
+        'sleep_status_unavailable': 'status_unavailable',
+    }.get(sleep_code)
+    return {
+        'pipeline_status': payload.get('status'),
+        'pipeline_stage': payload.get('stage'),
+        'pipeline_date_from': payload.get('date_from'),
+        'pipeline_date_to': payload.get('date_to'),
+        'processed_dates': list(payload.get('processed_dates') or []),
+        'uncovered_dates': list(payload.get('uncovered_dates') or []),
+        'source_status': source.get('status'),
+        'source_outcome': source.get('outcome'),
+        'pipeline_error': payload.get('error'),
+        'degraded_stages': degraded_stages,
+        'pending_sleep_dates': list(payload.get('pending_sleep_dates') or []),
+        'pending_sleep_reason': pending_sleep_reason,
+    }
+
+
 def _execution_snapshot() -> dict:
     with execution_state_lock:
-        return dict(execution_state)
+        snapshot = dict(execution_state)
+    snapshot.update(_pipeline_public_fields(snapshot.get('pipeline_result')))
+    return snapshot
 
 
 def _execution_running() -> bool:
@@ -465,30 +505,38 @@ def _execution_running() -> bool:
         return bool(execution_state['running'])
 
 
+def _reset_execution_state_locked(job_type: str) -> None:
+    """Reset per-run state; caller must hold ``execution_state_lock``."""
+    execution_state['running'] = True
+    execution_state['success'] = None
+    execution_state['last_output'] = ''
+    execution_state['last_error'] = ''
+    execution_state['job_type'] = job_type
+    execution_state['message'] = None
+    execution_state['pipeline_result'] = None
+
+
 def _try_begin_execution(job_type: str) -> bool:
     with execution_state_lock:
         if execution_state['running']:
             return False
-        execution_state['running'] = True
-        execution_state['success'] = None
-        execution_state['last_output'] = ''
-        execution_state['last_error'] = ''
-        execution_state['job_type'] = job_type
-        execution_state['message'] = None
+        _reset_execution_state_locked(job_type)
         return True
 
 
 def _set_execution_start(job_type: str) -> None:
     with execution_state_lock:
-        execution_state['running'] = True
-        execution_state['success'] = None
-        execution_state['last_output'] = ''
-        execution_state['last_error'] = ''
-        execution_state['job_type'] = job_type
-        execution_state['message'] = None
+        _reset_execution_state_locked(job_type)
 
 
-def _set_execution_result(job_type: str, success: bool, output: str = '', error: str = '', message: str | None = None) -> None:
+def _set_execution_result(
+    job_type: str,
+    success: bool,
+    output: str = '',
+    error: str = '',
+    message: str | None = None,
+    pipeline_result: dict | None = None,
+) -> None:
     with execution_state_lock:
         execution_state['running'] = False
         execution_state['success'] = success
@@ -496,6 +544,7 @@ def _set_execution_result(job_type: str, success: bool, output: str = '', error:
         execution_state['last_error'] = error or ''
         execution_state['job_type'] = job_type
         execution_state['message'] = message
+        execution_state['pipeline_result'] = pipeline_result
         execution_state['last_run'] = datetime.now().isoformat()
 
 
@@ -522,9 +571,42 @@ def _run_subprocess_job(command: list[str], job_type: str, success_message: str,
             },
         )
 
+        pipeline_result = None
         success = (result.returncode == 0)
+        if job_type == 'hrv':
+            pipeline_result = result_from_marker(result.stdout or '')
+            if pipeline_result is None:
+                success = False
+                pipeline_result = {
+                    'status': 'failed',
+                    'success': False,
+                    'canonical_valid': False,
+                    'stage': 'entrypoint',
+                    'error': {
+                        'code': 'process_result_contract_invalid' if result.returncode == 0 else 'process_failed_without_result',
+                        'message': 'El subprocess HRV no emitió un resultado terminal válido',
+                    },
+                    'pending_sleep_dates': [],
+                }
+            else:
+                expected_success = pipeline_result.get('status') in {'ok', 'degraded'}
+                if (result.returncode == 0) != expected_success:
+                    success = False
+                    pipeline_result = {
+                        **pipeline_result,
+                        'status': 'failed',
+                        'success': False,
+                        'canonical_valid': False,
+                        'stage': pipeline_result.get('stage') or 'entrypoint',
+                        'error': {
+                            'code': 'process_result_exit_mismatch',
+                            'message': 'El resultado HRV contradice el exit code',
+                        },
+                    }
+                else:
+                    success = expected_success
         message = success_message if success else f'Error en {_job_label(job_type)}'
-        _set_execution_result(job_type, success, result.stdout or '', result.stderr or '', message)
+        _set_execution_result(job_type, success, result.stdout or '', result.stderr or '', message, pipeline_result)
     except subprocess.TimeoutExpired as exc:
         stdout = exc.stdout if isinstance(exc.stdout, str) else (exc.stdout.decode('utf-8', errors='replace') if exc.stdout else '')
         stderr = exc.stderr if isinstance(exc.stderr, str) else (exc.stderr.decode('utf-8', errors='replace') if exc.stderr else '')
@@ -537,9 +619,27 @@ def _run_subprocess_job(command: list[str], job_type: str, success_message: str,
                 f'Ajusta HRV_SYNC_TIMEOUT_SEC si hace falta.\n{stderr or ""}'
             ).strip(),
             f'Timeout en {_job_label(job_type)}',
+            {
+                'status': 'failed',
+                'success': False,
+                'canonical_valid': False,
+                'stage': 'entrypoint',
+                'error': {'code': 'process_timeout', 'message': f'Timeout ejecutando {_job_label(job_type)}'},
+                'pending_sleep_dates': [],
+            } if job_type == 'hrv' else None,
         )
     except Exception as exc:
-        _set_execution_result(job_type, False, '', str(exc), f'Error en {_job_label(job_type)}')
+        pipeline_result = None
+        if job_type == 'hrv':
+            pipeline_result = {
+                'status': 'failed',
+                'success': False,
+                'canonical_valid': False,
+                'stage': 'entrypoint',
+                'error': {'code': 'process_start_failed', 'message': f'No se pudo iniciar {_job_label(job_type)}'},
+                'pending_sleep_dates': [],
+            }
+        _set_execution_result(job_type, False, '', str(exc), f'Error en {_job_label(job_type)}', pipeline_result)
 
 def _parse_iso_date(value: str):
     try:
@@ -1269,6 +1369,9 @@ def sync():
             'output': state['last_output'],
             'error': state['last_error'],
             'job_type': 'hrv',
+            'pipeline_result': state.get('pipeline_result'),
+            'pipeline_status': state.get('pipeline_status'),
+            'pipeline_stage': state.get('pipeline_stage'),
         }
         return jsonify(body)
 
