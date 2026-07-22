@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import unicodedata
 from json import JSONDecodeError
 from datetime import date, datetime
 from pathlib import Path
@@ -430,7 +431,8 @@ def _build_payload(
 
 
 def _expected_tone(gate_final: str) -> str:
-    gate = str(gate_final or "").strip().upper()
+    gate = unicodedata.normalize("NFKD", str(gate_final or "").strip().upper())
+    gate = "".join(char for char in gate if not unicodedata.combining(char))
     if gate == "VERDE":
         return "green"
     if gate == "AMBAR":
@@ -570,6 +572,8 @@ def _build_sidecar_base(
     detail: str,
     reason: str | None,
     validation_errors: list[str] | None = None,
+    validation_context: dict[str, Any] | None = None,
+    model_output: dict[str, Any] | None = None,
     model_output_preview: str | None = None,
 ) -> dict[str, Any]:
     return {
@@ -586,6 +590,10 @@ def _build_sidecar_base(
         "source_mode": source_mode,
         "reason": reason,
         "validation_errors": validation_errors or [],
+        # Solo se rellena si el modelo devolvió JSON válido pero el contrato lo
+        # rechazó. Permite auditar la decisión sin publicar ese texto en la UI.
+        "validation_context": validation_context,
+        "model_output": model_output,
         "model_output_preview": model_output_preview or "",
         "created_at": datetime.now().replace(microsecond=0).isoformat(),
     }
@@ -822,6 +830,13 @@ def run_ai_daily_brief_for_latest_date() -> dict[str, Any]:
                 detail="",
                 reason="validation_failed",
                 validation_errors=errors,
+                validation_context={
+                    "expected_tone": _expected_tone(gate_final),
+                    "received_tone": str(model_output.get("tone", "")).strip(),
+                    "expected_source_mode": "reason_items" if reason_items else "reason_text_fallback",
+                    "received_source_mode": str(model_output.get("source_mode", "")).strip(),
+                },
+                model_output=model_output,
             )
             _write_sidecars(sidecar, date_str)
             return sidecar

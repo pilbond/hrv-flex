@@ -300,6 +300,10 @@ class AiDailyBriefContractTests(unittest.TestCase):
         self.assertEqual(result["status"], "validation_failed")
         self.assertFalse(result["published"])
         self.assertIn("tone_mismatch", result["validation_errors"])
+        self.assertEqual(result["validation_context"]["expected_tone"], "green")
+        self.assertEqual(result["validation_context"]["received_tone"], "red")
+        self.assertEqual(result["model_output"]["summary"], "Dia verde.")
+        self.assertEqual(result["model_output"]["detail"], "Pero con tono incorrecto para la prueba.")
 
     def test_source_mode_mismatch_writes_validation_failed_sidecar(self):
         with TemporaryDirectory() as tmpdir:
@@ -357,6 +361,9 @@ class AiDailyBriefContractTests(unittest.TestCase):
                 patch.object(daily_brief, "HRV_AI_PROVIDER", "moonshot"), \
                 patch.object(daily_brief, "HRV_AI_MODEL", "kimi-k2.6"):
             self.assertTrue(daily_brief._should_send_thinking_param())
+
+    def test_expected_tone_accepts_accented_amber_gate(self):
+        self.assertEqual(daily_brief._expected_tone("ÁMBAR"), "amber")
 
     def test_non_json_model_output_writes_preview_to_error_sidecar(self):
         with TemporaryDirectory() as tmpdir:
