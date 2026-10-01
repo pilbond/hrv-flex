@@ -455,7 +455,7 @@ Las 5 primeras columnas se copian tal cual de CORE. Ver §2 para el detalle comp
 
 ## 5bis. CONTEXT (sidecar externo) — 17 columnas
 
-Actualizado en el flujo diario coordinado por `polar_hrv_automation.py`, con persistencia en `hrv_app.sleep_store`. Contiene datos de sueño y recuperación nocturna de Polar. Alimenta el `reason_text` pero **NO afecta al gate ni a la acción**. La ingestión prueba primero la fecha exacta y, si Polar no devuelve datos para ese día, consulta el día anterior como fallback operativo para no perder cobertura por desplazamientos de medianoche o latencia de sincronización.
+Actualizado en el flujo diario coordinado por `polar_hrv_automation.py`, con persistencia en `hrv_app.sleep_store`. Contiene datos de sueño y recuperación nocturna de Polar. Alimenta el `reason_text` pero **NO afecta al gate ni a la acción**. La ingestión consulta únicamente la fecha objetivo: nunca usa datos de otra noche como fallback. Si Polar confirma que no hay datos para esa fecha, queda pendiente y el análisis continúa sin contexto de sueño; una fila previa de esa misma fecha se archiva en `data/backup/stale_sleep/` y se retira para evitar reutilizar datos posiblemente atribuidos a la noche equivocada. Si falla la consulta a Polar, se conserva la fila previa y se reintenta en un ciclo posterior.
 
 **La carga de entrenamiento ya NO está en sleep.csv.** Está en `sessions_day.csv` (generado por `build_sessions.py`), que tiene datos más ricos: work blocks, zonas con moving mask, rolling con cobertura real (_nobs). El `reason_text` lee carga de sessions_day.csv y sueño de sleep.csv.
 
@@ -489,7 +489,7 @@ El gate 2D solo ve HRV y pulso. Pero a menudo quieres saber *por qué* tu HRV ba
 | `sleep_dur_p90` | Encima = noche excepcionalmente larga |
 | `sleep_int_p90` | Encima = noche fragmentada para TI |
 
-**Si el sleep.csv no existe o Polar API falla:** El gate y la acción no se ven afectados. Solo se pierden los avisos de sueño en reason_text. Los avisos de carga (de sessions_day.csv) siguen funcionando independientemente. Si la fecha exacta no devuelve datos, `sleep_store` intenta el día anterior antes de rendirse; si tampoco hay datos, entonces el sidecar queda vacío.
+**Si el sleep.csv no existe o Polar API falla:** El gate y la acción no se ven afectados. Solo se pierden los avisos de sueño en reason_text. Los avisos de carga (de sessions_day.csv) siguen funcionando independientemente. `sleep_store` consulta únicamente la fecha objetivo; si Polar confirma que no hay datos, la fecha queda pendiente y el análisis continúa sin contexto de sueño para ese día. Nunca se reutiliza el sueño de otra fecha. Si había una fila previa para esa fecha, se retira y se conserva una copia en `data/backup/stale_sleep/` para auditoría. Ante un error de consulta, se conserva la fila previa y se reintenta, diferenciando falta confirmada de datos de un fallo temporal de acceso.
 
 ---
 

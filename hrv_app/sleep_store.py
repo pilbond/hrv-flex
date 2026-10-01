@@ -428,16 +428,36 @@ def upsert_sleep_row(sleep_row: Dict[str, Any]) -> bool:
     return True
 
 
-def _polar_sleep_date_candidates(date_str: str) -> List[str]:
-    # Try the exact requested date first, then fall back to the previous day.
-    # Polar sleep can be late or shifted around midnight, so the fallback
-    # preserves coverage when the exact day is not available.
-    try:
-        requested = _parse_yyyy_mm_dd(date_str)
-        previous_day = (requested - timedelta(days=1)).isoformat()
-        return [date_str, previous_day]
-    except Exception:
-        return [date_str]
+def _remove_sleep_row(fecha: str) -> bool:
+    """Remove a date whose sleep source has been confirmed unavailable."""
+    if not PANDAS_AVAILABLE or pd is None or not SLEEP_PATH.exists():
+        return False
+
+    sleep_df = pd.read_csv(SLEEP_PATH)
+    missing = [col for col in SLEEP_COLUMNS if col not in sleep_df.columns]
+    extras = [col for col in sleep_df.columns if col not in set(SLEEP_COLUMNS)]
+    if missing or extras:
+        raise ValueError(
+            f"esquema incompatible en {SLEEP_PATH.name}: missing={missing!r}, extras={extras!r}"
+        )
+
+    mask = sleep_df["Fecha"].astype(str).str.strip() == str(fecha).strip()
+    if not bool(mask.any()):
+        return False
+
+    stale_dir = SLEEP_PATH.parent / "backup" / "stale_sleep"
+    stale_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    stale_path = stale_dir / f"{SLEEP_PATH.stem}_{fecha}_{timestamp}.csv"
+    write_csv_atomic(sleep_df.loc[mask, SLEEP_COLUMNS], stale_path)
+
+    remaining = sleep_df.loc[~mask, SLEEP_COLUMNS].copy()
+    if remaining.empty:
+        SLEEP_PATH.unlink()
+    else:
+        remaining = _recalculate_sleep_derived(remaining)
+        write_csv_atomic(remaining[SLEEP_COLUMNS], SLEEP_PATH)
+    return True
 
 
 def fetch_and_upsert_sleep_result(token: str, user_id: Optional[str], processed_date) -> dict:
@@ -451,45 +471,35 @@ def fetch_and_upsert_sleep_result(token: str, user_id: Optional[str], processed_
 
     sleep_row: Dict[str, Any] = {col: float("nan") for col in SLEEP_COLUMNS}
     sleep_row["Fecha"] = date_str
-    sleep_json = None
-    sleep_used_date = None
-    nightly_json = None
-    nightly_used_date = None
-    request_error = False
+    sleep_response = fetch_polar_sleep_result(token, user_id, date_str)
+    sleep_json = sleep_response.get("data")
+    request_error = str(sleep_response.get("outcome") or "no_data_yet") == "request_error"
 
-    for candidate_date in _polar_sleep_date_candidates(date_str):
-        if sleep_json is None:
-            response = fetch_polar_sleep_result(token, user_id, candidate_date)
-            resp = response.get("data")
-            outcome = str(response.get("outcome") or "no_data_yet")
-            if outcome == "request_error":
-                request_error = True
-            if isinstance(resp, dict) and resp:
-                sleep_json = resp
-                sleep_used_date = candidate_date
-        if nightly_json is None:
-            response2 = fetch_polar_nightly_recharge_result(token, user_id, candidate_date)
-            resp2 = response2.get("data")
-            outcome = str(response2.get("outcome") or "no_data_yet")
-            if outcome == "request_error":
-                request_error = True
-            if isinstance(resp2, dict) and resp2:
-                nightly_json = resp2
-                nightly_used_date = candidate_date
-        if sleep_json is not None and nightly_json is not None:
-            break
+    nightly_response = fetch_polar_nightly_recharge_result(token, user_id, date_str)
+    nightly_json = nightly_response.get("data")
+    request_error = request_error or (
+        str(nightly_response.get("outcome") or "no_data_yet") == "request_error"
+    )
 
     if sleep_json:
         sleep_row.update(_extract_sleep_fields(sleep_json))
-        if sleep_used_date and sleep_used_date != date_str:
-            print(f"ℹ️  Sleep tomado desde {sleep_used_date} para fecha {date_str}")
     if nightly_json:
         sleep_row.update(_extract_nightly_fields(nightly_json))
-        if nightly_used_date and nightly_used_date != date_str:
-            print(f"ℹ️  Nightly tomado desde {nightly_used_date} para fecha {date_str}")
 
     if not any(pd.notna(sleep_row.get(col)) for col in SLEEP_SIGNAL_COLUMNS):
         outcome = "request_error" if request_error else "no_data_yet"
+        if outcome == "no_data_yet":
+            try:
+                removed = _remove_sleep_row(date_str)
+                if removed:
+                    print(f"ℹ️  Sin datos de sueño para {date_str}; se elimina cualquier fila previa")
+            except Exception as exc:
+                return {
+                    "status": "failed",
+                    "outcome": "integrity_error",
+                    "date": date_str,
+                    "error": {"code": "sleep_stale_row_cleanup_failed", "message": str(exc)},
+                }
         print(f"ℹ️  Sin datos de sueño para {date_str}; no se escribe fila ({outcome})")
         return {"status": "pending", "outcome": outcome, "date": date_str}
 

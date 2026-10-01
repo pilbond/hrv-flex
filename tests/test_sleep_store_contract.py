@@ -70,31 +70,14 @@ class SleepStoreContractTests(unittest.TestCase):
         self.assertAlmostEqual(out.loc[0, "polar_sleep_duration_min"], 360.0)
         self.assertAlmostEqual(out.loc[0, "polar_sleep_span_min"], 400.0)
 
-    def test_fetch_and_upsert_sleep_uses_previous_day_fallback(self):
+    def test_fetch_and_upsert_sleep_does_not_use_previous_day_fallback(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             sleep_path = Path(tmpdir) / "ENDURANCE_HRV_sleep.csv"
 
             def fake_sleep(_token, _user_id, candidate_date):
-                if candidate_date == "2026-03-03":
-                    return {"outcome": "no_data_yet", "data": None}
-                if candidate_date == "2026-03-02":
-                    return {"outcome": "data_found", "data": {
-                        "sleepDuration": "PT6H",
-                        "sleepSpan": "PT6H30M",
-                        "deepSleep": "PT1H",
-                        "remSleep": "PT2H",
-                        "lightSleep": "PT3H",
-                    }}
                 return {"outcome": "no_data_yet", "data": None}
 
             def fake_nightly(_token, _user_id, candidate_date):
-                if candidate_date == "2026-03-03":
-                    return {"outcome": "no_data_yet", "data": None}
-                if candidate_date == "2026-03-02":
-                    return {"outcome": "data_found", "data": {
-                        "heart_rate_variability_avg": 41,
-                        "breathing_rate_avg": 6000,
-                    }}
                 return {"outcome": "no_data_yet", "data": None}
 
             with patch.object(sleep_store, "SLEEP_PATH", sleep_path), patch.object(
@@ -102,18 +85,33 @@ class SleepStoreContractTests(unittest.TestCase):
             ) as sleep_mock, patch.object(
                 sleep_store, "fetch_polar_nightly_recharge_result", side_effect=fake_nightly
             ) as nightly_mock:
-                self.assertEqual(sleep_store.fetch_and_upsert_sleep_result("token", "user", date(2026, 3, 3))["status"], "ok")
+                result = sleep_store.fetch_and_upsert_sleep_result("token", "user", date(2026, 3, 3))
 
-                out = pd.read_csv(sleep_path)
+        self.assertEqual(result["status"], "pending")
+        self.assertEqual(result["outcome"], "no_data_yet")
+        sleep_mock.assert_called_once_with("token", "user", "2026-03-03")
+        nightly_mock.assert_called_once_with("token", "user", "2026-03-03")
+        self.assertFalse(sleep_path.exists())
 
-        self.assertGreaterEqual(sleep_mock.call_count, 2)
-        self.assertGreaterEqual(nightly_mock.call_count, 2)
-        self.assertEqual(len(out), 1)
-        self.assertEqual(out.loc[0, "Fecha"], "2026-03-03")
-        self.assertAlmostEqual(out.loc[0, "polar_sleep_duration_min"], 360.0)
-        self.assertAlmostEqual(out.loc[0, "polar_sleep_span_min"], 390.0)
-        self.assertAlmostEqual(out.loc[0, "polar_night_rmssd"], 41.0)
-        self.assertAlmostEqual(out.loc[0, "polar_night_resp"], 10.0)
+    def test_no_sleep_data_removes_previous_stale_row(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sleep_path = Path(tmpdir) / "ENDURANCE_HRV_sleep.csv"
+            with patch.object(sleep_store, "SLEEP_PATH", sleep_path):
+                sleep_store.upsert_sleep_row({"Fecha": "2026-03-03", "polar_sleep_duration_min": 360})
+                with patch.object(
+                    sleep_store,
+                    "fetch_polar_sleep_result",
+                    return_value={"outcome": "no_data_yet", "data": None},
+                ), patch.object(
+                    sleep_store,
+                    "fetch_polar_nightly_recharge_result",
+                    return_value={"outcome": "no_data_yet", "data": None},
+                ):
+                    result = sleep_store.fetch_and_upsert_sleep_result("token", "user", date(2026, 3, 3))
+
+            self.assertEqual(result["status"], "pending")
+            self.assertFalse(sleep_path.exists())
+            self.assertEqual(len(list(Path(tmpdir).glob("backup/stale_sleep/*.csv"))), 1)
 
     def test_fetch_and_upsert_sleep_v4_queries_gateway_without_user_id(self):
         with tempfile.TemporaryDirectory() as tmpdir:

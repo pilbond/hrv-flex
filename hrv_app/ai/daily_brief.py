@@ -95,6 +95,8 @@ constraint or tension, and state the practical implication in cleaner
 language than a plain deterministic render.
 """
 
+DAILY_BRIEF_SIDECAR_SCHEMA_VERSION = "2.0"
+
 
 def _to_py(value: Any) -> Any:
     if pd.isna(value):
@@ -124,6 +126,10 @@ def _row_dict(row: pd.Series, fields: list[str]) -> dict[str, Any]:
 def _hash_json(payload: Any) -> str:
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _hash_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def _normalize_text(value: Any) -> str:
@@ -558,6 +564,18 @@ def _should_send_thinking_param() -> bool:
     return True
 
 
+def _effective_inference_config() -> dict[str, Any]:
+    return {
+        "provider": HRV_AI_PROVIDER,
+        "model": HRV_AI_MODEL,
+        "temperature": HRV_AI_TEMPERATURE,
+        "top_p": HRV_AI_TOP_P,
+        "thinking": {"type": HRV_AI_THINKING} if _should_send_thinking_param() else None,
+        "max_tokens": HRV_AI_MAX_TOKENS,
+        "timeout_sec": HRV_AI_TIMEOUT_SEC,
+    }
+
+
 def _build_sidecar_base(
     *,
     status: str,
@@ -575,11 +593,17 @@ def _build_sidecar_base(
     validation_context: dict[str, Any] | None = None,
     model_output: dict[str, Any] | None = None,
     model_output_preview: str | None = None,
+    input_snapshot: dict[str, Any] | None = None,
+    prompt_hash: str = "",
 ) -> dict[str, Any]:
     return {
+        "sidecar_schema_version": DAILY_BRIEF_SIDECAR_SCHEMA_VERSION,
         "status": status,
         "date": date_str,
         "payload_hash": payload_hash,
+        "input_snapshot": input_snapshot,
+        "prompt_hash": prompt_hash,
+        "inference_config": _effective_inference_config(),
         "provider": provider,
         "model": model,
         "prompt_version": HRV_AI_PROMPT_VERSION,
@@ -604,7 +628,14 @@ def _write_sidecars(sidecar: dict[str, Any], date_str: str) -> None:
     write_json_atomic(sidecar, AI_DAILY_BRIEF_LATEST_PATH)
 
 
-def _build_not_applicable_sidecar(date_str: str, payload_hash: str, reason_items: list[dict[str, Any]]) -> dict[str, Any]:
+def _build_not_applicable_sidecar(
+    date_str: str,
+    payload_hash: str,
+    reason_items: list[dict[str, Any]],
+    *,
+    input_snapshot: dict[str, Any],
+    prompt_hash: str,
+) -> dict[str, Any]:
     return _build_sidecar_base(
         status="not_applicable",
         date_str=date_str,
@@ -617,6 +648,8 @@ def _build_not_applicable_sidecar(date_str: str, payload_hash: str, reason_items
         summary="",
         detail="",
         reason="gate_NO",
+        input_snapshot=input_snapshot,
+        prompt_hash=prompt_hash,
     )
 
 
@@ -629,19 +662,20 @@ def _call_model(payload: dict[str, Any]) -> dict[str, Any]:
     if not HRV_AI_MODEL:
         raise RuntimeError("missing_ai_model")
 
+    inference_config = _effective_inference_config()
     request_payload: dict[str, Any] = {
-        "model": HRV_AI_MODEL,
-        "temperature": HRV_AI_TEMPERATURE,
-        "max_tokens": HRV_AI_MAX_TOKENS,
+        "model": inference_config["model"],
+        "temperature": inference_config["temperature"],
+        "max_tokens": inference_config["max_tokens"],
         "messages": [
             {"role": "system", "content": _prompt_text(payload)},
             {"role": "user", "content": json.dumps(payload, ensure_ascii=False, indent=2)},
         ],
     }
-    if HRV_AI_TOP_P is not None:
-        request_payload["top_p"] = HRV_AI_TOP_P
-    if _should_send_thinking_param():
-        request_payload["thinking"] = {"type": HRV_AI_THINKING}
+    if inference_config["top_p"] is not None:
+        request_payload["top_p"] = inference_config["top_p"]
+    if inference_config["thinking"] is not None:
+        request_payload["thinking"] = inference_config["thinking"]
 
     response = requests.post(
         url,
@@ -785,11 +819,19 @@ def run_ai_daily_brief_for_latest_date() -> dict[str, Any]:
     reasons_lookup = _load_reason_items_lookup(FINAL_REASON_ITEMS_PATH)
     reason_items = reasons_lookup.get(date_str, [])
     payload = _build_payload(final_row, sleep_row, sessions_row, reason_items)
-    payload_hash = _hash_json(_payload_for_hash(payload))
+    input_snapshot = _payload_for_hash(payload)
+    payload_hash = _hash_json(input_snapshot)
+    prompt_hash = _hash_text(_prompt_text(payload))
 
     gate_final = str(final_row.get("gate_final", "")).strip().upper()
     if gate_final == "NO":
-        sidecar = _build_not_applicable_sidecar(date_str, payload_hash, reason_items)
+        sidecar = _build_not_applicable_sidecar(
+            date_str,
+            payload_hash,
+            reason_items,
+            input_snapshot=input_snapshot,
+            prompt_hash=prompt_hash,
+        )
         _write_sidecars(sidecar, date_str)
         return sidecar
 
@@ -837,6 +879,8 @@ def run_ai_daily_brief_for_latest_date() -> dict[str, Any]:
                     "received_source_mode": str(model_output.get("source_mode", "")).strip(),
                 },
                 model_output=model_output,
+                input_snapshot=input_snapshot,
+                prompt_hash=prompt_hash,
             )
             _write_sidecars(sidecar, date_str)
             return sidecar
@@ -853,6 +897,8 @@ def run_ai_daily_brief_for_latest_date() -> dict[str, Any]:
             summary=str(validated["summary"]),
             detail=str(validated["detail"]),
             reason=None,
+            input_snapshot=input_snapshot,
+            prompt_hash=prompt_hash,
         )
         _write_sidecars(sidecar, date_str)
         return sidecar
@@ -872,6 +918,8 @@ def run_ai_daily_brief_for_latest_date() -> dict[str, Any]:
             detail="",
             reason=str(exc),
             model_output_preview=_model_output_preview(raw_text) or response_preview,
+            input_snapshot=input_snapshot,
+            prompt_hash=prompt_hash,
         )
         _write_sidecars(sidecar, date_str)
         return sidecar

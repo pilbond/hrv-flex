@@ -1311,9 +1311,26 @@ Schema minimo recomendado:
 
 ```json
 {
+  "sidecar_schema_version": "2.0",
   "status": "ok|not_applicable|error|validation_failed|skipped_unchanged",
   "date": "YYYY-MM-DD",
   "payload_hash": "sha256",
+  "input_snapshot": {
+    "meta": {"date": "YYYY-MM-DD", "source_lag_notes": []},
+    "decision": {},
+    "reason_items": [],
+    "recent_load_summary": {"as_of_date": "YYYY-MM-DD|null"}
+  },
+  "prompt_hash": "sha256",
+  "inference_config": {
+    "provider": "string",
+    "model": "string",
+    "temperature": 0.6,
+    "top_p": 0.95,
+    "thinking": {"type": "disabled"},
+    "max_tokens": 400,
+    "timeout_sec": 12
+  },
   "provider": "string",
   "model": "string",
   "prompt_version": "daily_brief_v1",
@@ -1336,6 +1353,16 @@ Reglas:
 - `status=skipped_unchanged` evita llamadas repetidas si el hash no cambia;
 - `tone=not_applicable` solo para casos no publicables;
 - `validation_errors` debe registrar el motivo exacto del rechazo;
+- `input_snapshot` es la proyeccion exacta usada para calcular
+  `payload_hash`; excluye solo `meta.generated_at`, para que el timestamp no
+  rompa la idempotencia;
+- `prompt_hash` identifica el texto efectivo del system prompt, incluida la
+  instruccion de idioma anadida en runtime;
+- `inference_config` conserva la configuracion efectiva de la llamada, incluidos
+  los parametros omitidos como `null`, pero nunca API keys, cabeceras ni URL con
+  credenciales;
+- `sidecar_schema_version` permite evolucionar esta envoltura sin confundir
+  sidecars historicos anteriores con sidecars plenamente auditables;
 - `model_output_preview` guarda una muestra acotada de la salida textual del
   modelo cuando falla el parseo o la llamada, para depurar respuestas vacias,
   prosa no JSON o modos de razonamiento que no publican en `message.content`.

@@ -136,6 +136,9 @@ class AiDailyBriefContractTests(unittest.TestCase):
         self.assertEqual(result["status"], "not_applicable")
         self.assertFalse(result["published"])
         self.assertEqual(result["reason"], "gate_NO")
+        self.assertEqual(result["sidecar_schema_version"], "2.0")
+        self.assertEqual(result["payload_hash"], daily_brief._hash_json(result["input_snapshot"]))
+        self.assertEqual(len(result["prompt_hash"]), 64)
         migrate_mock.assert_called_once_with(final_path.parent)
         post_mock.assert_not_called()
 
@@ -208,6 +211,7 @@ class AiDailyBriefContractTests(unittest.TestCase):
                 second = daily_brief.run_ai_daily_brief_for_latest_date()
                 self.assertTrue(history_path.exists())
                 self.assertTrue(latest_path.exists())
+                stored_sidecar = json.loads(history_path.read_text(encoding="utf-8"))
 
         self.assertEqual(first["status"], "ok")
         self.assertTrue(first["published"])
@@ -218,6 +222,31 @@ class AiDailyBriefContractTests(unittest.TestCase):
         self.assertEqual(post_mock.call_args.kwargs["json"]["max_tokens"], 321)
         user_payload = json.loads(post_mock.call_args.kwargs["json"]["messages"][1]["content"])
         self.assertEqual(user_payload["morning_hrv"]["gate_raw_today"], "VERDE")
+        self.assertEqual(stored_sidecar["sidecar_schema_version"], "2.0")
+        self.assertEqual(
+            stored_sidecar["payload_hash"],
+            daily_brief._hash_json(stored_sidecar["input_snapshot"]),
+        )
+        self.assertNotIn("generated_at", stored_sidecar["input_snapshot"]["meta"])
+        self.assertEqual(
+            stored_sidecar["prompt_hash"],
+            daily_brief._hash_text(daily_brief._prompt_text(user_payload)),
+        )
+        self.assertEqual(
+            stored_sidecar["inference_config"],
+            {
+                "provider": "test-provider",
+                "model": "test-model",
+                "temperature": 0.7,
+                "top_p": 0.95,
+                "thinking": None,
+                "max_tokens": 321,
+                "timeout_sec": daily_brief.HRV_AI_TIMEOUT_SEC,
+            },
+        )
+        serialized_sidecar = json.dumps(stored_sidecar, ensure_ascii=False)
+        self.assertNotIn("secret", serialized_sidecar)
+        self.assertNotIn("Authorization", serialized_sidecar)
 
     def test_payload_hash_ignores_generated_at_timestamp(self):
         payload_a = {
