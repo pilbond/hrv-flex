@@ -200,11 +200,17 @@ def _fatigue_component_text(fatigue_state: float) -> str:
             level = "moderada"
         else:
             level = "leve"
-        return f"La penalización aguda de fatiga del modelo es {level} (≈{discount_pct:.0f}%)."
+        return (
+            f"El SSM estima un componente de fatiga {level} (≈{discount_pct:.0f}%) "
+            "en el estado de hoy; es un desglose interno del modelo, no identifica su causa por sí solo."
+        )
     if fatigue_state < -0.02:
         boost_pct = (math.exp(-fatigue_state) - 1.0) * 100.0
-        return f"El componente agudo no penaliza la lectura; la compensa en ≈+{boost_pct:.0f}% dentro del modelo."
-    return "El componente agudo de fatiga es prácticamente neutro dentro del modelo."
+        return (
+            f"El componente estimado por el SSM no penaliza la lectura; la compensa en ≈+{boost_pct:.0f}% "
+            "dentro del modelo."
+        )
+    return "El componente de fatiga estimado por el SSM es prácticamente neutro hoy."
 
 
 def _detail_text(

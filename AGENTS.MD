@@ -258,7 +258,7 @@ IA briefs (opt-in, con fallback determinista garantizado):
 - `HRV_AI_DAILY_ENABLED=0` (brief diario HRV, capa `reason_items`)
 - `HRV_AI_SSM_ENABLED=0` (brief SSM shadow, payload validado v4 en `research/reports/iu16_ssm_brief_eval/`)
 - `HRV_AI_PROVIDER`, `HRV_AI_MODEL`, `HRV_AI_API_KEY`, `HRV_AI_BASE_URL` (OpenAI-compatible)
-- `HRV_AI_LANGUAGE=es`, `HRV_AI_PROMPT_VERSION=daily_brief_v1`, `HRV_AI_SSM_PROMPT_VERSION=ssm_brief_v4`
+- `HRV_AI_LANGUAGE=es`, `HRV_AI_PROMPT_VERSION=daily_brief_v1`, `HRV_AI_SSM_PROMPT_VERSION=ssm_brief_v5`
 - `HRV_AI_TEMPERATURE`, `HRV_AI_TOP_P`, `HRV_AI_MAX_TOKENS`, `HRV_AI_TIMEOUT_SEC`, `HRV_AI_THINKING`
 - Los sidecars `*_latest.json` viven en `DATA_DIR`; el historial fechado vive en `DATA_DIR/ai_briefs/{daily,ssm}/`. No son contratos canonicos.
 - La UI (`hrv_app.ui_view.build_view`) solo muestra el texto IA si supera la validacion de contrato; el brief SSM ademas exige que `relation_to_gate` coincida con el calculado por Python. Cualquier discrepancia cae al texto determinista.

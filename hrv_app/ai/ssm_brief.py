@@ -5,7 +5,7 @@ import json
 import math
 import re
 from json import JSONDecodeError
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -84,12 +84,19 @@ del payload. Tu no calculas nada.
    Si `night_signal.material` es true y `sleep_quality` no es `degraded`,
    mencionala brevemente indicando su direccion (ej: "la senal nocturna
    tambien apunta por debajo de lo esperado").
-7. Si `fatigue_penalty.label` no es `minimal`, menciona la penalizacion
-   de fatiga usando `fatigue_penalty.label_display` (texto en idioma de
-   salida) y `fatigue_penalty.pct_display`. No copies el campo `label`
-   (enum interno en ingles) al texto de salida.
-8. Si `fatigue_penalty.trend_vs_yesterday` esta presente, mencionalo
-   brevemente (ej: "la fatiga va a menos respecto a ayer").
+7. `fatigue_penalty` es un componente estimado del SSM, no una medicion
+   directa ni una causa demostrada de fatiga. Si su `label` no es `minimal`,
+   explicalo en lenguaje claro como "el componente de fatiga estimado por el
+   SSM" usando `fatigue_penalty.label_display` (texto en idioma de salida) y
+   `fatigue_penalty.pct_display`. No copies el campo `label` (enum interno en
+   ingles) al texto de salida ni atribuyas el componente a un entrenamiento.
+8. Si `fatigue_penalty.trend_vs_yesterday` esta presente, menciona que ese
+   componente sube, baja o se mantiene frente a ayer; no digas simplemente
+   que "la fatiga" sube o baja. Si
+   `signals.previous_day_training_context.status` es `no_session_recorded`,
+   aclara que ayer no hay una sesion registrada y que el cambio refleja la
+   actualizacion del modelo con las observaciones disponibles, no una carga
+   atribuida a ayer.
 9. Si el payload incluye `caveats`, incorporalos como cierre. Si un
    caveat menciona discordancia matinal/nocturna, presentala como dato
    observado sin intentar resolverla ni explicar su causa.
@@ -234,6 +241,7 @@ def _build_payload(
     final_row: pd.Series,
     brief: dict[str, Any],
     fatigue_yesterday: float | None,
+    previous_day_session_status: str,
 ) -> dict[str, Any]:
     fecha = ssm_row["Fecha"]
     date_str = fecha.date().isoformat() if isinstance(fecha, pd.Timestamp) else str(fecha)
@@ -320,6 +328,10 @@ def _build_payload(
                 "label_display": _FATIGUE_LABEL_ES.get(fatigue_lbl, fatigue_lbl),
                 "pct_display": fatigue_pct_display,
                 "trend_vs_yesterday": fatigue_trend,
+                "authoritative": True,
+            },
+            "previous_day_training_context": {
+                "status": previous_day_session_status,
                 "authoritative": True,
             },
         },
@@ -729,14 +741,29 @@ def run_ai_ssm_brief_for_latest_date() -> dict[str, Any]:
 
     prior = valid[valid["Fecha"].dt.date < latest_date]
     fatigue_yesterday = None
-    if not prior.empty:
-        prior_val = prior.iloc[-1].get("ssm_fatigue_state")
+    previous_day_session_status = "unknown"
+    if not prior.empty and prior.iloc[-1]["Fecha"].date() == latest_date - timedelta(days=1):
+        prior_row = prior.iloc[-1]
+        prior_val = prior_row.get("ssm_fatigue_state")
         try:
             fatigue_yesterday = float(prior_val)
         except (TypeError, ValueError):
             fatigue_yesterday = None
+        previous_day_session_status = (
+            "no_session_recorded"
+            if str(prior_row.get("ssm_load_context_mode") or "").strip() == "rest_day_no_session"
+            else "session_recorded"
+            if str(prior_row.get("ssm_load_context_mode") or "").strip() == "session_recorded"
+            else "unknown"
+        )
 
-    payload = _build_payload(ssm_row, final_row, brief, fatigue_yesterday)
+    payload = _build_payload(
+        ssm_row,
+        final_row,
+        brief,
+        fatigue_yesterday,
+        previous_day_session_status,
+    )
     payload_hash = payload["meta"]["payload_hash"]
 
     existing = _read_json(ai_ssm_brief_history_path(date_str))

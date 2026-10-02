@@ -107,7 +107,8 @@ class MinimalSsmBriefTests(unittest.TestCase):
         self.assertEqual(brief["relation_to_gate"], "aligned")
         self.assertIn("muy claramente por encima", brief["summary"])
         self.assertIn("sorpresa matinal del modelo es muy clara", brief["detail"])
-        self.assertIn("penalización aguda de fatiga", brief["detail"])
+        self.assertIn("componente de fatiga", brief["detail"])
+        self.assertIn("no identifica su causa por sí solo", brief["detail"])
 
 
 if __name__ == "__main__":

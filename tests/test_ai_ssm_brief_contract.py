@@ -330,6 +330,45 @@ class AiSsmBriefContractTests(unittest.TestCase):
         self.assertEqual(ssm_brief._fatigue_label(pct), "high")
         self.assertEqual(ssm_brief._FATIGUE_LABEL_ES[ssm_brief._fatigue_label(pct)], "alta")
 
+    def test_prompt_explains_the_fatigue_component_and_previous_rest_day(self):
+        prompt = ssm_brief._prompt_text({"expected_output": {"language": "es"}})
+
+        self.assertIn("componente estimado del SSM", prompt)
+        self.assertIn("directa ni una causa demostrada", prompt)
+        self.assertIn("previous_day_training_context.status", prompt)
+        self.assertIn("no_session_recorded", prompt)
+
+    def test_payload_marks_a_recorded_previous_rest_day(self):
+        row = pd.Series(
+            {
+                "Fecha": pd.Timestamp("2026-06-26"),
+                "ssm_warmup_complete": True,
+                "ssm_recovery_state": 3.70,
+                "ssm_baseline_state": 4.00,
+                "ssm_fatigue_state": 0.24,
+                "ssm_innovation": -0.25,
+                "sleep_innovation": -0.15,
+                "sleep_input_quality": "clean",
+                "control_rolling_hrv_7d": 3.72,
+            }
+        )
+        final_row = pd.Series({"gate_final": "ROJO", "Action_detail": "SUAVE", "veto_agudo": False})
+        brief = ssm_brief.build_minimal_ssm_brief(row, final_row)
+
+        payload = ssm_brief._build_payload(
+            row,
+            final_row,
+            brief,
+            fatigue_yesterday=0.20,
+            previous_day_session_status="no_session_recorded",
+        )
+
+        self.assertEqual(
+            payload["signals"]["previous_day_training_context"]["status"],
+            "no_session_recorded",
+        )
+        self.assertEqual(payload["signals"]["fatigue_penalty"]["trend_vs_yesterday"], "increasing")
+
     def test_http_error_writes_response_preview_to_reason(self):
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
