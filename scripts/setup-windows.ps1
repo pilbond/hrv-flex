@@ -94,12 +94,12 @@ try {
   }
 
   if (-not (Test-Path -LiteralPath ".env")) {
-    if (Test-Path -LiteralPath ".env.example") {
-      Copy-Item -LiteralPath ".env.example" -Destination ".env" -Force
-      Write-Host "[INFO] Se ha creado .env desde .env.example"
+    if (Test-Path -LiteralPath "env.example") {
+      Copy-Item -LiteralPath "env.example" -Destination ".env" -Force
+      Write-Host "[INFO] Se ha creado .env desde env.example"
     }
     else {
-      Write-Host "[WARN] No existe .env ni .env.example"
+      Write-Host "[WARN] No existe .env ni env.example"
     }
   }
   else {
@@ -120,7 +120,7 @@ try {
   Write-Host "Proximos pasos:"
   Write-Host "  1. Edita .env con tus credenciales reales de Polar"
   Write-Host "  2. Ejecuta scripts\run-web-ui.bat para abrir la UI"
-  Write-Host "  3. O ejecuta scripts\run-python.bat para lanzar el proceso HRV"
+  Write-Host "  3. O ejecuta scripts\run-hrv.bat para lanzar el proceso HRV"
   Write-Host ""
 }
 catch {

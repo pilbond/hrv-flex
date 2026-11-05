@@ -83,11 +83,11 @@ if not exist "data" mkdir data
 if not exist "data\rr_downloads" mkdir data\rr_downloads
 
 if not exist ".env" (
-  if exist ".env.example" (
-    copy /Y ".env.example" ".env" >nul
-    echo [INFO] Se ha creado .env desde .env.example
+  if exist "env.example" (
+    copy /Y "env.example" ".env" >nul
+    echo [INFO] Se ha creado .env desde env.example
   ) else (
-    echo [WARN] No existe .env ni .env.example
+    echo [WARN] No existe .env ni env.example
   )
 ) else (
   echo [INFO] .env ya existe
@@ -110,7 +110,7 @@ echo.
 echo Proximos pasos:
 echo   1. Edita .env con tus credenciales reales de Polar
 echo   2. Ejecuta scripts\run-web-ui.bat para abrir la UI
-echo   3. O ejecuta scripts\run-python.bat para lanzar el proceso HRV
+echo   3. O ejecuta scripts\run-hrv.bat para lanzar el proceso HRV
 echo.
 pause
 

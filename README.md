@@ -1,418 +1,150 @@
-# Polar HRV Automation (Railway V4)
+# Polar HRV Automation
 
-Automatiza el flujo diario de HRV de un unico atleta con Polar AccessLink, cobertura RR Dropbox -> Polar y pipeline ENDURANCE V4.
+Aplicación personal para procesar la variabilidad de la frecuencia cardiaca (HRV) de un atleta. Combina RR matinales, sueño y sesiones de entrenamiento para generar un histórico diario, una vista de decisión y una interfaz web. Se puede ejecutar en local o en un servidor.
 
-## Alcance
+## Cómo funciona
 
-Este repositorio esta pensado para uso personal N=1.
+1. Busca fechas nuevas que aún no figuran en el histórico HRV.
+2. Obtiene pares `ECG.jsonl` y `ACC.jsonl` de Dropbox y los convierte a RR. Dropbox es la única fuente de RR matinales nuevos: si falta una fecha allí, se espera a otro ciclo. El histórico existente se conserva.
+3. Actualiza el sueño mediante Polar AccessLink y procesa los RR con `build_hrv_core.py`.
+4. Combina CORE, sueño y contexto de entrenamiento en `build_hrv_final_dashboard.py`.
+5. Regenera la estimación SSM en sombra. La validación ampliada de SSM se ejecuta aparte, bajo demanda.
+6. Puede sincronizar wellness con Intervals.icu y guardar una copia de los resultados en Dropbox.
 
-- No es un producto multiusuario ni multiatleta.
-- No introduce multi-cuenta, multi-tenant ni seleccion de atleta.
-- Las decisiones de implementacion priorizan simplicidad operativa, trazabilidad y robustez.
+El sistema es para un solo atleta. Los contratos de cálculo, calidad y decisión están en [docs/contracts/](docs/contracts/); el README describe la operación general.
 
-## Precedencia documental
+## Componentes
 
-Este README es una guia de entrada. La documentacion operativa y normativa que manda de verdad es:
+| Ruta | Función |
+| --- | --- |
+| `web_ui.py` | Interfaz Flask, OAuth web, estado y acciones de sincronización. |
+| `polar_hrv_automation.py` y `hrv_app/` | Orquestación, integraciones y lógica operativa del sync HRV. |
+| `egc_to_rr.py` | Conversión de ECG y ACC a RR, con diagnósticos de procedencia. |
+| `build_hrv_core.py` | Generación de CORE y BETA_AUDIT a partir de RR. |
+| `build_hrv_final_dashboard.py` | Generación de FINAL y DASHBOARD. |
+| `build_hrv_ssm.py` | Estimación SSM en sombra. |
+| `build_sessions.py` | Sesiones y contexto de carga desde Intervals.icu. |
+| `analysis/` | Informes locales de sesiones y semanas; no modifica los canónicos HRV. |
+| `research/` | Experimentos y auditorías que no forman parte del runtime. |
+| `scripts/` | Lanzadores y herramientas operativas locales. |
 
-1. `AGENTS.MD` para estructura, runtime, rutas, endpoints, OAuth y despliegue.
-2. `docs/contracts/` para logica HRV, columnas, QA, gating y semantica de metricas.
-3. `analysis/AGENTS.md` y documentos locales de `analysis/` para el modulo analitico.
-4. `research/AGENTS.md` para experimentos, auditorias y analisis exploratorios no adoptados.
+Los datos operativos están en `data/` por defecto. Los RR reprocesables se guardan en `data/rr_downloads/`; sus motivos de descarte y manifiestos viven en `data/rr_downloads/_rr_diagnostics/`. Los briefs IA fechados, cuando se generan, se guardan en `data/ai_briefs/`.
 
-Si hay conflicto, manda `AGENTS.MD` y, para logica HRV, `docs/contracts/`.
+## Preparación local
 
-## Que hace el sistema
+Se recomienda Python 3.11, la versión de la imagen de despliegue y de CI. En Windows, `scripts\setup-windows.bat` crea o reutiliza `.venv`, instala `requirements_web.txt`, crea `data/` y `data/rr_downloads/` y comprueba las dependencias mínimas. Manualmente, desde la raíz del repositorio en PowerShell:
 
-El flujo principal:
-
-1. Detecta fechas faltantes en `CORE`.
-2. Intenta cubrir RR faltantes desde Dropbox a partir de `ECG.jsonl + ACC.jsonl`.
-3. Si Dropbox no cubre esas fechas, usa Polar como fallback.
-4. Actualiza `ENDURANCE_HRV_sleep.csv`.
-5. Procesa RR con `build_hrv_core.py`.
-6. Genera `FINAL` y `DASHBOARD` con `build_hrv_final_dashboard.py`.
-7. Regenera la sombra SSM con `build_hrv_ssm.py`.
-8. Puede sincronizar wellness a Intervals.icu de forma opcional.
-
-La prioridad canonica de cobertura RR es Dropbox primero y Polar como fallback.
-
-## Arquitectura actual
-
-### Componentes principales
-
-- `web_ui.py`
-  - UI Flask movil-first.
-  - Expone `/`, `/auth`, `/auth/callback`, `/oauth/callback`, `/api/sync`, `/api/sync-sessions`, `/api/status` y `/health`.
-  - Ejecuta `polar_hrv_automation.py --process` y `build_sessions.py --update` en background.
-  - No permite correr `sync` HRV y `sync-sessions` a la vez.
-
-- `polar_hrv_automation.py`
-  - Orquestador principal del flujo HRV.
-  - Delega la operativa real en `hrv_app.hrv_sync_flow`.
-
-- `hrv_app/`
-  - Paquete interno con la logica operativa.
-  - Contiene flujo de sync, OAuth, clientes, reporting CLI, Dropbox RR, pipeline runner e integracion Intervals.
-
-- `egc_to_rr.py`
-  - Convierte pares `ECG.jsonl + ACC.jsonl` a RR CSV compatibles con el pipeline.
-
-- `build_hrv_core.py`
-  - RR -> `ENDURANCE_HRV_master_CORE.csv`
-  - RR -> `ENDURANCE_HRV_master_BETA_AUDIT.csv`
-
-- `build_hrv_final_dashboard.py`
-  - `CORE + sleep + sessions_day` -> `ENDURANCE_HRV_master_FINAL.csv`
-  - `CORE + sleep + sessions_day` -> `ENDURANCE_HRV_master_DASHBOARD.csv`
-  - Usa contexto de carga y recuperacion como sidecar interpretativo en `reason_text`.
-
-- `build_sessions.py`
-  - Pipeline de sesiones desde Intervals.icu.
-  - Genera sesiones, agregados diarios, distribucion semanal, weekly coach, metadata y wellness subjetivo.
-
-- `analysis/`
-  - Modulo local de analisis de sesiones.
-  - Consume contexto reproducible del pipeline, pero no redefine la operativa global.
-
-- `research/`
-  - Experimentos, auditorias e informes exploratorios no operativos.
-  - Mantiene separados scripts reproducibles, resultados generados y trabajo temporal.
-
-## Estructura del repositorio
-
-- `data/`
-  - Datos operativos y outputs locales por defecto.
-
-- `data/rr_downloads/`
-  - RR crudos, reprocesables.
-
-- `docs/contracts/`
-  - Contratos HRV activos.
-
-- `research/archive/`
-  - Documentacion historica y material archivado no operativo.
-
-- `scripts/`
-  - Scripts operativos locales, especialmente para Windows.
-
-- `analysis/`
-  - Analisis de sesiones y artefactos locales del modulo.
-
-- `research/`
-  - Investigacion exploratoria, auditorias y experimentos no adoptados.
-  - Leer `research/AGENTS.md` antes de crear contenido.
-
-## Outputs
-
-### Canonicos
-
-- `ENDURANCE_HRV_master_CORE.csv`
-- `ENDURANCE_HRV_master_BETA_AUDIT.csv`
-- `ENDURANCE_HRV_master_FINAL.csv`
-- `ENDURANCE_HRV_master_DASHBOARD.csv`
-- `ENDURANCE_HRV_sleep.csv`
-
-### Complementarios
-
-- `ENDURANCE_HRV_sessions.csv`
-- `ENDURANCE_HRV_sessions_day.csv`
-- `ENDURANCE_HRV_intensity_distribution_weekly.csv`
-- `ENDURANCE_HRV_weekly_coach.json`
-- `ENDURANCE_HRV_sessions_metadata.json`
-- `ENDURANCE_HRV_wellness_subjective.csv`
-
-## Flujo operativo principal
-
-Comando recomendado:
-
-```bash
-python polar_hrv_automation.py --process
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements_web.txt
+Copy-Item env.example .env
 ```
 
-Este comando:
+Configura las variables de entorno necesarias antes de arrancar. El código carga automáticamente un `.env` en la raíz (vía `python-dotenv`); parte de `env.example` y no incorpores `.env` a Git. Para OAuth de Polar se necesitan `POLAR_CLIENT_SECRET` y `POLAR_CLIENT_ID` o `POLAR_CLIENT_ID2`. Si están definidos ambos identificadores, el código da prioridad a `POLAR_CLIENT_ID2`.
 
-1. Calcula fechas faltantes en `CORE`.
-2. Intenta importar RR desde Dropbox si el flujo esta habilitado.
-3. Descarga de Polar solo lo que Dropbox no cubre.
-4. Actualiza `sleep`.
-5. Regenera `CORE`, `BETA_AUDIT`, `FINAL` y `DASHBOARD`.
+Para importar RR nuevos desde Dropbox configura:
 
-Para recalcular historico de `FINAL` y `DASHBOARD` sin rehacer descargas ni `CORE`:
+- `HRV_DROPBOX_FOLDER_PATH`: carpeta que contiene los pares ECG/ACC.
+- `DROPBOX_ACCESS_TOKEN`, o bien `DROPBOX_REFRESH_TOKEN`, `DROPBOX_APP_KEY` y `DROPBOX_APP_SECRET`.
+- `HRV_DROPBOX_RR_ENABLED=1` si se había desactivado la importación.
 
-```bash
-python build_hrv_final_dashboard.py
+`PUBLIC_URL` fija la URL pública utilizada en el callback OAuth. En local, la UI usa el puerto `8080` salvo que se defina `PORT`. Las rutas por defecto son `HRV_DATA_DIR=data`, `RR_DOWNLOAD_DIR=data/rr_downloads` y `POLAR_TOKEN_PATH=.polar_tokens.json`.
+
+Para usar la integración de sesiones y wellness con Intervals.icu, configura `INTERVALS_API_KEY` e `INTERVALS_ATHLETE_ID`.
+
+## Ejecución
+
+En Windows, los lanzadores usan `.venv\Scripts\python.exe` si existe:
+
+| Lanzador | Qué hace |
+| --- | --- |
+| `scripts\run-web-ui.bat` | Arranca la UI en `PORT` (8080 por defecto) con backup Dropbox activado. |
+| `scripts\run-hrv.bat` | Ejecuta `polar_hrv_automation.py --process`. |
+| `scripts\run-build-sessions.bat` | Ejecuta `build_sessions.py --update`, o los argumentos que se le pasen. |
+| `scripts\run-ssm-audit.bat` | Ejecuta la auditoría SSM manual (`--ssm-audit`). |
+
+También se pueden ejecutar los programas directamente:
+
+```powershell
+.\.venv\Scripts\python.exe web_ui.py
+.\.venv\Scripts\python.exe polar_hrv_automation.py --process
+.\.venv\Scripts\python.exe build_sessions.py --update
 ```
 
-## Pipeline de sesiones
+La UI estará en `http://localhost:8080` con el puerto por defecto. Registra en tu aplicación Polar la URL de retorno de la UI (`http://localhost:8080/auth/callback` con la configuración local por defecto) y abre `/auth` para conectar la cuenta. Acciones de la UI y sus endpoints:
 
-Comando recomendado:
+| Acción | Endpoint | Disponibilidad |
+| --- | --- | --- |
+| Sync HRV | `POST /api/sync` | Siempre. |
+| Sync de sesiones | `POST /api/sync-sessions` | Siempre; requiere credenciales de Intervals.icu. |
+| Borrar el último RR ingerido | `POST /api/delete-latest-rr` | Si hay algún RR en disco; pide confirmación. |
+| Importar CSV desde `seed_upload/` | `POST /api/import-seed` | Visible si existe la carpeta (`HRV_SEED_UPLOAD_DIR`) o con `HRV_SHOW_SEED_IMPORT=1`. |
+| Restaurar backup | `POST /api/restore-backup` | Visible con `HRV_BACKUP_DROPBOX_ENABLED=1`. |
 
-```bash
-python build_sessions.py --update
-```
+`GET /api/status` devuelve el estado actual. Las operaciones `POST` comparten un bloqueo: si una está en curso, las demás se rechazan con `409`. Ese bloqueo no cubre la línea de comandos, así que evita lanzar scripts sobre los mismos datos mientras la UI trabaja.
 
-Outputs principales de sesiones:
+Opciones útiles de línea de comandos:
 
-- `ENDURANCE_HRV_sessions.csv`
-  - Sesiones individuales enriquecidas.
+- `polar_hrv_automation.py --all --process`: reprocesa los RR ya presentes en disco sin descargar RR nuevos.
+- `polar_hrv_automation.py --ssm-audit`: ejecuta la auditoría SSM ampliada (shadow, validación y batería de outcomes) bajo demanda; no se combina con otras opciones.
+- `polar_hrv_automation.py --debug-sports`: diagnóstico de los deportes de las sesiones Polar.
+- `build_sessions.py --backfill`, `--daily`, `--update` o `--date`: seleccionan el rango de sesiones.
+- `build_hrv_final_dashboard.py`: recalcula FINAL y DASHBOARD a partir de las entradas existentes.
 
-- `ENDURANCE_HRV_sessions_day.csv`
-  - Agregados diarios y contexto reproducible de carga.
-  - Incluye `load_3d`, `acwr_simple_prev`, `monotony_7d_prev`, `strain_7d_prev`.
-  - Incluye clustering reciente de intensidad con `intense_days_prev_3d`, `intense_days_prev_5d`, `intensity_clustering_flag`, `intensity_clustering_level`.
-  - Incluye senal rolling de polarizacion por familia.
+## Datos generados
 
-- `ENDURANCE_HRV_intensity_distribution_weekly.csv`
-  - Distribucion observada semanal por deporte.
+Los archivos principales de `HRV_DATA_DIR` son:
 
-- `ENDURANCE_HRV_weekly_coach.json`
-  - Resumen semanal estructurado con marcas de corte, cobertura y contexto retrospectivo visible en UI.
-  - Desde `SYA-14`, puede incluir `z3_budget_by_sport` y `z3_budget_summary` como lectura de percentil historico de Z3 por deporte.
+| Archivo | Contenido |
+| --- | --- |
+| `ENDURANCE_HRV_master_CORE.csv` | Métricas HRV procesadas por fecha. |
+| `ENDURANCE_HRV_master_BETA_AUDIT.csv` | Auditoría de la medición RR. |
+| `ENDURANCE_HRV_sleep.csv` | Histórico canónico de sueño. |
+| `ENDURANCE_HRV_master_FINAL.csv` | Métricas, calidad, contexto y decisión diaria. |
+| `ENDURANCE_HRV_master_DASHBOARD.csv` | Vista resumida para la UI. |
+| `ENDURANCE_HRV_ssm_shadow.csv` | Estimación SSM exploratoria. |
 
-- `ENDURANCE_HRV_sessions_metadata.json`
-  - Metadata del pipeline y `training_audit`.
+`build_sessions.py` genera `ENDURANCE_HRV_sessions.csv`, `ENDURANCE_HRV_sessions_day.csv`, la distribución semanal de intensidad, el resumen semanal, los metadatos de auditoría y el wellness subjetivo. CORE y FINAL tienen manifiestos JSON que registran procedencia y huellas de sus resultados.
 
-- `ENDURANCE_HRV_wellness_subjective.csv`
-  - Capa subjetiva de wellness.
+El procesamiento comprueba la compatibilidad del esquema y de la generación del histórico antes de escribir. Si los datos existentes pertenecen a una generación incompatible, se detiene para evitar mezclar definiciones. Consulta [docs/contracts/](docs/contracts/) antes de reconstruir o sustituir un histórico.
 
-## Web UI
+## Backup y restauración
 
-Ejecucion local:
+Con `HRV_BACKUP_DROPBOX_ENABLED=1`, un sync HRV exitoso copia a Dropbox los archivos `ENDURANCE_HRV_*.csv` y `ENDURANCE_HRV_*.json` de la raíz de `HRV_DATA_DIR`, junto con los briefs fechados de `ai_briefs/`. La carpeta remota por defecto es `/hrv_backups`; puede cambiarse con `HRV_BACKUP_DROPBOX_PATH`. El lanzador `scripts\run-web-ui.bat` activa esta opción para su proceso.
 
-```bash
-python web_ui.py
-```
+Cada archivo remoto se sobrescribe conservando su ruta relativa. Este backup incluye resultados e historial IA, pero no los RR, sus diagnósticos ni los tokens OAuth; conserva esas entradas por separado si necesitas reconstruir el histórico.
 
-Endpoints principales:
+La restauración se inicia desde la UI o `POST /api/restore-backup`. Antes de reemplazar archivos locales existentes, guarda una copia en `data/backup/pre_restore/` o la ruta equivalente bajo `HRV_DATA_DIR`. `HRV_AUTO_RESTORE_ON_EMPTY_DATA=1` permite restaurar al iniciar el sync cuando CORE falta, está vacío o no se puede leer. Comprueba que el backup remoto corresponde a la misma generación del código antes de restaurarlo.
 
-- `GET /`
-- `GET /auth`
-- `GET /auth/callback`
-- `GET /oauth/callback`
-- `POST /api/sync`
-- `POST /api/sync-sessions`
-- `GET /api/status`
-- `POST /api/import-seed`
-- `POST /api/delete-latest-rr`
-- `GET /health`
+## Ejecución en servidor
 
-Reglas operativas:
-
-- Los cuatro endpoints POST operativos comparten estado en memoria.
-- No deben ejecutarse en paralelo.
-- Si un job esta corriendo, cualquier otro debe rechazarse.
-
-Notas de UI:
-
-- El bloque `Detalle tecnico` muestra el output operativo del ultimo job.
-- `GET /api/status` expone estado del job, diagnosticos de runtime y el resumen ya procesado del weekly coach.
-- Si esta habilitado por entorno, la UI puede exponer import de CSV seed.
-- La UI permite borrar el ultimo RR moviendolo a backup, no borrandolo de forma destructiva.
-- Cuando existe `ENDURANCE_HRV_weekly_coach.json`, la UI puede mostrar `planning_note` y `Contexto Z3 semanal` sin introducir reglas nuevas de decision.
-
-## Significado del bloque tecnico
-
-El resumen mostrado al final del sync y en la UI es una vista corta del ultimo registro de `FINAL`.
-
-Ejemplo:
+La aplicación arranca con `python web_ui.py`. El repositorio incluye un Dockerfile con Python 3.11. Para conservar datos y OAuth entre despliegues, monta un volumen en `/data` y configura:
 
 ```text
-[OK] Archivos actualizados hasta 2026-04-14
-📅 Fecha:                   2026-04-14
-💓 HR hoy:                  49.2 bpm
-📊 RMSSD:                   47.3 ms
-🚦 Gate:                    VERDE++
-🧭 Acción:                  INTENSIDAD_OK / EJECUTAR_PLAN
-🧾 Razón gate:              2D_OK
-🧠 Reason text:             VERDE pero con 2 días intensos en los últimos 5: prudencia con la intensidad (1/3d · 2/5d) | VERDE con carga aguda 72h (acute_load_72h_rel=4.20x; load_3d=221): precaución intensidad
-🧩 Decision path:           BASE60_ONLY
-🧪 Contexto recuperación:  contexto completo / señales alineadas
-📐 Base 60d:                44.1 ms (n=41)
-📏 Healthy RMSSD:           50.2 ms
-⚠️  Umbral warn.:           42.6 ms
+HRV_DATA_DIR=/data
+RR_DOWNLOAD_DIR=/data/rr_downloads
+POLAR_TOKEN_PATH=/data/polar_tokens.json
+PUBLIC_URL=https://<dominio-publico>
 ```
 
-Lectura rapida del ejemplo:
+Añade los secretos de Polar y Dropbox como variables del servicio. Configura `PORT` si necesitas un puerto distinto de `8080`. El flujo OAuth es web: `/auth` redirige a Polar y `/auth/callback` recibe la respuesta. `/health` comprueba que el proceso responde; `/health?strict=1` también comprueba la frescura de FINAL según `HRV_STALE_MAX_DAYS`.
 
-- El gate del dia es verde, pero el `reason_text` introduce prudencia por intensidad reciente agrupada y por carga acumulada corta.
-- `Base 60d` es la referencia reciente usada por el sistema; `Umbral warn.` es solo la linea informativa contra la que se compara esa base.
-- `Contexto recuperación` indica que habia suficiente informacion y que esa informacion apuntaba en la misma direccion que la lectura principal.
+Si defines `HRV_UI_KEY`, las rutas `/api/*` requieren la clave mediante el header `X-HRV-KEY` o el parámetro `key`. No expongas esa clave, los tokens ni los archivos personales.
 
-Campos importantes:
+## Briefs IA opcionales
 
-- `Razon gate`
-  - Motivo base del gate principal.
+La aplicación puede generar explicaciones diarias y de SSM mediante un proveedor compatible con OpenAI. Requieren `HRV_AI_ENABLED=1` y, respectivamente, `HRV_AI_DAILY_ENABLED=1` o `HRV_AI_SSM_ENABLED=1`, además de la configuración del proveedor. Si la generación falla o el texto no supera la validación, la UI utiliza su explicación determinista. Las métricas y decisiones se calculan en el pipeline; el texto IA es una capa de presentación.
 
-- `Reason text`
-  - Explicacion contextual legible del dia.
-  - Puede incluir carga reciente, clustering de intensidad, sueno o senales de recuperacion.
+## Pruebas y documentación
 
-- `Decision path`
-  - Camino de decision usado por el builder para llegar al gate final.
-  - Sigue siendo un campo tecnico, no una recomendacion de entrenamiento.
-
-- `Contexto recuperacion`
-  - Resume cuanta informacion habia y si las senales estaban alineadas o mezcladas.
-  - Ejemplo: `contexto completo / senales alineadas`.
-
-- `Base 60d`
-  - Baseline60 equivalente en RMSSD ms usado como referencia reciente.
-
-- `Healthy RMSSD`
-  - Ancla sana usada para comparar degradacion de baseline60.
-
-- `Umbral warn.`
-  - Umbral informativo de degradacion de baseline60.
-  - No es la baseline60; es la linea de comparacion.
-
-- `Warning base`
-  - Se activa cuando `baseline60_degraded=True`.
-  - Es una advertencia contextual; no recolorea por si sola el gate.
-
-## Variables de entorno
-
-### Requeridas para OAuth
-
-- `POLAR_CLIENT_SECRET`
-- una de:
-  - `POLAR_CLIENT_ID`
-  - `POLAR_CLIENT_ID2`
-
-`PORT` lo proporciona Railway en produccion. En local es opcional y usa `8080` por defecto.
-
-Nota:
-
-- Si existen ambas, el codigo da precedencia a `POLAR_CLIENT_ID2`.
-
-### Muy recomendadas
-
-- `PUBLIC_URL`
-- `POLAR_TOKEN_PATH`
-- `HRV_DATA_DIR`
-- `RR_DOWNLOAD_DIR`
-- `INTERVALS_API_KEY`
-- `INTERVALS_ATHLETE_ID`
-
-### Operativas
-
-- `HRV_QUIET=1`
-- `HRV_DISABLE_BACKUP=1`
-- `HRV_SYNC_TIMEOUT_SEC`
-- `HRV_DROPBOX_RR_TIMEOUT_SEC`
-- `HRV_SEED_UPLOAD_DIR`
-- `HRV_SHOW_SEED_IMPORT`
-
-### Especializadas
-
-- `POLAR_USER_NAME` (default `Polar_User`)
-- `POLAR_TZ_OFFSET_MIN` (default `0`)
-- `INTERVALS_BASE_URL` (default `https://intervals.icu`)
-- `ATHLETE_WEIGHT_KG` (default `68.0`)
-- `SYSTEM_BIKE_WEIGHT_KG` (default `80.0`)
-- `HRV_WARNING_MODE` (`adaptive90`, `healthy85` o `p20`)
-- `HRV_HEALTHY_START` / `HRV_HEALTHY_END`
-- `HRV_SSM_REASON_TEXT_ENABLED=0` (experimental; no activar sin validacion por deporte)
-
-### Dropbox RR
-
-- `HRV_DROPBOX_RR_ENABLED=1`
-- `HRV_DROPBOX_RR_SCRIPT=egc_to_rr.py`
-- `HRV_DROPBOX_NO_AUX=1`
-- `HRV_DROPBOX_PAIR_LIMIT=<N>`
-- `HRV_DROPBOX_FOLDER_PATH=<dropbox_path>`
-- aliases legacy: `DROPBOX_FOLDER_PATH` y `ECG_RR_DROPBOX_FOLDER`
-- `HRV_DROPBOX_RECURSIVE=1`
-- `DROPBOX_ACCESS_TOKEN`
-- o `DROPBOX_REFRESH_TOKEN + DROPBOX_APP_KEY + DROPBOX_APP_SECRET`
-
-## Defaults locales
-
-Si no se sobreescriben por entorno:
-
-- `HRV_DATA_DIR=data`
-- `RR_DOWNLOAD_DIR=data/rr_downloads`
-- `POLAR_TOKEN_PATH=.polar_tokens.json`
-
-Por tanto, en local:
-
-- RR nuevos y reprocesables van a `data/rr_downloads/`
-- CSV maestros, `sleep` y `sessions` viven en `data/`
-
-## Railway y OAuth
-
-Principios de produccion:
-
-- En Railway debe existir un unico flujo OAuth web.
-- No se debe abrir navegador desde backend.
-- No se debe usar callback local tipo `HTTPServer` en produccion.
-
-Configuracion recomendada con Volume en `/data`:
-
-- `POLAR_TOKEN_PATH=/data/polar_tokens.json`
-- `HRV_DATA_DIR=/data`
-- `RR_DOWNLOAD_DIR=/data/rr_downloads`
-
-Flujo esperado:
-
-1. Abrir `GET /auth`
-2. Redireccion a Polar
-3. Callback en `/auth/callback` o `/oauth/callback`
-4. Intercambio de `code` por tokens
-5. Persistencia atomica en `POLAR_TOKEN_PATH`
-
-## Ejecucion local
-
-Windows:
-
-```bash
-scripts\run-hrv.bat
-scripts\run-build-sessions.bat
-scripts\run-web-ui.bat
-python build_sessions.py --update
+```powershell
+.\.venv\Scripts\python.exe -m pip install pytest pytest-subtests
+.\.venv\Scripts\python.exe -m pytest tests/ -q
 ```
 
-Conversion manual Dropbox -> RR:
+- [AGENTS.MD](AGENTS.MD): reglas operativas, rutas, variables y despliegue.
+- [docs/contracts/](docs/contracts/): contratos HRV vigentes.
+- [analysis/AGENTS.md](analysis/AGENTS.md): reglas del módulo de análisis.
+- [research/AGENTS.md](research/AGENTS.md): reglas de investigación.
 
-```bash
-python egc_to_rr.py --dropbox-folder /ruta/carpeta --dropbox-recursive --outdir data/rr_downloads
-```
-
-## Seguridad
-
-No commitear:
-
-- `.env`
-- `.polar_tokens.json`
-- RR personales
-- CSV personales
-- contenidos de `data/`
-
-Reglas:
-
-- No loguear tokens ni `client_secret`.
-- Rotar secretos si se exponen.
-- No exponer tokens ni artefactos sensibles por HTTP.
-- Tratar `research/archive/` como material historico sensible.
-
-## Modulo analysis
-
-`analysis/` es un modulo local separado para analisis de sesiones.
-
-- Consume contexto del pipeline, incluyendo `training_audit`, carga reciente y capa mecanica minima.
-- Puede generar artefactos locales como `terrain_intervals.csv` o `terrain_climbs.csv`.
-- No debe reinterpretar ni sustituir la documentacion operativa global.
-
-Para tareas dentro de `analysis/`, manda `analysis/AGENTS.md` despues de `AGENTS.MD`.
-
-## Modulo research
-
-`research/` evita mezclar investigacion puntual con el producto analitico:
-
-- `experiments/` contiene pruebas de hipotesis y sus scripts.
-- `audits/` contiene revisiones tecnicas, estadisticas o documentales.
-- `reports/` contiene informes generados.
-- `.scratch/` contiene trabajo temporal descartable.
-
-Si el trabajo evalua si una metrica, modelo o cambio deberia adoptarse, debe
-crearse en `research/`, no en `analysis/`. Los resultados exploratorios no
-modifican contratos ni comportamiento operativo por si solos.
+No incorpores a Git `.env`, tokens, RR, CSV personales ni el contenido de `data/`.
