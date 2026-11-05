@@ -1,6 +1,8 @@
 <!-- contract_version: 1.6 -->
 # SESSION_ANALYSIS_METHOD.md - Session analysis method
 
+Para el RMSSD por segmento de una sesión, se requieren al menos dos diferencias entre intervalos RR consecutivos en el archivo original. Un descarte interrumpe la secuencia. Si el eje temporal está comprometido, el análisis identifica el segmento con `time_axis_compromised`.
+
 ## 1. Alcance
 Este documento define el metodo operativo reproducible para analizar sesiones del atleta del proyecto.
 

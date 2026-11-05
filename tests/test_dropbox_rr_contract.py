@@ -1,5 +1,7 @@
 import contextlib
+import hashlib
 import io
+import json
 import tempfile
 import unittest
 from datetime import date
@@ -11,7 +13,85 @@ import subprocess
 import hrv_app.dropbox_rr as dropbox_rr
 
 
+def _write_staged_rr(outdir: Path, name: str, content: str) -> Path:
+    outdir.mkdir(parents=True, exist_ok=True)
+    rr = outdir / name
+    rr.write_text(content, encoding="utf-8")
+    diagnostics = outdir / "_rr_diagnostics"
+    diagnostics.mkdir(exist_ok=True)
+    stem = rr.stem.removesuffix("_RR")
+    reasons = diagnostics / f"{stem}_RR_reasons.csv"
+    reasons.write_text("rr_index,reason\n0,OK\n", encoding="utf-8")
+    manifest = diagnostics / f"{stem}_RR_diagnostic.json"
+    manifest.write_text(json.dumps({
+        "rr_file": rr.name,
+        "reasons_file": reasons.name,
+        "rr_sha256": hashlib.sha256(rr.read_bytes()).hexdigest(),
+        "reasons_sha256": hashlib.sha256(reasons.read_bytes()).hexdigest(),
+    }), encoding="utf-8")
+    return rr
+
+
 class DropboxRrContractTests(unittest.TestCase):
+    def test_promote_rr_keeps_its_diagnostic(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            stage = root / "_incoming_dropbox_rr"
+            stage.mkdir()
+            rr = stage / "ENDURANCE_2026-03-02_from_jsonl_RR.CSV"
+            rr.write_text("duration,offline\n1000,0\n", encoding="utf-8")
+            diagnostic_dir = stage / "_rr_diagnostics"
+            diagnostic_dir.mkdir()
+            diagnostic = diagnostic_dir / "ENDURANCE_2026-03-02_from_jsonl_RR_diagnostic.json"
+            reasons = diagnostic_dir / "ENDURANCE_2026-03-02_from_jsonl_RR_reasons.csv"
+            reasons.write_text("rr_index,reason\n0,OK\n", encoding="utf-8")
+            manifest = {
+                "rr_file": rr.name,
+                "reasons_file": reasons.name,
+                "rr_sha256": hashlib.sha256(rr.read_bytes()).hexdigest(),
+                "reasons_sha256": hashlib.sha256(reasons.read_bytes()).hexdigest(),
+            }
+            diagnostic.write_text(json.dumps(manifest), encoding="utf-8")
+
+            self.assertEqual(dropbox_rr._promote_operational_rr_files([rr], root), 1)
+            self.assertTrue((root / rr.name).is_file())
+            self.assertEqual(
+                (root / "_rr_diagnostics" / diagnostic.name).read_text(encoding="utf-8"),
+                json.dumps(manifest),
+            )
+            self.assertEqual(
+                (root / "_rr_diagnostics" / reasons.name).read_text(encoding="utf-8"),
+                "rr_index,reason\n0,OK\n",
+            )
+
+    def test_promote_rejects_missing_or_mismatched_diagnostics_before_moving_rr(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            stage = root / "_incoming_dropbox_rr"
+            stage.mkdir()
+            rr = stage / "ENDURANCE_2026-03-02_from_jsonl_RR.CSV"
+            rr.write_text("duration,offline\n1000,0\n", encoding="utf-8")
+            with self.assertRaises(FileNotFoundError):
+                dropbox_rr._promote_operational_rr_files([rr], root)
+            self.assertTrue(rr.exists())
+            self.assertFalse((root / rr.name).exists())
+
+            diagnostic_dir = stage / "_rr_diagnostics"
+            diagnostic_dir.mkdir()
+            reasons = diagnostic_dir / "ENDURANCE_2026-03-02_from_jsonl_RR_reasons.csv"
+            reasons.write_text("rr_index,reason\n0,OK\n", encoding="utf-8")
+            diagnostic = diagnostic_dir / "ENDURANCE_2026-03-02_from_jsonl_RR_diagnostic.json"
+            diagnostic.write_text(json.dumps({
+                "rr_file": rr.name,
+                "reasons_file": reasons.name,
+                "rr_sha256": "wrong",
+                "reasons_sha256": hashlib.sha256(reasons.read_bytes()).hexdigest(),
+            }), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                dropbox_rr._promote_operational_rr_files([rr], root)
+            self.assertTrue(rr.exists())
+            self.assertFalse((root / rr.name).exists())
+
     def test_extract_date_from_rr_filename_handles_polar_and_dropbox_patterns(self):
         self.assertEqual(
             dropbox_rr._extract_date_from_rr_filename("User_2026-03-01_from_jsonl_RR.CSV"),
@@ -87,9 +167,7 @@ class DropboxRrContractTests(unittest.TestCase):
 
             def fake_run(cmd, **kwargs):
                 outdir = Path(cmd[cmd.index("--outdir") + 1])
-                outdir.mkdir(parents=True, exist_ok=True)
-                new_file = outdir / "fresh_2026-03-02_from_jsonl_RR.CSV"
-                new_file.write_text("duration,offline\n100,0\n", encoding="utf-8")
+                _write_staged_rr(outdir, "fresh_2026-03-02_from_jsonl_RR.CSV", "duration,offline\n100,0\n")
                 return fake_result
 
             with (
@@ -114,6 +192,26 @@ class DropboxRrContractTests(unittest.TestCase):
             self.assertIn("2026-03-01", run_mock.call_args.args[0])
             self.assertIn("2026-03-02", run_mock.call_args.args[0])
             self.assertIn("_incoming_dropbox_rr", run_mock.call_args.args[0][run_mock.call_args.args[0].index("--outdir") + 1])
+
+    def test_import_rejects_rr_without_diagnostics_before_core(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+
+            def fake_run(cmd, **kwargs):
+                outdir = Path(cmd[cmd.index("--outdir") + 1])
+                (outdir / "fresh_2026-03-02_from_jsonl_RR.CSV").write_text(
+                    "duration,offline\n100,0\n", encoding="utf-8"
+                )
+                return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+            with patch.object(dropbox_rr, "DROPBOX_RR_ENABLED", True), patch.object(
+                dropbox_rr, "DROPBOX_FOLDER_PATH", "/HRV/raw_jsonl"
+            ), patch.object(dropbox_rr.subprocess, "run", side_effect=fake_run):
+                result = dropbox_rr._run_dropbox_rr_import_for_dates([date(2026, 3, 2)], root)
+
+            self.assertEqual(result.status, "failed")
+            self.assertEqual(result.outcome, "diagnostic_error")
+            self.assertEqual(result.files, {})
 
     def test_run_dropbox_rr_import_for_dates_passes_timeout_and_survives_timeout(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -208,7 +306,7 @@ class DropboxRrContractTests(unittest.TestCase):
 
             def fake_run(cmd, **kwargs):
                 outdir = Path(cmd[cmd.index("--outdir") + 1])
-                (outdir / "fresh_2026-03-01_from_jsonl_RR.CSV").write_text("duration,offline\n100,0\n", encoding="utf-8")
+                _write_staged_rr(outdir, "fresh_2026-03-01_from_jsonl_RR.CSV", "duration,offline\n100,0\n")
                 return fake_result
 
             with patch.object(dropbox_rr, "DROPBOX_RR_ENABLED", True), patch.object(

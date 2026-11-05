@@ -1,4 +1,6 @@
 import unittest
+import hashlib
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -65,7 +67,7 @@ class EgcToRrContractTests(unittest.TestCase):
         post_mock.assert_called_once()
 
     def test_process_pair_writes_canonical_rr_without_versioning(self):
-        rr_events = pd.DataFrame({"duration_ms": [1000.0, 980.0], "offline": [0, 0]})
+        rr_events = pd.DataFrame({"duration_ms": [1000.0, 980.0], "offline": [0, 1], "reason": ["OK", "DELTA_RR_GT_20P"]})
         acc_windows = pd.DataFrame({"start_s": [0.0], "end_s": [1.0]})
         resp_rate = pd.DataFrame({"t0_s": [0.0], "t1_s": [30.0], "resp_rate_bpm": [12.0]})
 
@@ -75,6 +77,8 @@ class EgcToRrContractTests(unittest.TestCase):
             versioned = outdir / "ENDURANCE_2026-06-19_from_jsonl_v2_RR.CSV"
             canonical.write_text("duration,offline\n111,0\n", encoding="utf-8")
             versioned.write_text("duration,offline\n222,0\n", encoding="utf-8")
+            (outdir / "ECG.jsonl").write_text("ecg", encoding="utf-8")
+            (outdir / "ACC.jsonl").write_text("acc", encoding="utf-8")
 
             with (
                 patch.object(egc_to_rr, "extract_ecg", return_value=([0.0, 1.0], [0.1, 0.2], [], "rec")),
@@ -88,7 +92,7 @@ class EgcToRrContractTests(unittest.TestCase):
                 patch.object(egc_to_rr, "resp_rate_from_acc", return_value=resp_rate),
                 patch.object(egc_to_rr, "fs_est", return_value=52.0),
             ):
-                result = egc_to_rr.process_pair(
+                pair_args = dict(
                     ecg_path=outdir / "ECG.jsonl",
                     acc_path=outdir / "ACC.jsonl",
                     outdir=outdir,
@@ -96,11 +100,26 @@ class EgcToRrContractTests(unittest.TestCase):
                     prefix="ENDURANCE",
                     write_aux=False,
                 )
+                result = egc_to_rr.process_pair(**pair_args)
+                published_rr = canonical.read_bytes()
+                canonical.write_text("previous RR\n", encoding="utf-8")
+                with patch.object(egc_to_rr, "_write_json_atomic", side_effect=OSError("diagnostic write failed")):
+                    with self.assertRaises(OSError):
+                        egc_to_rr.process_pair(**pair_args)
+                self.assertEqual(canonical.read_text(encoding="utf-8"), "previous RR\n")
+                canonical.write_bytes(published_rr)
 
             self.assertEqual(result["rr_path"].name, canonical.name)
             self.assertTrue(canonical.exists())
             self.assertTrue(versioned.exists())
-            self.assertEqual(canonical.read_text(encoding="utf-8"), "duration,offline\n1000.0,0\n980.0,0\n")
+            self.assertEqual(canonical.read_text(encoding="utf-8"), "duration,offline\n1000.0,0\n980.0,1\n")
+            diagnostic = json.loads(result["diagnostic_path"].read_text(encoding="utf-8"))
+            reasons = pd.read_csv(result["reasons_path"])
+            self.assertEqual(diagnostic["reason_counts"], {"OK": 1, "DELTA_RR_GT_20P": 1})
+            self.assertEqual(diagnostic["rr_sha256"], hashlib.sha256(canonical.read_bytes()).hexdigest())
+            self.assertEqual(diagnostic["reasons_sha256"], hashlib.sha256(result["reasons_path"].read_bytes()).hexdigest())
+            self.assertEqual(reasons.to_dict("list"), {"rr_index": [0, 1], "reason": ["OK", "DELTA_RR_GT_20P"]})
+            self.assertEqual(diagnostic["offline_count"], 1)
 
 
 if __name__ == "__main__":

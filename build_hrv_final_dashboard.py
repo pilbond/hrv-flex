@@ -128,7 +128,7 @@ log = logging.getLogger("build_hrv_final_dashboard")
 # =============================================================================
 
 COLS_FINAL = [
-    "Fecha","Calidad","HRV_Stability","Artifact_pct","Tiempo_Estabilizacion",
+    "Fecha","Calidad","HRV_Stability","Artifact_pct","rejected_rr_pct_window","Tiempo_Estabilizacion",
     "Stability_Subtype","tail_mismatch_pct",
     "HR_today","RMSSD_stable","lnRMSSD_today",
     "lnRMSSD_used","HR_used","n_roll3",
@@ -1417,7 +1417,8 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
 
         # Quality override
         if quality_flag[i] and gate_final[i] in (VERDE, AMBAR):
-            artifact_pct = _safe_float(df.iloc[i], "Artifact_pct")
+            artifact_metric = "rejected_rr_pct_window" if "rejected_rr_pct_window" in df else "Artifact_pct"
+            artifact_pct = _safe_float(df.iloc[i], artifact_metric)
             tiemp_est = _safe_float(df.iloc[i], "Tiempo_Estabilizacion")
             data_quality_evidence = []
             if tiemp_est is not None:
@@ -1430,7 +1431,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                 layer="measured",
                 source="hrv_pipeline",
                 gate_scope="green_or_amber",
-                metric="Artifact_pct",
+                metric=artifact_metric,
                 value=float(artifact_pct) if artifact_pct is not None else None,
                 threshold=15.0,
                 evidence=data_quality_evidence,
@@ -2168,6 +2169,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
         "Fecha": df["Fecha"].astype(str),
         "Calidad": df["Calidad"].astype(str),
         "HRV_Stability": df["HRV_Stability"].astype(str),
+        "rejected_rr_pct_window": pd.to_numeric(df.get("rejected_rr_pct_window", np.nan), errors="coerce"),
         "Artifact_pct": pd.to_numeric(df["Artifact_pct"], errors="coerce"),
         "Tiempo_Estabilizacion": pd.to_numeric(df["Tiempo_Estabilizacion"], errors="coerce"),
         "Stability_Subtype": stability_subtype,

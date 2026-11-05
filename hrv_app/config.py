@@ -53,11 +53,26 @@ def _dir_is_writable(path: Path) -> bool:
     except OSError:
         return False
     try:
-        with tempfile.NamedTemporaryFile(dir=str(path), prefix=".hrv-write-probe-", delete=True):
-            pass
-        return True
+        handle = tempfile.NamedTemporaryFile(
+            dir=str(path), prefix=".hrv-write-probe-", delete=False
+        )
     except OSError:
         return False
+
+    # The directory is writable: the probe was created. Cleanup can still
+    # fail on Windows (antivirus/indexer holding the handle), and that must
+    # not be reported as "not writable" -- doing so used to leave the probe
+    # behind *and* send callers to the fallback path for no reason.
+    probe = Path(handle.name)
+    try:
+        handle.close()
+    except OSError:
+        pass
+    try:
+        probe.unlink()
+    except OSError:
+        pass
+    return True
 
 
 def _resolve_writable_dir(primary: Path, fallback: Path) -> Path:

@@ -207,7 +207,7 @@ class AnalyzeWeeklyTests(unittest.TestCase):
 
     @requires_real_data
     def test_weekly_prompt_and_handoff_use_repo_relative_paths(self):
-        weekly_dir = MODULE.Path("C:/Pilbond/polar-hrv-automation/analysis/reports/weekly/2026-05-11_2026-05-17")
+        weekly_dir = Path(__file__).resolve().parents[1] / "analysis/reports/weekly/2026-05-11_2026-05-17"
         prompt = MODULE.build_weekly_analyst_prompt_markdown(
             weekly_dir=weekly_dir,
             manifest_path=weekly_dir / "weekly_prep_manifest.json",

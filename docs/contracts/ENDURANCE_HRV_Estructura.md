@@ -1,5 +1,11 @@
 # ENDURANCE HRV — Estructura de Datos
 
+**Estado local (2026-11-05):** la generación HG-10 está publicada en `C:\Pilbond\hrv-flex\data` con CORE de 19 columnas y FINAL de 67. CORE, BETA_AUDIT, FINAL, DASHBOARD y SSM se regeneraron y verificaron por huellas; Railway no está cubierto por este corte. Las menciones posteriores a «candidata» y «pendiente de migración» describen el estado anterior al corte local.
+
+**Artefactos del tramo (candidata v2, 03/11/2026).** CORE y FINAL añaden `rejected_rr_pct_window` junto a `Artifact_pct`. El primero es el porcentaje de RR rechazados entre todos los RR cuyo instante final está entre 90 s y el final útil inclusive. Se aplican los descartes del filtro original antes de seleccionar el tramo. Sin RR en el tramo, el porcentaje queda vacío. Calidad y los flags de artefactos usan el porcentaje local: más de 15 % impide OK y más de 20 % implica INVALID. El global sigue describiendo el registro truncado y ponderando la varianza de SSM. FINAL identifica la métrica local en el motivo de calidad cuando recibe el nuevo esquema.
+
+**Latencia ausente en la versión candidata (03/11/2026), pendiente de migración.** CORE conserva `LAT_NAN` como diagnóstico y concede `OK` si se cumplen todos los demás requisitos. FINAL aplica su elegibilidad y acción ordinarias. SSM admite la observación con `LAT_NAN` si la fila es `OK` y mantiene ausentes los casos combinados. El manifiesto CORE registra `QUALITY_POLICY_VERSION=hg10_latnan_aviso_art_window_v2`. El sync exige que la versión coincida. Las referencias de este documento a `LAT_NAN` como causa de `FLAG_mecánico` corresponden a la política desplegada.
+
 **Revisión:** r2026-07-14 v3.19 (fail-closed de CORE, BETA_AUDIT y sleep)
 **Estado:** Producción
 
@@ -100,11 +106,29 @@ el productor, sus tests y este contrato antes del despliegue.
 
 CORE contiene la señal fisiológica pura del día: lo que el sensor midió y cómo de fiable es esa medición. No incluye ninguna decisión de entrenamiento.
 
-**Cabecera exacta (copiar literal):**
+**Esquema candidato.** Al esquema desplegado se añade rejected_rr_pct_window. Lo que cambia es cómo se
+calculan: `RMSSD_stable`, `RMSSD_stable_last2`, `SD1` y las ventanas del detector usan
+solo pares de RR consecutivos en el archivo original; el tramo empieza en un fijo de 90 s
+y el registro se corta en 375 s antes del recorte final de 15 s; `Artifact_pct` se calcula
+sobre ese registro truncado. `Flags` admite tres valores más (`REC_SHORT`,
+`WIN_NO_PAIRS`, `TIME_AXIS_UNRELIABLE`) y `Notes` añade `geom=`, `dur_full=`, `cut=`,
+`pairs_tramo=`, `pairs_tail=` y `axis=`. Los CSV desplegados todavía corresponden a la
+versión anterior: la generación se distingue por
+`effective_config.constants.GEOMETRY_VERSION` en el manifiesto de CORE.
+
+**Cabecera candidata:**
+
+```
+Fecha,Calidad,HRV_Stability,Stability_Subtype,Artifact_pct,rejected_rr_pct_window,Tiempo_Estabilizacion,HR_stable,RRbar_s,RMSSD_stable,RMSSD_stable_last2,tail_mismatch_pct,lnRMSSD,Flags,SI_baevsky,SD1,SD2,SD1_SD2_ratio,Notes
+```
+
+**Cabecera del esquema desplegado:**
 
 ```
 Fecha,Calidad,HRV_Stability,Stability_Subtype,Artifact_pct,Tiempo_Estabilizacion,HR_stable,RRbar_s,RMSSD_stable,RMSSD_stable_last2,tail_mismatch_pct,lnRMSSD,Flags,SI_baevsky,SD1,SD2,SD1_SD2_ratio,Notes
 ```
+
+La siguiente tabla numera las columnas del esquema desplegado. En la candidata se inserta `rejected_rr_pct_window` después de `Artifact_pct`: `float`, puede ser nulo (sin RR en el tramo de 90 s al final útil), ejemplo `2.1`; es el porcentaje de RR rechazados dentro de ese tramo.
 
 | # | Columna | Tipo | ¿Puede ser nulo? | Ejemplo | Qué es |
 |---|---------|------|-------------------|---------|--------|
@@ -116,7 +140,7 @@ Fecha,Calidad,HRV_Stability,Stability_Subtype,Artifact_pct,Tiempo_Estabilizacion
 | 6 | Tiempo_Estabilizacion | float | Sí | 90.0 | Segundos hasta que la señal se estabilizó. NaN si no se detectó. |
 | 7 | HR_stable | float | Sí | 48.5 | Pulso medio en el tramo estable (lpm) |
 | 8 | RRbar_s | float | Sí | 1.237 | Intervalo RR medio en el tramo estable (segundos) |
-| 9 | RMSSD_stable | float | Sí | 52.3 | Variabilidad cardiaca del tramo estable completo (ms) |
+| 9 | RMSSD_stable | float | Sí | 52.3 | Variabilidad cardiaca del tramo estable completo (ms). `NaN` si el tramo no tiene pares consecutivos |
 | 10 | RMSSD_stable_last2 | float | Sí | 51.8 | Variabilidad de los últimos 120 s, para verificar estabilidad (ms) |
 | 11 | tail_mismatch_pct | float | Sí | 20.48 | Diferencia relativa entre `RMSSD_stable` y `RMSSD_stable_last2` en porcentaje |
 | 12 | lnRMSSD | float | Sí | 3.957 | Logaritmo natural de RMSSD_stable |
@@ -139,7 +163,7 @@ Fecha,Calidad,HRV_Stability,Stability_Subtype,Artifact_pct,Tiempo_Estabilizacion
 
 FINAL es el archivo de auditoría completo: contiene la medición del día, el suavizado, los baselines, todos los gates, el veto agudo, el residual, la acción, la acumulación, los warnings y el `reason_text` contextual. Además, desde r2026-03-12 expone una capa mínima de auditoría `raw vs ref` para entender mejor los días `Unstable` sin cambiar el `gate_final`.
 
-**Nota sobre `reason_items`:** `build_hrv_final_dashboard.py` construye internamente `reason_text` desde una capa estructurada de `reason_items` en memoria (`type`, `layer`, `source`, `message`, etc.) y además publica el sidecar `ENDURANCE_HRV_master_FINAL_reason_items.json` para consumo de `analysis/`. El esquema público de `FINAL` y `DASHBOARD` es de 66 y 10 columnas respectivamente; no se añade una columna `reason_items_json` al CSV.
+**Nota sobre `reason_items`:** `build_hrv_final_dashboard.py` construye internamente `reason_text` desde una capa estructurada de `reason_items` en memoria (`type`, `layer`, `source`, `message`, etc.) y además publica el sidecar `ENDURANCE_HRV_master_FINAL_reason_items.json` para consumo de `analysis/`. El esquema desplegado de `FINAL` y `DASHBOARD` es de 66 y 10 columnas respectivamente. El candidato añade una columna a `FINAL`; no se añade una columna `reason_items_json` al CSV.
 
 **Nota analysis:** `analysis/session_analysis_pipeline.py` deriva una capa local `narrative_targets.final_reason_rendered` dentro de `session_payload.json`. Esa capa no cambia el contrato global HRV, pero sí fija cómo `analysis/` debe traducir las cautelas tipificadas:
 - mantiene el mensaje cuantificado del item original,
@@ -148,7 +172,13 @@ FINAL es el archivo de auditoría completo: contiene la medición del día, el s
 
 **Nota analysis/report sync:** el mismo pipeline deja `analysis/reports/<slug>/artifacts/report_sync_status.json` para declarar si el `report.md` humano está alineado con los artefactos técnicos regenerados. Estados esperados: `missing`, `unmanaged_legacy`, `stale`, `up_to_date`. `analyst_prompt.md` y `ai_handoff.md` deben incluir el `report_sync_token` que el informe final tiene que copiar en un comentario HTML al inicio. Desde esta fase, `run_analysis()` ya genera también `report.md` como artefacto gestionado por pipeline; si encuentra un informe legacy sin token, preserva primero `report.legacy.md`.
 
-**Cabecera exacta (copiar literal):**
+**Cabecera candidata:**
+
+```
+Fecha,Calidad,HRV_Stability,Artifact_pct,rejected_rr_pct_window,Tiempo_Estabilizacion,Stability_Subtype,tail_mismatch_pct,HR_today,RMSSD_stable,lnRMSSD_today,lnRMSSD_used,HR_used,n_roll3,gate_raw_today,gate_raw_reason,unstable_note,ln_base60,HR_base60,n_base60,SWC_ln,SWC_HR,d_ln,d_HR,gate_base60,gate_razon_base60,gate_shadow42,gate_razon_shadow42,n_base42,gate_shadow28,gate_razon_shadow28,n_base28,decision_mode,gate_final,gate_final_delta,decision_path,override_reason,residual_ln,residual_z,residual_tag,gate_badge,quality_flag,Color_operativo,Action,Action_detail,bad_streak,bad_7d,baseline60_degraded,degraded_vs_best,degraded_vs_current_normal,healthy_rmssd,healthy_hr,healthy_period,flag_sistemico,flag_razon,warning_threshold,warning_threshold_best,warning_threshold_current_normal,warning_mode,veto_agudo,ln_pre_veto,swc_ln_floor,recovery_context_quality,recovery_support_class,recovery_discordance_flag,recovery_discordance_reason,reason_text
+```
+
+**Cabecera del esquema desplegado:**
 
 ```
 Fecha,Calidad,HRV_Stability,Artifact_pct,Tiempo_Estabilizacion,Stability_Subtype,tail_mismatch_pct,HR_today,RMSSD_stable,lnRMSSD_today,lnRMSSD_used,HR_used,n_roll3,gate_raw_today,gate_raw_reason,unstable_note,ln_base60,HR_base60,n_base60,SWC_ln,SWC_HR,d_ln,d_HR,gate_base60,gate_razon_base60,gate_shadow42,gate_razon_shadow42,n_base42,gate_shadow28,gate_razon_shadow28,n_base28,decision_mode,gate_final,gate_final_delta,decision_path,override_reason,residual_ln,residual_z,residual_tag,gate_badge,quality_flag,Color_operativo,Action,Action_detail,bad_streak,bad_7d,baseline60_degraded,degraded_vs_best,degraded_vs_current_normal,healthy_rmssd,healthy_hr,healthy_period,flag_sistemico,flag_razon,warning_threshold,warning_threshold_best,warning_threshold_current_normal,warning_mode,veto_agudo,ln_pre_veto,swc_ln_floor,recovery_context_quality,recovery_support_class,recovery_discordance_flag,recovery_discordance_reason,reason_text
@@ -156,13 +186,15 @@ Fecha,Calidad,HRV_Stability,Artifact_pct,Tiempo_Estabilizacion,Stability_Subtype
 
 ### Agrupación lógica
 
-Las 66 columnas se organizan en 13 bloques lógicos. Cada bloque agrupa campos relacionados:
+Las 66 columnas desplegadas se organizan en 13 bloques lógicos. Cada bloque agrupa campos relacionados:
 
 #### A) Identidad / medición base (10 cols)
 
 Réplica de la medición de CORE, incluyendo ahora el subtipo explícito de estabilidad y el porcentaje de mismatch de cola.
 
 Columnas 1-10: `Fecha`, `Calidad`, `HRV_Stability`, `Artifact_pct`, `Tiempo_Estabilizacion`, `Stability_Subtype`, `tail_mismatch_pct`, `HR_today`, `RMSSD_stable`, `lnRMSSD_today`
+
+En la candidata, `rejected_rr_pct_window` se inserta después de `Artifact_pct` (bloque A de 11 columnas) y la numeración de los bloques siguientes se desplaza una posición.
 
 #### B) Suavizado ROLL3 (3 cols)
 

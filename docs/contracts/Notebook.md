@@ -137,7 +137,7 @@ No es una media de todo lo que haya ocurrido, sino una referencia robusta constr
 
 - mira los 60 dias anteriores al de hoy
 - excluye el dia actual de su propia comparacion (regla `shift-1`)
-- usa solo dias `clean` (Calidad OK, estabilidad OK, artefactos ≤10%, sin NaN)
+- usa solo dias `clean` (Calidad `OK`, que ya exige estabilidad OK y descartes ≤15 %, y sin NaN)
 - calcula la mediana de HRV y de pulso, no la media
 
 Esto hace que tu baseline sea mas estable y menos sensible a dias raros, enfermedad puntual o mediciones malas.
@@ -586,7 +586,7 @@ Cada archivo cumple una funcion distinta en la lectura del sistema:
 
 - `CORE`: es la capa fisiologica canonica. Guarda la medicion ya procesada y metricas como `lnRMSSD`, `SI_baevsky`, `SD1` y `SD2`.
 - `BETA_AUDIT`: es una salida legacy de auditoria V3. Sirve para trazabilidad historica, no para decidir el gate actual.
-- `FINAL`: es la capa de decision completa (66 columnas). Aqui viven baseline, SWC, deltas, veto, sombras, residual, gate final, accion, recuperación multiseñal y reason_text.
+- `FINAL`: es la capa de decision completa (66 columnas desplegadas, 67 candidatas). Aqui viven baseline, SWC, deltas, veto, sombras, residual, gate final, accion, recuperación multiseñal y reason_text.
 - `DASHBOARD`: es una vista resumida (10 columnas) para leer lo importante sin tragarte toda la auditoria.
 
 Si quieres entender `que paso`, lees `FINAL`. Si quieres leer `que hago hoy`, miras `DASHBOARD`.

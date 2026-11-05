@@ -131,10 +131,12 @@ Si este bloque queda desactualizado, debe actualizarse o reducirse.
 - `egc_to_rr.py`
   Convierte pares `ECG.jsonl + ACC.jsonl` a RR compatibles con la app.
   El uso recomendado actual es local o Dropbox.
+  Conserva prospectivamente el motivo por índice RR y un manifiesto de huellas/versiones en `RR_DOWNLOAD_DIR/_rr_diagnostics/`, también con `--no-aux`. Al incorporar el RR desde Dropbox, se verifican los nombres y las huellas SHA-256 del RR y de sus motivos de descarte contra el manifiesto. Si falta un diagnóstico o falla la verificación, la importación de ese ciclo falla (`diagnostic_error`) y no se promueve ningún RR nuevo. Estos sidecars no son canónicos ni cambian `duration,offline`.
 
 - `build_hrv_core.py`
   RR -> `ENDURANCE_HRV_master_CORE.csv` y `ENDURANCE_HRV_master_BETA_AUDIT.csv`.
   Tambien deja `ENDURANCE_HRV_master_CORE_manifest.json` como sidecar atomico de corrida.
+  En este checkout local, HG-10 falla cerrado si CORE, BETA_AUDIT y su manifiesto no corresponden a `GEOMETRY_VERSION=hg10_s90_t375_trim15` y `QUALITY_POLICY_VERSION=hg10_latnan_aviso_art_window_v2`. El histórico anterior de 18 columnas fue respaldado antes del corte local del 2026-11-05. `--allow-hg10-migration` solo se admite con un `--data-dir` aislado.
 
 - `build_hrv_final_dashboard.py`
   `CORE + sleep + sessions_day` -> `ENDURANCE_HRV_master_FINAL.csv` y `ENDURANCE_HRV_master_DASHBOARD.csv`.
@@ -161,11 +163,13 @@ Si este bloque queda desactualizado, debe actualizarse o reducirse.
   Puede generar artefactos locales de terreno (`terrain_intervals.csv`, `terrain_climbs.csv`) dentro de `analysis/reports/` sin convertirlos en outputs canonicos globales.
 
 ## 8. Outputs operativos canonicos
+En este checkout local, HG-10 se publicó el 2026-11-05: CORE tiene 19 columnas y FINAL 67, incluida `rejected_rr_pct_window`. Los manifiestos y las huellas corresponden a esta generación. El estado del volumen Railway se verifica por separado.
+
 Canonicos:
 
-- `ENDURANCE_HRV_master_CORE.csv` (18 columnas)
+- `ENDURANCE_HRV_master_CORE.csv` (19 columnas)
 - `ENDURANCE_HRV_master_BETA_AUDIT.csv` (13 columnas)
-- `ENDURANCE_HRV_master_FINAL.csv` (66 columnas)
+- `ENDURANCE_HRV_master_FINAL.csv` (67 columnas)
 - `ENDURANCE_HRV_master_DASHBOARD.csv` (10 columnas)
 - `ENDURANCE_HRV_sleep.csv` (17 columnas)
 

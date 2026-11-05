@@ -194,7 +194,7 @@ python run_session_analysis.py \
 - Limpieza de RR crudos (filtro out-of-range, delta-RR, artefactos locales).
 - Calcula dos capas RR: `core` (limpieza estandar) y `strict` (para DFA).
 - Metricas:
-  - RMSSD por ventanas de 1 min y 5 min (P10, P50, P90, usabilidad por ventana).
+  - RMSSD por ventanas de 1 min y 5 min (P10, P50, P90, usabilidad por ventana). Solo usa diferencias entre RR consecutivos en el CSV original (mínimo dos); si `time_axis_trust` no es `OK`, las ventanas quedan no usables con motivo `time_axis_compromised`.
   - DFA-alpha1 (mediana, IQR, pct_lt_075, gate de interpretabilidad).
   - HR@0.75 (umbral aerobico estimado por regresion FC-alpha1).
   - `duration_consistency` (coherencia entre RR crudo y referencia FIT/stream).

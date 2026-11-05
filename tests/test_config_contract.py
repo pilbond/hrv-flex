@@ -91,7 +91,10 @@ class ConfigContractTests(unittest.TestCase):
                 dir_arg = kwargs.get("dir")
                 if dir_arg and str(dir_arg).startswith(str(primary_data_dir.parent)):
                     raise OSError("permission denied")
-                return _ProbeContext()
+                probe = _ProbeContext()
+                probe.name = str(Path(tmpdir) / "probe")
+                probe.close = lambda: None
+                return probe
 
             with patch.dict(
                 "os.environ",

@@ -91,6 +91,79 @@ class BuildHrvCoreContractTests(unittest.TestCase):
             for attr, value in saved.items():
                 setattr(core_builder, attr, value)
 
+    def test_main_rejects_legacy_core_before_processing_or_writing(self):
+        saved = {attr: getattr(core_builder, attr) for attr in self._GLOBAL_ATTRS}
+        try:
+            with TemporaryDirectory() as tmpdir:
+                data_dir = Path(tmpdir)
+                core = data_dir / "ENDURANCE_HRV_master_CORE.csv"
+                beta = data_dir / "ENDURANCE_HRV_master_BETA_AUDIT.csv"
+                rr = data_dir / "2026-02-09_RR.csv"
+                core.write_text("Fecha,Notes\n2026-02-08,legacy\n", encoding="utf-8")
+                beta.write_text("Fecha\n2026-02-08\n", encoding="utf-8")
+                rr.write_text("duration,offline\n1000,0\n", encoding="utf-8")
+                before = (core.read_bytes(), beta.read_bytes())
+                argv = ["build_hrv_core.py", "--data-dir", str(data_dir), "--rr-file", str(rr)]
+                with patch.object(core_builder.sys, "argv", argv), patch.object(
+                    core_builder, "compute_day_from_rr"
+                ) as compute, patch.object(core_builder, "get_or_create_df", return_value=None):
+                    with self.assertRaises(SystemExit) as caught:
+                        core_builder.main()
+                self.assertEqual(caught.exception.code, 2)
+                compute.assert_not_called()
+                self.assertEqual((core.read_bytes(), beta.read_bytes()), before)
+        finally:
+            for attr, value in saved.items():
+                setattr(core_builder, attr, value)
+
+    def test_canonical_geometry_check_requires_matching_manifest_and_hashes(self):
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            core = data_dir / "ENDURANCE_HRV_master_CORE.csv"
+            beta = data_dir / "ENDURANCE_HRV_master_BETA_AUDIT.csv"
+            manifest = data_dir / "ENDURANCE_HRV_master_CORE_manifest.json"
+            self.assertIsNone(core_builder.canonical_geometry_issue(core, beta, manifest))
+            core.write_text("Fecha,Notes\n2026-02-08,geom=hg10_s90_t375_trim15\n", encoding="utf-8")
+            beta.write_text("beta", encoding="utf-8")
+            payload = {
+                "effective_config": {"constants": {"GEOMETRY_VERSION": "old"}},
+                "outputs": [
+                    {"role": "core", "sha256": core_builder.file_digest(core)},
+                    {"role": "beta_audit", "sha256": core_builder.file_digest(beta)},
+                ],
+            }
+            manifest.write_text(json.dumps(payload), encoding="utf-8")
+            self.assertIn("geometría existente", core_builder.canonical_geometry_issue(core, beta, manifest))
+            payload["effective_config"]["constants"]["GEOMETRY_VERSION"] = core_builder.CONSTANTS["GEOMETRY_VERSION"]
+            manifest.write_text(json.dumps(payload), encoding="utf-8")
+            self.assertIn("política de Calidad", core_builder.canonical_geometry_issue(core, beta, manifest))
+            payload["effective_config"]["constants"]["QUALITY_POLICY_VERSION"] = core_builder.CONSTANTS["QUALITY_POLICY_VERSION"]
+            manifest.write_text(json.dumps(payload), encoding="utf-8")
+            self.assertIsNone(core_builder.canonical_geometry_issue(core, beta, manifest))
+            core.write_text("Fecha,Notes\n2026-02-08,legacy\n", encoding="utf-8")
+            self.assertIn("huella de core", core_builder.canonical_geometry_issue(core, beta, manifest))
+            payload["outputs"][0]["sha256"] = core_builder.file_digest(core)
+            manifest.write_text(json.dumps(payload), encoding="utf-8")
+            self.assertIn("fila(s) CORE", core_builder.canonical_geometry_issue(core, beta, manifest))
+            core.write_text(
+                "Fecha,Notes\n"
+                "2026-02-08,geom=hg10_s90_t375_trim15\n"
+                "2026-02-26,legacy sin RR\n"
+                "2026-02-27,legacy sin RR\n"
+                "2026-03-03,legacy sin RR\n",
+                encoding="utf-8",
+            )
+            payload["outputs"][0]["sha256"] = core_builder.file_digest(core)
+            manifest.write_text(json.dumps(payload), encoding="utf-8")
+            self.assertIsNone(core_builder.canonical_geometry_issue(core, beta, manifest))
+
+    def test_migration_override_requires_a_separate_data_dir(self):
+        with patch.object(
+            core_builder.sys, "argv", ["build_hrv_core.py", "--allow-hg10-migration"]
+        ), self.assertRaises(SystemExit) as caught:
+            core_builder.main()
+        self.assertEqual(caught.exception.code, 2)
+
 
 class GetOrCreateDfFailClosedTests(unittest.TestCase):
     def test_corrupt_existing_file_raises_and_quarantines(self):

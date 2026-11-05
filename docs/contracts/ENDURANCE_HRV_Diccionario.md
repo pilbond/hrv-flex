@@ -1,5 +1,11 @@
 # ENDURANCE HRV — Diccionario de Columnas (FINAL/DASHBOARD)
 
+**Estado local (2026-11-05):** la generación HG-10 está publicada en `C:\Pilbond\hrv-flex\data` con CORE de 19 columnas y FINAL de 67. CORE, BETA_AUDIT, FINAL, DASHBOARD y SSM se regeneraron y verificaron por huellas; Railway no está cubierto por este corte. Las menciones posteriores a «candidata» y «pendiente de migración» describen el estado anterior al corte local.
+
+**Artefactos del tramo (candidata v2, 03/11/2026).** CORE y FINAL añaden `rejected_rr_pct_window` junto a `Artifact_pct`. El primero es el porcentaje de RR rechazados entre todos los RR cuyo instante final está entre 90 s y el final útil inclusive. Se aplican los descartes del filtro original antes de seleccionar el tramo. Sin RR en el tramo, el porcentaje queda vacío. Calidad y los flags de artefactos usan el porcentaje local: más de 15 % impide OK y más de 20 % implica INVALID. El global sigue describiendo el registro truncado y ponderando la varianza de SSM. FINAL identifica la métrica local en el motivo de calidad cuando recibe el nuevo esquema.
+
+**Latencia ausente en la versión candidata (03/11/2026), pendiente de migración.** CORE conserva `LAT_NAN` como diagnóstico y concede `OK` si se cumplen todos los demás requisitos. FINAL aplica su elegibilidad y acción ordinarias. SSM admite la observación con `LAT_NAN` si la fila es `OK` y mantiene ausentes los casos combinados. El manifiesto CORE registra `QUALITY_POLICY_VERSION=hg10_latnan_aviso_art_window_v2`. El sync exige que la versión coincida. Las referencias de este documento a `LAT_NAN` como causa de `FLAG_mecánico` corresponden a la política desplegada.
+
 **Revisión:** r2026-06-11 v4.15 (manifests de trazabilidad de corrida)
 **Estado:** Producción
 
@@ -21,8 +27,8 @@
 
 - §0. Cómo leer el CSV (operativo)
 - §1. Valores típicos (orientación inicial)
-- §2. CORE (medición canónica) — 18 columnas
-- §3. FINAL (gate + auditoría extendida) — 66 columnas
+- §2. CORE (medición canónica) — 18 columnas desplegadas, 19 candidatas
+- §3. FINAL (gate + auditoría extendida) — 66 columnas desplegadas, 67 candidatas
 - §4. DASHBOARD (vista operativa) — 10 columnas
 - §5. BETA_AUDIT (forense V3) — 13 columnas
 - §5bis. CONTEXT / sleep.csv (sidecar externo) — 17 columnas
@@ -106,13 +112,15 @@
 
 ### Artifact_pct
 
-| Rango | Calidad |
+En la versión candidata, el denominador corresponde al registro cortado a 375 s. Los umbrales de Calidad se aplican a `rejected_rr_pct_window`, no a este porcentaje global.
+
+| Rango de descartes | Interpretación orientativa |
 |-------|---------|
 | <5% | Excelente |
 | 5-10% | Bueno |
 | 10-15% | Aceptable con vigilancia |
-| 15-20% | Límite (FLAG_mecánico) |
-| >20% | Malo (INVALID) |
+| >15-20% | En la candidata, FLAG_mecánico cuando corresponde al tramo |
+| >20% | En la candidata, INVALID cuando corresponde al tramo |
 
 ### Tiempo_Estabilizacion
 
@@ -124,9 +132,11 @@
 | >600 s | Problema (no puede ser Calidad=OK) |
 | NaN | No se detectó estabilización → FLAG_mecánico |
 
+Estas consecuencias corresponden al esquema desplegado. En la versión candidata la latencia es solo diagnóstica: ni `NaN` ni valores >600 s impiden `Calidad = OK`.
+
 ---
 
-## 2. CORE (medición canónica) — 18 columnas
+## 2. CORE (medición canónica) — 18 columnas desplegadas, 19 candidatas
 
 Generado por `build_hrv_core.py`. Contiene la señal fisiológica **sin decisiones**.
 
@@ -140,11 +150,12 @@ Generado por `build_hrv_core.py`. Contiene la señal fisiológica **sin decision
 
 | Columna | Qué es | Valores |
 |---------|--------|---------|
-| `Calidad` | Veredicto final sobre si la medición de hoy es usable. Resume en una palabra si los artefactos, la latencia y la estabilidad permiten confiar en el dato. No dice si "estás bien o mal"; dice si la medición merece confianza. | OK (fiable) / FLAG_mecánico (existe pero dudoso) / INVALID (descartado) |
+| `Calidad` | Veredicto final sobre si la medición de hoy es usable. Resume en una palabra si los artefactos, la estabilidad y, en el esquema desplegado, la latencia permiten confiar en el dato. No dice si "estás bien o mal"; dice si la medición merece confianza. | OK (fiable) / FLAG_mecánico (existe pero dudoso) / INVALID (descartado) |
 | `HRV_Stability` | ¿El tramo final de la grabación fue estable? Se evalúa comparando los últimos 120 s con el tramo completo. Si la cola oscila mucho, cambia de régimen o no tiene suficientes datos, marca `Unstable`. | OK / Unstable |
 | `Stability_Subtype` | Subtipo explícito del chequeo de estabilidad. Hace visible el motivo principal del `Unstable` sin obligarte a parsear `Flags`. Es útil para distinguir una simple discrepancia de cola (`STAB_LAST2_MISMATCH`) de una medición realmente rota (`STAB_TAIL_SHORT`, `STAB_LAST2_NAN`). | OK / STAB_LAST2_MISMATCH / STAB_TAIL_SHORT / STAB_CV120_HIGH / STAB_LAST2_NAN |
-| `Artifact_pct` | Porcentaje del registro total que se ha descartado por artefactos del sensor, intervalos fuera de rango fisiológico y saltos bruscos entre latidos. Cuanto más bajo, más limpia la señal. Un valor alto no implica necesariamente fatiga: muchas veces es solo mala calidad de adquisición. | 0-100 (ver §1 para rangos de calidad) |
-| `Tiempo_Estabilizacion` | Cuántos segundos tardó tu sistema nervioso, y la propia señal del sensor, en estabilizarse desde que empezaste la medición. Si no se detecta ese punto, queda `NaN` y fuerza `FLAG_mecánico`, porque probablemente estás midiendo una transición y no un estado estable. | segundos (ideal 60-120) o NaN |
+| `Artifact_pct` | Porcentaje del registro —cortado a 375 s en la versión candidata— que se ha descartado por artefactos del sensor, intervalos fuera de rango fisiológico y saltos bruscos entre latidos. Cuanto más bajo, más limpia la señal. Un valor alto no implica necesariamente fatiga: muchas veces es solo mala calidad de adquisición. | 0-100 (ver §1 para rangos de calidad) |
+| `rejected_rr_pct_window` | Solo en la versión candidata. Porcentaje de RR rechazados (offline, fuera de rango o filtro ΔRR) entre los RR cuyo instante final cae entre 90 s y el final útil, ambos inclusive. Es la métrica que deciden `ART_GT15`, `ART_GT20` y la Calidad. Vacío si no hay RR en ese tramo. | 0-100 o vacío |
+| `Tiempo_Estabilizacion` | Tiempo hasta la meseta identificada por el detector. En la versión candidata el tramo empieza a los 90 s. Si el detector no identifica una meseta, el campo queda vacío y se registra `LAT_NAN` como aviso. | segundos o NaN |
 
 ### Señal fisiológica (del tramo estable)
 
@@ -153,7 +164,7 @@ Generado por `build_hrv_core.py`. Contiene la señal fisiológica **sin decision
 | `HR_stable` | Tu frecuencia cardiaca media durante el tramo estabilizado. Es tu pulso "real" de reposo matinal, una vez descartada la fase de ajuste inicial y los últimos segundos problemáticos. | lpm |
 | `RRbar_s` | Intervalo RR medio en el tramo estable, es decir, el tiempo medio entre latidos. Es la inversa del pulso: `RRbar_s = 60 / HR_stable`. Sirve como control cruzado y como entrada para modelos auxiliares. | segundos |
 | `RMSSD_stable` | Tu variabilidad cardiaca principal: la raíz cuadrada de la media de las diferencias al cuadrado entre latidos consecutivos, calculada sobre todo el tramo estable. Es el indicador central del tono vagal o parasimpático. Más alto, en general, implica más recuperación. | ms |
-| `RMSSD_stable_last2` | Igual que `RMSSD_stable`, pero calculado solo con los últimos 120 segundos de la grabación útil. Se compara con el tramo estable completo para verificar si la señal seguía estable al final o estaba cambiando. | ms |
+| `RMSSD_stable_last2` | Igual que `RMSSD_stable`, pero calculado solo con los últimos 120 segundos de la grabación útil, y en la versión candidata solo con pares de latidos consecutivos en el archivo original. Se compara con el tramo estable completo para verificar si la señal seguía estable al final o estaba cambiando. | ms |
 | `tail_mismatch_pct` | Diferencia relativa entre `RMSSD_stable` y `RMSSD_stable_last2`. Es una métrica diagnóstica pensada para entender mejor los `Unstable` de tipo discrepancia de cola. No decide el color por sí sola, pero ayuda a ver si el final de la medición se apartó mucho del resto. | % |
 | `lnRMSSD` | Logaritmo natural de `RMSSD_stable`. Se usa en vez del RMSSD bruto porque la distribución de RMSSD es muy asimétrica: los días buenos generan dispersión mayor que los malos. El logaritmo la "normaliza" mejor y hace que medias, medianas y umbrales tengan más sentido estadístico. Es la señal que realmente entra en el gate. | adimensional |
 
@@ -175,7 +186,7 @@ Generado por `build_hrv_core.py`. Contiene la señal fisiológica **sin decision
 
 ---
 
-## 3. FINAL (gate + auditoría extendida) — 66 columnas
+## 3. FINAL (gate + auditoría extendida) — 66 columnas desplegadas, 67 candidatas
 
 Generado por `build_hrv_final_dashboard.py`. Contiene:
 
@@ -204,14 +215,15 @@ Generado por `build_hrv_final_dashboard.py`. Contiene:
 
 #### A) Identidad / medición base (copiado de CORE)
 
-Las 10 primeras columnas de FINAL replican la medición de CORE, pero ahora arrastran también el subtipo explícito de estabilidad y el mismatch de cola. Siguen existiendo **2 cambios de nombre** respecto a CORE:
+Las 10 primeras columnas de FINAL (11 en la candidata) replican la medición de CORE, pero ahora arrastran también el subtipo explícito de estabilidad y el mismatch de cola. Siguen existiendo **2 cambios de nombre** respecto a CORE:
 
 | Columna FINAL | Equivale a (CORE) | Qué es | Unidades |
 |---------------|--------------------|--------|----------|
 | `Fecha` | `Fecha` | Día de la medición matinal | YYYY-MM-DD |
-| `Calidad` | `Calidad` | ¿Se puede confiar en la medición? Resume artefactos, latencia y estabilidad. Ojo: es una etiqueta de fiabilidad, no un juicio sobre tu estado fisiológico. | OK / FLAG_mecánico / INVALID |
+| `Calidad` | `Calidad` | ¿Se puede confiar en la medición? Resume artefactos, estabilidad y, en el esquema desplegado, latencia. Ojo: es una etiqueta de fiabilidad, no un juicio sobre tu estado fisiológico. | OK / FLAG_mecánico / INVALID |
 | `HRV_Stability` | `HRV_Stability` | ¿El tramo final de la grabación fue estable o estaba oscilando? Si aquí sale `Unstable`, el raw del día existe, pero el sistema lo trata con desconfianza. | OK / Unstable |
 | `Artifact_pct` | `Artifact_pct` | Porcentaje del registro descartado por ruido, artefactos y saltos entre latidos. Es una forma rápida de medir la limpieza de la señal. | 0-100 |
+| `rejected_rr_pct_window` | `rejected_rr_pct_window` | Solo en la versión candidata. Porcentaje de RR rechazados dentro del tramo medido. Es la métrica que usa la Calidad y la que cita el motivo de calidad de FINAL. | 0-100 o vacío |
 | `Tiempo_Estabilizacion` | `Tiempo_Estabilizacion` | Cuántos segundos tardó la señal en estabilizarse tras iniciar la medición. Si es muy alto o `NaN`, conviene sospechar de protocolo, postura o transición fisiológica. | número o NaN |
 | `Stability_Subtype` | `Stability_Subtype` | Subtipo explícito de estabilidad. Hace visible el motivo principal del `Unstable` sin parsear `Flags`, y permite distinguir una discrepancia de cola de un tramo final demasiado corto o directamente no calculable. | texto |
 | `tail_mismatch_pct` | `tail_mismatch_pct` | Diferencia relativa entre `RMSSD_stable` y `RMSSD_stable_last2`. Es una métrica diagnóstica para entender cuánto se apartó el final de la medición del resto del tramo estable. No es el color oficial. | % |
@@ -878,7 +890,7 @@ Reglas operativas:
 | `sleep_input_quality` | Calidad operativa de la observación nocturna: `clean`, `degraded` o `suppressed`. |
 | `sleep_obs_var_multiplier` | Multiplicador continuo de la varianza observacional nocturna derivado de calidad/artefactos. |
 | `sleep_innovation` | Resíduo nocturno del Kalman antes del update HRV matinal. Sirve como sidecar de sorpresa nocturna y matiz interpretativo. |
-| `ssm_obs_missing` | `true` si la observación HRV quedó suprimida ese día (`lnRMSSD` ausente, `Calidad=INVALID` o `LAT_NAN`). |
+| `ssm_obs_missing` | `true` si la observación HRV quedó suprimida ese día (`lnRMSSD` ausente, `Calidad=INVALID` o, en la candidata, `LAT_NAN` con Calidad distinta de `OK`). |
 | `ssm_innovation` | Residuos de observación del Kalman (`lnRMSSD` observado menos predicho) antes del update. Sirven como sidecar de sorpresa del día y base de `reason_text`/lectura diaria, pero no cambian el gate. |
 | `ssm_load_missing` | `true` si hubo fila de `sessions_day` pero `load_day` no era utilizable. |
 | `ssm_load_context_mode` | Contexto de carga usado para modular la confianza del proceso: `session_recorded`, `rest_day_no_session`, `calendar_gap_no_session`, `missing_session_value`. |
@@ -1156,17 +1168,20 @@ Para interpretación, reglas de cobertura y el contrato de cada columna, consult
 
 | Flag | Qué ha pasado | Consecuencia |
 |------|---------------|--------------|
-| `LAT_NAN` | No se detectó ningún punto de estabilización en toda la grabación. La señal nunca dejó de moverse. Puede ser mecánico (banda suelta, movimiento) o fisiológico (activación simpática fuerte). | Fuerza `Calidad = FLAG_mecánico`. El día no será clean. |
-| `ART_GT15` | Los artefactos (latidos marcados como offline, fuera de rango, o con saltos bruscos) superan el 15% del registro total. Hay suficiente señal para calcular métricas, pero con ruido significativo. | Impide `Calidad = OK`. El día será FLAG_mecánico como mínimo. |
-| `ART_GT20` | Artefactos por encima del 20%. Demasiado ruido para confiar en cualquier métrica. | Fuerza `Calidad = INVALID`. Día perdido. |
-| `STAB_TAIL_SHORT` | La cola de la grabación (últimos 120 s) tiene menos de 75 s de material utilizable o menos de 60 pares de latidos. No hay suficientes datos al final para verificar la estabilidad. | Fuerza `HRV_Stability = Unstable`. |
+| `LAT_NAN` | El detector no encontró una meseta en las ventanas disponibles. | Desplegada: fuerza `FLAG_mecánico`. Candidata: aviso que permite `OK` si se cumplen los demás criterios. |
+| `ART_GT15` | Los artefactos (latidos marcados como offline, fuera de rango, o con saltos bruscos) superan el 15 % (`Artifact_pct` del registro en el esquema desplegado; `rejected_rr_pct_window` del tramo en la candidata). Hay suficiente señal para calcular métricas, pero con ruido significativo. | Impide `Calidad = OK`. El día será FLAG_mecánico como mínimo. |
+| `ART_GT20` | Artefactos por encima del 20 % en la misma métrica que `ART_GT15`. Demasiado ruido para confiar en cualquier métrica. | Fuerza `Calidad = INVALID`. Día perdido. |
+| `STAB_TAIL_SHORT` | La cola de la grabación (últimos 120 s) tiene menos de 75 s de material utilizable o menos de 60 pares de latidos físicamente consecutivos. No hay suficientes datos al final para verificar la estabilidad. | Fuerza `HRV_Stability = Unstable`. |
 | `STAB_CV120_HIGH` | El coeficiente de variación de la cola (últimos 120 s) supera el 20%. Los intervalos RR al final de la grabación oscilan demasiado — la señal no se había estabilizado realmente. | Fuerza `HRV_Stability = Unstable`. |
 | `STAB_LAST2_NAN` | No se pudo calcular RMSSD_stable_last2 (la variabilidad de la cola). Normalmente porque hay muy pocos pares de latidos válidos en los últimos 120 s. | Fuerza `HRV_Stability = Unstable`. |
 | `STAB_LAST2_MISMATCH` | La variabilidad de la cola (RMSSD_stable_last2) discrepa más de un 15% con la del tramo completo (RMSSD_stable). Indica que la señal estaba cambiando significativamente al final de la grabación. | Fuerza `HRV_Stability = Unstable`. |
+| `REC_SHORT` | La grabación termina antes de los límites previstos: tras cortar en 375 s y recortar los últimos 15 s no queda nada después del segundo 90, así que no hay tramo que medir. | Impide `Calidad = OK`. |
+| `WIN_NO_PAIRS` | En el tramo no queda ningún par de latidos que fuera consecutivo en el archivo original, así que no hay RMSSD que publicar. | Impide `Calidad = OK`. |
+| `TIME_AXIS_UNRELIABLE` | El archivo RR tiene alguna duración ausente o no finita. Sin ella no se sabe cuánto tiempo transcurrió, y los límites de ventana, tramo y cola dejan de ser fiables. | Impide `Calidad = OK`. |
 | `BETA_CLIPPED` | El coeficiente beta estimado cayó fuera del rango plausible [0.1, 3.0] y se recortó al límite más cercano. | Solo informativo (afecta a BETA_AUDIT, no al decisor FINAL/DASHBOARD). |
 | `BETA_FROZEN` | El modelo beta era inestable (R² < 0.10 o salto respecto al día anterior > 0.15). Se usó el beta del día anterior en lugar del nuevo. | Solo informativo (afecta a BETA_AUDIT, no al decisor FINAL/DASHBOARD). |
 | `BETA_NONE` | No había suficiente historial (< 60 días válidos en ventana de 90d, o variación de RR insuficiente) para estimar beta. | Solo informativo (afecta a BETA_AUDIT, no al decisor FINAL/DASHBOARD). |
-| `RESCUE_MODE` | El procesamiento normal falló en algún punto, pero se consiguió rescatar las métricas básicas de CORE. El dato existe pero se generó sin el pipeline completo. | Solo informativo. Revisar Notes para detalles del fallo. |
+| `RESCUE_MODE` | El procesamiento normal falló en algún punto, pero se consiguió rescatar las métricas básicas de CORE. El dato existe pero se generó sin el pipeline completo. | La Calidad nunca es `OK` en rescate: queda `FLAG_mecánico` (o `INVALID` por la exclusión dura). En la candidata puede acompañarse de `REC_SHORT`, `WIN_NO_PAIRS` o `TIME_AXIS_UNRELIABLE`. Revisar Notes para detalles del fallo. |
 
 ---
 
@@ -1260,15 +1275,15 @@ Regla fundamental: el día de hoy **nunca** entra en su propia ventana de compar
 
 ### Día clean (para ventanas)
 No todos los días con medición entran en los cálculos de ROLL3 y baselines. Solo los **clean**: aquellos donde la medición fue fiable en todos los sentidos. Requisitos simultáneos:
-- `Calidad = OK` (no FLAG_mecánico ni INVALID)
-- `HRV_Stability = OK` (tramo final estable)
-- `Artifact_pct ≤ 10%` (ruido bajo)
-- `lnRMSSD` y `HR_stable` no NaN (señal completa)
+- `Calidad = OK` (no FLAG_mecánico ni INVALID). En CORE, `OK` ya exige `HRV_Stability = OK` y descartes ≤ 15 % en la métrica del esquema
+- `lnRMSSD`, `HR_stable` y `RMSSD_stable` no NaN (señal completa)
+
+FINAL no aplica un umbral de artefactos propio para definir el día clean.
 
 Un día FLAG_mecánico **sí** genera gate y acción (con quality_flag=True), pero **no** contamina las ventanas de referencia. Así protegemos la calidad del baseline.
 
 ### quality_flag
-"El dato existe, pero no me fío lo suficiente como para meter intensidad." Salta cuando el día es `FLAG_mecánico`, `Unstable`, o tiene `Artifact_pct > 15%`, pero no llega a ser INVALID. El sistema calcula el gate 2D igualmente (porque perder la señal de tendencia es peor que no tenerla), pero la acción se **fuerza a SUAVE** (`Action_detail = SUAVE_QUALITY`) independientemente del color. En la práctica: si el gate sale VERDE pero tienes quality_flag, no te lances a hacer intervalos — el dato que lo justifica no es fiable.
+"El dato existe, pero no me fío lo suficiente como para meter intensidad." En FINAL se activa cuando la Calidad no es `OK` ni `INVALID`. El sistema calcula el gate 2D igualmente (porque perder la señal de tendencia es peor que no tenerla), pero la acción se **fuerza a SUAVE** (`Action_detail = SUAVE_QUALITY`) independientemente del color. En la práctica: si el gate sale VERDE pero tienes quality_flag, no te lances a hacer intervalos — el dato que lo justifica no es fiable.
 
 ### ROLL3
 Media móvil de los **últimos 3 días clean**. En vez de comparar contra el baseline con el dato crudo de hoy (que puede fluctuar mucho día a día), se suaviza promediando los 3 últimos días fiables. Esto filtra el ruido diario sin perder sensibilidad ante cambios reales: si llevas 2 días con HRV bajando y hoy también baja, ROLL3 lo refleja. Pero si ayer tuviste un pico raro y hoy estás normal, ROLL3 lo amortigua. Si no hay 3 días clean recientes, el gate queda como NO (`ROLL3_INSUF`).
@@ -1291,7 +1306,7 @@ Texto explicativo que combina información del gate con datos contextuales (sue�
 
 Esa mejora es interna y de trazabilidad. El builder también publica un sidecar `ENDURANCE_HRV_master_FINAL_reason_items.json` con los `reason_items` estructurados por fecha para consumo de `analysis/`. El contrato público del CSV no cambia:
 
-- `FINAL` sigue teniendo 66 columnas,
+- `FINAL` tiene 66 columnas desplegadas y 67 en la candidata,
 - `DASHBOARD` sigue teniendo 10 columnas,
 - no existe `reason_items_json` público como columna en `FINAL` ni en `DASHBOARD`;
 - el sidecar `ENDURANCE_HRV_master_FINAL_reason_items.json` sí existe y se usa como entrada estructurada de `analysis/`.

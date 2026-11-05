@@ -1,5 +1,11 @@
 # Procedimiento Recomendado (V4)
 
+**Estado local (2026-11-05):** la generación HG-10 está publicada en `C:\Pilbond\hrv-flex\data` con CORE de 19 columnas y FINAL de 67. CORE, BETA_AUDIT, FINAL, DASHBOARD y SSM se regeneraron y verificaron por huellas; Railway no está cubierto por este corte. Las menciones posteriores a «candidata» y «pendiente de migración» describen el estado anterior al corte local.
+
+**Artefactos del tramo (candidata v2, 03/11/2026).** CORE y FINAL añaden `rejected_rr_pct_window` junto a `Artifact_pct`. El primero es el porcentaje de RR rechazados entre todos los RR cuyo instante final está entre 90 s y el final útil inclusive. Se aplican los descartes del filtro original antes de seleccionar el tramo. Sin RR en el tramo, el porcentaje queda vacío. Calidad y los flags de artefactos usan el porcentaje local: más de 15 % impide OK y más de 20 % implica INVALID. El global sigue describiendo el registro truncado y ponderando la varianza de SSM. FINAL identifica la métrica local en el motivo de calidad cuando recibe el nuevo esquema.
+
+**Latencia ausente en la versión candidata (03/11/2026), pendiente de migración.** CORE conserva `LAT_NAN` como diagnóstico y concede `OK` si se cumplen todos los demás requisitos. FINAL aplica su elegibilidad y acción ordinarias. SSM admite la observación con `LAT_NAN` si la fila es `OK` y mantiene ausentes los casos combinados. El manifiesto CORE registra `QUALITY_POLICY_VERSION=hg10_latnan_aviso_art_window_v2`. El sync exige que la versión coincida. Las referencias de este documento a `LAT_NAN` como causa de `FLAG_mecánico` corresponden a la política desplegada.
+
 ## Alcance operativo
 
 Este procedimiento asume **uso personal para un único atleta**.
@@ -27,6 +33,8 @@ Esto hace:
 - Genera ENDURANCE_HRV_master_CORE.csv y ENDURANCE_HRV_master_BETA_AUDIT.csv.
 - Genera ENDURANCE_HRV_master_FINAL.csv y ENDURANCE_HRV_master_DASHBOARD.csv.
 - Regenera ENDURANCE_HRV_ssm_shadow.csv y su metadata.
+
+**Versión publicada en este checkout local desde 2026-11-05:** `build_hrv_core.py` comprueba antes de procesar que CORE, BETA_AUDIT y su manifiesto correspondan a la geometría candidata, conserven las huellas registradas y que cada fila CORE declare esa geometría. El código actual permite conservar sin recálculo las filas de `2026-02-26`, `2026-02-27` y `2026-03-03`. Dos tienen un RR y una ninguno; ninguna tiene RMSSD utilizable. La migración acordada omite estas tres fechas. Si encuentra otras filas del histórico anterior, el sync falla cerrado para evitar mezclar definiciones en un mismo CORE. `--allow-hg10-migration` exige `--data-dir` distinto del directorio operativo y se reserva para preparar una copia aislada; no lo usa el sync web. La migración necesita además fijar un único RR por fecha y contrastarlo con el replay; la ruta automática rechaza duplicados en modo migración. Este bloqueo protegía el histórico anterior y sigue impidiendo mezclar generaciones incompatibles. Con el CORE desplegado de 18 columnas, el builder se detiene ya al leerlo (falta `rejected_rr_pct_window`) y deja una copia `.corrupt.<timestamp>`; esto también ocurre con `--allow-hg10-migration`, así que la copia de migración debe partir sin CORE previo.
 
 Si usas la Web UI, basta con presionar "Sincronizar".
 
@@ -99,7 +107,7 @@ python build_sessions.py --date 2026-06-15 # un día concreto
 
 - `python scripts/python/intervals_wellness_test.py ...`
 - `python scripts/python/intervals_resting_hr_from_core.py ...`
-- `python scripts/python/add_ans_balance_to_core.py ...`
+- `python scripts/python/add_ans_balance_to_core.py --dry-run` (deprecated HG-04: no escribe CORE)
 - `python scripts/python/build_historical_hrv_compare.py`
 
 ## Días sin sesión

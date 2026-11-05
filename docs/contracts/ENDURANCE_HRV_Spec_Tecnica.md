@@ -1,6 +1,12 @@
 # ENDURANCE HRV — Especificación Técnica
 
-**Revisión:** r2026-07-14 v4.17 (referencia al contrato estructural fail-closed)
+**Estado local (2026-11-05):** la generación HG-10 está publicada en `C:\Pilbond\hrv-flex\data` con CORE de 19 columnas y FINAL de 67. CORE, BETA_AUDIT, FINAL, DASHBOARD y SSM se regeneraron y verificaron por huellas; Railway no está cubierto por este corte. Las menciones posteriores a «candidata» y «pendiente de migración» describen el estado anterior al corte local.
+
+**Artefactos del tramo (candidata v2, 03/11/2026).** CORE y FINAL añaden `rejected_rr_pct_window` junto a `Artifact_pct`. El primero es el porcentaje de RR rechazados entre todos los RR cuyo instante final está entre 90 s y el final útil inclusive. Se aplican los descartes del filtro original antes de seleccionar el tramo. Sin RR en el tramo, el porcentaje queda vacío. Calidad y los flags de artefactos usan el porcentaje local: más de 15 % impide OK y más de 20 % implica INVALID. El global sigue describiendo el registro truncado y ponderando la varianza de SSM. FINAL identifica la métrica local en el motivo de calidad cuando recibe el nuevo esquema.
+
+**Latencia ausente en la versión candidata (03/11/2026), pendiente de migración.** CORE conserva `LAT_NAN` como diagnóstico y concede `OK` si se cumplen todos los demás requisitos. FINAL aplica su elegibilidad y acción ordinarias. SSM admite la observación con `LAT_NAN` si la fila es `OK` y mantiene ausentes los casos combinados. El manifiesto CORE registra `QUALITY_POLICY_VERSION=hg10_latnan_aviso_art_window_v2`. El sync exige que la versión coincida. Las referencias de este documento a `LAT_NAN` como causa de `FLAG_mecánico` corresponden a la política desplegada.
+
+**Revisión:** r2026-11-03 v4.19 (candidata: política de Calidad v2 y artefactos del tramo; pendiente de migración)
 **Estado:** Producción
 
 ---
@@ -99,15 +105,16 @@ Origen: Secciones 0-5 de Spec v3.x (r2025-12-25-UPDATE3)
 | Umbral latencia | 8% | Si dos ventanas consecutivas cambian menos de un 8%, se considera que la señal se ha estabilizado |
 | Tail-trim | 15 s | Recortar los últimos 15 s de grabación, donde es habitual que haya artefacto por parar el sensor o moverse |
 | Cola estabilidad | 120 s | Los últimos 120 s del tramo estable se usan para verificar que la señal no estaba cambiando al final |
-| n_pairs mínimo cola | 60 | Mínimo de pares de latidos consecutivos en la cola para que el RMSSD de verificación sea fiable |
-| INVALID si Artifact_pct | > 20% | Demasiado ruido: más de 1 de cada 5 latidos es artefacto → el dato no es confiable |
+| Geometría candidata | corte 375 s, inicio 90 s | Corte del registro antes del tail-trim e inicio fijo del tramo (`GEOMETRY_VERSION=hg10_s90_t375_trim15`); mínimos de 20 pares por ventana del detector y de 10 RR / 9 pares para Poincaré |
+| n_pairs mínimo cola | 60 | Mínimo de pares en la cola. Esquema desplegado: `len(tail)-1` sobre la serie filtrada. Candidata: solo pares físicamente consecutivos en el archivo RR (§4.3) |
+| INVALID por descartes | > 20% en la métrica correspondiente al esquema (§5.1) | Demasiado ruido: más de 1 de cada 5 latidos es artefacto → el dato no es confiable |
 | INVALID si HR_stable | < 35 o > 100 lpm | Fuera de rango fisiológico para medición supina matinal → probable error de medición |
 
 ### 0.4 Salidas
 
 | Archivo | Contenido |
 |---------|-----------|
-| `ENDURANCE_HRV_master_CORE.csv` | Medición canónica (18 cols): señal fisiológica + trazabilidad mínima de estabilidad, sin decisiones |
+| `ENDURANCE_HRV_master_CORE.csv` | Medición canónica (18 cols desplegadas; 19 en la candidata): señal fisiológica + trazabilidad mínima de estabilidad, sin decisiones |
 | `ENDURANCE_HRV_master_BETA_AUDIT.csv` | Beta/cRMSSD legacy (13 cols): modelo alométrico del sistema V3, conservado para comparación |
 
 ---
@@ -183,18 +190,21 @@ for i in range(1, len(RR_base)):
 
 `RR_clean` = `RR_base` sin los marcados por el filtro delta. Esta es la serie que se usará para todas las métricas.
 
-#### Cálculo de Artifact_pct (sobre la serie RAW completa)
+#### Cálculo de Artifact_pct (sobre el registro cortado a 375 s)
 
 ```
-N_total_raw = nº RR RAW del CSV (todos)
+N_total_cut = nº RR con duración parseable (tras omitir `NaN`/valores no numéricos del CSV)
+              cuyo tiempo acumulado es <= RECORD_CUT_S (375 s)
 N_offline   = count(offline == 1)                              (Capa 1)
 N_oor       = count(offline == 0 AND RR fuera de [300, 2000])  (Capa 1)
 N_delta     = nº RR marcados por delta dentro de RR_base       (Capa 2)
 
-Artifact_pct = 100 × (N_offline + N_oor + N_delta) / N_total_raw
+Artifact_pct = 100 × (N_offline + N_oor + N_delta) / N_total_cut
 ```
 
 Artifact_pct refleja la proporción total de latidos descartados por cualquier causa.
+
+**Versión candidata.** `Artifact_pct` describe el registro truncado. Los umbrales de Calidad se aplican a `rejected_rr_pct_window`, calculado sobre el tramo medido.
 
 ---
 
@@ -207,13 +217,13 @@ Artifact_pct refleja la proporción total de latidos descartados por cualquier c
 Se eliminan los últimos 15 segundos de la grabación para evitar artefactos típicos de parada (el usuario se mueve, toca el sensor, o anticipa el fin).
 
 ```
-t_end_raw_last = t_end[-1]        (duración total de la grabación RAW)
-t_end_eff = t_end_raw_last - 15   (nuevo final efectivo)
+dur_cortada    = t_end del último latido con t_end <= 375   (corte del registro candidato)
+t_end_eff      = dur_cortada - 15                           (nuevo final efectivo)
 ```
 
 Antes de calcular métricas, se excluyen de `RR_clean` todos los RR con `t_end > t_end_eff`.
 
-**NOTA:** `Artifact_pct` NO cambia por tail-trim — se calcula sobre la serie RAW completa, antes de recortar.
+**NOTA:** `Artifact_pct` NO cambia por el recorte final de 15 s. Sí depende del corte del registro a 375 s, que se aplica antes.
 
 ### 3.2 RMSSD por ventanas (para detectar estabilización)
 
@@ -232,6 +242,8 @@ RMSSD = sqrt(mean(diff(RR_s)²)) × 1000       # resultado en ms
 n_pairs = len(RR_s) - 1
 # RMSSD_w solo se calcula si n_pairs >= 20; si no → NaN (ventana insuficiente)
 ```
+
+**Detector candidato.** Cada ventana requiere al menos 20 pares de RR consecutivos en el archivo original. El detector ajusta el número de ventanas al final útil.
 
 ### 3.3 Latencia (Tiempo_Estabilizacion)
 
@@ -257,24 +269,24 @@ Es decir: se necesitan **dos transiciones consecutivas** que cambien menos del 8
    ```
    abs(RMSSD_w - RMSSD_target) / RMSSD_target < 0.08
    ```
-3. Si tampoco se encuentra → `Tiempo_Estabilizacion = NaN` (la señal nunca se estabilizó)
+3. Si tampoco se encuentra → `Tiempo_Estabilizacion = NaN` (el detector no encontró una meseta)
 
 ### 3.4 Inicio efectivo de métricas
 
 Una vez detectada (o no) la estabilización, se define dónde empieza el tramo útil:
 
 ```
-t_start_eff = max(Tiempo_Estabilizacion, 45)
+t_start_eff = 90        (versión candidata: inicio fijo; antes max(Tiempo_Estabilizacion, 45))
 ```
 
-El mínimo de 45 s garantiza que siempre se descartan al menos los primeros 45 segundos, incluso si la estabilización se detectó antes (por seguridad ante falsas estabilizaciones tempranas).
+**Versión candidata.** El tramo empieza a los 90 s. La latencia es diagnóstica. Por sí solo, `LAT_NAN` permite `OK` si se cumplen los demás criterios.
 
-Si `Tiempo_Estabilizacion = NaN` (no se detectó):
+En el esquema desplegado, si `Tiempo_Estabilizacion = NaN`:
 ```
 t_start_eff = 45
 ```
 
-Se usa el mínimo por defecto. El "castigo" por no detectar estabilización se aplica vía `Calidad = FLAG_mecánico`, no vía un inicio más tardío.
+En el esquema desplegado se usa el mínimo por defecto y se asigna `FLAG_mecánico`. En la candidata, el inicio sigue siendo 90 s y la latencia ausente es un aviso.
 
 ---
 
@@ -301,19 +313,23 @@ Con `RR_tramo_s = RR_tramo_ms / 1000`:
 | `RMSSD_stable` | RMSSD(RR_tramo_s) × 1000 [ms] | Variabilidad cardíaca principal (tono vagal) |
 | `lnRMSSD` | ln(RMSSD_stable) | Logaritmo natural de RMSSD (simetriza la distribución para cálculos estadísticos) |
 
+**Versión candidata.** `RMSSD_stable` solo usa diferencias entre RR que eran consecutivos en el archivo original (un descarte interrumpe la secuencia) y es `NaN` si no queda ningún par. `RRbar_s` y `HR_stable` siguen usando todos los RR limpios del tramo.
+
 ### 4.3 RMSSD_stable_last2 (verificación de cola)
 
 Se calcula un RMSSD adicional solo sobre los últimos 120 s del tramo, para verificar que la señal era estable hasta el final (no estaba cambiando cuando paró la grabación).
 
 ```
 tail = RR del tramo con: t_end >= (t_end_eff - 120) AND t_end <= t_end_eff
-n_pairs_tail = len(tail) - 1
+n_pairs_tail = nº de pares de la cola cuyas filas eran consecutivas en el archivo
 
-if n_pairs_tail < 60:
-    RMSSD_stable_last2 = NaN    # insuficiente material en la cola
-else:
+if len(tail) >= 2:
     RMSSD_stable_last2 = RMSSD(tail) × 1000
+else:
+    RMSSD_stable_last2 = NaN
 ```
+
+**Cola en la versión candidata.** `n_pairs_tail` se cuenta en pares físicamente consecutivos y el umbral de 60 sigue marcando `HRV_Stability = Unstable` **sin borrar** el valor numérico de `RMSSD_stable_last2`, que se conserva como diagnóstico siempre que exista al menos un par utilizable. Se publica `NaN` solo cuando no hay ningún par.
 
 ### 4.4 HRV_Stability
 
@@ -322,13 +338,13 @@ Se evalúa si el tramo era realmente estable mirando la cola (últimos 120 s). C
 | Condición | Qué indica | Resultado |
 |-----------|-----------|-----------|
 | duración efectiva cola < 75 s | Muy poco material al final, no se puede verificar | Unstable |
-| n_pairs_tail < 60 | Pocos latidos válidos en la cola | Unstable |
+| n_pairs_tail < 60 | Pocos pares físicamente consecutivos en la cola | Unstable |
 | CV_120 = std(RR_tail_s) / mean(RR_tail_s) > 0.20 | Los intervalos oscilaban demasiado al final | Unstable |
 | RMSSD_stable_last2 = NaN | No se pudo calcular RMSSD de la cola | Unstable |
 | abs(RMSSD_stable_last2 - RMSSD_stable) / RMSSD_stable > 0.15 | La variabilidad de la cola discrepa más de un 15% de la del tramo completo | Unstable |
 | Ninguna de las anteriores | Todo coherente | OK |
 
-**NOTA:** `Tiempo_Estabilizacion = NaN` NO fuerza Unstable. Son conceptos distintos: la latencia mide si la señal se estabilizó al principio; HRV_Stability mide si era estable al final. El "castigo" por latencia missing se materializa vía `Calidad` (FLAG_mecánico), no vía `HRV_Stability`.
+**NOTA:** `Tiempo_Estabilizacion = NaN` NO fuerza Unstable. Son conceptos distintos: la latencia mide si la señal se estabilizó al principio; HRV_Stability mide si era estable al final. En la versión desplegada la latencia ausente impide `OK`. En la candidata es un aviso y no determina la Calidad.
 
 ### 4.5 Métricas ANS complementarias (informativas)
 
@@ -341,7 +357,7 @@ Se calculan sobre el tramo estabilizado como indicadores complementarios del bal
 | `SD2` | `sqrt(2 × var(RR) − 0.5 × var(diff(RR))) × 1000` [ms] | Eje largo del diagrama de Poincaré: variabilidad a más largo plazo |
 | `SD1_SD2_ratio` | `SD1 / SD2` | Ratio entre variabilidad rápida y lenta. Valores bajos sugieren predominio simpático |
 
-Estas métricas se añaden a `ENDURANCE_HRV_master_CORE.csv` (columnas 14-17, entre `Flags` y `Notes`).
+Estas métricas se añaden a `ENDURANCE_HRV_master_CORE.csv` (columnas 14-17 del esquema desplegado y 15-18 en la candidata, entre `Flags` y `Notes`). En la candidata, `SD1` usa solo pares físicamente consecutivos y Poincaré exige al menos 10 RR y 9 pares; si no, `SD1`, `SD2` y el ratio quedan `NaN`. `SD2` conserva la varianza de los RR individuales.
 
 ---
 
@@ -351,8 +367,8 @@ Estas métricas se añaden a `ENDURANCE_HRV_master_CORE.csv` (columnas 14-17, en
 
 ### 5.1 INVALID (exclusión dura)
 
-La medición se descarta completamente si:
-- `Artifact_pct > 20%` (demasiado ruidosa) **O**
+En estas reglas, el porcentaje de descartes es `Artifact_pct` en el esquema desplegado y `rejected_rr_pct_window` en el candidato. La medición se descarta si:
+- el porcentaje de descartes supera el 20 % **O**
 - `HR_stable < 35 lpm` o `HR_stable > 100 lpm` (fuera de rango fisiológico para reposo supino)
 
 INVALID implica:
@@ -364,7 +380,7 @@ INVALID implica:
 
 Si el día NO es INVALID, se clasifica entre OK (fiable) y FLAG_mecánico (existe pero con dudas).
 
-**Regla especial:** Si `Tiempo_Estabilizacion = NaN` (la señal nunca se estabilizó) → forzar `Calidad = FLAG_mecánico`, independientemente de todo lo demás.
+**Esquema desplegado.** Si `Tiempo_Estabilizacion = NaN` (el detector no encontró una meseta) → forzar `Calidad = FLAG_mecánico`, independientemente de todo lo demás.
 
 De lo contrario, `Calidad = OK` si se cumplen **todas** estas condiciones:
 ```
@@ -375,7 +391,23 @@ HRV_Stability = OK
 
 Donde `Lat_eff = max(Tiempo_Estabilizacion, 60)` es una variable interna (no se guarda en el CSV) que asegura que la latencia mínima considerada "razonable" es 60 s.
 
+**Versión candidata.** El tramo empieza a los 90 s. La latencia es diagnóstica. En un día que supera la exclusión dura, CORE concede `OK` si `rejected_rr_pct_window ≤ 15 %`, la estabilidad es `OK`, el tramo tiene duración positiva, el eje temporal es fiable y el RMSSD es utilizable y positivo. La latencia ausente se registra en `Flags`.
+
 Si no cumple todas las condiciones → `Calidad = FLAG_mecánico`
+
+**Aclaración del 2026-10-28 tras revisión crítica:** se corrige la interpretación estadística anterior y se precisa que el truncado afecta al conjunto de RR de numerador y denominador. No cambia la fórmula implementada, los umbrales ni la regla de Calidad. La ausencia de una alternativa validada no demuestra que no pueda existir.
+
+**Salidas seguras del esquema candidato.** Además de lo anterior, `Calidad` nunca puede ser
+`OK` si la medición no tiene un `RMSSD_stable` utilizable. Se fuerza `FLAG_mecánico`
+cuando se da cualquiera de estos casos:
+
+- el tramo queda vacío por geometría, es decir `t_end_eff <= 90` (`REC_SHORT`);
+- el tramo no contiene ningún par físicamente consecutivo (`WIN_NO_PAIRS`);
+- el archivo tiene alguna duración no finita, lo que deja el eje temporal sin garantías
+  y, con él, los límites de ventana, tramo y cola (`TIME_AXIS_UNRELIABLE`).
+
+Ninguno de los tres fuerza `INVALID` por sí solo: los motivos de `INVALID` siguen siendo
+los de §5.1. Ninguno se activa en el histórico de 508 fechas: son garantías prospectivas.
 
 ### 5.3 Chequeos de unidades (obligatorios en QA)
 
@@ -394,17 +426,20 @@ Cada flag marca una incidencia específica detectada durante el procesamiento. U
 
 | Flag | Cuándo se activa | Consecuencia |
 |------|------------------|--------------|
-| `LAT_NAN` | No se detectó punto de estabilización | Fuerza FLAG_mecánico |
-| `ART_GT15` | Artifact_pct > 15% | Impide Calidad=OK |
-| `ART_GT20` | Artifact_pct > 20% | Fuerza INVALID |
+| `LAT_NAN` | No se detectó punto de estabilización | Desplegada: fuerza FLAG_mecánico. Candidata: aviso si es el único motivo. |
+| `ART_GT15` | Descartes > 15 % según la métrica del esquema (§5.1) | Impide Calidad=OK |
+| `ART_GT20` | Descartes > 20 % según la métrica del esquema (§5.1) | Fuerza INVALID |
 | `STAB_TAIL_SHORT` | Cola < 75 s o n_pairs_tail < 60 | Fuerza Unstable |
 | `STAB_CV120_HIGH` | CV de cola > 0.20 | Fuerza Unstable |
 | `STAB_LAST2_NAN` | RMSSD_stable_last2 = NaN | Fuerza Unstable |
 | `STAB_LAST2_MISMATCH` | Discrepancia last2 vs stable > 15% | Fuerza Unstable |
+| `REC_SHORT` | El tramo queda vacío por geometría (`t_end_eff <= 90`) | Impide Calidad=OK |
+| `WIN_NO_PAIRS` | El tramo no tiene ningún par físicamente consecutivo | Impide Calidad=OK |
+| `TIME_AXIS_UNRELIABLE` | Alguna duración no finita en el archivo RR | Impide Calidad=OK |
 | `BETA_CLIPPED` | beta_mode = clipped | Solo informativo (BETA_AUDIT) |
 | `BETA_FROZEN` | beta_mode = frozen | Solo informativo (BETA_AUDIT) |
 | `BETA_NONE` | beta_mode = none | Solo informativo (BETA_AUDIT) |
-| `RESCUE_MODE` | CORE rescatado sin pipeline completo | Solo informativo |
+| `RESCUE_MODE` | CORE rescatado sin pipeline completo | Calidad nunca OK (FLAG_mecánico o INVALID) |
 
 ### 5.5 Notes (trazabilidad)
 
@@ -418,6 +453,8 @@ Claves mínimas (siempre presentes):
 - `off`, `oor`, `dRR` — desglose de artefactos: offline, fuera de rango, y filtro delta
 - `lat_mode` — NUM (se detectó estabilización) o NAN (no se detectó)
 - `stab` — OK o Unstable
+
+En la candidata se añaden `geom` (versión de geometría), `dur_full` (duración antes del corte), `cut` (1 si se aplicó el corte de 375 s), `pairs_tramo`, `pairs_tail` y `axis` (`OK`/`UNRELIABLE`). La comprobación previa al sync busca `geom=<GEOMETRY_VERSION>` en cada fila.
 
 ---
 
@@ -532,8 +569,8 @@ ENDURANCE_HRV_sleep.csv (entrada opcional, para reason_text)
 | Categoría | Condición | Qué pasa con el día |
 |-----------|-----------|---------------------|
 | INVALID | `Calidad == INVALID` | Se ignora completamente: no entra en ROLL3, ni en baselines, ni en residual. Gate = NO. |
-| quality_flag | `Calidad=FLAG_mecánico` OR `HRV_Stability=Unstable` OR `Artifact_pct>15%` | Se calcula el gate 2D (para no perder la señal de tendencia), pero la acción se fuerza a SUAVE — no se puede justificar intensidad con un dato dudoso. |
-| clean | `Calidad=OK` AND `HRV_Stability=OK` AND `Artifact_pct<=15%` | Opera normalmente. Es el único tipo de día que entra en ROLL3 y baselines. |
+| quality_flag | `Calidad` distinta de `OK` e `INVALID` | Se calcula el gate 2D (para no perder la señal de tendencia), pero la acción se fuerza a SUAVE — no se puede justificar intensidad con un dato dudoso. |
+| clean | `Calidad=OK` | Opera normalmente. Es el único tipo de día que entra en ROLL3 y baselines. |
 
 ### 9.2 Reglas clave
 
@@ -1121,6 +1158,9 @@ Secciones obligatorias:
 
 | Fecha | Cambio |
 |-------|--------|
+| 2026-11-03 v4.19 (candidata) | Política de Calidad `QUALITY_POLICY_VERSION=hg10_latnan_aviso_art_window_v2`, implementada y **no publicada**: `LAT_NAN` pasa a aviso; Calidad, `ART_GT15` y `ART_GT20` usan `rejected_rr_pct_window` (nueva columna de CORE y FINAL: descartes del tramo de 90 s al final útil); `Artifact_pct` se conserva como métrica global y en la ponderación de SSM. SSM solo trata `LAT_NAN` como observación ausente si la fila no es `OK`. El sync exige que el manifiesto CORE registre la misma versión de política. Deja sin efecto la indicación de v4.18 de que la regla de Calidad no cambiaba. |
+| 2026-10-27 v4.18 (candidata) | Cálculo por pares consecutivos implementado en `build_hrv_core.py` y **no publicado** en los CSV: RMSSD, SD1, ventanas del detector y cola solo con pares físicamente consecutivos; inicio fijo del tramo en 90 s; corte del registro en 375 s antes del recorte de 15 s; `Artifact_pct` sobre el registro truncado; salidas seguras `REC_SHORT`, `WIN_NO_PAIRS` y `TIME_AXIS_UNRELIABLE`. SD2, filtro delta-RR, umbrales de artefactos y la regla de Calidad anterior sin cambios. Los CSV desplegados siguen siendo de la versión anterior; el manifiesto de CORE distingue ambas por `effective_config.constants.GEOMETRY_VERSION`. Incluye la protección que impide mezclar geometrías en un mismo CORE (`--allow-hg10-migration` y verificación de manifiesto, huellas y marca por fila). Replay y verificación independiente, con control externo frente a la copia `H3S90T375` de HG-04: `research/reports/hg10_replay_2026-10-27.md`. |
+| 2026-10-27 v4.17 | Aclarado que RMSSD usa pares de la serie filtrada y compactada, que el mínimo de 60 pares marca `Unstable` sin borrar el RMSSD de cola calculable y que el denominador actual de `Artifact_pct` excluye duraciones no parseables. Sin cambio de código ni outputs. |
 | 2026-03-01 v4.1 | sleep.csv simplificado: 34→17 cols (solo Polar sleep/nightly, sin Intervals) |
 | 2026-03-01 v4.1 | reason_text dual source: sueño de sleep.csv, carga de sessions_day.csv |
 | 2026-03-01 v4.1 | Nuevos archivos sessions.csv (43 cols), sessions_day.csv (40 cols iniciales), ENDURANCE_HRV_sessions_metadata.json |

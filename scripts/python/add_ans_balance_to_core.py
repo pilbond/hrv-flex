@@ -8,6 +8,9 @@ Reprocesa todos los RR de rr_downloads/, extrae el tramo estable con la misma
 lógica que build_hrv_core.py, calcula las 4 métricas ANS balance y las añade como
 columnas nuevas al CORE.csv existente.
 
+DEPRECATED (HG-04, 2026-10-20): la escritura sobre CORE esta deshabilitada; las
+metricas las calcula build_hrv_core.py. Solo funciona --dry-run.
+
 Uso:
   python scripts/python/add_ans_balance_to_core.py                          # default: ./rr_downloads + CORE.csv
   python scripts/python/add_ans_balance_to_core.py --rr-dir /path/to/rr     # RR en otra carpeta
@@ -401,6 +404,14 @@ def main():
         tail = merged[["Fecha", "HR_stable", "RMSSD_stable"] + ans_balance_cols].tail(5)
         print(tail.to_string(index=False))
         return
+
+    # HG-04 (2026-10-20): escritura deshabilitada. build_hrv_core.py ya calcula
+    # SI_baevsky, SD1, SD2 y SD1_SD2_ratio; este script duplica la logica del
+    # pipeline (filtro delta-RR, tramo, pareado RR) y sobrescribiria CORE con la
+    # definicion antigua tras HG-03/HG-04. Solo se permite --dry-run.
+    print("\nERROR: escritura deshabilitada (HG-04). build_hrv_core.py ya calcula estas columnas.")
+    print("Usa --dry-run para comparar. Ver docs/HRV/HG-04 Ventana de calculo de RMSSD_stable y revision de estabilizacion.md")
+    sys.exit(2)
 
     # Backup
     backup_path = core_path.with_suffix(f".bak_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")

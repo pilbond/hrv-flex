@@ -137,10 +137,20 @@ def safe_quantile(values: np.ndarray, q: float) -> Optional[float]:
     return float(np.quantile(values, q))
 
 
-def rmssd_ms(rr_ms: np.ndarray) -> float:
+def rmssd_ms(rr_ms: np.ndarray, source_lines: np.ndarray) -> float:
+    """RMSSD from RR pairs adjacent in the original CSV, not the filtered view."""
+    rr_ms = np.asarray(rr_ms, dtype=float)
+    source_lines = np.asarray(source_lines, dtype=int)
+    if rr_ms.ndim != 1 or source_lines.shape != rr_ms.shape:
+        raise ValueError("RR and source lines must be one-dimensional and aligned")
     if rr_ms.size < 3:
         return float("nan")
-    diffs = np.diff(rr_ms)
+    steps = np.diff(source_lines)
+    if np.any(steps <= 0):
+        raise ValueError("RR source lines must be strictly increasing")
+    diffs = np.diff(rr_ms)[steps == 1]
+    if diffs.size < 2:
+        return float("nan")
     return float(np.sqrt(np.mean(diffs * diffs)))
 
 
@@ -209,6 +219,9 @@ def load_rr_csv(rr_path: str) -> tuple[pd.DataFrame, RRInputQA]:
             try:
                 duration_ms = float(raw_duration)
             except Exception:
+                bad_duration_rows += 1
+                continue
+            if not math.isfinite(duration_ms):
                 bad_duration_rows += 1
                 continue
 
@@ -514,6 +527,7 @@ def build_rmssd_windows_v4(
     min_valid_frac: float,
     min_beats: int,
     min_usable_windows: int,
+    time_axis_trusted: bool = True,
 ) -> tuple[pd.DataFrame, dict[str, object], dict[str, object]]:
     total_end = float(rr_df["end_s"].iloc[-1])
     rows: list[dict[str, object]] = []
@@ -535,13 +549,18 @@ def build_rmssd_windows_v4(
         val = float("nan")
         usable = False
         reason = "no_beats"
-        if parseable_beats > 0:
+        if not time_axis_trusted:
+            reason = "time_axis_compromised"
+        elif parseable_beats > 0:
             if core_beats < min_beats:
                 reason = "insufficient_core_beats"
             elif valid_frac_core < min_valid_frac:
                 reason = "low_valid_fraction_core"
             else:
-                val = rmssd_ms(seg_core["duration_ms"].to_numpy(dtype=float))
+                val = rmssd_ms(
+                    seg_core["duration_ms"].to_numpy(dtype=float),
+                    seg_core["line_no"].to_numpy(dtype=int),
+                )
                 usable = bool(np.isfinite(val))
                 reason = "ok" if usable else "rmssd_nan"
 
@@ -1439,6 +1458,7 @@ def main() -> int:
         args.rmssd_1m_min_valid_frac,
         args.rmssd_1m_min_beats,
         args.rmssd_min_usable_windows,
+        time_axis_trusted=qa_base.time_axis_trust == "OK",
     )
     rmssd_5m_df, rmssd_5m_summary, rmssd_5m_usable = build_rmssd_windows_v4(
         rr_df,
@@ -1446,6 +1466,7 @@ def main() -> int:
         args.rmssd_5m_min_valid_frac,
         args.rmssd_5m_min_beats,
         args.rmssd_min_usable_windows,
+        time_axis_trusted=qa_base.time_axis_trust == "OK",
     )
     dfa_df, dfa_summary, dfa_usable, hr_mapping, dfa_method_comparison = build_dfa_windows_v4(rr_df, hr_df, hr_source, args)
     dfa_gate = build_dfa_gate(rr_input_qa, dfa_summary, dfa_usable, hr_mapping, args)

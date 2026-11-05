@@ -1,0 +1,23 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          pip install -r requirements_web.txt
+          pip install pytest pytest-subtests
+      - name: Run test suite
+        # Los tests que consumen los CSV personales de data/ (no versionados)
+        # se auto-omiten via skipUnless; aquí corren los herméticos.
+        run: python -m pytest tests/ -q

@@ -27,6 +27,8 @@ Variables de entorno:
 """
 
 import os
+import json
+import csv
 import re
 import sys
 import time
@@ -86,7 +88,19 @@ CONSTANTS = {
     "RR_MAX_MS": 2000.0,      # RR máximo válido (ms)
     "DELTA_RR_MAX": 0.20,     # Máximo delta relativo entre RR consecutivos
     "BETA_CAP_MAX": 3.0,      # Tope máximo de beta
+    # --- HG-10: geometría candidata (HG-04) y contrato de pares consecutivos (HG-03) ---
+    "RECORD_CUT_S": 375.0,    # Corte máximo del registro, aplicado ANTES del tail-trim
+    "WINDOW_START_S": 90.0,   # Inicio fijo del tramo estable (ya no lo decide la latencia)
+    "WIN_MIN_PAIRS": 20,      # Mínimo de pares consecutivos por ventana del detector
+    "POINCARE_MIN_RR": 10,    # Mínimo de RR del tramo para calcular Poincaré
+    "POINCARE_MIN_PAIRS": 9,  # Mínimo de pares consecutivos para calcular SD1
+    "QUALITY_POLICY_VERSION": "hg10_latnan_aviso_art_window_v2",
+    "GEOMETRY_VERSION": "hg10_s90_t375_trim15",
 }
+
+# HG-10: filas históricas cuyo RR original no está disponible en el inventario
+# verificado de 2026-10-27. Se conservan sin recálculo, identificadas por fecha.
+HG10_UNREPROCESSED_DATES = frozenset({"2026-02-26", "2026-02-27", "2026-03-03"})
 
 # Columnas de salida
 COLS_CORE = [
@@ -95,6 +109,7 @@ COLS_CORE = [
     "HRV_Stability",
     "Stability_Subtype",
     "Artifact_pct",
+    "rejected_rr_pct_window",
     "Tiempo_Estabilizacion",
     "HR_stable",
     "RRbar_s",
@@ -160,12 +175,66 @@ def winsor(a, qlo: float = 0.10, qhi: float = 0.90):
 
 
 def rmssd_ms(rr_s) -> float:
-    """RMSSD en milisegundos desde RR en segundos."""
+    """RMSSD en milisegundos desde RR en segundos (fórmula sin procedencia).
+
+    LEGADO (HG-10): CORE ya no usa esta función. Empareja posiciones contiguas de
+    la serie compactada, que pueden no haber sido consecutivas en el archivo RR.
+    Para métricas canónicas usar ``rmssd_consecutive_ms``.
+    """
     rr_s = np.asarray(rr_s, dtype=float)
     if rr_s.size < 2:
         return np.nan
     d = np.diff(rr_s)
     return float(np.sqrt(np.mean(d * d)) * 1000.0)
+
+
+def rr_pair_diffs(rr, original_idx) -> np.ndarray:
+    """Diferencias RR solo entre filas originalmente consecutivas.
+
+    Conserva las unidades de ``rr``. HG-10 lo usa en las métricas canónicas
+    de CORE cuando se active la generación completa.
+    """
+    rr = np.asarray(rr, dtype=float)
+    original_idx = np.asarray(original_idx)
+    if rr.ndim != 1 or original_idx.ndim != 1 or rr.size != original_idx.size:
+        raise ValueError("RR e índices originales deben ser vectores de igual longitud")
+    if not np.issubdtype(original_idx.dtype, np.integer):
+        raise ValueError("Los índices originales deben ser enteros")
+    if original_idx.size < 2:
+        return np.empty(0, dtype=float)
+    steps = np.diff(original_idx)
+    if np.any(steps <= 0):
+        raise ValueError("Los índices originales deben ser crecientes y únicos")
+    adjacent = (steps == 1) & np.isfinite(rr[:-1]) & np.isfinite(rr[1:])
+    return np.diff(rr)[adjacent]
+
+
+def rmssd_from_pair_diffs(diff_s) -> float:
+    """RMSSD en ms desde diferencias RR (en segundos) de pares consecutivos.
+
+    HG-10: devuelve NaN si no queda ninguna diferencia utilizable.
+    """
+    d = np.asarray(diff_s, dtype=float)
+    d = d[np.isfinite(d)]
+    if d.size == 0:
+        return np.nan
+    return float(np.sqrt(np.mean(d * d)) * 1000.0)
+
+
+def rmssd_consecutive_ms(rr_ms, original_idx) -> float:
+    """RMSSD en ms de una selección de RR (en ms) usando solo pares consecutivos."""
+    rr = np.asarray(rr_ms, dtype=float)
+    if rr.size < 2:
+        return np.nan
+    return rmssd_from_pair_diffs(rr_pair_diffs(rr / 1000.0, original_idx))
+
+
+def n_consecutive_pairs(rr, original_idx) -> int:
+    """Número de pares físicamente consecutivos utilizables en una selección de RR."""
+    rr = np.asarray(rr, dtype=float)
+    if rr.size < 2:
+        return 0
+    return int(rr_pair_diffs(rr, original_idx).size)
 
 
 def baevsky_stress_index(rr_ms, bin_width: int = 50) -> float:
@@ -189,13 +258,23 @@ def baevsky_stress_index(rr_ms, bin_width: int = 50) -> float:
     return float(np.round(amo / (2.0 * mo_s * mxdmn_s), 1))
 
 
-def poincare_sd(rr_ms) -> Tuple[float, float, float]:
-    """SD1, SD2 y ratio SD1/SD2 del Poincare. RR de entrada en milisegundos."""
+def poincare_sd(rr_ms, original_idx, C: dict = CONSTANTS) -> Tuple[float, float, float]:
+    """SD1, SD2 y ratio SD1/SD2 del Poincare. RR de entrada en milisegundos.
+
+    HG-10: SD1 usa solo pares físicamente consecutivos del archivo original.
+    SD2 conserva su definición sobre la varianza de los RR individuales.
+    Requiere ``POINCARE_MIN_RR`` RR y ``POINCARE_MIN_PAIRS`` pares consecutivos.
+    ``original_idx`` es obligatorio: sin procedencia no se publica Poincaré.
+    """
     rr = np.asarray(rr_ms, dtype=float)
-    rr = rr[~np.isnan(rr)]
-    if rr.size < 10:
+    idx = np.asarray(original_idx)
+    finite = np.isfinite(rr)
+    rr, idx = rr[finite], idx[finite]
+    if rr.size < int(C["POINCARE_MIN_RR"]):
         return np.nan, np.nan, np.nan
-    diff = rr[1:] - rr[:-1]
+    diff = rr_pair_diffs(rr, idx)
+    if diff.size < int(C["POINCARE_MIN_PAIRS"]):
+        return np.nan, np.nan, np.nan
     sd1 = float(np.std(diff, ddof=0) / np.sqrt(2.0))
     sd2_sq = 2.0 * float(np.var(rr, ddof=0)) - (sd1 ** 2)
     sd2 = float(np.sqrt(sd2_sq)) if sd2_sq > 0 else 0.0
@@ -251,14 +330,19 @@ class RRProcessingContext:
 
     N_total: int
     dur_raw: float
+    dur_full: float
+    record_cut_applied: bool
     N_off: int
     N_oor: int
     N_base: int
     N_drr: int
     N_clean: int
+    rejected_rr_pct_window: float
     artifact_pct: float
     rr_eff: np.ndarray
     t_eff: np.ndarray
+    original_idx_eff: np.ndarray
+    time_axis_reliable: bool
     t_end_eff: float
 
 
@@ -271,15 +355,37 @@ def _parse_and_filter_rr(rr_path: Path, C: dict) -> RRProcessingContext:
     rr_ms = pd.to_numeric(rr["duration"], errors="coerce").astype(float).to_numpy()
     offline = pd.to_numeric(rr["offline"], errors="coerce").fillna(0).astype(int).to_numpy()
     offline = (offline != 0).astype(int)
+    original_idx = np.arange(rr_ms.size, dtype=np.int64)
+    # HG-10 (hereda HG-03): cualquier duración no finita en el archivo deja el eje
+    # temporal sin garantías. Es un criterio deliberadamente conservador: no se
+    # intenta decidir si la posición afectada cae antes o después del corte.
+    all_durations_finite = bool(np.isfinite(rr_ms).all())
 
     # Alinear: eliminar posiciones donde duration es NaN en ambos arrays.
     valid_mask = ~np.isnan(rr_ms)
     rr_ms = rr_ms[valid_mask]
     offline = offline[valid_mask]
+    original_idx = original_idx[valid_mask]
+
+    t_end_full = np.cumsum(rr_ms) / 1000.0
+    dur_full = float(t_end_full[-1]) if rr_ms.size else np.nan
+
+    # HG-10: corte máximo del registro ANTES del tail-trim. El latido se conserva
+    # si su tiempo final acumulado cae dentro del corte (límite inclusivo).
+    cut = np.isfinite(t_end_full) & (t_end_full <= C["RECORD_CUT_S"])
+    record_cut_applied = bool(rr_ms.size and not cut.all())
+    rr_ms = rr_ms[cut]
+    offline = offline[cut]
+    original_idx = original_idx[cut]
+    t_end_raw = t_end_full[cut]
 
     N_total = int(rr_ms.size)
-    t_end_raw = np.cumsum(rr_ms) / 1000.0
     dur_raw = float(t_end_raw[-1]) if N_total else np.nan
+
+    # HG-10: el eje temporal solo es fiable si todas las duraciones son finitas y
+    # queda registro tras el corte. Una duración ausente desplaza todos los tiempos
+    # posteriores y, con ello, los límites de ventana, tramo y cola.
+    time_axis_reliable = bool(all_durations_finite and N_total)
 
     N_off = int(np.sum(offline == 1))
     oor = (offline == 0) & ((rr_ms < C["RR_MIN_MS"]) | (rr_ms > C["RR_MAX_MS"]))
@@ -288,6 +394,7 @@ def _parse_and_filter_rr(rr_path: Path, C: dict) -> RRProcessingContext:
     base = (offline == 0) & (~oor)
     rr_base = rr_ms[base]
     t_base = t_end_raw[base]
+    idx_base = original_idx[base]
     N_base = int(rr_base.size)
 
     keep = np.ones(N_base, dtype=bool)
@@ -300,24 +407,33 @@ def _parse_and_filter_rr(rr_path: Path, C: dict) -> RRProcessingContext:
 
     rr_clean = rr_base[keep]
     t_clean = t_base[keep]
+    idx_clean = idx_base[keep]
     N_clean = int(rr_clean.size)
 
     artifact_pct = 100.0 * (N_off + N_oor + N_drr) / N_total if N_total else np.nan
 
     t_end_eff = dur_raw - C["TAIL_TRIM_S"] if not np.isnan(dur_raw) else np.nan
+    window_count = np.count_nonzero((t_end_raw >= C["WINDOW_START_S"]) & (t_end_raw <= t_end_eff))
+    accepted_count = np.count_nonzero((t_clean >= C["WINDOW_START_S"]) & (t_clean <= t_end_eff))
+    rejected_rr_pct_window = 100.0 * (window_count - accepted_count) / window_count if window_count else np.nan
     eff = t_clean <= t_end_eff
 
     return RRProcessingContext(
         N_total=N_total,
         dur_raw=dur_raw,
+        dur_full=dur_full,
+        record_cut_applied=record_cut_applied,
         N_off=N_off,
         N_oor=N_oor,
         N_base=N_base,
         N_drr=N_drr,
         N_clean=N_clean,
         artifact_pct=artifact_pct,
+        rejected_rr_pct_window=rejected_rr_pct_window,
         rr_eff=rr_clean[eff],
         t_eff=t_clean[eff],
+        original_idx_eff=idx_clean[eff],
+        time_axis_reliable=time_axis_reliable,
         t_end_eff=t_end_eff,
     )
 
@@ -340,9 +456,10 @@ def compute_day_from_rr(rr_path: Path, history_df: pd.DataFrame, C: dict) -> Tup
     N_base = ctx.N_base
     N_drr = ctx.N_drr
     N_clean = ctx.N_clean
-    artifact_pct = ctx.artifact_pct
+    rejected_rr_pct_window = ctx.rejected_rr_pct_window
     rr_eff = ctx.rr_eff
     t_eff = ctx.t_eff
+    idx_eff = ctx.original_idx_eff
     t_end_eff = ctx.t_end_eff
 
     # Latencia (ventanas 60s, paso 30s)
@@ -354,9 +471,11 @@ def compute_day_from_rr(rr_path: Path, history_df: pd.DataFrame, C: dict) -> Tup
         a = C["LAT_STEP_S"] * k
         b = a + C["LAT_WIN_S"]
         m = (t_eff >= a) & (t_eff < b)
-        rr_w = rr_eff[m] / 1000.0
-        if rr_w.size - 1 >= 20:
-            rmssd_w[k] = rmssd_ms(rr_w)
+        rr_w = rr_eff[m]
+        # HG-10: la ventana solo cuenta pares físicamente consecutivos.
+        diff_w = rr_pair_diffs(rr_w / 1000.0, idx_eff[m]) if rr_w.size >= 2 else np.empty(0, dtype=float)
+        if diff_w.size >= int(C["WIN_MIN_PAIRS"]):
+            rmssd_w[k] = rmssd_from_pair_diffs(diff_w)
 
     lat = np.nan
 
@@ -384,26 +503,35 @@ def compute_day_from_rr(rr_path: Path, history_df: pd.DataFrame, C: dict) -> Tup
                     lat = float(C["LAT_STEP_S"] * k)
                     break
 
-    t_start_eff = 45.0 if np.isnan(lat) else max(lat, 45.0)
+    # HG-10: el inicio del tramo es fijo; la latencia sigue siendo diagnóstica
+    # y conserva su efecto sobre Calidad (decisión HG-09 §9), pero ya no decide
+    # dónde empieza la ventana.
+    t_start_eff = float(C["WINDOW_START_S"])
 
-    # Métricas tramo estabilizado
+    # Métricas tramo estabilizado: [WINDOW_START_S, t_end_eff], límites inclusivos.
+    # El límite superior ya lo aplica _parse_and_filter_rr sobre t_eff.
     tramo = t_eff >= t_start_eff
     rr_tramo_ms = rr_eff[tramo]
+    idx_tramo = idx_eff[tramo]
     rr_tramo = rr_tramo_ms / 1000.0
+    n_pairs_tramo = n_consecutive_pairs(rr_tramo_ms, idx_tramo)
     RRbar_s = float(np.mean(rr_tramo)) if rr_tramo.size else np.nan
     HR = float(60.0 / RRbar_s) if (not np.isnan(RRbar_s) and RRbar_s > 0) else np.nan
-    RMSSD = rmssd_ms(rr_tramo) if rr_tramo.size >= 2 else np.nan
+    RMSSD = rmssd_consecutive_ms(rr_tramo_ms, idx_tramo) if n_pairs_tramo >= 1 else np.nan
     lnRMSSD = float(np.log(RMSSD)) if (not np.isnan(RMSSD) and RMSSD > 0) else np.nan
     SI_baevsky = baevsky_stress_index(rr_tramo_ms)
-    SD1, SD2, SD1_SD2_ratio = poincare_sd(rr_tramo_ms)
+    SD1, SD2, SD1_SD2_ratio = poincare_sd(rr_tramo_ms, idx_tramo, C)
 
     # Cola (últimos 120s)
     tail_start = t_end_eff - C["TAIL_S"]
     tail = (t_eff >= tail_start) & (t_eff <= t_end_eff)
-    rr_tail = rr_eff[tail] / 1000.0
+    rr_tail_ms = rr_eff[tail]
+    idx_tail = idx_eff[tail]
+    rr_tail = rr_tail_ms / 1000.0
     dur_tail_eff = float(t_eff[tail][-1] - t_eff[tail][0]) if np.sum(tail) > 1 else 0.0
-    n_pairs_tail = int(rr_tail.size - 1)
-    RMSSD_last2 = rmssd_ms(rr_tail) if rr_tail.size >= 2 else np.nan
+    # HG-10: el mínimo de cola se mide en pares físicamente consecutivos.
+    n_pairs_tail = n_consecutive_pairs(rr_tail_ms, idx_tail)
+    RMSSD_last2 = rmssd_consecutive_ms(rr_tail_ms, idx_tail) if n_pairs_tail >= 1 else np.nan
     CV_120 = float(np.std(rr_tail) / np.mean(rr_tail)) if rr_tail.size > 1 and np.mean(rr_tail) > 0 else np.nan
     tail_mismatch_pct = (
         float(abs(RMSSD_last2 - RMSSD) / RMSSD * 100.0)
@@ -428,20 +556,26 @@ def compute_day_from_rr(rr_path: Path, history_df: pd.DataFrame, C: dict) -> Tup
         stab_flag = "STAB_LAST2_MISMATCH"
 
     invalid = False
-    if (not np.isnan(artifact_pct)) and artifact_pct > 20.0:
+    if (not np.isnan(rejected_rr_pct_window)) and rejected_rr_pct_window > 20.0:
         invalid = True
     if (not np.isnan(HR)) and (HR < 35.0 or HR > 100.0):
         invalid = True
 
+    # HG-10: condiciones de material insuficiente o eje temporal no fiable.
+    rmssd_usable = (not np.isnan(RMSSD)) and RMSSD > 0
+    window_empty = (not np.isfinite(t_end_eff)) or (t_end_eff <= t_start_eff)
+    axis_unreliable = not ctx.time_axis_reliable
+    unusable = (not rmssd_usable) or window_empty or axis_unreliable
+
     if invalid:
         Calidad = "INVALID"
     else:
-        Lat_eff = 60.0 if np.isnan(lat) else max(lat, 60.0)
-        if (not np.isnan(lat)) and artifact_pct <= C["ARTIFACT_OK_MAX"] and 60.0 <= Lat_eff <= 600.0 and HRV_Stability == "OK":
+        if rejected_rr_pct_window <= C["ARTIFACT_OK_MAX"] and HRV_Stability == "OK":
             Calidad = "OK"
         else:
             Calidad = "FLAG_mecánico"
-        if np.isnan(lat):
+        # Salida segura HG-10: ninguna medición sin RMSSD utilizable queda OK.
+        if unusable:
             Calidad = "FLAG_mecánico"
 
     # ========================================================================
@@ -576,9 +710,15 @@ def compute_day_from_rr(rr_path: Path, history_df: pd.DataFrame, C: dict) -> Tup
     flags = []
     if np.isnan(lat):
         flags.append("LAT_NAN")
-    if artifact_pct > C["ARTIFACT_OK_MAX"]:
+    if window_empty:
+        flags.append("REC_SHORT")
+    elif not rmssd_usable:
+        flags.append("WIN_NO_PAIRS")
+    if axis_unreliable:
+        flags.append("TIME_AXIS_UNRELIABLE")
+    if rejected_rr_pct_window > C["ARTIFACT_OK_MAX"]:
         flags.append("ART_GT15")
-    if artifact_pct > 20.0:
+    if rejected_rr_pct_window > 20.0:
         flags.append("ART_GT20")
     if stab_flag:
         flags.append(stab_flag)
@@ -599,7 +739,10 @@ def compute_day_from_rr(rr_path: Path, history_df: pd.DataFrame, C: dict) -> Tup
         f"t_start_eff={t_start_eff:.1f}s; dur_tramo={dur_tramo:.1f}s; dur_tail={dur_tail_eff:.1f}s; "
         f"n_total={N_total}; n_base={N_base}; n_clean={N_clean}; n_tramo={n_tramo}; n_tail={n_tail}; "
         f"off={N_off}; oor={N_oor}; dRR={N_drr}; "
-        f"lat_mode={'NUM' if not np.isnan(lat) else 'NAN'}; stab={HRV_Stability}"
+        f"lat_mode={'NUM' if not np.isnan(lat) else 'NAN'}; stab={HRV_Stability}; "
+        f"geom={C['GEOMETRY_VERSION']}; dur_full={ctx.dur_full:.1f}s; cut={int(ctx.record_cut_applied)}; "
+        f"pairs_tramo={n_pairs_tramo}; pairs_tail={n_pairs_tail}; "
+        f"axis={'OK' if ctx.time_axis_reliable else 'UNRELIABLE'}"
     )
 
     # ========================================================================
@@ -610,7 +753,8 @@ def compute_day_from_rr(rr_path: Path, history_df: pd.DataFrame, C: dict) -> Tup
         "Calidad": Calidad,
         "HRV_Stability": HRV_Stability,
         "Stability_Subtype": stab_flag or "OK",
-        "Artifact_pct": artifact_pct,
+        "Artifact_pct": ctx.artifact_pct,
+        "rejected_rr_pct_window": rejected_rr_pct_window,
         "Tiempo_Estabilizacion": lat,
         "HR_stable": HR,
         "RRbar_s": RRbar_s,
@@ -651,29 +795,36 @@ def compute_day_from_rr_core_only(rr_path: Path, C: dict) -> Tuple[dict, None]:
     Usada como fallback cuando el procesamiento completo falla.
     """
     ctx = _parse_and_filter_rr(rr_path, C)
-    artifact_pct = ctx.artifact_pct
+    rejected_rr_pct_window = ctx.rejected_rr_pct_window
     rr_eff = ctx.rr_eff
     t_eff = ctx.t_eff
+    idx_eff = ctx.original_idx_eff
     t_end_eff = ctx.t_end_eff
 
-    # Latencia simplificada (usar 45s como fallback)
-    t_start_eff = 45.0
+    # HG-10: misma geometría que la ruta normal. La latencia no se calcula en
+    # rescate, pero el inicio del tramo ya no dependía de ella.
+    t_start_eff = float(C["WINDOW_START_S"])
 
     # Métricas tramo
     tramo = t_eff >= t_start_eff
-    rr_tramo = rr_eff[tramo] / 1000.0
+    rr_tramo_ms = rr_eff[tramo]
+    idx_tramo = idx_eff[tramo]
+    rr_tramo = rr_tramo_ms / 1000.0
+    n_pairs_tramo = n_consecutive_pairs(rr_tramo_ms, idx_tramo)
     RRbar_s = float(np.mean(rr_tramo)) if rr_tramo.size else np.nan
     HR = float(60.0 / RRbar_s) if (not np.isnan(RRbar_s) and RRbar_s > 0) else np.nan
-    RMSSD = rmssd_ms(rr_tramo) if rr_tramo.size >= 2 else np.nan
+    RMSSD = rmssd_consecutive_ms(rr_tramo_ms, idx_tramo) if n_pairs_tramo >= 1 else np.nan
     lnRMSSD = float(np.log(RMSSD)) if (not np.isnan(RMSSD) and RMSSD > 0) else np.nan
 
     # Cola
     tail_start = t_end_eff - C["TAIL_S"]
     tail = (t_eff >= tail_start) & (t_eff <= t_end_eff)
-    rr_tail = rr_eff[tail] / 1000.0
+    rr_tail_ms = rr_eff[tail]
+    idx_tail = idx_eff[tail]
+    rr_tail = rr_tail_ms / 1000.0
     dur_tail_eff = float(t_eff[tail][-1] - t_eff[tail][0]) if np.sum(tail) > 1 else 0.0
-    n_pairs_tail = int(rr_tail.size - 1)
-    RMSSD_last2 = rmssd_ms(rr_tail) if rr_tail.size >= 2 else np.nan
+    n_pairs_tail = n_consecutive_pairs(rr_tail_ms, idx_tail)
+    RMSSD_last2 = rmssd_consecutive_ms(rr_tail_ms, idx_tail) if n_pairs_tail >= 1 else np.nan
 
     # Calidad simplificada
     HRV_Stability = "OK"
@@ -682,10 +833,21 @@ def compute_day_from_rr_core_only(rr_path: Path, C: dict) -> Tuple[dict, None]:
     elif np.isnan(RMSSD_last2):
         HRV_Stability = "Unstable"
 
-    invalid = (not np.isnan(artifact_pct) and artifact_pct > 20.0) or \
+    invalid = (not np.isnan(rejected_rr_pct_window) and rejected_rr_pct_window > 20.0) or \
               (not np.isnan(HR) and (HR < 35.0 or HR > 100.0))
     
     Calidad = "INVALID" if invalid else "FLAG_mecánico"  # Siempre FLAG en modo rescate
+
+    # HG-10: el rescate nunca puede quedar OK, así que la salida segura solo
+    # necesita dejar visible el motivo del material insuficiente.
+    rescue_flags = ["RESCUE_MODE"]
+    window_empty = (not np.isfinite(t_end_eff)) or (t_end_eff <= t_start_eff)
+    if window_empty:
+        rescue_flags.append("REC_SHORT")
+    elif np.isnan(RMSSD) or not (RMSSD > 0):
+        rescue_flags.append("WIN_NO_PAIRS")
+    if not ctx.time_axis_reliable:
+        rescue_flags.append("TIME_AXIS_UNRELIABLE")
 
     fecha_str = parse_date_from_name(rr_path.name)
     
@@ -693,19 +855,25 @@ def compute_day_from_rr_core_only(rr_path: Path, C: dict) -> Tuple[dict, None]:
         "Fecha": fecha_str,
         "Calidad": Calidad,
         "HRV_Stability": HRV_Stability,
-        "Artifact_pct": artifact_pct,
+        "Artifact_pct": ctx.artifact_pct,
+        "rejected_rr_pct_window": rejected_rr_pct_window,
         "Tiempo_Estabilizacion": np.nan,  # No calculada en modo rescate
         "HR_stable": HR,
         "RRbar_s": RRbar_s,
         "RMSSD_stable": RMSSD,
         "RMSSD_stable_last2": RMSSD_last2,
         "lnRMSSD": lnRMSSD,
-        "Flags": "RESCUE_MODE",
+        "Flags": "|".join(rescue_flags),
         "SI_baevsky": np.nan,
         "SD1": np.nan,
         "SD2": np.nan,
         "SD1_SD2_ratio": np.nan,
-        "Notes": f"src={rr_path.name}; rescue_mode=True",
+        "Notes": (
+            f"src={rr_path.name}; rescue_mode=True; "
+            f"geom={C['GEOMETRY_VERSION']}; t_start_eff={t_start_eff:.1f}s; dur_eff={t_end_eff:.1f}s; "
+            f"pairs_tramo={n_pairs_tramo}; pairs_tail={n_pairs_tail}; "
+            f"axis={'OK' if ctx.time_axis_reliable else 'UNRELIABLE'}"
+        ),
     }
 
     return core_row, None
@@ -807,7 +975,54 @@ def find_rr_files(rr_dir: Path) -> List[Path]:
     files = []
     for pattern in patterns:
         files.extend(rr_dir.glob(pattern))
-    return sorted(set(files), key=lambda p: parse_date_from_name(p.name))
+    return sorted(set(files), key=lambda p: (parse_date_from_name(p.name), p.name.casefold(), str(p)))
+
+
+def duplicate_rr_dates(files: List[Path]) -> List[str]:
+    """Fechas con más de un RR de entrada: exigen selección explícita al migrar."""
+    counts = {}
+    for path in files:
+        date = parse_date_from_name(path.name)
+        counts[date] = counts.get(date, 0) + 1
+    return sorted(date for date, count in counts.items() if count > 1)
+
+
+def canonical_geometry_issue(core_path: Path, beta_path: Path, manifest_path: Path) -> Optional[str]:
+    """Impide mezclar la geometría HG-10 con una generación canónica anterior."""
+    if not core_path.exists() and not beta_path.exists() and not manifest_path.exists():
+        return None
+    if not core_path.exists() or not beta_path.exists() or not manifest_path.exists():
+        return "faltan archivos de la generación CORE/BETA o su manifiesto"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        version = manifest["effective_config"]["constants"]["GEOMETRY_VERSION"]
+        policy = manifest["effective_config"]["constants"].get("QUALITY_POLICY_VERSION")
+        outputs = {item["role"]: item for item in manifest["outputs"]}
+        for role, path in (("core", core_path), ("beta_audit", beta_path)):
+            if outputs[role]["sha256"] != file_digest(path):
+                return f"huella de {role} distinta de la registrada en el manifiesto"
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        return f"manifiesto CORE ilegible o incompleto ({exc})"
+    if version != CONSTANTS["GEOMETRY_VERSION"]:
+        return f"geometría existente {version!r}; el builder usa {CONSTANTS['GEOMETRY_VERSION']!r}"
+    if policy != CONSTANTS["QUALITY_POLICY_VERSION"]:
+        return "política de Calidad existente distinta de la candidata"
+    try:
+        with core_path.open("r", encoding="utf-8-sig", newline="") as handle:
+            rows = csv.DictReader(handle)
+            if rows.fieldnames is None or "Notes" not in rows.fieldnames:
+                return "CORE sin columna Notes para verificar la geometría de cada fila"
+            legacy_dates = [
+                row.get("Fecha")
+                for row in rows
+                if f"geom={version}" not in (row.get("Notes") or "")
+            ]
+    except (OSError, UnicodeError, csv.Error) as exc:
+        return f"CORE ilegible al verificar la geometría por fila ({exc})"
+    unexpected = [date for date in legacy_dates if date not in HG10_UNREPROCESSED_DATES]
+    if unexpected or len(legacy_dates) != len(set(legacy_dates)):
+        return f"{len(legacy_dates)} fila(s) CORE sin la geometría HG-10 verificada"
+    return None
 
 
 def main():
@@ -815,6 +1030,11 @@ def main():
     parser.add_argument("--rr-dir", type=str, help="Directorio con archivos RR")
     parser.add_argument("--rr-file", type=str, action="append", help="Archivo RR específico (puede repetirse)")
     parser.add_argument("--data-dir", type=str, help="Directorio de datos (override HRV_DATA_DIR)")
+    parser.add_argument(
+        "--allow-hg10-migration",
+        action="store_true",
+        help="Permitir el recálculo manual HG-10 de una copia aislada con generación anterior",
+    )
     args = parser.parse_args()
 
     global DATA_DIR, OUT_CORE, OUT_BETA_AUDIT, OUT_CORE_MANIFEST
@@ -827,6 +1047,11 @@ def main():
     if args.rr_dir:
         global RR_BASE_DIR
         RR_BASE_DIR = resolve_writable_dir(Path(args.rr_dir), CONFIG_RR_DIR)
+
+    if args.allow_hg10_migration and (
+        not args.data_dir or DATA_DIR.resolve() == CONFIG_DATA_DIR.resolve()
+    ):
+        parser.error("--allow-hg10-migration exige --data-dir en una copia aislada de DATA_DIR")
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -846,11 +1071,28 @@ def main():
         print(f"Usa --rr-dir o --rr-file, o coloca archivos en {RR_BASE_DIR}")
         sys.exit(1)
 
+    if args.allow_hg10_migration:
+        duplicate_dates = duplicate_rr_dates(rr_files)
+        if duplicate_dates:
+            parser.error(
+                "HG-10: RR duplicados para " + ", ".join(duplicate_dates)
+                + "; seleccione un único archivo por fecha con --rr-file "
+                "y verifique su nombre y SHA-256 contra el inventario del replay"
+            )
+
     _qprint(f"\n[INFO] Procesando {len(rr_files)} archivo(s) RR...")
 
     # Cargar DataFrames existentes
     core_df = get_or_create_df(OUT_CORE, COLS_CORE)
     beta_df = get_or_create_df(OUT_BETA_AUDIT, COLS_BETA_AUDIT)
+    if not args.allow_hg10_migration:
+        issue = canonical_geometry_issue(OUT_CORE, OUT_BETA_AUDIT, OUT_CORE_MANIFEST)
+        if issue:
+            parser.error(
+                f"HG-10: sync detenido antes de escribir ({issue}). "
+                "Prepare la migración en una copia aislada con --allow-hg10-migration; "
+                "no mezcle geometrías en el histórico operativo."
+            )
 
     # Para el cálculo de beta, necesitamos un historial combinado
     # Usamos CORE + BETA_AUDIT combinados

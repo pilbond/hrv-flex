@@ -142,6 +142,7 @@ Importante:
   - Calcula fechas objetivo faltantes.
   - Lanza `egc_to_rr.py` para cubrir fechas desde Dropbox cuando esta habilitado.
   - Respeta `HRV_DROPBOX_RR_TIMEOUT_SEC` para evitar bloqueos indefinidos en el subprocess.
+  - Antes de incorporar los RR convertidos, verifica que cada uno tenga sus diagnósticos en `_rr_diagnostics/` y que nombres y huellas SHA-256 coincidan con el manifiesto. Si alguno falla, no promueve ningún RR nuevo de esa importación y devuelve `status=failed`, `outcome=diagnostic_error` (código `dropbox_rr_diagnostic_invalid`). Al promover, mueve también los diagnósticos a `RR_DOWNLOAD_DIR/_rr_diagnostics/`.
   - Devuelve un `DropboxRRResult` estructurado con `files`, `new_count`,
     `status`, `outcome` y, si procede, `error`. `status=not_requested` con
     `outcome=local_coverage` indica que las fechas ya estaban cubiertas en
@@ -200,7 +201,7 @@ Importante:
 - Que hace:
   - Rendering opcional de dos briefs mediante LLM, ambos con fallback determinista garantizado:
     - `daily_brief.run_ai_daily_brief_for_latest_date()`: reescribe la explicacion del gate HRV usando `reason_items` como capa primaria. Requiere `HRV_AI_ENABLED=1` y `HRV_AI_DAILY_ENABLED=1`. Persiste `ENDURANCE_HRV_ai_daily_brief_latest.json` en `DATA_DIR` y el historial fechado en `DATA_DIR/ai_briefs/daily/`.
-    - `ssm_brief.run_ai_ssm_brief_for_latest_date()`: reescribe el brief SSM shadow desde el payload validado en `research/reports/iu16_ssm_brief_eval/prompt.md` (v4). Requiere `HRV_AI_ENABLED=1` y `HRV_AI_SSM_ENABLED=1`. Persiste `ENDURANCE_HRV_ai_ssm_brief_latest.json` en `DATA_DIR` y el historial fechado en `DATA_DIR/ai_briefs/ssm/`.
+    - `ssm_brief.run_ai_ssm_brief_for_latest_date()`: reescribe el brief SSM shadow desde el payload validado en `research/reports/iu16_ssm_brief_eval/prompt.md`, que contiene el texto de `ssm_brief_v5` (valor por defecto de `HRV_AI_SSM_PROMPT_VERSION`; las respuestas de evaluación guardadas llegan hasta v4). Requiere `HRV_AI_ENABLED=1` y `HRV_AI_SSM_ENABLED=1`. Persiste `ENDURANCE_HRV_ai_ssm_brief_latest.json` en `DATA_DIR` y el historial fechado en `DATA_DIR/ai_briefs/ssm/`.
   - Ambos modulos construyen payloads pre-digeridos (sin campos crudos que el LLM pueda reinterpretar), llaman al modelo via OpenAI-compatible `chat/completions`, validan contrato de salida y persisten sidecars via `write_json_atomic`.
   - Idempotencia por `payload_hash` (SHA-256 del payload sin `generated_at`); si el hash coincide con el sidecar previo, no se vuelve a llamar al modelo.
   - Validacion `daily_brief`: `date`, `tone` alineado con `gate_final`, `source_mode` alineado con presencia de `reason_items`, `max_words` con margen 1.2x.
@@ -300,6 +301,7 @@ Importante:
 - Salidas:
   - RR en `data/rr_downloads`.
   - Opcional: artefactos de apoyo en `_aux_jsonl`.
+  - Siempre, también con `--no-aux`: `_rr_diagnostics/<stem>_RR_reasons.csv` (motivo por índice RR) y `_rr_diagnostics/<stem>_RR_diagnostic.json` (huellas SHA-256 del RR, de los motivos, del ECG, del ACC y del conversor; versiones de numpy y scipy; conteos). El RR se publica después de sus diagnósticos.
 - Automatico o manual:
   - Ambos.
 
@@ -307,7 +309,9 @@ Importante:
 - Que hace:
   - Procesa RR crudos.
   - Calcula metrica HRV estable por dia.
-  - Si CORE o BETA_AUDIT ya existen, exige al menos una fila y su esquema canonico exacto (18 y 13 columnas). Un archivo vacio, ilegible o incompatible provoca salida no cero, conserva el original en cuarentena cuando es posible y no publica un manifest nuevo.
+  - Si CORE o BETA_AUDIT ya existen, exige al menos una fila y su esquema canonico exacto (13 columnas en BETA_AUDIT; en CORE, 19 en la rama candidata y 18 en el esquema desplegado, por lo que un CORE desplegado falla cerrado al faltar `rejected_rr_pct_window`). Un archivo vacio, ilegible o incompatible provoca salida no cero, conserva el original en cuarentena cuando es posible y no publica un manifest nuevo.
+  - En la rama candidata, antes de escribir comprueba que CORE, BETA_AUDIT y `ENDURANCE_HRV_master_CORE_manifest.json` correspondan a `GEOMETRY_VERSION=hg10_s90_t375_trim15` y `QUALITY_POLICY_VERSION=hg10_latnan_aviso_art_window_v2`, con las huellas registradas y `geom=` en cada fila (salvo `2026-02-26`, `2026-02-27` y `2026-03-03`). Si no, se detiene sin escribir.
+  - `--allow-hg10-migration` omite esa comprobación; solo se admite con un `--data-dir` distinto del `DATA_DIR` operativo y rechaza fechas con más de un RR. Sirve para preparar la migración en una copia aislada; el sync no lo usa.
   - Genera:
     - `ENDURANCE_HRV_master_CORE.csv`
     - `ENDURANCE_HRV_master_BETA_AUDIT.csv`
@@ -348,7 +352,7 @@ Importante:
     - `recovery_discordance_reason`
   - Si existe `ENDURANCE_HRV_sessions_day.csv`, usa sus campos de carga.
   - Genera:
-    - `ENDURANCE_HRV_master_FINAL.csv` (66 columnas)
+    - `ENDURANCE_HRV_master_FINAL.csv` (66 columnas desplegadas, 67 candidatas)
     - `ENDURANCE_HRV_master_DASHBOARD.csv`
 - Cuando usarlo:
   - Siempre que quieras pasar de CORE a salida operativa FINAL/DASHBOARD.
@@ -469,6 +473,7 @@ Importante:
   - `scripts/python/intervals_resting_hr_from_core.py`
 
 ## `add_ans_balance_to_core.py`
+- **DEPRECATED (HG-04, 2026-10-20):** escritura sobre CORE deshabilitada; `build_hrv_core.py` ya calcula estas columnas. Solo `--dry-run`.
 - Que hace:
   - Reprocesa RR y calcula metricas ANS:
     - `SI_baevsky`

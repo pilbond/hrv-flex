@@ -195,7 +195,7 @@ def _derive_obs_quality(base: pd.DataFrame, cfg: SSMConfig) -> pd.DataFrame:
     stability = out["HRV_Stability"].fillna("").astype(str)
     flags = out["Flags"].apply(_split_flags) if "Flags" in out.columns else pd.Series([set()] * len(out))
 
-    obs_missing = lnrmssd.isna() | quality.eq("INVALID") | flags.apply(lambda parts: "LAT_NAN" in parts)
+    obs_missing = lnrmssd.isna() | quality.eq("INVALID") | (~quality.eq("OK") & flags.apply(lambda parts: "LAT_NAN" in parts))
     penalty = np.zeros(len(out), dtype=float)
     penalty += np.where(quality.eq("FLAG_mecánico"), 1.5, 0.0)
     penalty += np.where(~stability.eq("OK") & stability.ne(""), 1.0, 0.0)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 import subprocess
@@ -129,6 +131,30 @@ def _build_dropbox_rr_cmd(outdir: Path, target_dates: Iterable[date] = ()) -> li
     return cmd
 
 
+def _validated_rr_diagnostics(path: Path) -> tuple[Path, Path]:
+    diagnostic_dir = path.parent / "_rr_diagnostics"
+    diagnostic_stem = path.stem.removesuffix("_RR")
+    reasons = diagnostic_dir / f"{diagnostic_stem}_RR_reasons.csv"
+    diagnostic = diagnostic_dir / f"{diagnostic_stem}_RR_diagnostic.json"
+    if not reasons.is_file() or not diagnostic.is_file():
+        raise FileNotFoundError(f"Faltan diagnósticos RR para {path.name}")
+    manifest = json.loads(diagnostic.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        raise ValueError(f"Diagnóstico RR inválido para {path.name}")
+    with path.open("rb") as handle:
+        rr_hash = hashlib.file_digest(handle, "sha256").hexdigest()
+    with reasons.open("rb") as handle:
+        reasons_hash = hashlib.file_digest(handle, "sha256").hexdigest()
+    if (
+        manifest.get("rr_file") != path.name
+        or manifest.get("reasons_file") != reasons.name
+        or manifest.get("rr_sha256") != rr_hash
+        or manifest.get("reasons_sha256") != reasons_hash
+    ):
+        raise ValueError(f"Diagnósticos RR no corresponden a {path.name}")
+    return reasons, diagnostic
+
+
 def _promote_operational_rr_files(rr_files: Iterable[Path | str], rr_dir: Path | str = OUTDIR) -> int:
     root = Path(rr_dir)
     promoted = 0
@@ -143,6 +169,11 @@ def _promote_operational_rr_files(rr_files: Iterable[Path | str], rr_dir: Path |
             continue
         canonical = root / f"ENDURANCE_{rr_date.isoformat()}_from_jsonl_RR.CSV"
         canonical.parent.mkdir(parents=True, exist_ok=True)
+        reasons, diagnostic = _validated_rr_diagnostics(path)
+        target_dir = root / "_rr_diagnostics"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        os.replace(reasons, target_dir / reasons.name)
+        os.replace(diagnostic, target_dir / diagnostic.name)
         os.replace(path, canonical)
         for duplicate in root.glob(f"ENDURANCE_{rr_date.isoformat()}_from_jsonl_v*_RR.CSV"):
             if duplicate != canonical and duplicate.is_file():
@@ -251,6 +282,14 @@ def _run_dropbox_rr_import_for_dates(
     new_count = sum(1 for d in result if d not in pre_map and d in post_map)
     if process_error:
         return DropboxRRResult(result, new_count, status="failed", outcome=process_outcome, error=process_error)
+    try:
+        for path in post_map.values():
+            _validated_rr_diagnostics(path)
+    except (OSError, ValueError) as exc:
+        return DropboxRRResult(local_coverage(), 0, status="failed", outcome="diagnostic_error", error={
+            "code": "dropbox_rr_diagnostic_invalid",
+            "message": str(exc),
+        })
     if not result:
         return DropboxRRResult(result, new_count, status="ok", outcome="no_data")
     return DropboxRRResult(result, new_count, status="ok", outcome="data_found")

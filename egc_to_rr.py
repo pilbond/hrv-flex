@@ -16,6 +16,7 @@ Supported modes:
 
 Outputs per session:
 - <prefix>_<YYYY-MM-DD>_from_jsonl_RR.CSV                  (duration,offline)
+- _rr_diagnostics/<stem>_RR_reasons.csv and _RR_diagnostic.json (always)
 - Aux files in <outdir>/_aux_jsonl by default:
   - <prefix>_<YYYY-MM-DD>_from_jsonl_RR_events.csv
   - <prefix>_<YYYY-MM-DD>_from_jsonl_resp_rate.csv
@@ -47,6 +48,7 @@ import pandas as pd
 import requests
 
 try:
+    import scipy
     from scipy.signal import butter, filtfilt, find_peaks, welch
 except Exception:
     SCIPY_AVAILABLE = False
@@ -753,6 +755,28 @@ def _write_dataframe_atomic(df: pd.DataFrame, path: Path) -> None:
         raise
 
 
+def _write_json_atomic(payload: Dict[str, object], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.stem}_", suffix=".json", dir=str(path.parent))
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
+            handle.write("\n")
+        os.replace(tmp_path, path)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+
+def _sha256_path(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def validate_rr_df(rr_csv: pd.DataFrame) -> Dict[str, object]:
     issues: List[str] = []
 
@@ -832,15 +856,55 @@ def process_pair(
     acc_motion_path = aux_base / f"{stem}_acc_motion_windows.csv"
     resp_path = aux_base / f"{stem}_resp_rate.csv"
 
-    _write_dataframe_atomic(rr_csv, rr_path)
     if write_aux:
         _write_dataframe_atomic(rr_ev, rr_events_path)
         _write_dataframe_atomic(acc_win, acc_motion_path)
         _write_dataframe_atomic(resp, resp_path)
 
+    # Prepare the RR and its diagnostics together, then publish the RR last.
+    # The manifest is also written with --no-aux, used by the daily sync.
+    reason_counts = rr_ev["reason"].fillna("UNKNOWN").astype(str).value_counts().to_dict()
+    diagnostic_dir = outdir / "_rr_diagnostics"
+    reasons_path = diagnostic_dir / f"{stem}_RR_reasons.csv"
+    diagnostic_path = diagnostic_dir / f"{stem}_RR_diagnostic.json"
+    outdir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="_audit_rr_publish_", dir=str(outdir)) as tmp_dir:
+        staged = Path(tmp_dir)
+        staged_rr = staged / rr_path.name
+        staged_reasons = staged / reasons_path.name
+        staged_diagnostic = staged / diagnostic_path.name
+        _write_dataframe_atomic(rr_csv, staged_rr)
+        _write_dataframe_atomic(pd.DataFrame({
+            "rr_index": np.arange(len(rr_ev), dtype=int),
+            "reason": rr_ev["reason"].fillna("UNKNOWN").astype(str),
+        }), staged_reasons)
+        _write_json_atomic({
+            "schema_version": 1,
+            "date": date_str,
+            "rr_file": rr_path.name,
+            "rr_sha256": _sha256_path(staged_rr),
+            "reasons_file": reasons_path.name,
+            "reasons_sha256": _sha256_path(staged_reasons),
+            "ecg_sha256": _sha256_path(ecg_path),
+            "acc_sha256": _sha256_path(acc_path),
+            "converter_sha256": _sha256_path(Path(__file__)),
+            "numpy_version": np.__version__,
+            "scipy_version": scipy.__version__,
+            "rr_count": int(len(rr_csv)),
+            "offline_count": int((rr_csv["offline"] == 1).sum()),
+            "reason_counts": {str(key): int(value) for key, value in reason_counts.items()},
+            "acc_gate_enabled": bool(use_acc_gate),
+        }, staged_diagnostic)
+        diagnostic_dir.mkdir(parents=True, exist_ok=True)
+        os.replace(staged_reasons, reasons_path)
+        os.replace(staged_diagnostic, diagnostic_path)
+        os.replace(staged_rr, rr_path)
+
     return {
         "rr_path": rr_path,
         "rr_events_path": rr_events_path if write_aux else None,
+        "reasons_path": reasons_path,
+        "diagnostic_path": diagnostic_path,
         "acc_motion_path": acc_motion_path if write_aux else None,
         "resp_path": resp_path if write_aux else None,
         "date_str": date_str,
