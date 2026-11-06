@@ -1,6 +1,6 @@
 # Procedimiento Recomendado (V4)
 
-**Estado local (2026-11-05):** la generación HG-10 está publicada en `C:\Pilbond\hrv-flex\data` con CORE de 19 columnas y FINAL de 67. CORE, BETA_AUDIT, FINAL, DASHBOARD y SSM se regeneraron y verificaron por huellas; Railway no está cubierto por este corte. Las menciones posteriores a «candidata» y «pendiente de migración» describen el estado anterior al corte local.
+**Estado local (2026-11-05):** la generación de las versiones v4.18 y v4.19 de la Spec técnica (pares consecutivos y política de Calidad vigente) está publicada en `C:\Pilbond\hrv-flex\data` con CORE de 19 columnas y FINAL de 67. CORE, BETA_AUDIT, FINAL, DASHBOARD y SSM se regeneraron y verificaron por huellas; Railway no está cubierto por este corte. Las menciones posteriores a «candidata» y «pendiente de migración» describen el estado anterior al corte local.
 
 **Artefactos del tramo (candidata v2, 03/11/2026).** CORE y FINAL añaden `rejected_rr_pct_window` junto a `Artifact_pct`. El primero es el porcentaje de RR rechazados entre todos los RR cuyo instante final está entre 90 s y el final útil inclusive. Se aplican los descartes del filtro original antes de seleccionar el tramo. Sin RR en el tramo, el porcentaje queda vacío. Calidad y los flags de artefactos usan el porcentaje local: más de 15 % impide OK y más de 20 % implica INVALID. El global sigue describiendo el registro truncado y ponderando la varianza de SSM. FINAL identifica la métrica local en el motivo de calidad cuando recibe el nuevo esquema.
 
@@ -23,7 +23,7 @@ Esto hace:
 - El entrypoint `polar_hrv_automation.py` coordina el caso de uso pero ya no concentra toda la logica operativa en un solo archivo; la implementacion interna vive en `hrv_app/`.
 - Detecta fechas faltantes en CORE (desde `ultima_fecha_CORE + 1` hasta hoy).
 - Intenta cubrir esos faltantes desde Dropbox (JSONL o ZIP -> RR) con `egc_to_rr.py` si está habilitado.
-- Dropbox es la **única** fuente de nuevos RR matinales (AYO-13-F4): no hay fallback Polar para fechas nuevas que Dropbox no cubra; si una fecha no está en Dropbox, esa fecha no entra al pipeline en este ciclo.
+- Dropbox es la **única** fuente de nuevos RR matinales: no hay fallback Polar para fechas nuevas que Dropbox no cubra; si una fecha no está en Dropbox, esa fecha no entra al pipeline en este ciclo.
 - El historico de CORE generado anteriormente con RR de Polar se conserva sin migracion retroactiva.
 - Si CORE no existe y hay RR en `rr_downloads/`, reprocesa esos RR locales primero (sin Dropbox ni Polar); solo si tampoco hay RR locales recurre a Dropbox con la ventana por defecto.
 - Si CORE existe pero esta vacio, es ilegible o no coincide con el esquema canonico vigente, el pipeline falla cerrado y no lo sustituye por un dataset nuevo.
@@ -107,7 +107,7 @@ python build_sessions.py --date 2026-06-15 # un día concreto
 
 - `python scripts/python/intervals_wellness_test.py ...`
 - `python scripts/python/intervals_resting_hr_from_core.py ...`
-- `python scripts/python/add_ans_balance_to_core.py --dry-run` (deprecated HG-04: no escribe CORE)
+- `python scripts/python/add_ans_balance_to_core.py --dry-run` (deprecated: no escribe CORE)
 - `python scripts/python/build_historical_hrv_compare.py`
 
 ## Días sin sesión

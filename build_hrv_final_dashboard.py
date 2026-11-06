@@ -12,7 +12,7 @@ Lee:
   - ENDURANCE_HRV_master_CORE.csv
 
 Genera:
-  - ENDURANCE_HRV_master_FINAL.csv     (66 cols, gate + sombras + residual + warning dual + auditoría raw-vs-ref + RE-01)
+  - ENDURANCE_HRV_master_FINAL.csv     (66 cols, gate + sombras + residual + warning dual + auditoría raw-vs-ref + recuperación multiseñal)
   - ENDURANCE_HRV_master_DASHBOARD.csv (10 cols, vista operativa compacta)
 
 Normativa:
@@ -755,7 +755,22 @@ def _recovery_summary_message(gate: str, recovery_class: str, support_codes: Lis
     return ""
 
 
-def _recovery_action_message(gate: str, recovery_class: str, support_codes: List[str], caution_codes: List[str]) -> str:
+def _recovery_action_message(
+    gate: str,
+    recovery_class: str,
+    support_codes: List[str],
+    caution_codes: List[str],
+    action_detail: str = "",
+) -> str:
+    # La acción de recuperación no puede ser más permisiva que Action_detail.
+    # Con SUAVE_QUALITY en VERDE/ÁMBAR ya hay un item data_quality que limita a Z1-Z2.
+    if action_detail == "SUAVE_QUALITY" and gate in (VERDE, AMBAR):
+        return ""
+    if action_detail == "DESCARGA" and gate == ROJO:
+        if recovery_class == "conflicted":
+            return "Acción: revisar factores externos; la acumulación de días rojos pide descarga"
+        if recovery_class == "supported":
+            return "Acción: descarga, solo suave o descanso"
     if gate == VERDE and recovery_class == "fragile":
         return "Acción: contener la intensidad"
     if gate == AMBAR and recovery_class == "supported":
@@ -776,7 +791,7 @@ def _recovery_discordance_message(gate: str, recovery_class: str, coverage: str,
 
 
 # =============================================================================
-# reason_text composition (UX-01)
+# reason_text composition
 # =============================================================================
 
 # Tipos cuya semántica es matizar el verdict del gate (no datos crudos).
@@ -819,9 +834,39 @@ def _emit_raw_rebound_reason_if_needed(
     gate_raw_today: str,
     gate_raw_reason: str,
     veto_agudo: bool,
+    gate_base60: Optional[str] = None,
 ) -> None:
-    if gate_final != ROJO or gate_raw_today != VERDE or veto_agudo:
+    """El dato crudo de hoy sale mejor que la señal suavizada de 3 días.
+
+    Solo con gate final ÁMBAR o ROJO. La comparación es contra gate_base60
+    (por defecto, gate_final). Cubre ROJO con crudo VERDE o ÁMBAR y ÁMBAR con
+    crudo VERDE. El nivel del variant es el de la señal suavizada. No cambia
+    el gate.
+    """
+    # Se compara con la señal suavizada (gate_base60), no con el gate final:
+    # si un override 28/42 movió el gate, la causa es el override (gate_cause),
+    # no la media de 3 días.
+    smoothed = gate_final if gate_base60 is None else gate_base60
+    if veto_agudo or gate_final not in (AMBAR, ROJO) or smoothed not in (AMBAR, ROJO):
         return
+    r_raw = _rank_gate(gate_raw_today)
+    r_smoothed = _rank_gate(smoothed)
+    if r_raw is None or r_smoothed is None or r_raw >= r_smoothed:
+        return
+    level = "rojo" if smoothed == ROJO else "ámbar"
+    if smoothed == ROJO and gate_raw_today == VERDE:
+        variant = "red_gate_with_green_raw"
+        head = "El dato crudo de hoy rebota a zona verde"
+    elif smoothed == ROJO:
+        variant = "red_gate_with_amber_raw"
+        head = "El dato crudo de hoy mejora a zona ámbar"
+    else:
+        variant = "amber_gate_with_green_raw"
+        head = "El dato crudo de hoy ya está en zona verde"
+    message = (
+        f"{head}, pero la señal suavizada de 3 días sigue en {level} "
+        "y aún no confirma la recuperación"
+    )
     _emit_reason(
         reason_items,
         reason_parts,
@@ -829,16 +874,182 @@ def _emit_raw_rebound_reason_if_needed(
         type="raw_today_rebound",
         layer="measured",
         source="hrv_pipeline",
-        variant="red_gate_with_green_raw",
-        gate_scope="red",
+        variant=variant,
+        gate_scope="red" if gate_final == ROJO else "amber",
         metric="gate_raw_today",
         value=str(gate_raw_today),
-        threshold=str(gate_final),
-        evidence=[f"gate_raw_today={gate_raw_today}", f"gate_raw_reason={gate_raw_reason}"],
-        message=(
-            "El dato crudo de hoy rebota a zona verde, pero el gate sigue rojo "
-            "porque la señal suavizada de 3 días aún no confirma la recuperación"
-        ),
+        threshold=str(smoothed),
+        evidence=[
+            f"gate_raw_today={gate_raw_today}",
+            f"gate_raw_reason={gate_raw_reason}",
+            f"gate_base60={smoothed}",
+        ],
+        message=message,
+    )
+
+
+def _swc_units(delta: float, swc: float) -> Optional[float]:
+    if not (np.isfinite(delta) and np.isfinite(swc)) or swc <= 0.0:
+        return None
+    return round(float(delta) / float(swc), 2)
+
+
+def _emit_gate_cause_reason_if_needed(
+    reason_items: List[List[dict]],
+    reason_parts: List[List[str]],
+    idx: int,
+    *,
+    gate_final: str,
+    gate_base60: str,
+    razon_base60: str,
+    decision_path: str,
+    gate_raw_today: str,
+    gate_raw_reason: str,
+    d_ln: float,
+    d_hr: float,
+    swc_ln: float,
+    swc_hr: float,
+    veto_agudo: bool,
+    action_detail: str,
+    bad_streak: int,
+    bad_7d: int,
+) -> None:
+    """Explica por qué el gate final no es VERDE, sin recalcularlo.
+
+    Descompone la decisión ya tomada: qué eje de base60 salió de rango
+    (lnRMSSD y/o FC, media 3 días), si un override de base28/42 movió el
+    gate, si el dato crudo de hoy sale peor que el suavizado y si hay
+    acumulación de días rojos. Magnitudes en unidades de SWC.
+    """
+    if gate_final not in (AMBAR, ROJO):
+        return
+
+    ln_low = razon_base60 in ("2D_LN", "2D_AMBOS")
+    hr_high = razon_base60 in ("2D_HR", "2D_AMBOS")
+    ln_swc = _swc_units(d_ln, swc_ln)
+    hr_swc = _swc_units(d_hr, swc_hr)
+    window = "hoy" if veto_agudo else "media 3 días"
+
+    codes: List[str] = []
+    clauses: List[str] = []
+
+    # Con veto agudo, acute_drop ya explica la caída de RMSSD; no se repite.
+    if ln_low and not veto_agudo:
+        codes.append("ln_low")
+        pct = (np.exp(d_ln) - 1.0) * 100.0 if np.isfinite(d_ln) else float("nan")
+        bits = []
+        if np.isfinite(pct):
+            bits.append(f"{pct:+.0f}%")
+        if ln_swc is not None:
+            bits.append(f"{abs(ln_swc):.1f} SWC por debajo")
+        suffix = f" ({', '.join(bits)})" if bits else ""
+        clauses.append(f"RMSSD ({window}) bajo tu base de 60 días{suffix}")
+    elif ln_low:
+        codes.append("ln_low_acute")
+        if hr_high:
+            clauses.append("caída aguda de RMSSD de hoy")
+    if hr_high:
+        codes.append("hr_high")
+        bits = []
+        if np.isfinite(d_hr):
+            bits.append(f"{d_hr:+.0f} lpm")
+        if hr_swc is not None:
+            bits.append(f"{hr_swc:.1f} SWC")
+        suffix = f" ({', '.join(bits)})" if bits else ""
+        clauses.append(f"FC en reposo ({window}) sobre tu base de 60 días{suffix}")
+        if not ln_low:
+            clauses[-1] += "; RMSSD en rango"
+
+    # El override cuenta días en que la sombra (28 si existe, si no 42) difiere
+    # de base60; puede mezclar ambas bases, así que no se atribuye a una sola.
+    # La base mayoritaria queda en evidence vía decision_path.
+    if decision_path.startswith("OVERRIDE_DOWN_"):
+        codes.append("override_down")
+        shadow_clause = "las bases cortas (28/42 días) salen peor que la de 60 días en 2 de los últimos 3 días"
+        if gate_base60 == VERDE:
+            clauses.append(f"con la base de 60 días saldría VERDE, pero {shadow_clause}")
+        else:
+            clauses.append(f"{shadow_clause} y bajan el gate a {gate_final}")
+    elif decision_path.startswith("OVERRIDE_UP_"):
+        codes.append("override_up")
+        clauses.append(
+            "las bases cortas (28/42 días) salen mejor que la de 60 días en 2 de los últimos 3 días "
+            f"y suavizan el gate a {gate_final}"
+        )
+
+    # Crudo de hoy frente a la señal suavizada (base60), no frente al gate final.
+    r_raw = _rank_gate(gate_raw_today)
+    r_smoothed = _rank_gate(gate_base60)
+    if r_smoothed is None:
+        r_smoothed = _rank_gate(gate_final)
+    if r_raw is not None and r_smoothed is not None and r_raw > r_smoothed:
+        codes.append("raw_worse")
+        clauses.append(f"el dato de hoy por sí solo sale {gate_raw_today}")
+
+    if gate_final == ROJO and action_detail == "DESCARGA":
+        codes.append("descarga")
+        bits = []
+        if int(bad_streak) >= 2:
+            bits.append(f"{int(bad_streak)} días rojos seguidos")
+        if int(bad_7d) >= 3:
+            bits.append(f"{int(bad_7d)} días rojos en los últimos 7")
+        if bits:
+            clauses.append("acumulación: " + ", ".join(bits))
+
+    if not clauses:
+        return
+
+    if hr_high and not ln_low:
+        variant = "hr_only"
+    elif ln_low and hr_high:
+        variant = "ln_and_hr"
+    elif ln_low:
+        variant = "ln_only"
+    elif decision_path.startswith("OVERRIDE_"):
+        variant = "override"
+    else:
+        variant = "other"
+
+    if ln_low and not veto_agudo:
+        metric, value, threshold = "d_ln", d_ln, -swc_ln
+    elif hr_high:
+        metric, value, threshold = "d_HR", d_hr, swc_hr
+    else:
+        metric, value, threshold = None, None, None
+    if value is not None and not (np.isfinite(value) and np.isfinite(threshold)):
+        metric, value, threshold = None, None, None
+
+    evidence = [
+        f"gate_base60={gate_base60}",
+        f"gate_razon_base60={razon_base60}",
+        f"decision_path={decision_path}",
+        f"gate_raw_today={gate_raw_today}",
+        f"gate_raw_reason={gate_raw_reason}",
+    ]
+    if ln_swc is not None:
+        evidence.append(f"d_ln_swc={ln_swc:+.2f}")
+    if hr_swc is not None:
+        evidence.append(f"d_HR_swc={hr_swc:+.2f}")
+    if gate_final == ROJO:
+        evidence.append(f"bad_streak={int(bad_streak)}")
+        evidence.append(f"bad_7d={int(bad_7d)}")
+
+    message = f"Causa del {gate_final}: " + "; ".join(clauses)
+    _emit_reason(
+        reason_items,
+        reason_parts,
+        idx,
+        type="gate_cause",
+        layer="measured",
+        source="hrv_pipeline",
+        variant=variant,
+        gate_scope="red" if gate_final == ROJO else "amber",
+        metric=metric,
+        value=float(value) if value is not None else None,
+        threshold=float(threshold) if threshold is not None else None,
+        codes=codes,
+        evidence=evidence,
+        message=message,
     )
 
 
@@ -1389,6 +1600,25 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
         support_codes: List[str] = []
         caution_codes: List[str] = []
 
+        _emit_gate_cause_reason_if_needed(
+            reason_items,
+            reason_parts,
+            i,
+            gate_final=str(gate_final[i]),
+            gate_base60=str(gate_base60[i]),
+            razon_base60=str(razon_base60[i]),
+            decision_path=str(decision_path[i]),
+            gate_raw_today=str(gate_raw_today[i]),
+            gate_raw_reason=str(gate_raw_reason[i]),
+            d_ln=float(d_ln[i]),
+            d_hr=float(d_hr[i]),
+            swc_ln=float(swc_ln60[i]),
+            swc_hr=float(swc_hr60[i]),
+            veto_agudo=bool(veto_agudo[i]),
+            action_detail=str(Action_detail[i]),
+            bad_streak=int(bad_streak[i]),
+            bad_7d=int(bad_7d[i]),
+        )
         _emit_raw_rebound_reason_if_needed(
             reason_items,
             reason_parts,
@@ -1397,6 +1627,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             gate_raw_today=str(gate_raw_today[i]),
             gate_raw_reason=str(gate_raw_reason[i]),
             veto_agudo=bool(veto_agudo[i]),
+            gate_base60=str(gate_base60[i]),
         )
 
         # Saturación parasimpática
@@ -2001,8 +2232,9 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             recovery_class=recovery_class,
             support_codes=support_codes,
             caution_codes=caution_codes,
+            action_detail=str(Action_detail[i]),
         )
-        # SYA-17 Fase 1: bloque latente, disabled-by-design.
+        # Contexto SSM en reason_text, fase 1: bloque latente, disabled-by-design.
         # La validación concluyó no_go (rho ~0.10, EWMA empata, advantage no estable en walk-forward).
         # Además este bloque no respeta sport_family (bike y run tienen señales distintas).
         # Se preserva el código tras feature flag para Fase 2; activar solo cuando haya evidencia
@@ -2052,7 +2284,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                     message=ssm_message,
                 )
         # Un nightly_rmssd bajo aislado en un VERDE no abre mensaje por sí solo:
-        # RE-01 exige convergencia real para no sobrerreaccionar a un sidecar nocturno único.
+        # La capa de recuperación multiseñal exige convergencia real para no sobrerreaccionar a un sidecar nocturno único.
         if night_rmssd_low_text and recovery_class == "fragile":
             _emit_reason(
                 reason_items,

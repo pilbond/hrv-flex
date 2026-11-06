@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-OAuth para Polar Dynamic API v4 (AYO-13).
+OAuth para Polar Dynamic API v4.
 
 v4 usa endpoints OAuth propios (auth.polar.com), access token de ~12h y
 refresh token obligatorio. El bundle v4 se persiste en un archivo separado
@@ -296,7 +296,7 @@ def _scope_set(scopes: Any) -> set[str]:
 
 def bundle_scopes_match(bundle: dict[str, Any], expected_scopes: str) -> bool:
     """Si los scopes concedidos no cubren los configurados, el bundle exige
-    re-autorización explícita (criterio AYO-13)."""
+    re-autorización explícita."""
     expected = _scope_set(expected_scopes)
     if not expected:
         return True

@@ -209,6 +209,176 @@ class BuildFinalDashboardContractTests(unittest.TestCase):
         self.assertIn("gate_raw_today=VERDE", reason_items[0][0]["evidence"])
         self.assertIn("dato crudo de hoy rebota", final_builder._compose_reason_text(reason_items[0], final_builder.ROJO))
 
+    def test_override_amber_with_green_base60_and_raw_has_single_coherent_cause(self):
+        # base60 y crudo VERDE; el override 28/42 deja el gate en ÁMBAR.
+        # La causa es el override; no debe aparecer el rebote frente a la media 3d.
+        reason_items, reason_parts = [[]], [[]]
+        common = dict(
+            gate_final=final_builder.AMBAR,
+            gate_raw_today=final_builder.VERDE,
+            gate_raw_reason="2D_OK",
+            veto_agudo=False,
+            gate_base60=final_builder.VERDE,
+        )
+        final_builder._emit_gate_cause_reason_if_needed(
+            reason_items, reason_parts, 0,
+            razon_base60="2D_OK", decision_path="OVERRIDE_DOWN_42_2of3",
+            d_ln=0.0, d_hr=0.0, swc_ln=0.1, swc_hr=1.0,
+            action_detail="SIN_HIIT", bad_streak=0, bad_7d=0, **common,
+        )
+        final_builder._emit_raw_rebound_reason_if_needed(
+            reason_items, reason_parts, 0,
+            **{k: common[k] for k in ("gate_final", "gate_raw_today", "gate_raw_reason", "veto_agudo", "gate_base60")},
+        )
+        self.assertEqual([it["type"] for it in reason_items[0]], ["gate_cause"])
+        self.assertNotIn("raw_worse", reason_items[0][0]["codes"])
+
+        # base60 ÁMBAR + override a ROJO + crudo VERDE: el rebote habla de la señal suavizada (ámbar).
+        reason_items, reason_parts = [[]], [[]]
+        final_builder._emit_raw_rebound_reason_if_needed(
+            reason_items, reason_parts, 0,
+            gate_final=final_builder.ROJO, gate_raw_today=final_builder.VERDE,
+            gate_raw_reason="2D_OK", veto_agudo=False, gate_base60=final_builder.AMBAR,
+        )
+        self.assertEqual(reason_items[0][0]["variant"], "amber_gate_with_green_raw")
+        self.assertEqual(reason_items[0][0]["gate_scope"], "red")
+        self.assertIn("señal suavizada de 3 días sigue en ámbar", reason_items[0][0]["message"])
+
+    def test_raw_today_rebound_covers_amber_gate_and_red_with_amber_raw(self):
+        cases = [
+            (final_builder.AMBAR, final_builder.VERDE, "amber_gate_with_green_raw", "amber"),
+            (final_builder.ROJO, final_builder.AMBAR, "red_gate_with_amber_raw", "red"),
+        ]
+        for gate_final, gate_raw, variant, scope in cases:
+            with self.subTest(gate_final=gate_final, gate_raw=gate_raw):
+                reason_items, reason_parts = [[]], [[]]
+                final_builder._emit_raw_rebound_reason_if_needed(
+                    reason_items, reason_parts, 0,
+                    gate_final=gate_final, gate_raw_today=gate_raw,
+                    gate_raw_reason="2D_OK", veto_agudo=False,
+                )
+                self.assertEqual(reason_items[0][0]["variant"], variant)
+                self.assertEqual(reason_items[0][0]["gate_scope"], scope)
+
+        # Crudo igual o peor que el gate final, o veto agudo: sin rebote.
+        for gate_final, gate_raw, veto in [
+            (final_builder.AMBAR, final_builder.AMBAR, False),
+            (final_builder.AMBAR, final_builder.ROJO, False),
+            (final_builder.AMBAR, final_builder.VERDE, True),
+            (final_builder.VERDE, final_builder.VERDE, False),
+        ]:
+            reason_items, reason_parts = [[]], [[]]
+            final_builder._emit_raw_rebound_reason_if_needed(
+                reason_items, reason_parts, 0,
+                gate_final=gate_final, gate_raw_today=gate_raw,
+                gate_raw_reason="2D_OK", veto_agudo=veto,
+            )
+            self.assertEqual(reason_items[0], [])
+
+    def _gate_cause(self, **overrides):
+        kwargs = dict(
+            gate_final=final_builder.AMBAR,
+            gate_base60=final_builder.AMBAR,
+            razon_base60="2D_LN",
+            decision_path="BASE60_ONLY",
+            gate_raw_today=final_builder.AMBAR,
+            gate_raw_reason="2D_LN",
+            d_ln=-0.15,
+            d_hr=0.5,
+            swc_ln=0.10,
+            swc_hr=1.0,
+            veto_agudo=False,
+            action_detail="SIN_HIIT",
+            bad_streak=0,
+            bad_7d=0,
+        )
+        kwargs.update(overrides)
+        reason_items, reason_parts = [[]], [[]]
+        final_builder._emit_gate_cause_reason_if_needed(reason_items, reason_parts, 0, **kwargs)
+        return reason_items[0]
+
+    def test_gate_cause_explains_amber_by_lnrmssd_with_swc_magnitude(self):
+        items = self._gate_cause()
+        self.assertEqual(len(items), 1)
+        item = items[0]
+        self.assertEqual(item["type"], "gate_cause")
+        self.assertEqual(item["layer"], "measured")
+        self.assertEqual(item["variant"], "ln_only")
+        self.assertEqual(item["gate_scope"], "amber")
+        self.assertEqual(item["metric"], "d_ln")
+        self.assertAlmostEqual(item["value"], -0.15)
+        self.assertAlmostEqual(item["threshold"], -0.10)
+        self.assertEqual(item["codes"], ["ln_low"])
+        self.assertIn("d_ln_swc=-1.50", item["evidence"])
+        self.assertIn("1.5 SWC por debajo", item["message"])
+        self.assertTrue(item["message"].startswith("Causa del ÁMBAR: RMSSD (media 3 días)"))
+
+    def test_gate_cause_marks_hr_only_amber(self):
+        item = self._gate_cause(razon_base60="2D_HR", d_ln=0.02, d_hr=3.0, swc_hr=1.5)[0]
+        self.assertEqual(item["variant"], "hr_only")
+        self.assertEqual(item["metric"], "d_HR")
+        self.assertIn("+3 lpm, 2.0 SWC", item["message"])
+        self.assertIn("RMSSD en rango", item["message"])
+
+    def test_gate_cause_is_not_emitted_for_green_or_no_gate(self):
+        self.assertEqual(self._gate_cause(gate_final=final_builder.VERDE), [])
+        self.assertEqual(self._gate_cause(gate_final=final_builder.NO), [])
+
+    def test_gate_cause_defers_to_acute_drop_on_veto(self):
+        # Veto con solo lnRMSSD: acute_drop ya explica el gate.
+        self.assertEqual(self._gate_cause(veto_agudo=True), [])
+        item = self._gate_cause(
+            gate_final=final_builder.ROJO, gate_base60=final_builder.ROJO,
+            razon_base60="2D_AMBOS", veto_agudo=True, d_hr=4.0,
+        )[0]
+        self.assertEqual(item["codes"], ["ln_low_acute", "hr_high"])
+        self.assertEqual(item["metric"], "d_HR")
+        self.assertIn("caída aguda de RMSSD de hoy", item["message"])
+        self.assertIn("FC en reposo (hoy)", item["message"])
+
+    def test_gate_cause_explains_override_raw_worse_and_accumulation(self):
+        item = self._gate_cause(
+            gate_base60=final_builder.VERDE, razon_base60="2D_OK",
+            decision_path="OVERRIDE_DOWN_28_2of3", d_ln=0.0,
+            gate_raw_today=final_builder.VERDE, gate_raw_reason="2D_OK",
+        )[0]
+        self.assertEqual(item["variant"], "override")
+        self.assertEqual(item["codes"], ["override_down"])
+        # El override puede mezclar días de base28 y base42: no se atribuye a una sola.
+        self.assertIn("las bases cortas (28/42 días) salen peor", item["message"])
+        self.assertNotIn("la base de 28 días", item["message"])
+        self.assertIn("decision_path=OVERRIDE_DOWN_28_2of3", item["evidence"])
+        self.assertNotIn("metric", item)
+        self.assertIn("con la base de 60 días saldría VERDE", item["message"])
+
+        item = self._gate_cause(gate_raw_today=final_builder.ROJO)[0]
+        self.assertIn("raw_worse", item["codes"])
+        self.assertIn("el dato de hoy por sí solo sale ROJO", item["message"])
+
+        item = self._gate_cause(
+            gate_final=final_builder.ROJO, gate_base60=final_builder.ROJO,
+            razon_base60="2D_AMBOS", gate_raw_today=final_builder.ROJO,
+            action_detail="DESCARGA", bad_streak=1, bad_7d=4, d_hr=2.0,
+        )[0]
+        self.assertIn("descarga", item["codes"])
+        self.assertIn("acumulación: 4 días rojos en los últimos 7", item["message"])
+        self.assertNotIn("seguidos", item["message"])
+        self.assertIn("bad_7d=4", item["evidence"])
+
+    def test_recovery_action_respects_action_detail(self):
+        msg = final_builder._recovery_action_message
+        # SUAVE_QUALITY: data_quality ya limita a Z1-Z2; no se emite una acción más permisiva.
+        self.assertEqual(msg(final_builder.AMBAR, "supported", [], [], "SUAVE_QUALITY"), "")
+        self.assertEqual(msg(final_builder.VERDE, "fragile", [], [], "SUAVE_QUALITY"), "")
+        self.assertEqual(
+            msg(final_builder.AMBAR, "supported", [], [], "SIN_HIIT"),
+            "Acción: Z2 controlado es razonable si sensaciones normales",
+        )
+        self.assertEqual(msg(final_builder.ROJO, "supported", [], [], "DESCARGA"), "Acción: descarga, solo suave o descanso")
+        self.assertIn("pide descarga", msg(final_builder.ROJO, "conflicted", [], [], "DESCARGA"))
+        self.assertEqual(msg(final_builder.ROJO, "supported", [], [], "SUAVE"), "Acción: suave o descanso")
+        self.assertEqual(msg(final_builder.ROJO, "supported", [], [], "SUAVE_QUALITY"), "Acción: suave o descanso")
+
     def test_emit_reason_rejects_invalid_layer(self):
         with self.assertRaises(AssertionError):
             final_builder._emit_reason(

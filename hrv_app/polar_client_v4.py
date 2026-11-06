@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-Cliente HTTP para Polar Dynamic API v4 (AYO-13, Fase 1).
+Cliente HTTP para Polar Dynamic API v4.
 
 Aislado del cliente v3 (`polar_client.py`): ningún consumidor canónico debe
 importar este módulo directamente hasta la fase de corte (gateway). No

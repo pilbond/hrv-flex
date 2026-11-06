@@ -37,7 +37,7 @@ Regla:
 Sistema automatizado HRV para un unico atleta que:
 
 - autentica con Polar AccessLink mediante OAuth2 Authorization Code,
-- cubre nuevos RR matinales desde `ECG.jsonl + ACC.jsonl` en Dropbox, su unica fuente (AYO-13-F4): si una fecha nueva no esta en Dropbox, esa fecha no entra al pipeline en ese ciclo; no hay fallback Polar para RR nuevos,
+- cubre nuevos RR matinales desde `ECG.jsonl + ACC.jsonl` en Dropbox, su unica fuente: si una fecha nueva no esta en Dropbox, esa fecha no entra al pipeline en ese ciclo; no hay fallback Polar para RR nuevos,
 - el historico de `CORE` generado anteriormente con RR de Polar se conserva sin migracion retroactiva,
 - procesa RR con `build_hrv_core.py` para generar `CORE` y `BETA_AUDIT`,
 - genera `FINAL` y `DASHBOARD` con `build_hrv_final_dashboard.py`,
@@ -66,22 +66,22 @@ Elementos estructurales estables del repo:
 - documentacion historica y material archivado en `research/archive/`,
 - modulo analitico local en `analysis/`,
 - investigacion exploratoria, auditorias e informes no operativos en `research/`,
-- implementacion interna del pipeline en `hrv_app/` (paquete Python interno; ARQ-02).
+- implementacion interna del pipeline en `hrv_app/` (paquete Python interno).
 
 ## 6. Snapshot actual (2026-06-17)
 Estado actual de implementacion observado:
 
 - la UI expone `/api/sync`, `/api/sync-sessions`, `/api/status`, `/api/import-seed`, `/api/restore-backup`, `/api/delete-latest-rr` y endpoints OAuth,
 - `build_sessions.py` genera `ENDURANCE_HRV_sessions.csv`, `ENDURANCE_HRV_sessions_day.csv`, `ENDURANCE_HRV_intensity_distribution_weekly.csv`, `ENDURANCE_HRV_weekly_coach.json`, `ENDURANCE_HRV_sessions_metadata.json` y `ENDURANCE_HRV_wellness_subjective.csv`,
-- `ENDURANCE_HRV_sessions_day.csv` ya incluye contexto canonico de carga (`acwr_simple_prev`, `monotony_7d_prev`, `strain_7d_prev`, `load_ctx_ready`), clustering reciente de intensidad (`intense_day`, `intense_days_prev_3d`, `intense_days_prev_5d`, `intensity_clustering_flag`, `intensity_clustering_level`) y la señal rolling `DO-02` de polarizacion por familia (`dominant_family_prev_7d`, `dominant_family_share_prev_7d`, `n_sessions_usable_prev_7d`, `z1/z2/z3_pct_weighted_prev_7d`, `distribution_signal_confidence_prev_7d`, `polarisation_index_prev_7d`, `intensity_blackhole_flag`, `intensity_blackhole_episode_id`, `intensity_blackhole_episode_len`),
+- `ENDURANCE_HRV_sessions_day.csv` ya incluye contexto canonico de carga (`acwr_simple_prev`, `monotony_7d_prev`, `strain_7d_prev`, `load_ctx_ready`), clustering reciente de intensidad (`intense_day`, `intense_days_prev_3d`, `intense_days_prev_5d`, `intensity_clustering_flag`, `intensity_clustering_level`) y la señal rolling de polarizacion por familia (`dominant_family_prev_7d`, `dominant_family_share_prev_7d`, `n_sessions_usable_prev_7d`, `z1/z2/z3_pct_weighted_prev_7d`, `distribution_signal_confidence_prev_7d`, `polarisation_index_prev_7d`, `intensity_blackhole_flag`, `intensity_blackhole_episode_id`, `intensity_blackhole_episode_len`),
 - `ENDURANCE_HRV_intensity_distribution_weekly.csv` ya resume la distribucion observada por `sport x week` con ponderacion por minutos, patron (`polarized`, `pyramidal`, `threshold`, `mixed`) y confianza explicita,
 - `ENDURANCE_HRV_sessions_metadata.json` ya incluye `training_audit` por capas (`dataset_level`, `signal_level`, `metric_level`) para gobernar confianza de coaching/carga sin tocar el gate HRV,
 - `sessions.csv` ya incluye una capa mecanica minima opcional para deportes de pie con `run_power_*`, `speed_first_half`, `speed_second_half`, `cadence_first_half` y `cadence_second_half`,
 - `sessions.csv` ya persiste `z1_total_min` junto a `z2_total_min` y `z3_total_min` para soportar agregacion canonica por deporte sin medias simples de porcentajes,
-- `sessions.csv` ya persiste la extraccion minima canonica de `SYA-04` desde Intervals activity payload:
+- `sessions.csv` ya persiste la extraccion minima canonica desde Intervals activity payload:
   - fijos: `calories`, `average_cadence`, `average_weather_temp`, `hrr_drop_bpm`, `trimp`
   - condicionales si `device_watts=true`: `icu_weighted_avg_watts`, `icu_joules_above_ftp`, `icu_max_wbal_depletion`, `decoupling`
-- Dropbox es la unica fuente de nuevos RR matinales (AYO-13-F4); no hay fallback Polar para fechas nuevas no cubiertas por Dropbox,
+- Dropbox es la unica fuente de nuevos RR matinales; no hay fallback Polar para fechas nuevas no cubiertas por Dropbox,
 - `ENDURANCE_HRV_sleep.csv` es el unico archivo canonico de sueno,
 - `build_hrv_ssm.py` ya se ejecuta en el sync diario para regenerar `ENDURANCE_HRV_ssm_shadow.csv`, mientras que `build_hrv_ssm_validation.py` y `build_hrv_ssm_outcome_battery.py` quedan como auditorias manuales bajo demanda,
 - `build_hrv_core.py` y `build_hrv_final_dashboard.py` ya dejan sidecars atomicos de trazabilidad
@@ -103,7 +103,7 @@ Estado actual de implementacion observado:
 - si `HRV_UI_KEY` esta definida, todos los `/api/*` exigen la clave via header `X-HRV-KEY` o `?key=`; el `state` de OAuth se valida con TTL y uso unico,
 - `build_hrv_core.py`, `build_hrv_final_dashboard.py` y `build_sessions.py` usan `hrv_app.io_utils` para escrituras atomicas (eliminadas las implementaciones locales duplicadas),
 - CI en `.github/workflows/tests.yml`: pytest en push/PR sobre Python 3.11.
-- AYO-22 (AYO-13-F6): v3 completamente retirado; v4 es el único runtime Polar; `polar_client.py`, `polar_oauth_local.py` y `polar_shadow.py` eliminados; `POLAR_API_VERSION` y `POLAR_V4_SESSIONS` suprimidos.
+- v3 completamente retirado; v4 es el único runtime Polar; `polar_client.py`, `polar_oauth_local.py` y `polar_shadow.py` eliminados; `POLAR_API_VERSION` y `POLAR_V4_SESSIONS` suprimidos.
 
 Si este bloque queda desactualizado, debe actualizarse o reducirse.
 
@@ -119,7 +119,7 @@ Si este bloque queda desactualizado, debe actualizarse o reducirse.
 - `polar_hrv_automation.py`
   Orquesta el flujo principal.
   Delega la logica operativa a `hrv_app.hrv_sync_flow` y modulos internos del paquete.
-  Intenta cubrir RR nuevos faltantes desde Dropbox (unica fuente, AYO-13-F4); si Dropbox no cubre una fecha nueva, esa fecha no entra al pipeline en este ciclo (sin fallback Polar).
+  Intenta cubrir RR nuevos faltantes desde Dropbox (unica fuente); si Dropbox no cubre una fecha nueva, esa fecha no entra al pipeline en este ciclo (sin fallback Polar).
   `--all` reprocesa solo RR ya presentes en disco, sin descargar nada nuevo.
   Runtime único: v4. No hay rollback flag ni modo v3.
   Actualiza `ENDURANCE_HRV_sleep.csv`.
@@ -136,7 +136,7 @@ Si este bloque queda desactualizado, debe actualizarse o reducirse.
 - `build_hrv_core.py`
   RR -> `ENDURANCE_HRV_master_CORE.csv` y `ENDURANCE_HRV_master_BETA_AUDIT.csv`.
   Tambien deja `ENDURANCE_HRV_master_CORE_manifest.json` como sidecar atomico de corrida.
-  En este checkout local, HG-10 falla cerrado si CORE, BETA_AUDIT y su manifiesto no corresponden a `GEOMETRY_VERSION=hg10_s90_t375_trim15` y `QUALITY_POLICY_VERSION=hg10_latnan_aviso_art_window_v2`. El histórico anterior de 18 columnas fue respaldado antes del corte local del 2026-11-05. `--allow-hg10-migration` solo se admite con un `--data-dir` aislado.
+  En este checkout local, el pipeline falla cerrado si CORE, BETA_AUDIT y su manifiesto no corresponden a `GEOMETRY_VERSION=hg10_s90_t375_trim15` y `QUALITY_POLICY_VERSION=hg10_latnan_aviso_art_window_v2`. El histórico anterior de 18 columnas fue respaldado antes del corte local del 2026-11-05. `--allow-hg10-migration` solo se admite con un `--data-dir` aislado.
 
 - `build_hrv_final_dashboard.py`
   `CORE + sleep + sessions_day` -> `ENDURANCE_HRV_master_FINAL.csv` y `ENDURANCE_HRV_master_DASHBOARD.csv`.
@@ -163,7 +163,7 @@ Si este bloque queda desactualizado, debe actualizarse o reducirse.
   Puede generar artefactos locales de terreno (`terrain_intervals.csv`, `terrain_climbs.csv`) dentro de `analysis/reports/` sin convertirlos en outputs canonicos globales.
 
 ## 8. Outputs operativos canonicos
-En este checkout local, HG-10 se publicó el 2026-11-05: CORE tiene 19 columnas y FINAL 67, incluida `rejected_rr_pct_window`. Los manifiestos y las huellas corresponden a esta generación. El estado del volumen Railway se verifica por separado.
+En este checkout local, la generación actual (pares consecutivos y política de Calidad vigente) se publicó el 2026-11-05: CORE tiene 19 columnas y FINAL 67, incluida `rejected_rr_pct_window`. Los manifiestos y las huellas corresponden a esta generación. El estado del volumen Railway se verifica por separado.
 
 Canonicos:
 
@@ -329,7 +329,7 @@ Regla operativa:
 4. Tras redeploy, `/api/sync` sigue funcionando si hay Volume.
 5. Logs utiles sin secretos.
 6. RR se almacenan y leen desde `data/rr_downloads/`.
-7. Si faltan fechas nuevas en `CORE`, se intentan cubrir desde Dropbox (unica fuente, AYO-13-F4); si Dropbox no las cubre, esas fechas no entran al pipeline (sin fallback Polar).
+7. Si faltan fechas nuevas en `CORE`, se intentan cubrir desde Dropbox (unica fuente); si Dropbox no las cubre, esas fechas no entran al pipeline (sin fallback Polar).
 8. `POST /api/sync-sessions` ejecuta `build_sessions.py --update`.
 9. La UI web no permite ejecutar `sync` HRV y `sync-sessions` al mismo tiempo.
 10. `POST /api/restore-backup` descarga el ultimo backup de Dropbox a `DATA_DIR` con escritura atomica.
@@ -407,34 +407,34 @@ Regla de decision:
 
 ## Workflow Kanvas
 
-Si existe `Project.canvas` en la raiz del proyecto, usar Kanvas como tablero visual de tareas.
+Plan and track work on the Kanvas board; follow .agents/skills/kanvas/SKILL.md.
+
+Tablero canonico: `kanvas.json` en la raiz (Kanvas 0.4, migrado desde `Project.canvas` el 2026-11-05).
 
 Reglas:
-- Nunca editar `Project.canvas` directamente.
-- Todas las modificaciones del canvas deben hacerse con el CLI de Kanvas.
-- CLI canonico desde la raiz del repositorio:
-  `python canvas-tool.py Project.canvas <command>`
-- Al inicio de cada sesion:
-  `python canvas-tool.py Project.canvas status`
-- Si hay inconsistencias visuales o tareas sin ID:
-  `python canvas-tool.py Project.canvas normalize`
+- Nunca editar `kanvas.json` a mano; todo cambio pasa por el CLI:
+  `python .agents/skills/kanvas/kanvas.py <command>`
+- Al inicio de cada sesion: `python .agents/skills/kanvas/kanvas.py status`
+- Validar el tablero: `python .agents/skills/kanvas/kanvas.py check`
+- El humano lo ve en el navegador con `python .agents/skills/kanvas/kanvas.py serve`
+- Parche local: los `[[...]]` de las tareas abren el `.md` de `docs/` en el navegador (`scripts/kanvas_docs_patch.py`; reaplicar tras `kanvas-board init` o una actualizacion; no funciona con `uvx kanvas-board serve`)
+- Firmar notas y propuestas con `--as <herramienta>` (`claude-code`, `codex`, `gemini`, ...)
 
-Politica de estados:
-- `purple`: propuesta del agente
-- `red`: tarea aprobada y lista
-- `orange`: en curso
-- `cyan`: terminada por el agente, pendiente de revision humana
-- `green`: solo el humano puede marcarla como completada
-- `gray`: bloqueada por dependencias
+Estados: `proposed -> todo -> doing -> review -> done`. `blocked` ya no se marca a mano: se deriva de dependencias sin terminar.
+- `proposed`: propuesta del agente (`propose`, `batch`)
+- `todo`: aprobada por el humano
+- `doing`: en curso (`start`)
+- `review`: terminada por el agente, pendiente de revision humana (`finish`)
+- `done`: solo el humano la marca
 
 Permisos del agente:
-- Puede leer el tablero con `status`, `show`, `list`, `ready`, `blocked`, `blocking`, `dump`
-- Puede proponer tareas con `propose`, `batch`, `propose-group`
-- Puede empezar y cerrar trabajo con `start`, `finish`, `pause`
-- Puede editar solo tareas en `orange` con `edit`
-- Puede anadir dependencias con `add-dep`
-- No puede marcar tareas en `green`
-- No puede borrar tarjetas ni editar el JSON del canvas a mano
+- Leer: `status`, `ready`, `show`, `list`, `blocked`, `check`
+- Proponer: `propose`, `add-group`, `batch`; revisar propuestas no aprobadas con `edit`, `withdraw`, `undepend`
+- Trabajar: `start`, `note`, `ask`, `pause`, `finish`
+- Anadir dependencias con `depend`
+- No aprueba propuestas, no cambia tareas aprobadas, no marca `done`, no activa YOLO
+
+Legacy (solo historico, no usar): `Project.canvas`, `canvas-tool.py`, `RULES.md` y el plugin `.obsidian/plugins/canvas-watcher`. La lista de prioridades libre del canvas antiguo se conserva en `docs/HRV/KANVAS prioridades legacy.md`.
 
 Integracion con este repositorio:
 - Las reglas operativas de `polar-hrv-automation` siguen teniendo prioridad

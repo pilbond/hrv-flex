@@ -1,239 +1,153 @@
-# SYA-02 Replantear capa swim desde Polar Flow + fallback FIT/TCX
+# SYA-02 Capa swim lite: sRPE, ritmo por vuelta, estilo y SWOLF
 
-## Texto consolidado de la tarea
+> Reescrita el 2026-11-06 tras evaluar la version anterior contra datos reales.
+> Sustituye al alcance previo (parser por largo con fallback FIT/TCX y `swim_lengths.csv`).
+> Sigue absorbiendo `TYM-02`: su semantica de `SWOLF` se conserva.
 
-> Replantear la capa swim para que `SYA-02` absorba el alcance semantico y tecnico que antes vivia en `TYM-02`.
->
-> Objetivo: dejar de tratar la natacion como `bajo_estimulo` por ausencia estructural de senal mecanica, priorizando primero una fuente programatica Polar y usando FIT o TCX como fallback cuando esa capa no exista o no preserve suficiente detalle.
->
-> Alcance inicial:
-> - localizar la fuente primaria mas rica disponible para swim,
-> - exponer `swim_context` reproducible en `analysis`,
-> - unificar en una sola salida los datos de estilo, SWOLF, descansos, estructura de largos y degradacion tecnica,
-> - dejar la integracion en `session_cost_model` fuera de esta iteracion.
+## Por que se reescribe
 
-## Objetivo operativo
+### Paso 0 parcial ya ejecutado (2026-11-06)
 
-Resolver el agujero estructural actual de swim:
+Se inspeccionaron los 8 FIT swim cacheados en `analysis/reports/**/swim_*/artifacts/session.fit`:
 
-- la FC de muneca bajo el agua es una senal debil,
-- el parser actual no incorpora una capa tecnica/propulsiva propia de natacion,
-- el pipeline acaba empujando demasiadas sesiones a `bajo_estimulo`,
-- el metodo analitico ya espera estructura de series, SWOLF, brazadas y deterioro tecnico cuando existan.
+- todos son FIT **regenerados por Intervals.icu** (`file_id.product_name = Intervals.icu`), no el original de Polar,
+- **ningun** FIT tiene mensajes `length`, ni `swim_stroke`, ni `length_type`,
+- los `record` solo traen `heart_rate`, `temperature`, `timestamp` (sin distancia por segundo),
+- todos declaran `sub_sport = open_water` aunque son sesiones de piscina,
+- si hay `lap` (1-7 por sesion) con `total_distance`, `total_timer_time`, FC media/max/min y `SWOLF` (campo developer calculado por Intervals),
+- `session` trae `SWOLF` global, `avg_cadence` y `avg_speed`.
 
-Esta tarea sustituye a `TYM-02` como linea principal de trabajo. El contenido util de `TYM-02` se conserva aqui.
+Consecuencia: el fallback `fit_length_messages` del diseño anterior **no existe** con la fuente actual. La granularidad real disponible hoy es **por vuelta**, no por largo.
 
-## Diagnostico actual
+Ademas, la version anterior citaba `hrv_app/polar_client.py` y `/v3/exercises`, retirados en AYO-22.
 
-### Estado del codigo
+### Perfil real de la natacion de este atleta
 
-- `analysis/session_cost_model.py` calcula hoy `swim_mechanical_score` con `work_total_min`, `work_longest_min` y `z3_pct`, con `confidence = "low"`.
-- `analysis/session_analysis_pipeline.py` ya trata swim como deporte que deberia apoyarse en bloque, tecnica y sensacion, no en semantica terrestre.
-- `analysis/SESSION_ANALYSIS_METHOD.md` ya define que en swim el `mecanico_score` significa coste propulsivo y tecnico, y que `SWOLF` solo vale como apoyo dentro de un contexto valido.
-- `hrv_app/polar_client.py` solo expone AccessLink publico via `/exercises` y `/exercises/{id}?samples=true`; no existe hoy una API swim-rich integrada en el repo.
+Datos de `ENDURANCE_HRV_sessions.csv` (2025-05-15 → 2026-11-05):
 
-### Problema real
+- 78 sesiones swim (13 % de sesiones, 6 % de la carga total),
+- 71 `easy`, 5 `work_moderate`, 2 `finish_strong`; FC media ~115 bpm; ~1.5 km en ~47 min,
+- RPE solo en 19/78 sesiones (media 4.2),
+- las notas describen natacion de descarga / cross-training: "volumen suave sin cargar articulaciones", "evitar el calor", "no hacer crol me hace llevar mejor la sesion", "en los giros notaba las rodillas", y sensacion repetida de sesion "costosa",
+- octubre 2026: 16 sesiones (bloque de sustitucion de impacto).
 
-El problema no es "swim no tiene dato". El problema es de ingestión y jerarquia de fuentes:
+Lectura: `bajo_estimulo` cardio es mayoritariamente correcto. El hueco no es la eficiencia tecnica fina, sino:
 
-1. Polar Flow parece mostrar una capa mas rica que la consumida hoy por el pipeline.
-2. El FIT/TCX actual puede no preservar toda esa capa.
-3. El analisis local necesita una salida unica y trazable, no dos diseños paralelos.
+1. la carga **percibida** (sesiones "costosas" con `cardio_score = 0`, FC de muneca debil en agua),
+2. el **estilo** como contexto articular (patada de braza y rodilla),
+3. la evolucion de **ritmo y SWOLF** como lectura de readaptacion,
+4. el **papel de la natacion** como sustituto de impacto en la semana.
 
-## Arbol de fuentes
+## Objetivo
 
-### Fuente primaria preferente
+Exponer en `analysis` un `swim_context` reproducible y prudente usando primero lo que ya existe (FIT por vuelta de Intervals + `sessions.csv`), y enriquecerlo con estilo solo si una fuente lo trae de verdad.
 
-Buscar primero una fuente programatica Polar que exponga, idealmente por largo o fase:
+La integracion en `analysis/session_cost_model.py` (`swim_mechanical_score`) sigue **fuera de alcance**.
 
-- estilo,
-- descanso,
-- distancia,
-- duracion,
-- FC,
-- brazadas,
-- frecuencia de brazada,
-- SWOLF.
+## Fases
 
-Fuentes candidatas a validar:
+### Fase A — Spike de fuentes (timebox 1-2 h)
 
-1. AccessLink `/exercises/{id}?samples=true`.
-2. Endpoints de training data / exercise transactions si son accesibles con el flujo actual.
-3. Export oficial FIT/TCX asociado a la sesion.
+Dump exploratorio de una sesion swim de referencia desde:
 
-### Fallbacks
+1. Polar AccessLink v4 `/training-sessions/list` (+ detalle/samples si existe) con el cliente `hrv_app/polar_client_v4.py`,
+2. Intervals.icu `/activity/{id}/file` (archivo original subido, no el FIT regenerado),
+3. campos de actividad de Intervals relacionados con natacion (`pool_length`, largos, brazadas, si existen).
 
-Si la capa Polar rica no existe o no es accesible:
+Verificar en cada uno: `length` / largos, `swim_stroke`, `pool_length`, pausas, brazadas, y **como calcula Intervals su `SWOLF`** (de donde salen brazadas y longitud de piscina).
 
-1. fallback A: parser FIT de mensajes `length`, `lap` y `session`,
-2. fallback B: reconstruccion desde TCX por trackpoints y mesetas de distancia, sin inferir estilo donde no haya dato directo.
+Salida: informe corto en `research/audits/swim_sources/` con la decision de fuente. Sin codigo de aplicacion.
 
-Orden obligatorio:
+### Fase B — Swim lite (no depende de A)
 
-`polar_flow_api` -> `fit_length_messages` -> `tcx_distance_plateaus` -> `none`
+Desde el FIT por vuelta ya disponible y `sessions.csv`:
 
-## Paso 0 obligatorio
+- `srpe_load` = RPE × duracion (min) cuando hay RPE; ancla de carga principal en swim dada la FC de muneca debil,
+- `pace_per_100m` de sesion y por vuelta (con `total_timer_time` de vuelta),
+- `pace_drift_pct`: primera vs ultima vuelta activa,
+- `swolf_by_lap` (SWOLF de vuelta de Intervals) y `swolf_drift_pct` primera vs ultima vuelta,
+- `hr_by_lap` solo como contexto, `hr_confidence = "low_wrist_in_water"`,
+- `rpe_vs_cardio_discordance`: RPE ≥ 4 con `cardio_score = 0` → flag explicativo, no reclasificacion.
 
-Antes de cerrar diseño o implementación:
+Contexto longitudinal y semanal:
 
-- hacer dump exploratorio de la sesion de referencia swim,
-- inspeccionar respuesta cruda de Polar,
-- inspeccionar FIT completo,
-- inspeccionar TCX completo,
-- verificar si hay `length`, `lap`, `stroke_type`, `length_type`, `pool_length`, pausas y/o muestras de brazada.
+- tendencia de `pace_per_100m` y `swolf` en las ultimas N sesiones comparables,
+- en `weekly_coach.json`: proporcion de volumen swim frente a volumen de impacto (carrera/trail) como contexto de sustitucion; retrospectivo, sin tocar gate ni `reason_text`.
 
-Sin ese paso, el diseño sigue apoyado en supuestos.
+### Fase C — Estilo (solo si la Fase A encuentra dato directo)
 
-## Contrato semantico consolidado
+- `stroke_distribution`, `primary_stroke`, `drill_lengths`,
+- `breaststroke_pct` como contexto articular de rodilla,
+- `swolf_by_stroke` cuando haya estilo por largo o por vuelta,
+- `pool_length_m` desde la fuente.
 
-### Objetivo de salida
+Si la Fase A no encuentra estilo: no inferirlo. Alternativa barata a valorar con el humano: registrar estilo dominante en las notas de la sesion.
 
-`analysis` debe exponer un unico `swim_context` reproducible, aunque la fuente subyacente cambie.
+### Diferido (backlog)
 
-Campos minimos:
+- `dps_by_stroke`, `stroke_rate_by_stroke`,
+- artifact por largo (`swim_lengths.csv`),
+- reconstruccion TCX por mesetas de distancia.
+
+## Contrato `swim_context`
 
 ```json
 "swim_context": {
-  "swim_source": "polar_flow_api",
-  "pool_length_m": 25,
-  "total_lengths": 48,
-  "active_lengths": 44,
-  "drill_lengths": 4,
-  "rest_time_min": 8.3,
-  "primary_stroke": "freestyle",
-  "stroke_distribution": {
-    "freestyle": { "lengths": 38, "pct": 79.2 },
-    "breaststroke": { "lengths": 6, "pct": 12.5 },
-    "drill": { "lengths": 4, "pct": 8.3 }
-  },
-  "swolf_by_stroke": {
-    "freestyle": { "mean": 44.2, "min": 41.0, "max": 48.0, "cv_pct": 4.1 },
-    "breaststroke": { "mean": 61.5, "min": 58.0, "max": 65.0, "cv_pct": 4.8 }
-  },
-  "dps_by_stroke": {
-    "freestyle": 1.62,
-    "breaststroke": 1.91
-  },
-  "stroke_rate_by_stroke": {
-    "freestyle": 31.4,
-    "breaststroke": 24.1
-  },
-  "swolf_degradation_pct": 6.5,
-  "swolf_degradation_stroke": "freestyle",
+  "swim_source": "intervals_fit_laps",
+  "granularity": "lap",
+  "pool_length_m": null,
+  "n_laps": 6,
+  "pace_per_100m_s": 192.0,
+  "pace_drift_pct": 4.1,
+  "swolf_by_lap": [45.8, 44.8, 51.1],
+  "swolf_session_note": "solo comparacion intra-sesion; estilo desconocido",
+  "swolf_drift_pct": 11.6,
+  "swolf_by_stroke": null,
+  "srpe_load": 240,
+  "rpe_vs_cardio_discordance": true,
+  "stroke_distribution": null,
+  "primary_stroke": null,
   "hr_confidence": "low_wrist_in_water",
   "signals_available": {
-    "pool_lengths": true,
-    "stroke_type": true,
-    "drill_detected": true,
-    "rest_segments": true
+    "lap_structure": true,
+    "lap_swolf": true,
+    "stroke_type": false,
+    "pool_length": false,
+    "rpe": true
   }
 }
 ```
 
-### Reglas semanticas heredadas de TYM-02
+Valores de `swim_source`: `polar_v4`, `intervals_original_file`, `intervals_fit_laps`, `none`.
 
-1. `SWOLF` solo es comparable dentro del mismo estilo.
-2. No exponer `avg_swolf` global de sesion como metrica interpretable.
-3. `primary_stroke` = estilo con mas largos activos no-drill.
-4. `drill` se contabiliza, pero se excluye del calculo de eficiencia.
-5. Si un estilo tiene muy pocos largos, marcar `too_few_lengths`.
-6. `pool_length_m` se expone siempre; no normalizar automaticamente entre 25m y 50m.
-7. La FC de muneca en agua se trata como contexto debil, no como ancla primaria.
-8. Si no hay dato interpretable de tecnica o estructura, rebajar confianza de forma explicita.
+## Reglas semanticas (heredadas de TYM-02 y ajustadas)
 
-### Error handling
+1. `SWOLF` solo es comparable **dentro del mismo estilo**.
+2. No exponer el `SWOLF` global de sesion como metrica interpretable.
+3. Sin dato de estilo, `SWOLF` por vuelta solo se usa para **comparacion intra-sesion** (deriva) y como tendencia longitudinal con `confidence = low` y nota `stroke_unknown`.
+4. Con dato de estilo: `swolf_by_stroke`; `drill` excluido; estilo con pocos largos → `too_few_lengths`.
+5. Comparaciones longitudinales de `SWOLF` solo con la misma `pool_length_m`; si es desconocida, marcarlo. No normalizar 25 m ↔ 50 m.
+6. `SWOLF` alto no significa por si solo mas coste; puede reflejar ritmo, tecnica o contexto de serie (`SESSION_ANALYSIS_METHOD.md`).
+7. FC de muneca en agua = contexto debil, nunca ancla primaria.
+8. `sub_sport = open_water` del FIT de Intervals no es fiable: no usarlo para clasificar piscina / aguas abiertas.
+9. Sin fuente usable: `swim_source = "none"`, continuar el pipeline sin crash.
 
-- si no hay `pool_length_m` y no se puede reconstruir una sesion de piscina, usar `swim_context_error = "open_water_or_no_pool_structure"`,
-- si solo existe FC y duracion, no inventar una lectura mecanica fuerte,
-- si no hay fuente usable, devolver `swim_source = "none"` y continuar el pipeline sin crash.
+## Riesgos
 
-## Artifact unico
-
-`TYM-02` proponia `swim_lengths.csv` y `SYA-02` proponia `swim_phases.csv`. Queda unificado en un solo artifact swim con granularidad por largo.
-
-Nombre recomendado:
-
-- `artifacts/swim_lengths.csv`
-
-Granularidad:
-
-- una fila por largo si esa estructura existe,
-- si la fuente primaria viene por fase, mantener una columna `phase_id` para agrupar,
-- no crear dos artifacts paralelos para el mismo problema.
-
-Columnas esperables:
-
-```text
-length_index,phase_id,length_type,stroke_type,elapsed_time_s,total_strokes,swolf,speed_mps,dps_m,stroke_rate_spm,source
-```
-
-## Decisiones de diseño
-
-### Por que se integra TYM-02
-
-`TYM-02` aportaba el contrato analitico correcto:
-
-- SWOLF por estilo,
-- distribucion de estilos,
-- DPS,
-- degradacion tecnica,
-- exclusion de drill,
-- `pool_length_m`,
-- `primary_stroke`,
-- semantica prudente de `SWOLF`.
-
-`SYA-02` aporta el marco correcto de ingestión:
-
-- primero encontrar la mejor fuente,
-- no asumir que FIT basta,
-- aceptar TCX solo como proxy degradado,
-- imponer trazabilidad de origen.
-
-Separarlas ya no aporta valor. Genera duplicidad.
-
-### Campo obligatorio de trazabilidad
-
-`swim_source` es obligatorio en el output:
-
-- `polar_flow_api`
-- `fit_length_messages`
-- `tcx_distance_plateaus`
-- `none`
-
-Esto permite al consumidor saber si esta viendo dato directo o proxy.
-
-## Riesgos principales
-
-1. Que Polar no exponga programaticamente la capa swim rica fuera de su UI.
-2. Que el FIT real no conserve `stroke_type` o `length_type` con la fidelidad asumida.
-3. Que el TCX no permita reconstruir descansos o estilo con suficiente robustez.
-4. Que se mezclen semanticas de dato directo y proxy sin marcar la fuente.
-
-## Relacion con el cost model
-
-La integracion en `analysis/session_cost_model.py` queda fuera de esta iteracion.
-
-Primero hay que cerrar:
-
-- la fuente,
-- el parser,
-- el contrato de `swim_context`,
-- el artifact,
-- la trazabilidad.
-
-Solo despues tendria sentido revisar `mecanico_score` swim con la semantica ya definida en `analysis/SESSION_ANALYSIS_METHOD.md`.
+1. El `SWOLF` de Intervals puede depender de supuestos (longitud de piscina, brazadas derivadas de cadencia) no verificados → Fase A debe aclararlo antes de usarlo longitudinalmente.
+2. RPE escaso (19/78) limita `srpe_load`; requiere registrar RPE de forma sistematica.
+3. Pocas vueltas por sesion (a veces 1) → deriva no calculable; marcarlo explicitamente.
 
 ## Criterios de aceptacion
 
-1. Existe una unica tarea swim activa: `SYA-02`.
-2. `SYA-02` incorpora el contrato semantico que antes describia `TYM-02`.
-3. `analysis` puede exponer `swim_context` con `swim_source`.
-4. El artifact swim queda unificado en un solo CSV reproducible.
-5. `SWOLF` se trata por estilo y no como media global de sesion.
-6. `drill` no contamina el calculo de eficiencia.
-7. El fallback TCX no infiere estilo donde no haya dato directo.
-8. La integracion en cost model no se mezcla con esta iteracion.
+1. Informe de Fase A en `research/audits/swim_sources/` con decision de fuente.
+2. `analysis` expone `swim_context` con `swim_source` y `granularity` para toda sesion swim, sin crash si falta dato.
+3. `srpe_load`, `pace_per_100m`, `pace_drift_pct`, `swolf_by_lap` y `swolf_drift_pct` disponibles con la fuente actual.
+4. `SWOLF` nunca se presenta como media global de sesion ni se compara entre estilos.
+5. Estilo solo aparece si hay dato directo; nunca inferido.
+6. Contexto semanal de proporcion swim / impacto visible en `weekly_coach.json` sin tocar gate, `FINAL`, `DASHBOARD` ni `reason_text`.
+7. Sin cambios en `session_cost_model.py` en esta iteracion.
 
-## Conclusión
+## Nota lateral
 
-`SYA-02` pasa a ser la tarea canonica de la capa swim. `TYM-02` deja de existir como linea paralela y sobrevive solo como contenido absorbido: su contrato semantico, sus restricciones y sus criterios de calidad quedan incorporados aqui.
+En los informes swim aparece `durability_context.confidence = high` sin stream de velocidad. Revisar por separado si la confianza esta inflada.

@@ -9,7 +9,7 @@ Flujo operativo normal (Railway o UI local):
 1. `web_ui.py` levanta la web.
 2. Al llamar `POST /api/sync`, la web ejecuta `python polar_hrv_automation.py --process`.
 3. `polar_hrv_automation.py` valida entorno, tokens y argumentos, y delega el flujo operativo a `hrv_app.hrv_sync_flow`.
-4. `hrv_app.hrv_sync_flow` calcula las fechas objetivo (desde `ultima_fecha_CORE + 1` hasta hoy) y usa `hrv_app.dropbox_rr` para intentar cubrirlas desde JSONL/ZIP con `egc_to_rr.py`. Si `CORE` esta vacio, primero intenta reconstruir desde RR ya presentes en `data/rr_downloads/`; solo si no hay RR locales cae al bootstrap corto desde Dropbox. Dropbox es la **unica** fuente de nuevos RR matinales (AYO-13-F4): si una fecha no esta en Dropbox, esa fecha no entra al pipeline en este ciclo (sin fallback Polar).
+4. `hrv_app.hrv_sync_flow` calcula las fechas objetivo (desde `ultima_fecha_CORE + 1` hasta hoy) y usa `hrv_app.dropbox_rr` para intentar cubrirlas desde JSONL/ZIP con `egc_to_rr.py`. Si `CORE` esta vacio, primero intenta reconstruir desde RR ya presentes en `data/rr_downloads/`; solo si no hay RR locales cae al bootstrap corto desde Dropbox. Dropbox es la **unica** fuente de nuevos RR matinales: si una fecha no esta en Dropbox, esa fecha no entra al pipeline en este ciclo (sin fallback Polar).
 5. `hrv_app.sleep_store` actualiza `ENDURANCE_HRV_sleep.csv`, `hrv_app.intervals_sync` resuelve la parte de wellness/Intervals y `hrv_app.pipeline_runner` llama:
    - `build_hrv_core.py`
    - `build_hrv_final_dashboard.py`
@@ -99,7 +99,7 @@ Importante:
   - Implementa el caso de uso principal del sync HRV.
   - Si `CORE` no existe, primero intenta reprocesar RR locales de `data/rr_downloads/`; si no existen, hace bootstrap corto desde Dropbox.
   - Si `CORE` existe pero esta vacio, es ilegible o tiene un esquema incompatible, el builder falla cerrado. El flujo solo puede continuar si el auto-restore opt-in deja un CORE valido o tras una recuperacion manual.
-  - Resuelve rango de fechas y cubre `target_missing_dates` desde Dropbox (AYO-13-F4); si Dropbox no cubre una fecha nueva, esa fecha no entra al pipeline (sin fallback Polar).
+  - Resuelve rango de fechas y cubre `target_missing_dates` desde Dropbox; si Dropbox no cubre una fecha nueva, esa fecha no entra al pipeline (sin fallback Polar).
   - Coordina escritura de RR, ejecucion de `build_hrv_core.py`, refresco de `sleep`, sync opcional con Intervals y reporting final.
 - Cuando usarlo:
   - Indirectamente desde `polar_hrv_automation.py`.
@@ -150,7 +150,7 @@ Importante:
 - Cuando usarlo:
   - Como capa operativa de cobertura RR principal.
 - Importante:
-  - Dropbox es la unica fuente de nuevos RR matinales (AYO-13-F4). Si una fecha nueva no esta cubierta en Dropbox, esa fecha no entra al pipeline en este ciclo; no hay fallback Polar para RR nuevos.
+  - Dropbox es la unica fuente de nuevos RR matinales. Si una fecha nueva no esta cubierta en Dropbox, esa fecha no entra al pipeline en este ciclo; no hay fallback Polar para RR nuevos.
   - Correcciones de fechas ya existentes en CORE quedan fuera de alcance de F4 (requieren reprocesado manual del periodo, fuera de este flujo automatico).
 
 ## `hrv_app.polar_auth_v4`, `hrv_app.polar_client_v4`, `hrv_app.polar_adapters_v4`
@@ -205,6 +205,7 @@ Importante:
   - Ambos modulos construyen payloads pre-digeridos (sin campos crudos que el LLM pueda reinterpretar), llaman al modelo via OpenAI-compatible `chat/completions`, validan contrato de salida y persisten sidecars via `write_json_atomic`.
   - Idempotencia por `payload_hash` (SHA-256 del payload sin `generated_at`); si el hash coincide con el sidecar previo, no se vuelve a llamar al modelo.
   - Validacion `daily_brief`: `date`, `tone` alineado con `gate_final`, `source_mode` alineado con presencia de `reason_items`, `max_words` con margen 1.2x.
+  - `morning_hrv.classification` sigue a `gate_final` (normaliza la tilde de `ÁMBAR`; gate vacio o desconocido = `not_applicable`). Su `interpretation` es autoritativa en el prompt y el modelo puede copiarla: va dirigida al atleta, sin jerga interna, y en ROJO no afirma la causa (esta en el item `gate_cause`).
   - Validacion `ssm_brief`: `date`, `trigger_echo` y `relation_to_gate_echo` deben coincidir con el payload (canary de obediencia), `max_words` con margen 1.2x.
 - Cuando usarlo:
   - `_run_ai_daily_brief_best_effort()` se llama en `hrv_app.hrv_sync_flow` tras `run_build_hrv_final_dashboard_only()`; `_run_ai_ssm_brief_best_effort()` tras `run_build_hrv_ssm_shadow_only()`. Fallo del LLM nunca aborta el sync.
@@ -262,7 +263,7 @@ Importante:
 
 ## `hrv_app.polar_gateway`
 - Que hace:
-  - Gateway de sleep/nightly Polar usando v4 como unico transporte (AYO-22).
+  - Gateway de sleep/nightly Polar usando v4 como unico transporte.
   - Coordina `polar_auth_v4`, `polar_client_v4` y `polar_adapters_v4` para obtener datos de sueno y nightly recharge.
   - Las consultas publican un resultado estructurado con `data` y `outcome`;
     `outcome=request_error` representa un fallo de transporte y no debe
@@ -334,6 +335,7 @@ Importante:
   - Construye internamente `reason_items` estructurados y despues renderiza `reason_text` desde esa capa.
   - Publica ademas `ENDURANCE_HRV_master_FINAL_reason_items.json` como sidecar estable para consumo de `analysis/`.
   - Valida semanticamente cada motivo con enums cerrados de `layer` (`measured/proxy/inference/action`) y `severity` (`low/medium/high/very_high`).
+  - En dias ÁMBAR/ROJO emite el item `gate_cause` con la causa del gate (eje de base60 con magnitud en SWC, override de bases cortas, crudo frente a la señal suavizada, acumulacion de dias rojos), sin recalcular el gate. La accion de recuperacion (`action_constraint`) nunca es mas permisiva que `Action_detail`. Detalle en el Diccionario y en la Spec §15.3 (condiciones 23-25).
   - Consume la capa de contexto canonico de carga desde `ENDURANCE_HRV_sessions_day.csv`:
     - `acwr_simple_prev`
     - `monotony_7d_prev`
@@ -473,7 +475,7 @@ Importante:
   - `scripts/python/intervals_resting_hr_from_core.py`
 
 ## `add_ans_balance_to_core.py`
-- **DEPRECATED (HG-04, 2026-10-20):** escritura sobre CORE deshabilitada; `build_hrv_core.py` ya calcula estas columnas. Solo `--dry-run`.
+- **DEPRECATED (2026-10-20):** escritura sobre CORE deshabilitada; `build_hrv_core.py` ya calcula estas columnas. Solo `--dry-run`.
 - Que hace:
   - Reprocesa RR y calcula metricas ANS:
     - `SI_baevsky`
@@ -597,6 +599,6 @@ Los siguientes scripts son modulos internos de la capa analitica local. No son e
 - `build_weekly_analysis_sidecars.py` — Generacion de sidecars semanales
 - `efficiency_context_audit.py` — Auditoria de contexto de eficiencia
 - `patch_speed_metrics.py` — Correccion/parche de metricas de velocidad
-- `sya15_continuity.py` — Analisis de continuidad deportiva (SYA-15)
+- `sya15_continuity.py` — Analisis de continuidad deportiva
 - `endurance_rr_session_v4.py` — Analisis RR de sesion con QA y gates DFA
 

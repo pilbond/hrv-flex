@@ -226,15 +226,24 @@ def _sleep_duration_anomaly(sleep_row: pd.Series) -> dict[str, Any]:
     return {"flag": triggered, "reasons": reasons}
 
 
+def _normalize_gate(gate_final: object) -> str:
+    """Gate en mayúsculas y sin tildes: FINAL usa "ÁMBAR"."""
+    gate = unicodedata.normalize("NFKD", str(gate_final or "").strip().upper())
+    return "".join(char for char in gate if not unicodedata.combining(char))
+
+
 def _classify_morning(final_row: pd.Series) -> tuple[str, str]:
-    gate = str(final_row.get("gate_final", "")).strip().upper()
+    gate = _normalize_gate(final_row.get("gate_final", ""))
     quality_flag = bool(final_row.get("quality_flag", False))
 
     if gate == "ROJO":
-        return ("red", "HRV matinal cae frente a la base y sostiene un gate rojo.")
+        # No afirmar que cae el RMSSD: un ROJO puede venir solo de FC o de un
+        # override 28/42; la causa concreta va en el item gate_cause. El texto
+        # es autoritativo en el prompt y el modelo puede copiarlo: dirigido al atleta.
+        return ("red", "Tu señal matinal sale desfavorable frente a tu base: hoy conviene priorizar la recuperación.")
     if gate == "AMBAR":
         return ("amber", "HRV matinal util pero con prudencia operativa.")
-    if gate == "NO":
+    if gate != "VERDE":
         return ("not_applicable", "No hay base suficiente para interpretar el dia.")
     if quality_flag:
         return ("amber", "HRV matinal favorable, pero con confianza reducida por calidad.")
@@ -437,8 +446,7 @@ def _build_payload(
 
 
 def _expected_tone(gate_final: str) -> str:
-    gate = unicodedata.normalize("NFKD", str(gate_final or "").strip().upper())
-    gate = "".join(char for char in gate if not unicodedata.combining(char))
+    gate = _normalize_gate(gate_final)
     if gate == "VERDE":
         return "green"
     if gate == "AMBAR":

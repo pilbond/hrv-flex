@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Gateway de sleep/nightly Polar usando v4 como único transporte (AYO-22)."""
+"""Gateway de sleep/nightly Polar usando v4 como único transporte."""
 
 from threading import RLock
 import logging

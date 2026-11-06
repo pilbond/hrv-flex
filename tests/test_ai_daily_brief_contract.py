@@ -394,6 +394,29 @@ class AiDailyBriefContractTests(unittest.TestCase):
     def test_expected_tone_accepts_accented_amber_gate(self):
         self.assertEqual(daily_brief._expected_tone("ÁMBAR"), "amber")
 
+    def test_classify_morning_follows_final_gate_including_accented_amber(self):
+        cases = [
+            ({"gate_final": "ÁMBAR", "quality_flag": False}, "amber"),
+            ({"gate_final": "AMBAR", "quality_flag": False}, "amber"),
+            ({"gate_final": "ROJO", "quality_flag": False}, "red"),
+            ({"gate_final": "VERDE", "quality_flag": False}, "green"),
+            ({"gate_final": "VERDE", "quality_flag": True}, "amber"),
+            ({"gate_final": "NO", "quality_flag": False}, "not_applicable"),
+            ({"gate_final": "", "quality_flag": False}, "not_applicable"),
+        ]
+        for row, expected in cases:
+            with self.subTest(gate=row["gate_final"], quality=row["quality_flag"]):
+                classification, interpretation = daily_brief._classify_morning(pd.Series(row))
+                self.assertEqual(classification, expected)
+                if expected != "green":
+                    self.assertNotIn("favorable.", interpretation)
+                if expected == "red":
+                    # Un ROJO puede venir solo de FC u override: no afirmar caída de HRV.
+                    self.assertNotIn("cae", interpretation)
+                # El prompt trata la interpretación como autoritativa: sin jerga interna.
+                for internal in ("reason_items", "gate_cause", "override"):
+                    self.assertNotIn(internal, interpretation)
+
     def test_non_json_model_output_writes_preview_to_error_sidecar(self):
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

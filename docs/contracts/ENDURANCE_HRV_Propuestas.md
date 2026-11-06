@@ -44,8 +44,8 @@ ricos o mejor separados por capas.
 
 ### 3.1 Outcomes prospectivos y labels minimos
 
-**Estado:** parcialmente propuesto en Kanvas mediante `IU-06 Captura
-prospectiva minima de RPE sintomas y timestamp`.
+**Estado:** parcialmente propuesto como piloto de captura prospectiva
+minima de RPE, sintomas y timestamp.
 
 **Decision:** valida, pero degradada de implementacion completa a piloto
 prospectivo minimo.
@@ -64,7 +64,7 @@ aprovechar los datos ya disponibles en `sessions.csv`,
 `sessions_day.csv` y `ENDURANCE_HRV_wellness_subjective.csv`, y limitar el
 input manual a datos que no puedan inferirse de forma fiable.
 
-El piloto debe empezar con el minimo compatible con `IU-06`:
+El piloto debe empezar con este minimo:
 
 - `Fecha`;
 - timestamp de captura;
@@ -216,7 +216,7 @@ clasificacion de calidad.
 **Estado:** existen warnings duales, baseline adaptativo y diagnosticos SSM;
 la evaluación del drift longitudinal sigue pendiente.
 
-**Decision:** degradada a evaluacion en sombra mediante `HG-01`. Debe
+**Decision:** degradada a evaluacion en sombra en sombra. Debe
 cerrarse o absorberse si no demuestra valor incremental.
 
 El trabajo debe demostrar valor incremental frente a
@@ -321,7 +321,7 @@ Estas capas actuales son el punto de partida.
 
 ## 7. Secuencia recomendada
 
-1. Ejecutar `IU-06` como piloto minimo de captura prospectiva.
+1. Ejecutar el piloto minimo de captura prospectiva.
 2. Medir adherencia, cobertura y utilidad antes de ampliar campos.
 3. Añadir un manifest minimo del pipeline HRV cuando se toque de nuevo el
    versionado o el decisor.
@@ -412,7 +412,7 @@ que tendria uso recurrente.
 - Fallo: baja adherencia al esquema de labels.
   - Plausibilidad: alta.
   - Estado de comprobacion: no confirmado.
-  - Justificacion: todavia no existe el piloto; `IU-06` debe medirlo antes
+  - Justificacion: todavia no existe el piloto; debe medirse en el antes
     de ampliar el esquema.
 - Fallo: sobreingenieria de gobernanza.
   - Plausibilidad: media.
@@ -431,7 +431,7 @@ que tendria uso recurrente.
   fisiologicas sin evidencia.
 - Se debilita: tratar `FV_grave` y `FR_repetido` como medidas directas de
   calidad del algoritmo.
-- Se corrige: `IU-06` ya cubre el punto de entrada natural para el piloto;
+- Se corrige: el piloto minimo ya es el punto de entrada natural;
   no debe abrirse una iniciativa paralela de labels.
 - Se degrada: metadata exhaustiva, model cards separadas, reporte mensual
   fijo y framework canary reusable.
@@ -441,7 +441,7 @@ que tendria uso recurrente.
 ### 9.6 Respuesta revisada
 
 El trabajo con mayor valor no es implantar todo el sistema de gobernanza
-propuesto, sino ejecutar un piloto pequeno mediante `IU-06`. Si ese piloto
+propuesto, sino ejecutar un piloto pequeno de captura prospectiva. Si ese piloto
 consigue cobertura estable y produce casos comparables, se añaden metricas
 descriptivas y un manifest minimo. Canary y documentacion de version se
 crean cuando exista un cambio real de gate o `Action`, no antes.
@@ -455,7 +455,7 @@ infraestructura analitica.
 
 | Propuesta | Estado revisado | Condicion o destino |
 |---|---|---|
-| Captura prospectiva minima | **VALIDA** | Ejecutar mediante `IU-06` como piloto reducido |
+| Captura prospectiva minima | **VALIDA** | Ejecutar como piloto reducido |
 | Esquema amplio de labels | **DEGRADADA** | Ampliar solo si el piloto demuestra adherencia y necesidad |
 | `FV_grave` / `FR_repetido` | **DEGRADADAS** | Casos discordantes descriptivos, no errores causales |
 | Manifest HRV minimo | **VALIDA CONDICIONADA** | Añadir al tocar versionado o decisor |
@@ -465,7 +465,7 @@ infraestructura analitica.
 | Reglas secuenciales nuevas | **DEGRADADAS** | Evaluar solo ante fallos observados |
 | Model card independiente | **DEGRADADA** | Integrar en tarea o resultado canary |
 | Score continuo de confianza | **DESCARTADA POR DEFECTO** | Reabrir solo con consumidor y ventaja demostrada |
-| Drift longitudinal | **DEGRADADA A SHADOW** | Resolver mediante `HG-01`; absorber o cerrar sin valor incremental |
+| Drift longitudinal | **DEGRADADA A SHADOW** | Resolver con evaluacion en sombra; absorber o cerrar sin valor incremental |
 | Hora de despertar | **DESCARTADA** | Reabrir solo para estudio circadiano |
 | Score 2D / severidad ambar | **DESCARTADA** | Duplica señales existentes |
 | SWC asimetrico | **STANDBY** | Requiere evidencia, labels y canary |

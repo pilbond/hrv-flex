@@ -690,7 +690,7 @@ No deberia presentar como vigentes, salvo que el codigo cambie de verdad:
 - ANS Charge operativo como entrada del gate
 - metricas Tier 3 accionables como SampEn (DFA-α1 existe en analysis local de sesion, pero **no** en el decisor diario)
 - protocolos ICC integrados en el flujo productivo
-- SWC configurable o adaptativo (propuesta `PCV-07` descartada; no es comportamiento vigente)
+- SWC configurable o adaptativo (propuesta descartada; no es comportamiento vigente)
 
 Si alguna de esas ideas se quiere conservar, mejor ponerla como `futuro` o `experimental`, no como comportamiento actual.
 

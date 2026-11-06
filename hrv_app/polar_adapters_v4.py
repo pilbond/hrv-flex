@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-Adaptadores Polar v4 → modelo interno (AYO-13, Fase 1).
+Adaptadores Polar v4 → modelo interno.
 
 El "modelo interno" del proyecto es el shape v3 que ya consumen
 `sleep_store` (claves snake_case tipo `sleep_start_time`, `deep_sleep`,

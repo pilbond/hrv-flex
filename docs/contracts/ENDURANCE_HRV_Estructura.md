@@ -1,6 +1,6 @@
 # ENDURANCE HRV — Estructura de Datos
 
-**Estado local (2026-11-05):** la generación HG-10 está publicada en `C:\Pilbond\hrv-flex\data` con CORE de 19 columnas y FINAL de 67. CORE, BETA_AUDIT, FINAL, DASHBOARD y SSM se regeneraron y verificaron por huellas; Railway no está cubierto por este corte. Las menciones posteriores a «candidata» y «pendiente de migración» describen el estado anterior al corte local.
+**Estado local (2026-11-05):** la generación de las versiones v4.18 y v4.19 de la Spec técnica (pares consecutivos y política de Calidad vigente) está publicada en `C:\Pilbond\hrv-flex\data` con CORE de 19 columnas y FINAL de 67. CORE, BETA_AUDIT, FINAL, DASHBOARD y SSM se regeneraron y verificaron por huellas; Railway no está cubierto por este corte. Las menciones posteriores a «candidata» y «pendiente de migración» describen el estado anterior al corte local.
 
 **Artefactos del tramo (candidata v2, 03/11/2026).** CORE y FINAL añaden `rejected_rr_pct_window` junto a `Artifact_pct`. El primero es el porcentaje de RR rechazados entre todos los RR cuyo instante final está entre 90 s y el final útil inclusive. Se aplican los descartes del filtro original antes de seleccionar el tramo. Sin RR en el tramo, el porcentaje queda vacío. Calidad y los flags de artefactos usan el porcentaje local: más de 15 % impide OK y más de 20 % implica INVALID. El global sigue describiendo el registro truncado y ponderando la varianza de SSM. FINAL identifica la métrica local en el motivo de calidad cuando recibe el nuevo esquema.
 

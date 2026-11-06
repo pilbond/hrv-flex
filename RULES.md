@@ -1,3 +1,5 @@
+> **LEGACY (2026-11-05):** describe Kanvas 0.x (`canvas-tool.py` + `Project.canvas`). El tablero vigente es `kanvas.json`; ver `.agents/skills/kanvas/SKILL.md` y la seccion Workflow Kanvas de `AGENTS.MD`.
+
 # Canvas Workflow Rules
 
 A collaborative task management protocol between a human and an AI agent using an Obsidian Canvas file as a shared task board.
