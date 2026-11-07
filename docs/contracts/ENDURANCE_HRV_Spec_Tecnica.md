@@ -114,7 +114,7 @@ Origen: Secciones 0-5 de Spec v3.x (r2025-12-25-UPDATE3)
 
 | Archivo | Contenido |
 |---------|-----------|
-| `ENDURANCE_HRV_master_CORE.csv` | Medición canónica (18 cols desplegadas; 19 en la candidata): señal fisiológica + trazabilidad mínima de estabilidad, sin decisiones |
+| `ENDURANCE_HRV_master_CORE.csv` | Medición canónica (19 columnas en este checkout local): señal fisiológica + trazabilidad mínima de estabilidad, sin decisiones |
 | `ENDURANCE_HRV_master_BETA_AUDIT.csv` | Beta/cRMSSD legacy (13 cols): modelo alométrico del sistema V3, conservado para comparación |
 
 ---
@@ -553,7 +553,7 @@ ENDURANCE_HRV_sleep.csv (entrada opcional, para reason_text)
 │  9. Reason_text (sleep.csv si existe) │
 └─────────────────────────────────────────┘
      │
-├──► ENDURANCE_HRV_master_FINAL.csv (auditable, 66 cols)
+├──► ENDURANCE_HRV_master_FINAL.csv (auditable, 67 cols en este checkout local)
      │
      └──► ENDURANCE_HRV_master_DASHBOARD.csv (operativo, 10 cols)
 ```
@@ -944,6 +944,18 @@ Las condiciones visibles se siguen evaluando en orden y las que se cumplen se co
 
 Esta capa usa solo soporte objetivo (`sleep.csv` + `sessions_day.csv`) y **no toca** `gate_final`, `Action` ni `Action_detail`. Su función es separar mejor un VERDE limpio de un VERDE frágil, o un ROJO bien explicado de un ROJO objetivamente discordante.
 
+**Evidencia de recuperación por dominio.** Cada dominio aporta como mucho un código:
+
+| Dominio | Fuente preferente | Fallback | Cautela | Apoyo |
+|---------|-------------------|----------|---------|-------|
+| Duración e interrupciones | percentiles personales de sleep.csv | — | `sleep_basic_poor` | ninguno (`sleep_basic_ok` es ausencia de alerta) |
+| Sueño | `polar_sleep_charge_status` (1-5) | `polar_sleep_score` ≤65 / ≥75 | `polar_sleep_charge_low` / `sleep_score_low` | `polar_sleep_charge_high` / `sleep_score_good` |
+| Autonómico nocturno | `polar_ans_charge_status` (1-5) | `polar_night_rmssd` <30 / ≥40 ms | `polar_ans_low` / `nightly_rmssd_low` | `polar_ans_high` / `nightly_rmssd_good` |
+| Nightly Recharge global | `polar_recharge_status` (1-6), si falta al menos un componente y los presentes son neutros (3) | — | `polar_recharge_poor` (1-3) | `polar_recharge_good` (5-6) |
+| Carga | sessions_day.csv | — | `load_context_high`, `intensity_clustering` | `recent_load_low` |
+
+Precedencia de clase (sin cambios salvo que `sleep_basic_ok` no cuenta como apoyo): ROJO con apoyo explícito y sin cautela → `conflicted` (señal mixta, el mensaje nombra el componente favorable); ROJO con cautela → `supported` (el mensaje nombra la cautela y, si la hay, la señal a favor); ÁMBAR con solo apoyo → `supported`; ÁMBAR con solo cautela → `fragile`; VERDE con cautelas en dos dominios de sueño o en sueño y carga → `fragile`. Cuando intervienen valoraciones Polar, los mensajes de `recovery_support` enumeran los componentes concretos en lugar de una etiqueta genérica. `recovery_context_quality=rich` también se alcanza con una valoración Polar válida.
+
 **Si sleep.csv no existe:** Solo se generan las condiciones 1-3 (basadas en datos HRV) + 8-22 (si sessions_day.csv existe, aunque la recuperación multiseñal quedará con cobertura `basic` o `none`). Si tampoco existe sessions_day.csv, solo condiciones 1-3 y esta capa quedará sin soporte externo.
 
 ---
@@ -1011,12 +1023,12 @@ Si tu baseline actual está por debajo del P20 de todos tus baselines histórico
 
 | Archivo | Para qué | Columnas |
 |---------|----------|----------|
-| `ENDURANCE_HRV_master_CORE.csv` | La medición fisiológica del día, sin decisiones | 18 |
+| `ENDURANCE_HRV_master_CORE.csv` | La medición fisiológica del día, sin decisiones | 19 |
 | `ENDURANCE_HRV_master_CORE_manifest.json` | Sidecar atómico de trazabilidad de la corrida CORE/BETA: rutas, hashes de inputs/outputs y configuración efectiva | — |
-| `ENDURANCE_HRV_master_FINAL.csv` | Gate, veto agudo, sombras, residual, reason_text, auditoría raw-vs-ref y contexto de recuperación multiseñal | 66 |
+| `ENDURANCE_HRV_master_FINAL.csv` | Gate, veto agudo, sombras, residual, reason_text, auditoría raw-vs-ref y contexto de recuperación multiseñal | 67 |
 | `ENDURANCE_HRV_master_FINAL_manifest.json` | Sidecar atómico de trazabilidad de la corrida FINAL/DASHBOARD: enlaza el manifest de CORE y conserva hashes de outputs/configuración efectiva | — |
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | Lo esencial para decidir en 10 segundos + reason_text | 10 |
-| `ENDURANCE_HRV_sleep.csv` | Sueño nocturno y recuperación (Polar) | 17 |
+| `ENDURANCE_HRV_sleep.csv` | Sueño nocturno y recuperación (Polar) | 26 |
 | `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento, incluyendo primitivas mínimas de coach metrics por sesión y capa de durabilidad mecánica | 73 |
 | `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios + rolling con cobertura (_nobs) + contexto canónico de carga + clustering reciente de intensidad + señal de polarización por familia + resumen de episodios + `elev_loss_7d_sum` | 61 |
 | `ENDURANCE_HRV_intensity_distribution_weekly.csv` | Distribución observada de intensidad por deporte y semana ISO. Sidecar analítico; no alimenta el gate ni `reason_text`. | 21 |
@@ -1161,6 +1173,7 @@ Secciones obligatorias:
 
 | Fecha | Cambio |
 |-------|--------|
+| 2026-11-06 v4.21 | Nightly Recharge en el contexto de recuperación, sin cambiar el gate ni las columnas de FINAL/DASHBOARD: sleep.csv pasa de 17 a 26 columnas (estado de Nightly Recharge, carga y estado del SNA, carga de sueño y referencias personales de RMSSD y RRI); los CSV históricos de 17 columnas se aceptan; una respuesta parcial no borra valores persistidos. `sleep_basic_ok` deja de contar como apoyo; las valoraciones Polar entran como un código por dominio y sustituyen a los umbrales absolutos de sleep score y RMSSD nocturno; mensajes de recuperación con el componente concreto. El brief diario recibe `sleep_context.polar_nightly_recharge` con fecha, valores y etiquetas, solo para la noche del día y con al menos un código válido; si la última fila de sueño es de otra noche, `sleep_context` sale `not_available` sin valores. Nightly Recharge cubre respuestas parciales cuando el componente presente es neutro |
 | 2026-11-06 v4.20 | Coherencia del contexto del brief IA con el gate, sin cambiar el gate ni columnas: nuevo `reason_item` `gate_cause` (causa de ÁMBAR/ROJO desde `gate_razon_base60`, magnitud en SWC, override de bases cortas 28/42 sin atribuirlo a una sola, crudo peor que la señal suavizada y acumulación de días rojos); `raw_today_rebound` se compara con `gate_base60` en lugar de `gate_final` y cubre también ÁMBAR con crudo VERDE y ROJO con crudo ÁMBAR; la acción de recuperación respeta `Action_detail` (`SUAVE_QUALITY`, `DESCARGA`); `daily_brief` clasifica `morning_hrv` normalizando la tilde de `ÁMBAR` (antes todo ÁMBAR salía `green`) y la interpretación de ROJO ya no afirma una caída de HRV. Condiciones 23-25 de §15.3. Cambia el texto de `reason_text` y el sidecar de `reason_items` |
 | 2026-11-03 v4.19 (candidata) | Política de Calidad `QUALITY_POLICY_VERSION=hg10_latnan_aviso_art_window_v2`, implementada y **no publicada**: `LAT_NAN` pasa a aviso; Calidad, `ART_GT15` y `ART_GT20` usan `rejected_rr_pct_window` (nueva columna de CORE y FINAL: descartes del tramo de 90 s al final útil); `Artifact_pct` se conserva como métrica global y en la ponderación de SSM. SSM solo trata `LAT_NAN` como observación ausente si la fila no es `OK`. El sync exige que el manifiesto CORE registre la misma versión de política. Deja sin efecto la indicación de v4.18 de que la regla de Calidad no cambiaba. |
 | 2026-10-27 v4.18 (candidata) | Cálculo por pares consecutivos implementado en `build_hrv_core.py` y **no publicado** en los CSV: RMSSD, SD1, ventanas del detector y cola solo con pares físicamente consecutivos; inicio fijo del tramo en 90 s; corte del registro en 375 s antes del recorte de 15 s; `Artifact_pct` sobre el registro truncado; salidas seguras `REC_SHORT`, `WIN_NO_PAIRS` y `TIME_AXIS_UNRELIABLE`. SD2, filtro delta-RR, umbrales de artefactos y la regla de Calidad anterior sin cambios. Los CSV desplegados siguen siendo de la versión anterior; el manifiesto de CORE distingue ambas por `effective_config.constants.GEOMETRY_VERSION`. Incluye la protección que impide mezclar geometrías en un mismo CORE (`--allow-hg10-migration` y verificación de manifiesto, huellas y marca por fila). Replay y verificación independiente, con control externo frente a la copia `H3S90T375`: `research/reports/hg10_replay_2026-10-27.md`. |

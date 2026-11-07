@@ -658,7 +658,7 @@ def _split_recovery_codes(codes: List[str]) -> Tuple[List[str], List[str]]:
     sleep_codes = [
         code
         for code in codes
-        if code in {"sleep_basic_poor", "sleep_score_low", "nightly_rmssd_low"}
+        if code in _SLEEP_CAUTION_CODES
     ]
     load_codes = [
         code
@@ -666,6 +666,146 @@ def _split_recovery_codes(codes: List[str]) -> Tuple[List[str], List[str]]:
         if code in {"load_context_high", "intensity_clustering", "recent_load_low"}
     ]
     return sleep_codes, load_codes
+
+
+_SLEEP_CAUTION_CODES = frozenset({
+    "sleep_basic_poor",
+    "sleep_score_low",
+    "nightly_rmssd_low",
+    "polar_sleep_charge_low",
+    "polar_ans_low",
+    "polar_recharge_poor",
+})
+_ABSENCE_OF_ALERT_CODES = frozenset({"sleep_basic_ok"})
+_POLAR_RECOVERY_CODES = frozenset({
+    "polar_sleep_charge_low",
+    "polar_sleep_charge_high",
+    "polar_ans_low",
+    "polar_ans_high",
+    "polar_recharge_poor",
+    "polar_recharge_good",
+})
+
+# Escalas documentadas por Polar para Nightly Recharge.
+POLAR_RECHARGE_STATUS_LABELS = {
+    1: "muy mala",
+    2: "mala",
+    3: "comprometida",
+    4: "correcta",
+    5: "buena",
+    6: "muy buena",
+}
+POLAR_RELATIVE_STATUS_LABELS = {
+    1: "muy por debajo de lo habitual",
+    2: "por debajo de lo habitual",
+    3: "habitual",
+    4: "por encima de lo habitual",
+    5: "muy por encima de lo habitual",
+}
+
+_RECOVERY_CODE_NAMES = {
+    "sleep_basic_poor": "sueño corto o fragmentado",
+    "sleep_score_low": "puntuación de sueño baja",
+    "sleep_score_good": "puntuación de sueño buena",
+    "nightly_rmssd_low": "HRV nocturno bajo",
+    "nightly_rmssd_good": "HRV nocturno alto",
+    "polar_sleep_charge_low": "carga de sueño de Polar por debajo de lo habitual",
+    "polar_sleep_charge_high": "carga de sueño de Polar por encima de lo habitual",
+    "polar_ans_low": "estado del SNA nocturno de Polar por debajo de lo habitual",
+    "polar_ans_high": "estado del SNA nocturno de Polar por encima de lo habitual",
+    "polar_recharge_poor": "Nightly Recharge de Polar desfavorable",
+    "polar_recharge_good": "Nightly Recharge de Polar favorable",
+    "recent_load_low": "poca carga reciente",
+    "load_context_high": "carga reciente exigente",
+    "intensity_clustering": "intensidad concentrada en pocos días",
+}
+
+
+def _polar_status(row: pd.Series, column: str, labels: Dict[int, str]) -> Optional[int]:
+    """Valoración Polar válida (entero dentro de la escala) o None.
+    Un código desconocido se conserva en sleep.csv pero no se interpreta."""
+    value = _safe_float(row, column)
+    if value is None or not float(value).is_integer():
+        return None
+    status = int(value)
+    return status if status in labels else None
+
+
+def _polar_recovery_codes(row: pd.Series) -> Tuple[List[str], List[str], Dict[str, bool]]:
+    """Códigos de apoyo/cautela desde las valoraciones personales de Polar.
+
+    Un código por dominio, sin contar dos veces el mismo índice:
+    - dominio autonómico: estado del SNA (ansRate, 1-5);
+    - dominio de sueño: carga de sueño (sleepScore.scoreRate, 1-5);
+    - Nightly Recharge (1-6) combina ambos. Se usa solo si falta al menos un
+      componente y los presentes son neutros (3): así cubre una respuesta
+      parcial sin sumarse a un componente que ya da código.
+    Devuelve también qué dominios cubre Polar, para que los umbrales
+    absolutos de sleep score y RMSSD nocturno no se sumen encima.
+    """
+    support: List[str] = []
+    caution: List[str] = []
+    ans = _polar_status(row, "polar_ans_charge_status", POLAR_RELATIVE_STATUS_LABELS)
+    sleep_charge = _polar_status(row, "polar_sleep_charge_status", POLAR_RELATIVE_STATUS_LABELS)
+    recharge = _polar_status(row, "polar_recharge_status", POLAR_RECHARGE_STATUS_LABELS)
+    if ans is not None:
+        if ans <= 2:
+            caution.append("polar_ans_low")
+        elif ans >= 4:
+            support.append("polar_ans_high")
+    if sleep_charge is not None:
+        if sleep_charge <= 2:
+            caution.append("polar_sleep_charge_low")
+        elif sleep_charge >= 4:
+            support.append("polar_sleep_charge_high")
+    component_codes = bool(support or caution)
+    missing_component = ans is None or sleep_charge is None
+    recharge_used = recharge is not None and missing_component and not component_codes
+    if recharge_used:
+        if recharge <= 3:
+            caution.append("polar_recharge_poor")
+        elif recharge >= 5:
+            support.append("polar_recharge_good")
+    covered = {
+        "autonomic": ans is not None or recharge_used,
+        "sleep": sleep_charge is not None or recharge_used,
+    }
+    return support, caution, covered
+
+
+def _join_names(codes: List[str]) -> str:
+    names = [_RECOVERY_CODE_NAMES[c] for c in codes if c in _RECOVERY_CODE_NAMES]
+    if not names:
+        return ""
+    if len(names) == 1:
+        return names[0]
+    return ", ".join(names[:-1]) + " y " + names[-1]
+
+
+def _polar_recovery_summary_message(
+    gate: str,
+    recovery_class: str,
+    support_codes: List[str],
+    caution_codes: List[str],
+) -> str:
+    """Mensaje que nombra el componente concreto cuando intervienen
+    valoraciones Polar; vacío si el caso no aplica."""
+    support_txt = _join_names([c for c in support_codes if c not in _ABSENCE_OF_ALERT_CODES])
+    caution_txt = _join_names(list(caution_codes))
+    if gate == VERDE and recovery_class == "fragile" and caution_txt:
+        return f"VERDE, pero piden prudencia: {caution_txt}"
+    if gate == AMBAR and recovery_class == "supported" and support_txt:
+        return f"ÁMBAR con {support_txt}"
+    if gate == AMBAR and recovery_class == "fragile" and caution_txt:
+        return f"ÁMBAR con recuperación floja: {caution_txt}"
+    if gate == ROJO and recovery_class == "conflicted" and support_txt:
+        return f"ROJO, pero señal mixta: {support_txt}"
+    if gate == ROJO and recovery_class == "supported" and caution_txt:
+        message = f"ROJO respaldado por {caution_txt}"
+        if support_txt:
+            message += f"; a favor: {support_txt}"
+        return message
+    return ""
 
 
 def _recovery_context_quality(
@@ -686,7 +826,9 @@ def _classify_recovery_support(
     support_codes: List[str],
     caution_codes: List[str],
 ) -> Tuple[str, bool]:
-    has_support = bool(support_codes)
+    # La ausencia de alerta básica (sleep_basic_ok) no es evidencia favorable:
+    # apoyo y discordancia exigen una señal positiva explícita.
+    has_support = any(code not in _ABSENCE_OF_ALERT_CODES for code in support_codes)
     has_caution = bool(caution_codes)
     sleep_caution_codes, load_caution_codes = _split_recovery_codes(caution_codes)
 
@@ -716,6 +858,10 @@ def _classify_recovery_support(
 
 
 def _recovery_summary_message(gate: str, recovery_class: str, support_codes: List[str], caution_codes: List[str]) -> str:
+    if _POLAR_RECOVERY_CODES & (set(support_codes) | set(caution_codes)):
+        polar_message = _polar_recovery_summary_message(gate, recovery_class, support_codes, caution_codes)
+        if polar_message:
+            return polar_message
     caution_set = set(caution_codes)
     support_set = set(support_codes)
     sleep_caution_set, load_caution_set = _split_recovery_codes(caution_codes)
@@ -1584,6 +1730,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
         sleep_basic_signal = False
         sleep_score = None
         night_rmssd = None
+        has_polar_rating = False
         night_rmssd_low_text = ""
         night_rmssd_high_text = ""
         load_3d = None
@@ -1723,8 +1870,17 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
             if sleep_basic_signal and not sleep_bad:
                 _append_unique(support_codes, "sleep_basic_ok")
 
+            polar_support, polar_caution, polar_covered = _polar_recovery_codes(sleep_row)
+            has_polar_rating = polar_covered["autonomic"] or polar_covered["sleep"]
+            for code in polar_caution:
+                _append_unique(caution_codes, code)
+            for code in polar_support:
+                _append_unique(support_codes, code)
+
+            # Los umbrales absolutos solo actúan si Polar no cubre el dominio
+            # con su valoración relativa al nivel habitual del atleta.
             sleep_score = _safe_float(sleep_row, "polar_sleep_score")
-            if sleep_score is not None:
+            if sleep_score is not None and not polar_covered["sleep"]:
                 if sleep_score <= 65:
                     _append_unique(caution_codes, "sleep_score_low")
                 elif sleep_score >= 75:
@@ -1743,7 +1899,10 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                         f"ROJO, pero el HRV de sueño salió alto ({night_rmssd:.0f}ms): "
                         "la recuperación nocturna fue mejor de lo esperado"
                     )
-                if night_rmssd < 30:
+                if polar_covered["autonomic"]:
+                    night_rmssd_low_text = ""
+                    night_rmssd_high_text = ""
+                elif night_rmssd < 30:
                     _append_unique(caution_codes, "nightly_rmssd_low")
                 elif night_rmssd >= 40:
                     _append_unique(support_codes, "nightly_rmssd_good")
@@ -2213,7 +2372,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
         coverage = _recovery_context_quality(
             has_basic_sleep=sleep_basic_signal,
             has_load_signal=(sday_lookup is not None and fecha in sday_lookup.index) or load_ctx_row is not None or clustering_row is not None,
-            has_rich_sleep=(sleep_score is not None or night_rmssd is not None),
+            has_rich_sleep=(sleep_score is not None or night_rmssd is not None or has_polar_rating),
         )
         recovery_class, recovery_is_discordant = _classify_recovery_support(
             gate=gate_final[i],
@@ -2334,7 +2493,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                 message=recovery_action,
             )
         if recovery_is_discordant:
-            discordance_codes = caution_codes if recovery_class == "fragile" else support_codes
+            discordance_codes = caution_codes if recovery_class == "fragile" else [c for c in support_codes if c not in _ABSENCE_OF_ALERT_CODES]
             discordance_message = _recovery_discordance_message(
                 str(gate_final[i]),
                 recovery_class,
@@ -2353,7 +2512,7 @@ def build_final_and_dashboard(core: pd.DataFrame, cfg: Config) -> Tuple[pd.DataF
                 message=discordance_message,
             )
 
-        discordance_codes = caution_codes if recovery_class == "fragile" else support_codes
+        discordance_codes = caution_codes if recovery_class == "fragile" else [c for c in support_codes if c not in _ABSENCE_OF_ALERT_CODES]
         recovery_context_quality[i] = coverage
         recovery_support_class[i] = recovery_class
         recovery_discordance_flag[i] = recovery_is_discordant

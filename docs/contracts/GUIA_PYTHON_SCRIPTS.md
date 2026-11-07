@@ -170,7 +170,7 @@ Importante:
 - Que hace:
   - Persiste y recalcula `ENDURANCE_HRV_sleep.csv`.
   - Normaliza campos de sleep y nightly recharge, hace upsert por fecha y recalcula derivados.
-  - Exige que un `sleep.csv` existente tenga al menos una fila y el esquema canonico exacto de 17 columnas; si no, falla cerrado y conserva el original.
+  - Exige que un `sleep.csv` existente tenga al menos una fila y el esquema canonico de 26 columnas (se acepta el historico de 17 y se completa con las valoraciones Polar vacias); si no, falla cerrado y conserva el original. Una respuesta parcial de Polar no borra valores ya persistidos de la fecha.
   - Publica el CSV mediante `write_csv_atomic`; no escribe directamente sobre el canonico.
 - Cuando usarlo:
   - Siempre que el flujo HRV necesite actualizar sueno/capas de recuperacion.
@@ -310,8 +310,8 @@ Importante:
 - Que hace:
   - Procesa RR crudos.
   - Calcula metrica HRV estable por dia.
-  - Si CORE o BETA_AUDIT ya existen, exige al menos una fila y su esquema canonico exacto (13 columnas en BETA_AUDIT; en CORE, 19 en la rama candidata y 18 en el esquema desplegado, por lo que un CORE desplegado falla cerrado al faltar `rejected_rr_pct_window`). Un archivo vacio, ilegible o incompatible provoca salida no cero, conserva el original en cuarentena cuando es posible y no publica un manifest nuevo.
-  - En la rama candidata, antes de escribir comprueba que CORE, BETA_AUDIT y `ENDURANCE_HRV_master_CORE_manifest.json` correspondan a `GEOMETRY_VERSION=hg10_s90_t375_trim15` y `QUALITY_POLICY_VERSION=hg10_latnan_aviso_art_window_v2`, con las huellas registradas y `geom=` en cada fila (salvo `2026-02-26`, `2026-02-27` y `2026-03-03`). Si no, se detiene sin escribir.
+  - Si CORE o BETA_AUDIT ya existen, exige al menos una fila y su esquema canonico exacto (19 columnas en CORE y 13 en BETA_AUDIT en este checkout local). Un CORE histórico de 18 columnas falla cerrado al faltar `rejected_rr_pct_window`. Un archivo vacio, ilegible o incompatible provoca salida no cero, conserva el original en cuarentena cuando es posible y no publica un manifest nuevo.
+  - En este checkout local, antes de escribir comprueba que CORE, BETA_AUDIT y `ENDURANCE_HRV_master_CORE_manifest.json` correspondan a `GEOMETRY_VERSION=hg10_s90_t375_trim15` y `QUALITY_POLICY_VERSION=hg10_latnan_aviso_art_window_v2`, con las huellas registradas y `geom=` en cada fila (salvo `2026-02-26`, `2026-02-27` y `2026-03-03`). Si no, se detiene sin escribir.
   - `--allow-hg10-migration` omite esa comprobación; solo se admite con un `--data-dir` distinto del `DATA_DIR` operativo y rechaza fechas con más de un RR. Sirve para preparar la migración en una copia aislada; el sync no lo usa.
   - Genera:
     - `ENDURANCE_HRV_master_CORE.csv`
@@ -354,7 +354,7 @@ Importante:
     - `recovery_discordance_reason`
   - Si existe `ENDURANCE_HRV_sessions_day.csv`, usa sus campos de carga.
   - Genera:
-    - `ENDURANCE_HRV_master_FINAL.csv` (66 columnas desplegadas, 67 candidatas)
+    - `ENDURANCE_HRV_master_FINAL.csv` (67 columnas en este checkout local; Railway se verifica por separado)
     - `ENDURANCE_HRV_master_DASHBOARD.csv`
 - Cuando usarlo:
   - Siempre que quieras pasar de CORE a salida operativa FINAL/DASHBOARD.
@@ -443,6 +443,26 @@ Importante:
   - `sessions_metadata.json` pasa a ser la fuente canonica de `training_audit` para rebajar confianza de coaching/carga sin bloquear pipeline.
 - Automatico o manual:
   - Manual (no lo llama el flujo principal por defecto).
+
+## `backfill_polar_nightly_ratings.py`
+- Que hace:
+  - Rellena las 9 columnas de valoraciones de Nightly Recharge (`polar_recharge_status` ... `polar_night_rri_baseline_sd`) en filas ya guardadas de `ENDURANCE_HRV_sleep.csv`, consultando Polar AccessLink v4 fecha a fecha.
+  - Solo escribe esas columnas; no crea ni borra filas ni toca el resto de campos. Deja copia previa en `<DATA_DIR>/backup/pre_nightly_ratings/` y un log JSON junto a ella.
+  - Idempotente: por defecto solo consulta fechas con datos Polar a las que les falta alguna de las tres valoraciones principales (Nightly Recharge, estado del SNA, carga de sueño); las ya guardadas no se borran. `--all-dates` vuelve a consultar todas; `--since YYYY-MM-DD` acota.
+- Cuando usarlo:
+  - Una vez por entorno tras desplegar el esquema de 26 columnas, porque el sync diario solo vuelve a consultar hoy y ayer.
+  - Tras restaurar un backup anterior a ese esquema.
+  - No ejecutarlo mientras corre un job de la UI (`sleep.csv` es estado compartido).
+- Entradas:
+  - `ENDURANCE_HRV_sleep.csv` y el token v4 de `POLAR_TOKEN_PATH_V4` (se refresca y puede rotar).
+- Salidas:
+  - `ENDURANCE_HRV_sleep.csv` con las valoraciones; FINAL y DASHBOARD se regeneran en el siguiente `POST /api/sync`.
+- Automatico o manual:
+  - Manual.
+- Ruta actual:
+  - `scripts/backfill_polar_nightly_ratings.py`
+- Railway:
+  - `railway ssh` al servicio, luego `python scripts/backfill_polar_nightly_ratings.py --dry-run` y, si el recuento cuadra, sin `--dry-run`.
 
 ## `intervals_wellness_test.py`
 - Que hace:

@@ -27,11 +27,11 @@
 
 - §0. Cómo leer el CSV (operativo)
 - §1. Valores típicos (orientación inicial)
-- §2. CORE (medición canónica) — 18 columnas desplegadas, 19 candidatas
-- §3. FINAL (gate + auditoría extendida) — 66 columnas desplegadas, 67 candidatas
+- §2. CORE (medición canónica) — 19 columnas en este checkout local
+- §3. FINAL (gate + auditoría extendida) — 67 columnas en este checkout local
 - §4. DASHBOARD (vista operativa) — 10 columnas
 - §5. BETA_AUDIT (forense V3) — 13 columnas
-- §5bis. CONTEXT / sleep.csv (sidecar externo) — 17 columnas
+- §5bis. CONTEXT / sleep.csv (sidecar externo) — 26 columnas
 - §5ter. SESSIONS_DAY (carga diaria y clustering) — sidecar CSV
 - §5quater. SESSIONS METADATA / TRAINING_AUDIT (sidecar JSON)
 - §5quinquies. INTENSITY_DISTRIBUTION_WEEKLY (sidecar CSV) — 21 columnas
@@ -136,7 +136,7 @@ Estas consecuencias corresponden al esquema desplegado. En la versión candidata
 
 ---
 
-## 2. CORE (medición canónica) — 18 columnas desplegadas, 19 candidatas
+## 2. CORE (medición canónica) — 19 columnas en este checkout local
 
 Generado por `build_hrv_core.py`. Contiene la señal fisiológica **sin decisiones**.
 
@@ -186,7 +186,7 @@ Generado por `build_hrv_core.py`. Contiene la señal fisiológica **sin decision
 
 ---
 
-## 3. FINAL (gate + auditoría extendida) — 66 columnas desplegadas, 67 candidatas
+## 3. FINAL (gate + auditoría extendida) — 67 columnas en este checkout local
 
 Generado por `build_hrv_final_dashboard.py`. Contiene:
 
@@ -360,10 +360,10 @@ Este bloque cubre el warning de baseline degradado y los flags sistémicos que l
 | `veto_agudo` | ¿Se activó el bypass de ROLL3 por caída aguda? True si tu lnRMSSD crudo de hoy cayó más de 2×SWC por debajo de tu baseline (una caída demasiado brusca para que ROLL3 la suavice sin peligro). Cuando se activa, `lnRMSSD_used` y `HR_used` se fuerzan al dato crudo del día en vez del promedio de 3 días. Esto hace que el gate refleje la caída inmediatamente. |
 | `ln_pre_veto` | El valor de lnRMSSD_used (ROLL3) que tenías antes de que el veto lo sobrescribiera. Permite auditar cuánto habría enmascarado el suavizado: la diferencia `ln_pre_veto - lnRMSSD_used` muestra lo que ROLL3 estaba "ocultando". NaN si no hubo veto. |
 | `swc_ln_floor` | El SWC efectivo que se usó para evaluar el veto: `max(SWC_ln, 0.04879)`. El floor de 0.04879 (= ln(1.05)) garantiza que el umbral del veto nunca sea trivialmente pequeño, evitando falsos positivos en periodos de variabilidad muy baja. NaN si no se calculó BASE60. |
-| `recovery_context_quality` | Disponibilidad de datos de recuperación (sueño + carga). `none` = solo gate, sin contexto externo; `basic` = hay sueño básico y/o carga reciente; `rich` = además hay señal nocturna rich (`polar_sleep_score` y/o `polar_night_rmssd`). Sirve para no exagerar la precisión de interpretaciones sin soporte externo. |
+| `recovery_context_quality` | Disponibilidad de datos de recuperación (sueño + carga). `none` = solo gate, sin contexto externo; `basic` = hay sueño básico y/o carga reciente; `rich` = además hay `polar_sleep_score`, `polar_night_rmssd` o una valoración Polar válida de Nightly Recharge, SNA o carga de sueño. Sirve para no exagerar la precisión de interpretaciones sin soporte externo. |
 | `recovery_support_class` | Lectura resumida de cómo encajan gate, sueño Polar y carga reciente. `supported` = el contexto externo acompaña la lectura; `neutral` = no añade gran cosa o está mezclado; `fragile` = el gate sale razonable pero sueño/carga meten cautela; `conflicted` = el gate sale mal pero sueño/carga no lo explican bien. No cambia la acción por sí mismo. |
 | `recovery_discordance_flag` | True cuando el análisis de recuperación detecta una tensión entre el gate y el soporte externo (sueño/carga). Se activa en clases `fragile` (contexto débil) y `conflicted` (contexto contradictorio). |
-| `recovery_discordance_reason` | Códigos estructurados que explican la discordancia. Ejemplos: `sleep_basic_poor`, `nightly_rmssd_low`, `load_context_high`, `sleep_score_good`, `recent_load_low`. Pensado para auditoría o análisis posterior. |
+| `recovery_discordance_reason` | Códigos estructurados que explican la discordancia. Ejemplos: `sleep_basic_poor`, `nightly_rmssd_low`, `load_context_high`, `sleep_score_good`, `polar_ans_low`, `polar_sleep_charge_high`, `recent_load_low`. `sleep_basic_ok` (duración e interrupciones sin alerta) es ausencia de alerta, no apoyo: nunca genera por sí solo una clase `supported` ni `conflicted`. Pensado para auditoría o análisis posterior. |
 | `reason_text` | Texto explicativo contextual que combina información del gate con datos de sueño y carga. Estructura: `{verdicts " · "}. {whys "; "}. Acción: {actions "; "}`. Los segmentos se deduplican por igualdad exacta y los echo genéricos de `recovery_support`/`recovery_discordance` se suprimen cuando un emisor más específico (`nightly_discordance`, `green_load_caution`, `acwr`, etc.) ya cubre la señal. Las magnitudes técnicas llevan anchor verbal en paréntesis (`monotonía=1.96, moderada`, `ACWR=0.62, baja`, `strain=917, elevado`). Los umbrales percentiles que alimentan los avisos de carga se calculan con ventanas causales tipo trailing/expanding sobre días previos al evaluado; así, volver a procesar el histórico no reescribe mensajes pasados. Ver tabla de familias de mensajes a continuación. Internamente se renderiza a partir de `reason_items` estructurados (dato medido, proxy, inferencia, acción) vía `_compose_reason_text` (módulo `build_hrv_final_dashboard`); no existe columna pública `reason_items_json` en `FINAL` ni en `DASHBOARD`, pero hay un sidecar estructurado `ENDURANCE_HRV_master_FINAL_reason_items.json` (descrito más abajo). El wellness subjetivo de Intervals queda fuera de `reason_text` y se reserva para capas retrospectivas. **No recolorea** el gate — es contexto para tu decisión. |
 
 ##### Familias de mensajes que pueden aparecer en `reason_text`
@@ -468,7 +468,7 @@ Las 5 primeras columnas se copian tal cual de CORE. Ver §2 para el detalle comp
 
 ---
 
-## 5bis. CONTEXT (sidecar externo) — 17 columnas
+## 5bis. CONTEXT (sidecar externo) — 26 columnas
 
 Actualizado en el flujo diario coordinado por `polar_hrv_automation.py`, con persistencia en `hrv_app.sleep_store`. Contiene datos de sueño y recuperación nocturna de Polar. Alimenta el `reason_text` pero **NO afecta al gate ni a la acción**. La ingestión consulta únicamente la fecha objetivo: nunca usa datos de otra noche como fallback. Si Polar confirma que no hay datos para esa fecha, queda pendiente y el análisis continúa sin contexto de sueño; una fila previa de esa misma fecha se archiva en `data/backup/stale_sleep/` y se retira para evitar reutilizar datos posiblemente atribuidos a la noche equivocada. Si falla la consulta a Polar, se conserva la fila previa y se reintenta en un ciclo posterior.
 
@@ -495,6 +495,25 @@ El gate 2D solo ve HRV y pulso. Pero a menudo quieres saber *por qué* tu HRV ba
 | `polar_night_rmssd` | RMSSD nocturno medio (ms). Complementa el RMSSD matinal — si el nocturno es alto pero el matinal bajo, hay un confusor post-despertar | 20-60 |
 | `polar_night_rri` | RR intervalo medio durante la noche (ms). Informativo; útil como referencia cruzada con `polar_night_rmssd`. | 900-1300 |
 | `polar_night_resp` | Frecuencia respiratoria media durante la noche (rpm). Informativo; elevaciones sostenidas pueden acompañar a estrés o enfermedad. | 12-18 |
+
+### Valoraciones de Polar Nightly Recharge (cómo te ve Polar frente a tu nivel habitual)
+
+| Columna | Qué es | Valores |
+|---------|--------|---------|
+| `polar_recharge_status` | Estado global de Nightly Recharge. Combina SNA y carga de sueño | 1 muy mala · 2 mala · 3 comprometida · 4 correcta · 5 buena · 6 muy buena |
+| `polar_recharge_sublevel` | Detalle dentro de la categoría. Solo trazabilidad | numérico |
+| `polar_ans_charge` | Carga del SNA durante las primeras horas de sueño, valor continuo de Polar | aprox. -10 a +10 |
+| `polar_ans_charge_status` | Estado del SNA frente a tu nivel habitual | 1 muy por debajo · 2 por debajo · 3 habitual · 4 por encima · 5 muy por encima |
+| `polar_sleep_charge_status` | Carga de sueño (sleep score frente a tu nivel habitual) | misma escala 1-5 |
+| `polar_night_rmssd_baseline_mean` / `_sd` | Referencia personal de Polar para el RMSSD nocturno | ms |
+| `polar_night_rri_baseline_mean` / `_sd` | Referencia personal de Polar para el RRI nocturno | ms |
+
+Cómo las usa FINAL (solo contexto, nunca el gate): un código por dominio.
+- Dominio autonómico: `polar_ans_charge_status` 1-2 → `polar_ans_low` (cautela), 4-5 → `polar_ans_high` (apoyo). Si existe, sustituye a los umbrales absolutos de `polar_night_rmssd` (<30 / ≥40 ms) y a los avisos de RMSSD nocturno <25 / >45 ms.
+- Dominio de sueño: `polar_sleep_charge_status` 1-2 → `polar_sleep_charge_low`, 4-5 → `polar_sleep_charge_high`. Si existe, sustituye a los umbrales absolutos de `polar_sleep_score` (≤65 / ≥75).
+- `polar_recharge_status` solo se usa si falta al menos uno de los dos componentes y los presentes son neutros (3): 1-3 → `polar_recharge_poor`, 5-6 → `polar_recharge_good`, y cubre también el dominio que falta. Si un componente presente ya da código, Nightly Recharge no se suma, para no contar dos veces el mismo índice.
+- Valores fuera de escala o no enteros se conservan en el CSV pero no generan códigos.
+- Duración e interrupciones frente a tus percentiles siguen siendo un dominio propio (`sleep_basic_poor`).
 
 ### Percentiles propios (tus umbrales personalizados)
 
@@ -1309,7 +1328,7 @@ Texto explicativo que combina información del gate con datos contextuales (sue�
 
 Esa mejora es interna y de trazabilidad. El builder también publica un sidecar `ENDURANCE_HRV_master_FINAL_reason_items.json` con los `reason_items` estructurados por fecha para consumo de `analysis/`. El contrato público del CSV no cambia:
 
-- `FINAL` tiene 66 columnas desplegadas y 67 en la candidata,
+- `FINAL` tiene 67 columnas en este checkout local; el estado de Railway se verifica por separado,
 - `DASHBOARD` sigue teniendo 10 columnas,
 - no existe `reason_items_json` público como columna en `FINAL` ni en `DASHBOARD`;
 - el sidecar `ENDURANCE_HRV_master_FINAL_reason_items.json` sí existe y se usa como entrada estructurada de `analysis/`.

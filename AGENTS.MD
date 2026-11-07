@@ -171,7 +171,7 @@ Canonicos:
 - `ENDURANCE_HRV_master_BETA_AUDIT.csv` (13 columnas)
 - `ENDURANCE_HRV_master_FINAL.csv` (67 columnas)
 - `ENDURANCE_HRV_master_DASHBOARD.csv` (10 columnas)
-- `ENDURANCE_HRV_sleep.csv` (17 columnas)
+- `ENDURANCE_HRV_sleep.csv` (26 columnas: 17 históricas + 9 valoraciones de Polar Nightly Recharge)
 
 Complementarios:
 

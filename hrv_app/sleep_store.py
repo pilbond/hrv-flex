@@ -34,7 +34,20 @@ SLEEP_COLUMNS = [
     "sleep_dur_p10",
     "sleep_dur_p90",
     "sleep_int_p90",
+    "polar_recharge_status",
+    "polar_recharge_sublevel",
+    "polar_ans_charge",
+    "polar_ans_charge_status",
+    "polar_sleep_charge_status",
+    "polar_night_rmssd_baseline_mean",
+    "polar_night_rmssd_baseline_sd",
+    "polar_night_rri_baseline_mean",
+    "polar_night_rri_baseline_sd",
 ]
+
+# Esquema histórico de 17 columnas: un CSV con solo estas columnas es válido y
+# se completa con las valoraciones Polar vacías hasta que Polar las aporte.
+SLEEP_LEGACY_COLUMNS = SLEEP_COLUMNS[:17]
 
 SLEEP_SIGNAL_COLUMNS = [col for col in SLEEP_COLUMNS if col not in {"Fecha", "sleep_dur_p10", "sleep_dur_p90", "sleep_int_p90"}]
 SLEEP_PENDING_WINDOW_DAYS = 7
@@ -240,6 +253,7 @@ def _extract_sleep_fields(sleep_json: Optional[dict]) -> Dict[str, Any]:
     if efficiency_pct is None and asleep_duration_min is not None and span_min is not None and span_min > 0:
         efficiency_pct = 100.0 * asleep_duration_min / span_min
     sleep_score = parse_float(_find_first_value(sleep_json, ["sleep_score", "sleep-score"]))
+    sleep_charge_status = parse_float(_find_first_value(sleep_json, ["sleep_charge_status"], as_float=True))
     long_count, total_count = _extract_interruptions_counts(sleep_json)
 
     out: Dict[str, Any] = {}
@@ -263,6 +277,8 @@ def _extract_sleep_fields(sleep_json: Optional[dict]) -> Dict[str, Any]:
         out["polar_interruptions_total"] = total_count
     if sleep_score is not None:
         out["polar_sleep_score"] = sleep_score
+    if sleep_charge_status is not None:
+        out["polar_sleep_charge_status"] = sleep_charge_status
     return out
 
 
@@ -302,6 +318,21 @@ def _extract_nightly_fields(nightly_json: Optional[dict]) -> Dict[str, Any]:
         out["polar_night_rri"] = night_rri
     if night_resp is not None:
         out["polar_night_resp"] = night_resp
+
+    rating_fields = [
+        ("polar_recharge_status", ["nightly_recharge_status"]),
+        ("polar_recharge_sublevel", ["nightly_recharge_sublevel"]),
+        ("polar_ans_charge", ["ans_charge"]),
+        ("polar_ans_charge_status", ["ans_charge_status"]),
+        ("polar_night_rmssd_baseline_mean", ["nightly_rmssd_baseline_mean"]),
+        ("polar_night_rmssd_baseline_sd", ["nightly_rmssd_baseline_sd"]),
+        ("polar_night_rri_baseline_mean", ["nightly_rri_baseline_mean"]),
+        ("polar_night_rri_baseline_sd", ["nightly_rri_baseline_sd"]),
+    ]
+    for column, keys in rating_fields:
+        value = parse_float(_find_first_value(nightly_json, keys, as_float=True))
+        if value is not None:
+            out[column] = value
     return out
 
 
@@ -364,7 +395,7 @@ def upsert_sleep_row(sleep_row: Dict[str, Any]) -> bool:
     if SLEEP_PATH.exists():
         try:
             sleep_df = pd.read_csv(SLEEP_PATH)
-            missing = [c for c in SLEEP_COLUMNS if c not in sleep_df.columns]
+            missing = [c for c in SLEEP_LEGACY_COLUMNS if c not in sleep_df.columns]
             if missing:
                 raise ValueError(
                     f"columnas canónicas ausentes en {SLEEP_PATH.name}: {missing!r} — "
@@ -415,10 +446,18 @@ def upsert_sleep_row(sleep_row: Dict[str, Any]) -> bool:
         sleep_df = pd.DataFrame(columns=SLEEP_COLUMNS)
 
     sleep_df = _ensure_sleep_schema(sleep_df)
+    previous = sleep_df[sleep_df["Fecha"].astype(str) == fecha]
     sleep_df = sleep_df[sleep_df["Fecha"].astype(str) != fecha]
 
     row = {col: sleep_row.get(col, float("nan")) for col in SLEEP_COLUMNS}
     row["Fecha"] = fecha
+    # Una respuesta parcial de Polar no borra valores válidos ya persistidos:
+    # los campos ausentes en la consulta conservan el valor previo de la fecha.
+    if not previous.empty:
+        prev_row = previous.iloc[-1]
+        for col in SLEEP_SIGNAL_COLUMNS:
+            if pd.isna(row.get(col)) and pd.notna(prev_row.get(col)):
+                row[col] = prev_row.get(col)
 
     sleep_df = pd.concat([sleep_df, pd.DataFrame([row])], ignore_index=True)
     sleep_df = _recalculate_sleep_derived(sleep_df)
@@ -434,12 +473,13 @@ def _remove_sleep_row(fecha: str) -> bool:
         return False
 
     sleep_df = pd.read_csv(SLEEP_PATH)
-    missing = [col for col in SLEEP_COLUMNS if col not in sleep_df.columns]
+    missing = [col for col in SLEEP_LEGACY_COLUMNS if col not in sleep_df.columns]
     extras = [col for col in sleep_df.columns if col not in set(SLEEP_COLUMNS)]
     if missing or extras:
         raise ValueError(
             f"esquema incompatible en {SLEEP_PATH.name}: missing={missing!r}, extras={extras!r}"
         )
+    sleep_df = _ensure_sleep_schema(sleep_df)
 
     mask = sleep_df["Fecha"].astype(str).str.strip() == str(fecha).strip()
     if not bool(mask.any()):

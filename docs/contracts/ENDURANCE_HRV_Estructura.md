@@ -44,9 +44,9 @@ El sistema genera CSV operativos, sidecars JSON y reportes de auditoría. Cada u
 
 | Archivo | Para qué sirve | Lo genera | Columnas |
 |---------|---------------|-----------|----------|
-| `ENDURANCE_HRV_master_CORE.csv` | La medición fisiológica del día: pulso, variabilidad, calidad de señal y trazabilidad mínima de estabilidad. Sin ninguna decisión de entrenamiento. | `build_hrv_core.py` | 18 |
+| `ENDURANCE_HRV_master_CORE.csv` | La medición fisiológica del día: pulso, variabilidad, calidad de señal y trazabilidad mínima de estabilidad. Sin ninguna decisión de entrenamiento. | `build_hrv_core.py` | 19 |
 | `ENDURANCE_HRV_master_CORE_manifest.json` | Sidecar atómico de trazabilidad de la corrida CORE/BETA: rutas, hashes de inputs/outputs y configuración efectiva. | `build_hrv_core.py` | — |
-| `ENDURANCE_HRV_master_FINAL.csv` | El gate de entrenamiento, las sombras, el residual, el veto agudo, el reason_text y la capa de recuperación multiseñal necesaria para contextualizar soporte o discordancia sin tocar el gate. | `build_hrv_final_dashboard.py` | 66 |
+| `ENDURANCE_HRV_master_FINAL.csv` | El gate de entrenamiento, las sombras, el residual, el veto agudo, el reason_text y la capa de recuperación multiseñal necesaria para contextualizar soporte o discordancia sin tocar el gate. | `build_hrv_final_dashboard.py` | 67 |
 | `ENDURANCE_HRV_master_FINAL_manifest.json` | Sidecar atómico de trazabilidad de la corrida FINAL/DASHBOARD: enlaza el manifest de CORE y conserva hashes de outputs/configuración efectiva. | `build_hrv_final_dashboard.py` | — |
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | Lo esencial para decidir en 10 segundos: semáforo, acción, warning, y reason_text contextual. Subconjunto de FINAL. | `build_hrv_final_dashboard.py` | 10 |
 | `ENDURANCE_HRV_master_FINAL_reason_items.json` | Sidecar estable con `reason_items` por fecha para consumo de `analysis/`; conserva la separación entre dato medido, proxy, inferencia y acción. Cuando `analysis/` lo usa como fuente primaria, los informes deben poder declararlo explícitamente en `Fuentes`. | `build_hrv_final_dashboard.py` | n/a |
@@ -56,7 +56,7 @@ El sistema genera CSV operativos, sidecars JSON y reportes de auditoría. Cada u
 | `research/reports/ssm_validation/ENDURANCE_HRV_ssm_validation_report.md` | Versión legible en Markdown del reporte de validación SSM. Resume métricas, diagnósticos y estado `go/no-go` sin sustituir al JSON. | `build_hrv_ssm_validation.py` | n/a |
 | `research/reports/ssm_validation/ENDURANCE_HRV_ssm_outcome_battery.json` | Batería exploratoria de outcomes alternativos: prueba SSM contra `lnRMSSD_t+1`, `wellness_t+1` e innovación con comparadores SSM, rolling, AR(1), EWMA y bootstrap CI. No modifica el gate. Se regenera solo bajo demanda, normalmente tras lanzar manualmente la validación SSM. | `build_hrv_ssm_outcome_battery.py` | n/a |
 | `research/reports/ssm_validation/ENDURANCE_HRV_ssm_outcome_battery.md` | Versión legible en Markdown de la batería de outcomes alternativos SSM. | `build_hrv_ssm_outcome_battery.py` | n/a |
-| `ENDURANCE_HRV_sleep.csv` | Sueño nocturno y señales de recuperación (Polar). Alimenta el reason_text pero NO afecta al gate. | `hrv_app.sleep_store` (coordinado por `polar_hrv_automation.py`) | 17 |
+| `ENDURANCE_HRV_sleep.csv` | Sueño nocturno y señales de recuperación (Polar). Alimenta el reason_text pero NO afecta al gate. | `hrv_app.sleep_store` (coordinado por `polar_hrv_automation.py`) | 26 |
 | `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento: zonas, work blocks, drift, effort, clasificación, `route_id` cuando existe, primitivas mínimas de coach metrics por sesión, capa mecánica opcional y señales de durabilidad mecánica. | `build_sessions.py` | 73 |
 | `ENDURANCE_HRV_sessions_day.csv` | Agregados diarios de entrenamiento + rolling con cobertura (_nobs), más contexto canónico de carga (`ACWR`, `monotony`, `strain`), clustering reciente de intensidad, señal rolling de polarización por familia y `elev_loss_7d_sum`. Alimenta el reason_text para checks de carga. | `build_sessions.py` | 61 |
 | `ENDURANCE_HRV_intensity_distribution_weekly.csv` | Resumen semanal por deporte de distribución observada de intensidad (`sport x week`), con minutos ponderados por zona, `work_*`, patrón descriptivo y confianza. Es sidecar analítico; no alimenta el gate. | `build_sessions.py` | 21 |
@@ -92,7 +92,9 @@ La política operativa es deliberadamente simple:
 - si no cumple esas condiciones, el pipeline se detiene sin sobrescribirlo y
   deja una copia de cuarentena cuando el sistema de archivos lo permite;
 - no hay migración automática de esquemas antiguos: deben repararse o
-  restaurarse antes de reintentar el sync.
+  restaurarse antes de reintentar el sync. Única excepción: un
+  `ENDURANCE_HRV_sleep.csv` con las 17 columnas históricas se acepta y se
+  completa con las 9 columnas de valoraciones Polar vacías.
 
 Esta regla protege los históricos frente a sustituciones silenciosas por un
 dataset vacío o parcial. Cualquier cambio futuro de columnas requiere adaptar
@@ -163,7 +165,7 @@ La siguiente tabla numera las columnas del esquema desplegado. En la candidata s
 
 FINAL es el archivo de auditoría completo: contiene la medición del día, el suavizado, los baselines, todos los gates, el veto agudo, el residual, la acción, la acumulación, los warnings y el `reason_text` contextual. Además, desde r2026-03-12 expone una capa mínima de auditoría `raw vs ref` para entender mejor los días `Unstable` sin cambiar el `gate_final`.
 
-**Nota sobre `reason_items`:** `build_hrv_final_dashboard.py` construye internamente `reason_text` desde una capa estructurada de `reason_items` en memoria (`type`, `layer`, `source`, `message`, etc.) y además publica el sidecar `ENDURANCE_HRV_master_FINAL_reason_items.json` para consumo de `analysis/`. El esquema desplegado de `FINAL` y `DASHBOARD` es de 66 y 10 columnas respectivamente. El candidato añade una columna a `FINAL`; no se añade una columna `reason_items_json` al CSV.
+**Nota sobre `reason_items`:** `build_hrv_final_dashboard.py` construye internamente `reason_text` desde una capa estructurada de `reason_items` en memoria (`type`, `layer`, `source`, `message`, etc.) y además publica el sidecar `ENDURANCE_HRV_master_FINAL_reason_items.json` para consumo de `analysis/`. En este checkout local, `FINAL` y `DASHBOARD` tienen 67 y 10 columnas respectivamente; no se añade una columna `reason_items_json` al CSV. El estado de Railway se verifica por separado.
 
 **Nota analysis:** `analysis/session_analysis_pipeline.py` deriva una capa local `narrative_targets.final_reason_rendered` dentro de `session_payload.json`. Esa capa no cambia el contrato global HRV, pero sí fija cómo `analysis/` debe traducir las cautelas tipificadas:
 - mantiene el mensaje cuantificado del item original,
@@ -186,7 +188,7 @@ Fecha,Calidad,HRV_Stability,Artifact_pct,Tiempo_Estabilizacion,Stability_Subtype
 
 ### Agrupación lógica
 
-Las 66 columnas desplegadas se organizan en 13 bloques lógicos. Cada bloque agrupa campos relacionados:
+Las 66 columnas del esquema anterior se organizan en 13 bloques lógicos. El esquema local vigente añade `rejected_rr_pct_window` en el bloque A y tiene 67 columnas. Cada bloque agrupa campos relacionados:
 
 #### A) Identidad / medición base (10 cols)
 
@@ -282,7 +284,7 @@ Columnas 59-66: `veto_agudo`, `ln_pre_veto`, `swc_ln_floor`, `recovery_context_q
 - `recovery_context_quality`: cobertura del contexto de recuperación multiseñal (`none`, `basic`, `rich`)
 - `recovery_support_class`: lectura multiseñal resumida (`supported`, `neutral`, `fragile`, `conflicted`)
 - `recovery_discordance_flag`: marca explícita cuando el soporte objetivo discrepa materialmente del gate
-- `recovery_discordance_reason`: códigos transparentes que explican esa discordancia (`sleep_basic_poor`, `sleep_score_good`, `recent_load_low`, etc.)
+- `recovery_discordance_reason`: códigos transparentes que explican esa discordancia (`sleep_basic_poor`, `sleep_score_good`, `polar_ans_low`, `polar_sleep_charge_high`, `recent_load_low`, etc.)
 
 **Importante:** `gate_raw_today`, `gate_raw_reason` y `unstable_note` son solo auditoría. No cambian `gate_final`.
 
@@ -324,12 +326,12 @@ Fecha,Calidad,HR_today,RMSSD_stable,gate_badge,Action,gate_razon_base60,decision
 **Cabecera exacta (copiar literal):**
 
 ```
-Fecha,polar_sleep_duration_min,polar_sleep_span_min,polar_deep_pct,polar_rem_pct,polar_efficiency_pct,polar_continuity,polar_continuity_index,polar_interruptions_long,polar_interruptions_total,polar_sleep_score,polar_night_rmssd,polar_night_rri,polar_night_resp,sleep_dur_p10,sleep_dur_p90,sleep_int_p90
+Fecha,polar_sleep_duration_min,polar_sleep_span_min,polar_deep_pct,polar_rem_pct,polar_efficiency_pct,polar_continuity,polar_continuity_index,polar_interruptions_long,polar_interruptions_total,polar_sleep_score,polar_night_rmssd,polar_night_rri,polar_night_resp,sleep_dur_p10,sleep_dur_p90,sleep_int_p90,polar_recharge_status,polar_recharge_sublevel,polar_ans_charge,polar_ans_charge_status,polar_sleep_charge_status,polar_night_rmssd_baseline_mean,polar_night_rmssd_baseline_sd,polar_night_rri_baseline_mean,polar_night_rri_baseline_sd
 ```
 
 ### Agrupación lógica
 
-Las 17 columnas se organizan en 3 bloques:
+Las 26 columnas se organizan en 4 bloques (las 9 de valoraciones Polar van al final para preservar el orden histórico):
 
 #### Polar Sleep (10 cols)
 
@@ -362,10 +364,35 @@ Las 17 columnas se organizan en 3 bloques:
 | `sleep_dur_p90` | float | Percentil 90 de duración de sueño |
 | `sleep_int_p90` | float | Percentil 90 de interrupciones largas. Encima = noche fragmentada |
 
+#### Valoraciones personales de Polar Nightly Recharge (9 cols)
+
+Valores de origen de Polar AccessLink v4, sin recalcular. Vacíos en filas
+anteriores a su incorporación o cuando Polar no los entrega. Un código fuera de
+escala se conserva tal cual y no se interpreta.
+
+| Columna | Tipo | Origen v4 | Qué es |
+|---------|------|-----------|--------|
+| `polar_recharge_status` | int 1-6 | `recoveryIndicator` | Estado de Nightly Recharge: 1 muy mala, 2 mala, 3 comprometida, 4 correcta, 5 buena, 6 muy buena |
+| `polar_recharge_sublevel` | float | `recoveryIndicatorSubLevel` | Detalle dentro de la categoría; solo trazabilidad |
+| `polar_ans_charge` | float | `ansStatus` | Carga del SNA nocturna (valor continuo de Polar, aprox. -10 a +10) |
+| `polar_ans_charge_status` | int 1-5 | `ansRate` | Estado del SNA frente al nivel habitual: 1 muy por debajo, 2 por debajo, 3 habitual, 4 por encima, 5 muy por encima |
+| `polar_sleep_charge_status` | int 1-5 | `sleepScore.scoreRate` | Carga de sueño frente al nivel habitual, misma escala 1-5 |
+| `polar_night_rmssd_baseline_mean` | float | `meanBaselineRmssd` | Referencia personal de Polar del RMSSD nocturno (ms) |
+| `polar_night_rmssd_baseline_sd` | float | `sdBaselineRmssd` | Dispersión de esa referencia |
+| `polar_night_rri_baseline_mean` | float | `meanBaselineRri` | Referencia personal de Polar del RRI nocturno (ms) |
+| `polar_night_rri_baseline_sd` | float | `sdBaselineRri` | Dispersión de esa referencia |
+
+Las escalas se contrastaron con respuestas reales de la cuenta: `ansRate` es
+monótono con `ansStatus` y `scoreRate` es relativo al nivel habitual, no a
+umbrales fijos de sleep score. En la API real `meanBaselineRmssd` y
+`meanBaselineRri` llegan siempre a 0 y solo vienen informadas las desviaciones:
+las referencias personales se persisten para trazabilidad y no se interpretan.
+
 **Notas:**
 - Los percentiles se recalculan con **todo** el histórico disponible cada vez que se hace upsert. Son globales (mismo valor en todas las filas).
 - `ENDURANCE_HRV_sleep.csv` puede tener más filas que FINAL: registra noches aunque no haya medición HRV.
 - Si Polar Sleep API falla → campos `polar_*` quedan NaN. El pipeline no se aborta.
+- Una respuesta parcial de Polar no borra valores ya persistidos de la misma fecha: los campos ausentes conservan el valor previo.
 
 ---
 
@@ -427,7 +454,7 @@ Muestra qué entra y qué sale de cada script, y cómo se encadenan:
 
   Polar Sleep API ──┐
   Polar Nightly  ───┤
-                    ├──► ENDURANCE_HRV_sleep.csv (17 cols)
+                    ├──► ENDURANCE_HRV_sleep.csv (26 cols)
                     │    (sueño + recuperación)
                     │
   Intervals.icu ────┤
@@ -465,7 +492,7 @@ assert beta.shape[1] == 13                                             # esquema
 
 ```python
 assert df["Fecha"].is_unique                                                           # sin duplicados
-assert df.shape[1] == 66                                                               # schema v4 + dual baseline
+assert df.shape[1] == 67                                                               # schema local vigente
 assert df["gate_final"].isin(["VERDE", "ÁMBAR", "ROJO", "NO"]).all()                 # vocabulario cerrado
 assert df["Action"].isin(["INTENSIDAD_OK", "Z2_O_TEMPO_SUAVE", "SUAVE_O_DESCANSO"]).all()
 assert df["warning_mode"].isin(["adaptive90", "healthy85", "p20"]).all()
@@ -492,7 +519,11 @@ assert "reason_text" in df.columns
 
 ```python
 assert sleep["Fecha"].is_unique                                                         # sin duplicados
-assert sleep.shape[1] == 17                                                             # schema actual (solo Polar sleep)
+assert sleep.shape[1] == 26                                                             # schema actual (Polar sleep + Nightly Recharge con valoraciones)
+# Valoraciones Polar dentro de escala cuando están informadas
+assert sleep["polar_recharge_status"].dropna().between(1, 6).all()
+for col in ["polar_ans_charge_status", "polar_sleep_charge_status"]:
+    assert sleep[col].dropna().between(1, 5).all()
 # Percentiles son globales (mismo valor en todas las filas)
 assert sleep["sleep_dur_p10"].nunique() <= 1
 # polar_interruptions_long es conteo (no duración), valores típicos 0-15

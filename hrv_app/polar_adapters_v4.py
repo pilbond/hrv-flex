@@ -167,6 +167,14 @@ def v4_sleep_to_internal(item: Optional[dict]) -> Optional[dict]:
     if score is not None and not isinstance(score, dict):
         out["sleep_score"] = score
 
+    # sleepScore.scoreRate: valoración Polar de la puntuación de sueño frente
+    # al nivel habitual del usuario (escala 1-5, "carga de sueño" en Flow).
+    score_obj = item.get("sleepScore")
+    if isinstance(score_obj, dict):
+        score_rate = _first(score_obj, "scoreRate", "score_rate")
+        if score_rate is not None and not isinstance(score_rate, (dict, list)):
+            out["sleep_charge_status"] = score_rate
+
     return out or None
 
 
@@ -204,6 +212,24 @@ def v4_nightly_to_internal(item: Optional[dict]) -> Optional[dict]:
             resp = 60000.0 / interval if interval > 60 else 60.0 / interval
     if resp is not None:
         out["breathing_rate_avg"] = resp
+
+    # Valoraciones personales de Nightly Recharge y referencias de Polar.
+    # Se conservan los valores de origen; la validación de rango la hace el
+    # consumidor (un código desconocido se persiste, pero no se interpreta).
+    rating_mapping = [
+        ("nightly_recharge_status", ("recoveryIndicator",)),
+        ("nightly_recharge_sublevel", ("recoveryIndicatorSubLevel",)),
+        ("ans_charge", ("ansStatus",)),
+        ("ans_charge_status", ("ansRate",)),
+        ("nightly_rmssd_baseline_mean", ("meanBaselineRmssd",)),
+        ("nightly_rmssd_baseline_sd", ("sdBaselineRmssd",)),
+        ("nightly_rri_baseline_mean", ("meanBaselineRri",)),
+        ("nightly_rri_baseline_sd", ("sdBaselineRri",)),
+    ]
+    for internal_key, candidates in rating_mapping:
+        value = _first(item, *candidates)
+        if value is not None and not isinstance(value, (dict, list)):
+            out[internal_key] = value
 
     return out or None
 

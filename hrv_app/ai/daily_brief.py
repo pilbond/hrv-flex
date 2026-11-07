@@ -74,6 +74,13 @@ Rules:
   reinforcing the day's caution or restriction.
 - If `sleep_context.sleep_duration_anomaly.flag` is true, treat that as a data
   anomaly note, not as proof of exceptional recovery.
+- If `sleep_context.sleep_for_target_date` is false, there is no sleep record
+  for this day's night: do not describe sleep quality, duration or score.
+- `sleep_context.polar_nightly_recharge` holds Polar's own ratings relative to
+  the athlete's usual level. When you mention overnight recovery, name the
+  concrete component (ANS status, sleep charge or Nightly Recharge) and use its
+  `label` text. If `available` is false, say nothing about those ratings and
+  do not infer them from other fields or from another night.
 - Do not diagnose illness, overtraining, or systemic fatigue.
 - Do not invent causal links that the payload does not support.
 - Do not add illustrative examples, likely causes, or factor lists unless they
@@ -250,7 +257,96 @@ def _classify_morning(final_row: pd.Series) -> tuple[str, str]:
     return ("green", "HRV matinal estable y compatible con gate favorable.")
 
 
+_POLAR_RECHARGE_STATUS_LABELS = {
+    1: "muy mala",
+    2: "mala",
+    3: "comprometida",
+    4: "correcta",
+    5: "buena",
+    6: "muy buena",
+}
+_POLAR_RELATIVE_STATUS_LABELS = {
+    1: "muy por debajo de lo habitual",
+    2: "por debajo de lo habitual",
+    3: "habitual",
+    4: "por encima de lo habitual",
+    5: "muy por encima de lo habitual",
+}
+
+
+def _polar_rating(sleep_row: pd.Series, column: str, labels: dict[int, str], scale: str) -> dict[str, Any] | None:
+    raw = _to_py(sleep_row.get(column)) if column in sleep_row.index else None
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        value = None
+    status = int(value) if value is not None and value.is_integer() and int(value) in labels else None
+    return {
+        "value": raw,
+        "scale": scale,
+        "label": labels[status] if status is not None else "codigo_desconocido",
+    }
+
+
+def _same_night(sleep_row: pd.Series, target_date: Any) -> bool:
+    """True si la fila de sueño corresponde a la noche de `target_date`."""
+    if target_date is None or "Fecha" not in sleep_row.index:
+        return False
+    try:
+        return pd.to_datetime(sleep_row.get("Fecha")).date() == pd.to_datetime(target_date).date()
+    except (TypeError, ValueError):
+        return False
+
+
+def _polar_nightly_recharge(sleep_row: pd.Series, target_date: Any) -> dict[str, Any]:
+    """Valoraciones personales de Polar para la noche de `target_date`.
+
+    Solo se publican si la fila de sueño es de esa misma noche: las de una
+    noche anterior no describen la recuperación del día.
+    """
+    sleep_date = _to_py(sleep_row.get("Fecha")) if "Fecha" in sleep_row.index else None
+    if not _same_night(sleep_row, target_date):
+        return {
+            "available": False,
+            "sleep_date": sleep_date,
+            "unavailable_reason": "no_sleep_row_for_target_date",
+            "source": "Polar AccessLink v4 nightly-recharge / sleep score",
+        }
+    ratings = {
+        "recharge_status": _polar_rating(sleep_row, "polar_recharge_status", _POLAR_RECHARGE_STATUS_LABELS, "1-6"),
+        "ans_charge_status": _polar_rating(sleep_row, "polar_ans_charge_status", _POLAR_RELATIVE_STATUS_LABELS, "1-5"),
+        "sleep_charge_status": _polar_rating(sleep_row, "polar_sleep_charge_status", _POLAR_RELATIVE_STATUS_LABELS, "1-5"),
+    }
+    # Igual que FINAL: un código fuera de escala se conserva para trazabilidad,
+    # pero no cuenta como valoración disponible.
+    valid = [v for v in ratings.values() if v is not None and v["label"] != "codigo_desconocido"]
+    out: dict[str, Any] = {
+        "available": bool(valid),
+        "sleep_date": sleep_date,
+        "source": "Polar AccessLink v4 nightly-recharge / sleep score",
+    }
+    if not out["available"]:
+        has_invalid = any(v is not None for v in ratings.values())
+        out["unavailable_reason"] = "only_unknown_codes" if has_invalid else "no_polar_ratings"
+    for key, rating in ratings.items():
+        if rating is not None:
+            out[key] = rating
+    # Las referencias personales (meanBaseline*) llegan a 0 en la API real:
+    # se persisten para trazabilidad pero no se exponen al brief.
+    out.update(_row_dict(sleep_row, ["polar_ans_charge", "polar_recharge_sublevel"]))
+    return out
+
+
 def _classify_sleep(sleep_row: pd.Series, reason_items: list[dict[str, Any]]) -> tuple[str, str]:
+    """Clasifica el sueño de la noche.
+
+    Si hay carga de sueño de Polar válida (1-5, relativa al nivel habitual),
+    sustituye al umbral absoluto del sleep score, igual que en FINAL:
+    1 -> red, 2 -> amber, 3-5 -> sin cautela por score. Sin valoración se usa
+    el umbral `sleep_score < 65`. Duración y fragmentación se evalúan siempre.
+    """
     score = sleep_row.get("polar_sleep_score")
     duration = sleep_row.get("polar_sleep_duration_min")
     interruptions = sleep_row.get("polar_interruptions_long")
@@ -264,7 +360,14 @@ def _classify_sleep(sleep_row: pd.Series, reason_items: list[dict[str, Any]]) ->
     }
     has_sleep_caution = any(str(item.get("type", "")) in sleep_item_types for item in reason_items)
 
-    if pd.notna(score) and float(score) < 65.0:
+    sleep_charge = _polar_rating(sleep_row, "polar_sleep_charge_status", _POLAR_RELATIVE_STATUS_LABELS, "1-5")
+    if sleep_charge is not None and sleep_charge["label"] != "codigo_desconocido":
+        charge = int(float(sleep_charge["value"]))
+        if charge == 1:
+            return ("red", f"Polar valora la carga de sueño {sleep_charge['label']}.")
+        if charge == 2:
+            return ("amber", f"Polar valora la carga de sueño {sleep_charge['label']}.")
+    elif pd.notna(score) and float(score) < 65.0:
         return ("red", "Sueno claramente pobre frente a tu historico.")
     if pd.notna(duration) and pd.notna(sleep_row.get("sleep_dur_p10")) and float(duration) < float(sleep_row.get("sleep_dur_p10")):
         return ("amber", "Sueno mas corto de lo habitual, con cautela contextual.")
@@ -291,6 +394,60 @@ def _load_reason_items_lookup(path: Path) -> dict[str, list[dict[str, Any]]]:
     }
 
 
+_SLEEP_CONTEXT_FIELDS = [
+    "polar_sleep_duration_min",
+    "polar_sleep_span_min",
+    "polar_deep_pct",
+    "polar_rem_pct",
+    "polar_efficiency_pct",
+    "polar_continuity",
+    "polar_continuity_index",
+    "polar_interruptions_long",
+    "polar_interruptions_total",
+    "polar_sleep_score",
+    "polar_night_rmssd",
+    "sleep_dur_p10",
+    "sleep_dur_p90",
+    "sleep_int_p90",
+]
+
+
+def _sleep_context(
+    sleep_row: pd.Series,
+    reason_items: list[dict[str, Any]],
+    target_date: Any,
+    same_night: bool,
+) -> dict[str, Any]:
+    """Contexto de sueño de la noche de `target_date`.
+
+    Si la última fila disponible es de otra noche, no se publican sus valores
+    ni una clasificación derivada de ellos: el brief no debe describir como
+    actual el sueño de otra fecha.
+    """
+    sleep_date = _to_py(sleep_row.get("Fecha")) if "Fecha" in sleep_row.index else None
+    if not same_night:
+        return {
+            "sleep_for_target_date": False,
+            "sleep_date": sleep_date,
+            "classification_authoritative": True,
+            "classification": "not_available",
+            "interpretation": "No hay sueño registrado para la noche de este día.",
+            "sleep_duration_anomaly": {"flag": False, "reasons": []},
+            "polar_nightly_recharge": _polar_nightly_recharge(sleep_row, target_date),
+        }
+    classification, interpretation = _classify_sleep(sleep_row, reason_items)
+    return {
+        **_row_dict(sleep_row, _SLEEP_CONTEXT_FIELDS),
+        "sleep_for_target_date": True,
+        "sleep_date": sleep_date,
+        "classification_authoritative": True,
+        "classification": classification,
+        "interpretation": interpretation,
+        "sleep_duration_anomaly": _sleep_duration_anomaly(sleep_row),
+        "polar_nightly_recharge": _polar_nightly_recharge(sleep_row, target_date),
+    }
+
+
 def _build_payload(
     final_row: pd.Series,
     sleep_row: pd.Series,
@@ -298,10 +455,9 @@ def _build_payload(
     reason_items: list[dict[str, Any]],
 ) -> dict[str, Any]:
     morning_classification, morning_interpretation = _classify_morning(final_row)
-    sleep_classification, sleep_interpretation = _classify_sleep(sleep_row, reason_items)
+    same_night = _same_night(sleep_row, final_row.get("Fecha"))
     reason_items_overlap = _reason_items_overlap(reason_items)
     renderable_reason_metrics = _renderable_reason_metrics(reason_items)
-    sleep_duration_anomaly = _sleep_duration_anomaly(sleep_row)
 
     load_context_date = _to_py(sessions_row["Fecha"]) if sessions_row is not None else None
     load_lag_days = None
@@ -381,31 +537,7 @@ def _build_payload(
             "classification": morning_classification,
             "interpretation": morning_interpretation,
         },
-        "sleep_context": {
-            **_row_dict(
-                sleep_row,
-                [
-                    "polar_sleep_duration_min",
-                    "polar_sleep_span_min",
-                    "polar_deep_pct",
-                    "polar_rem_pct",
-                    "polar_efficiency_pct",
-                    "polar_continuity",
-                    "polar_continuity_index",
-                    "polar_interruptions_long",
-                    "polar_interruptions_total",
-                    "polar_sleep_score",
-                    "polar_night_rmssd",
-                    "sleep_dur_p10",
-                    "sleep_dur_p90",
-                    "sleep_int_p90",
-                ],
-            ),
-            "classification_authoritative": True,
-            "classification": sleep_classification,
-            "interpretation": sleep_interpretation,
-            "sleep_duration_anomaly": sleep_duration_anomaly,
-        },
+        "sleep_context": _sleep_context(sleep_row, reason_items, final_row.get("Fecha"), same_night),
         "recent_load_summary": {
             **_row_dict(
                 sessions_row if sessions_row is not None else pd.Series(dtype=object),
