@@ -1,4 +1,4 @@
-<!-- dict_version: 1.2 — SYA-13 + jargon cleanup -->
+<!-- dict_version: 1.3 — SYA-13 + jargon cleanup + swim_context -->
 # ANALYSIS_DICTIONARY.md — Diccionario local de `analysis/`
 
 > **Propósito:** centralizar el significado de artefactos, contextos JSON, labels y taxonomías
@@ -26,6 +26,7 @@
    - [rr_context](#rr_context)
    - [subjective_context](#subjective_context)
    - [session_cost_model](#session_cost_model)
+   - [swim_context](#swim_context)
    - [v1_snapshot](#v1_snapshot)
    - [v1_shadow_comparison](#v1_shadow_comparison)
 3. [Labels de clasificación](#3-labels-de-clasificación)
@@ -83,6 +84,10 @@ Los archivos de contexto viven en `artifacts/`; los informes y prompts en la ra�
 | `coach_intervals.csv` | `artifacts/coach_intervals.csv` | Intervalos de entrenamiento exportados de Intervals.icu. Capa local de apoyo: útil para identificar bloques o repeticiones con valor táctico, pero no es contrato canónico. |
 | `coach_groups.csv` | `artifacts/coach_groups.csv` | Grupos de intervalos agrupados por bloque; complementa `coach_intervals.csv` para sesiones con estructura repetida (p.ej. series). |
 | `coach_metrics.json` | `artifacts/coach_metrics.json` | Versión fichero independiente de `analysis_only_context.coach_metrics`. Permite cargar solo las métricas coach sin leer el payload completo. |
+| `swim_phases.csv` | `artifacts/swim_phases.csv` | Solo natación con fuente Polar: una fila por fase de nado de Polar (`phase_index`, offsets, duración, hueco previo, estilo, brazadas). `length_validated = True` solo si la sesión supera la validación de largos; entonces lleva `distance_m` = piscina, ritmo y `swolf_derived` (duración + brazadas). Las fases no validadas o de tipo no soportado conservan `distance_m` vacío y `exclusion_reason`. |
+| `swim_laps.csv` | `artifacts/swim_laps.csv` | Vueltas de natación de una sola fuente por fila (`source`): `polar_v4` con largos y brazadas por vuelta, o `intervals_fit_laps` solo con tiempo y distancia cuando no hay Polar. Nunca incluye el campo SWOLF del FIT de Intervals. |
+| `polar_swim_source.json` | `artifacts/polar_swim_source.json` | Extracto recortado del ejercicio swim de Polar v4 (estadísticas swim, vueltas, fases y pausas, sin series por segundo ni identificadores) y resultado de la correspondencia de sesión. Permite recalcular `swim_context` sin red. Dato personal: fuera de Git. |
+| `swim_weekly_context.json` / `.md` | `analysis/reports/weekly/<semana>/artifacts/` | Sidecar semanal local declarado en `weekly_prep_manifest.json` (`sidecar = swim_weekly_context`). Minutos de natación frente a carrera/trail (`road_run`, `trail_run`) desde `sessions.duration_min`, `swim_share_of_swim_run = swim_min / (swim_min + run_trail_min)` (`null` si el denominador es 0), las 4 semanas previas, y distancia por estilo, % de braza y sRPE acumulado desde los `swim_context` de Polar de la semana, con cobertura (`swim_context_incomplete` si faltan sesiones). Describe reparto de minutos: no implica equivalencia de carga ni sustitución de impacto. No escribe `ENDURANCE_HRV_weekly_coach.json`. |
 | `v1_shadow_history.json` | `artifacts/v1_shadow_history.json` | Histórico de concordancia entre el clustering estable (AP-01 v1) y el análisis enriquecido con terreno (AP-03, "sombra") en sesiones de trail previas. Muestra si ambos análisis convergen o divergen típicamente, útil como contexto de calibración. Solo existe en trail. |
 
 > **Artefactos de depuración:** si `keep_debug_artifacts=True`, se generan bajo `debug/`: `rr_beats.csv`, `dfa_alpha1.csv`, `rmssd_1min.csv`, `rmssd_5min.csv`. No usar como fuentes analíticas primarias.
@@ -464,6 +469,56 @@ Los archivos de contexto viven en `artifacts/`; los informes y prompts en la ra�
 **Qué NO significa:** No es contrato HRV canónico. No reemplaza la lectura de FC temporal ni el análisis de RR. El `coste_dominante` es una clasificación de apoyo para estructurar la narrativa, no un diagnóstico fisiológico cerrado.
 
 **Canon:** ❌ Local de `analysis/`.
+
+---
+
+### `swim_context`
+
+**Aparece en:** `summary.json.swim_context` y `session_payload.json.swim_context`, generado por `analysis/swim_context.py`. Solo existe en sesiones `sport = swim`.
+
+**Qué es:** Contexto local de natación con Polar v4 como fuente principal (`/training-sessions/list` con `samples`, `laps`, `statistics`, `pause-times`). Describe estructura de nado, estilos, SWOLF por estilo y carga percibida. Cada métrica lleva fuente o `null` con motivo.
+
+**Campos clave:**
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `status` | string | `available` (sin motivos de calidad), `partial` (algún motivo en `quality_reasons`) o `unavailable` (ni fuente swim ni RPE). |
+| `swim_source` | string | `polar_v4`, `intervals_fit_laps` (solo vueltas descriptivas del FIT) o `none`. |
+| `granularity` | string | `length` (fases validadas como largos), `phase`, `lap`, `session` o `none`. |
+| `polar_match` | dict | Correspondencia con Polar por hora local (±20 min) y duración (±5 min; ambas obligatorias): `status` (`matched`, `ambiguous_match`, `no_match`, con `reason = duration_mismatch` si solo falla la duración). La correspondencia guardada en caché o en `polar_swim_source.json` se repite siempre contra la fila actual de `sessions.csv`; si ya no cuadra (`cached_source_mismatch`) se descarta la fuente y, al preparar el bundle, se vuelve a consultar Polar, `start_delta_min`, `duration_gap_min`, `dst_fallback`, fecha de consulta, features y error de consulta. |
+| `length_validation_status` | string | `passed` si la piscina en metros es conocida, toda fase tiene inicio y duración positiva, nº de fases = `poolsSwum`, no hay solapes, todo estilo validable de las fases tiene agregado oficial en `swimmingStyles` y, por estilo, `n_fases × piscina` = distancia, suma de brazadas = `strokeCount` y el SWOLF reconstruido no discrepa del oficial más de 0,001; si no, `failed`. Sin `swolfAvg` oficial los largos pueden validarse, pero no se deriva SWOLF por largo. |
+| `pool_length_m`, `pool_units` | number, string | Piscina declarada por Polar. Yardas o piscina ausente → `pool_unknown`. |
+| `n_phases`, `n_lengths_validated`, `n_laps` | int | Conteos de fases, largos validados y vueltas (`laps_source` indica su fuente). |
+| `swim_time_s`, `session_duration_s` | number | Tiempo nadando (suma por estilo de Polar) frente a duración total del ejercicio. |
+| `pace_s_per_100m` | number | `100 × suma de tiempos / suma de distancias` por estilo; no es media de ritmos ni incluye huecos. Si algún estilo con distancia no trae tiempo, queda `null` con motivo `duration_missing`. |
+| `phase_gaps_count`, `phase_gaps_total_s` | int, number | Huecos entre fases. Descriptivos: no se llaman descanso ni se suman a las pausas. |
+| `pause_count`, `pause_total_s` | int, number | Pausas registradas por Polar (`pauseTimes`). |
+| `primary_stroke` | string | Estilo validable con más distancia. |
+| `stroke_distribution` | dict | Distancia y % por estilo, con base `distance_m`; `distance_unclassified_m` = distancia sin estilo. |
+| `breaststroke_pct` | number | % de braza sobre la distancia con estilo. Describe exposición, no riesgo de lesión. |
+| `styles` | list[dict] | Por estilo: distancia, brazadas, tiempo, ritmo, FC, `n_lengths_validated`, `too_few_lengths`, `swolf_polar`, `swolf_reconstructed`, `swolf_abs_error`, `swolf_validation_status`. |
+| `swolf_source` | string | `polar` o `none`. El SWOLF del FIT de Intervals equivale a segundos por 25 m y no se usa. |
+| `swolf_by_stroke` | dict | `swolfAvg` de Polar por estilo. No existe SWOLF global de sesión. |
+| `swolf_validation_status` | string | `validated_against_phases` si el SWOLF reconstruido desde las fases (`(suma de duraciones + suma de brazadas) / nº de largos`) queda a ≤ 0,001 del de Polar; si no, `mismatch` (motivo `source_mismatch`) o `not_validated`. |
+| `hr_confidence` | string | `sensor_unknown` mientras no se identifique el origen de la FC; la FC en agua es contexto débil. |
+| `rpe`, `srpe_load` | number | RPE válido 1-10 de `sessions.rpe` y `srpe_load = rpe × sessions.duration_min` en `AU`. No equivale a `load` ni a `trimp`. |
+| `intervals_session_rpe`, `srpe_minus_intervals_session_rpe` | number | `session_rpe` de Intervals (tiempo en movimiento × `icu_rpe`) y su diferencia con `srpe_load`; se muestran ambos sin elegir. |
+| `rpe_vs_cardio_discordance` | bool o null | `True` si RPE ≥ 4 y `cardio_score = 0`; `null` si falta alguno. Descriptivo: no reclasifica el coste. |
+| `session_id`, `session_date` | string | Sesión de `sessions.csv` a la que pertenece el contexto; permiten construir historial y el sidecar semanal. |
+| `history` | dict o null | Últimas sesiones previas comparables por estilo (`by_stroke`): misma fuente `polar_v4`, largos validados, misma piscina, mismo estilo, SWOLF validado, sin `too_few_lengths` y base temporal `swimmingTimeTotalMillis`. Hasta 5 sesiones; con menos de 3 marca `too_few_sessions` y no da medianas. Con 3 o más da `prior_swolf_median` y `prior_pace_median_s_per_100m` como referencia descriptiva, no como tendencia. Son mínimos de presentación, no umbrales fisiológicos. Solo cuenta informes que ya tengan `swim_context`. |
+| `quality_reasons` | list[string] | `polar_unavailable`, `ambiguous_match`, `pool_unknown`, `unsupported_phase_type`, `phase_validation_failed`, `stroke_unknown`, `too_few_lengths`, `rpe_missing`, `duration_missing`, `source_mismatch`. |
+
+**Reglas de lectura:**
+
+- El SWOLF solo se compara dentro del mismo estilo y la misma piscina; no normalizar 25 m a 50 m.
+- Un SWOLF alto no equivale a más coste, ni uno menor demuestra por sí solo mejor técnica.
+- Crol, braza y espalda son los únicos estilos cuya fase se trata como largo; mariposa, viraje, drill y fases desconocidas se conservan como fase sin metros.
+- El estilo es el que reporta Polar; no se infiere por ritmo, FC ni notas.
+- Los estilos con menos de 3 largos validados llevan `too_few_lengths` y no sirven para tendencias.
+- No se calcula deriva automática entre la primera y la última vuelta.
+- `history` es referencia descriptiva; no etiquetar mejora o empeoramiento a partir de una sola diferencia.
+
+**Canon:** ❌ Local de `analysis/`. No alimenta `session_cost_model`, gate, `FINAL`, `DASHBOARD` ni `reason_text`.
 
 ---
 

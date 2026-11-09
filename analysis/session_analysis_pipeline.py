@@ -31,6 +31,7 @@ if str(_ANALYSIS_DIR) not in sys.path:
     sys.path.insert(0, str(_ANALYSIS_DIR))
 from fit_speed_utils import compute_speed_metrics as _compute_speed_metrics
 from fit_terrain_utils import analyze_fit_climbs, compute_matched_climbs_context, group_terrain_climbs, parse_fit_terrain_data
+import swim_context as _swim
 
 import hrv_app.config as _hrv_config
 from hrv_app.config import ATHLETE_WEIGHT_KG, SYSTEM_BIKE_WEIGHT_KG
@@ -54,7 +55,7 @@ DEFAULT_REPORTS_DIR = ANALYSIS_DIR / "reports"
 DEFAULT_BUNDLE_ROOT = ANALYSIS_DIR / ".cache" / "session_bundles"
 ANALYZER_SCRIPT = ANALYSIS_DIR / "endurance_rr_session_v4.py"
 EXPECTED_CONTRACT_VERSIONS = {
-    "SESSION_ANALYSIS_METHOD.md": "1.6",
+    "SESSION_ANALYSIS_METHOD.md": "1.7",
     "ENDURANCE_AGENT_DOMAIN.md": "1.3",
 }
 ANALYST_PROMPT_RULES_PATH = ANALYSIS_DIR / "analyst_prompt_rules.md"
@@ -3371,6 +3372,14 @@ def prepare_bundle(
         rr_info = fetch_session_rr_csv(row, rr_csv)
     except Exception as exc:
         rr_error = str(exc)
+    polar_swim_source_path = None
+    polar_swim_error = None
+    if _swim.is_swim_session(row):
+        try:
+            _swim.fetch_polar_swim_source(row, bundle_dir / _swim.SOURCE_FILENAME)
+            polar_swim_source_path = str(bundle_dir / _swim.SOURCE_FILENAME)
+        except Exception as exc:
+            polar_swim_error = f"{type(exc).__name__}: {exc}"
 
     manifest = {
         "slug": slug,
@@ -3401,10 +3410,150 @@ def prepare_bundle(
         "fit_error": fit_error,
         "rr_info": rr_info,
         "rr_error": rr_error,
+        "polar_swim_source_path": polar_swim_source_path,
+        "polar_swim_error": polar_swim_error,
     }
     write_json(manifest_path, manifest)
     manifest["manifest_path"] = str(manifest_path)
     return manifest
+
+
+_SWIM_STYLE_LABELS_ES = {
+    "FREESTYLE": "crol",
+    "BREASTSTROKE": "braza",
+    "BACKSTROKE": "espalda",
+    "BUTTERFLY": "mariposa",
+    "DRILL": "drill",
+}
+
+
+def _swim_style_es(style: Any) -> str:
+    return _SWIM_STYLE_LABELS_ES.get(str(style or "").upper(), str(style or "n/d").lower())
+
+
+def _fmt_swim_pace(seconds_per_100m: Any) -> str:
+    value = _float_or_none(seconds_per_100m)
+    if value is None or value <= 0:
+        return "n/d"
+    total = int(round(value))
+    return f"{total // 60}:{total % 60:02d}/100 m"
+
+
+def _build_swim_technical_lines(swim_context: dict[str, Any] | None) -> list[str]:
+    if not isinstance(swim_context, dict):
+        return []
+    lines = ["## Swim Context"]
+    for label in (
+        "status",
+        "swim_source",
+        "granularity",
+        "length_validation_status",
+        "pool_length_m",
+        "n_phases",
+        "n_lengths_validated",
+        "n_laps",
+        "laps_source",
+        "pace_s_per_100m",
+        "primary_stroke",
+        "breaststroke_pct",
+        "swolf_source",
+        "swolf_by_stroke",
+        "swolf_validation_status",
+        "history",
+        "srpe_load",
+        "intervals_session_rpe",
+        "rpe_vs_cardio_discordance",
+        "hr_confidence",
+        "quality_reasons",
+    ):
+        value = swim_context.get(label)
+        if value in (None, "", [], {}):
+            continue
+        lines.append(f"- {label}: `{value}`")
+    lines.extend([
+        "- note: SWOLF solo de Polar y por estilo; no se compara entre estilos ni se promedia en global",
+        "",
+    ])
+    return lines
+
+
+def _build_swim_structure_lines(swim_context: dict[str, Any] | None) -> list[str]:
+    if not isinstance(swim_context, dict) or swim_context.get("swim_source") in (None, "none"):
+        return []
+    lines: list[str] = []
+    source = swim_context.get("swim_source")
+    if source == "polar_v4":
+        pool = swim_context.get("pool_length_m")
+        lengths = swim_context.get("n_lengths_validated")
+        if swim_context.get("length_validation_status") == "passed":
+            lines.append(
+                f"Natación según Polar: `{_fmt_num(lengths, digits=0)}` largos validados en piscina de "
+                f"`{_fmt_num(pool, digits=0)} m`, ritmo de nado `{_fmt_swim_pace(swim_context.get('pace_s_per_100m'))}` "
+                "(solo tiempo nadando, sin huecos entre largos)."
+            )
+        else:
+            lines.append(
+                f"Natación según Polar: `{_fmt_num(swim_context.get('n_phases'), digits=0)}` fases sin validar como largos "
+                f"(`{', '.join(swim_context.get('quality_reasons') or []) or 'motivo no declarado'}`); no se derivan metros por fase."
+            )
+        styles = swim_context.get("styles") or []
+        parts = []
+        for style in styles:
+            if not style.get("distance_m"):
+                continue
+            part = (
+                f"{_swim_style_es(style.get('style'))} `{_fmt_num(style.get('distance_m'), digits=0)} m` "
+                f"a `{_fmt_swim_pace(style.get('pace_s_per_100m'))}`"
+            )
+            if style.get("swolf_polar") is not None:
+                part += f", SWOLF `{_fmt_num(style.get('swolf_polar'))}`"
+            if style.get("too_few_lengths"):
+                part += " (pocos largos)"
+            parts.append(part)
+        if parts:
+            lines.append("Por estilo: " + "; ".join(parts) + ".")
+            lines.append(
+                "El SWOLF solo es comparable dentro del mismo estilo y la misma piscina; no indica por sí solo más coste ni mejor técnica."
+            )
+        history = (swim_context.get("history") or {}).get("by_stroke") or {}
+        for style, entry in history.items():
+            if entry.get("too_few_sessions"):
+                n_prior = entry.get("n_prior_eligible") or 0
+                count_text = (
+                    "sin sesiones previas comparables"
+                    if n_prior == 0
+                    else f"solo `{n_prior}` {'sesión previa comparable' if n_prior == 1 else 'sesiones previas comparables'}"
+                )
+                lines.append(
+                    f"Historial de {_swim_style_es(style)} en `{_fmt_num(entry.get('pool_length_m'), digits=0)} m`: "
+                    f"{count_text}; sin resumen."
+                )
+            else:
+                lines.append(
+                    f"Historial de {_swim_style_es(style)} en `{_fmt_num(entry.get('pool_length_m'), digits=0)} m`: "
+                    f"mediana de las `{entry.get('n_prior_eligible')}` sesiones previas comparables, SWOLF "
+                    f"`{_fmt_num(entry.get('prior_swolf_median'))}` y ritmo `{_fmt_swim_pace(entry.get('prior_pace_median_s_per_100m'))}`. "
+                    "Referencia descriptiva, no tendencia."
+                )
+        if swim_context.get("breaststroke_pct") not in (None, 0, 0.0):
+            lines.append(
+                f"La braza supone `{_fmt_pct(swim_context.get('breaststroke_pct'))}` de la distancia con estilo: dato de exposición, no de riesgo."
+            )
+    elif source == "intervals_fit_laps":
+        lines.append(
+            f"Sin datos de natación de Polar: solo `{_fmt_num(swim_context.get('n_laps'), digits=0)}` vueltas descriptivas del FIT de Intervals, "
+            "sin estilos ni SWOLF interpretable."
+        )
+    if swim_context.get("srpe_load") is not None:
+        lines.append(
+            f"Carga percibida: sRPE `{_fmt_num(swim_context.get('srpe_load'), digits=0)} AU` "
+            f"(RPE `{_fmt_num(swim_context.get('rpe'), digits=0)}` x duración total)."
+        )
+    if swim_context.get("rpe_vs_cardio_discordance"):
+        lines.append(
+            "El RPE es alto para un `cardio_score` nulo: la percepción no cuadra con la FC; dato descriptivo, no reclasifica el coste."
+        )
+    return lines
 
 
 def render_report_markdown(summary: dict[str, Any]) -> str:
@@ -3672,6 +3821,8 @@ def render_report_markdown(summary: dict[str, Any]) -> str:
                     f"- audit_buckets: `vam={efficiency_buckets.get('vam_ratio')}, hr={efficiency_buckets.get('hr_drift_bpm')}, cost={efficiency_buckets.get('hr_per_vam_ratio')}`"
                 )
         lines.append("")
+
+    lines.extend(_build_swim_technical_lines(summary.get("swim_context")))
 
     if analysis_only_context:
         coach_metrics = analysis_only_context.get("coach_metrics") or {}
@@ -6344,6 +6495,7 @@ def build_final_report_markdown(
     work_blocks_note = _work_blocks_asymmetry_note(session_row.get("work_blocks_min"))
     if work_blocks_note:
         lines.append(work_blocks_note)
+    lines.extend(_build_swim_structure_lines(summary.get("swim_context")))
 
     lines.extend(
         [
@@ -7279,6 +7431,7 @@ def build_conversational_payload(
         "v1_shadow_history": v1_shadow_history,
         "terrain_climbs": terrain_climbs if terrain_climbs else None,
         "efficiency_context": summary.get("efficiency_context"),
+        "swim_context": summary.get("swim_context"),
         "analysis_only_context": analysis_only_context,
         "longitudinal_context": longitudinal_context,
         "final_reason_items": final_reason_items,
@@ -7740,6 +7893,8 @@ def session_family_notes(sport_family: str) -> list[str]:
             "familia swim: no usar semantica de locomocion terrestre",
             "tratar SWOLF, brazada y bloques como apoyo tecnico/propulsivo, no como coste mecanico de carrera",
             "si el dato es pobre, preferir no clasificable en la dimension mecanica",
+            "usar `swim_context` como fuente de estilos, largos y SWOLF: SWOLF solo de Polar, por estilo y misma piscina; nunca SWOLF global ni comparado entre estilos",
+            "`srpe_load` y `rpe_vs_cardio_discordance` describen carga percibida; no reclasifican el coste ni prueban un fallo de FC",
         ]
     return [
         "familia trail: semantica de terreno, subida, bajada y locomocion corrible aplicable por defecto",
@@ -7788,6 +7943,51 @@ def _build_no_rr_summary(session_row: dict[str, str], manifest: dict[str, Any]) 
         "rr_context": rr_context,
         "final_cost_interpretation": final_cost,
     }
+
+
+def attach_swim_context(
+    summary: dict[str, Any],
+    manifest: dict[str, Any],
+    session_row: dict[str, Any],
+    artifacts_dir: Path,
+    *,
+    fit_artifact_path: Path | None = None,
+    reports_root: Path | None = None,
+) -> tuple[Path | None, Path | None]:
+    """Calcula `swim_context` sin red desde la fuente Polar cacheada."""
+    if not _swim.is_swim_session(session_row):
+        return None, None
+    source_path = manifest.get("polar_swim_source_path")
+    polar_source = None
+    polar_error = manifest.get("polar_swim_error")
+    if source_path and Path(source_path).exists():
+        try:
+            polar_source = json.loads(Path(source_path).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            polar_error = f"{type(exc).__name__}: {exc}"
+    cost = summary.get("session_cost_model") or {}
+    coach_metrics = ((summary.get("analysis_only_context") or {}).get("coach_metrics") or {})
+    context, phase_rows, lap_rows = _swim.build_swim_context(
+        session_row,
+        polar_source,
+        # Las vueltas FIT se pasan siempre: el constructor solo las usa si la
+        # fuente Polar no existe o no supera la revalidación.
+        fit_laps=_swim.read_fit_laps(fit_artifact_path),
+        cardio_score=_coerce_int_like(cost.get("cardio_score")),
+        intervals_session_rpe=coach_metrics.get("session_rpe"),
+        polar_error=polar_error,
+    )
+    if context is None:
+        return None, None
+    if reports_root is not None:
+        priors = _swim.load_prior_swim_contexts(reports_root, exclude_session_id=session_row.get("session_id"))
+        context["history"] = _swim.build_style_history(context, priors)
+    if polar_source is not None and context.get("swim_source") == "polar_v4":
+        write_json(artifacts_dir / _swim.SOURCE_FILENAME, polar_source)
+    phases_path = _swim.write_swim_phases_csv(artifacts_dir / _swim.PHASES_FILENAME, phase_rows)
+    laps_path = _swim.write_swim_laps_csv(artifacts_dir / _swim.LAPS_FILENAME, lap_rows)
+    summary["swim_context"] = context
+    return phases_path, laps_path
 
 
 def run_analysis(bundle_manifest: Path, reports_dir: Path, keep_debug_artifacts: bool = False) -> dict[str, Any]:
@@ -8005,6 +8205,15 @@ def run_analysis(bundle_manifest: Path, reports_dir: Path, keep_debug_artifacts:
             summary["analysis_only_context"] = analysis_only_context
         write_json(artifacts_dir / "longitudinal_context.json", longitudinal_context)
 
+    swim_phases_csv_path, swim_laps_csv_path = attach_swim_context(
+        summary,
+        manifest,
+        session_row,
+        artifacts_dir,
+        fit_artifact_path=fit_artifact_path,
+        reports_root=reports_dir,
+    )
+
     write_json(summary_path, summary)
     technical_report_md = report_dir / "technical_report.md"
     technical_report_md.write_text(render_report_markdown(summary), encoding="utf-8")
@@ -8140,6 +8349,8 @@ def run_analysis(bundle_manifest: Path, reports_dir: Path, keep_debug_artifacts:
         "coach_metrics_json": str(coach_metrics_path) if coach_metrics_path else None,
         "coach_intervals_csv": str(coach_intervals_csv_path) if coach_intervals_csv_path else None,
         "coach_groups_csv": str(coach_groups_csv_path) if coach_groups_csv_path else None,
+        "swim_phases_csv": str(swim_phases_csv_path) if swim_phases_csv_path else None,
+        "swim_laps_csv": str(swim_laps_csv_path) if swim_laps_csv_path else None,
         "fit_artifact": str(fit_artifact_path) if fit_artifact_path else None,
         "session_payload": str(payload_path),
         "ai_handoff": str(ai_handoff_path),

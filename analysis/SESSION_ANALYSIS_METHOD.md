@@ -1,4 +1,4 @@
-<!-- contract_version: 1.6 -->
+<!-- contract_version: 1.7 -->
 # SESSION_ANALYSIS_METHOD.md - Session analysis method
 
 Para el RMSSD por segmento de una sesión, se requieren al menos dos diferencias entre intervalos RR consecutivos en el archivo original. Un descarte interrumpe la secuencia. Si el eje temporal está comprometido, el análisis identifica el segmento con `time_axis_compromised`.
@@ -750,6 +750,19 @@ Reglas de clasificacion en swim:
 - si solo hay FC y duracion, preferir `no_clasificable` antes que inventar un `mecanico_score`,
 - si hay ritmo de serie pero no metrica tecnica, se puede clasificar `propulsivo_score` con confianza limitada,
 - si hay `SWOLF` o brazada sin contexto de ritmo o serie, usarlo solo como nota de apoyo, no como base del score.
+
+Fuente de estructura y tecnica en swim (`swim_context`, ver `ANALYSIS_DICTIONARY.md`):
+
+- Polar v4 es la fuente principal de piscina, estilos, brazadas, fases y `SWOLF`; Intervals aporta RPE y contexto,
+- el `SWOLF` de los FIT regenerados por Intervals no se usa: equivale a segundos por 25 m sin brazadas,
+- una fase Polar solo cuenta como largo si `length_validation_status = passed`; si no, se lee como fase sin metros,
+- usar `swolf_by_stroke`, nunca un `SWOLF` global, y comparar solo mismo estilo y misma piscina,
+- `breaststroke_pct` describe exposicion a braza, no riesgo,
+- `srpe_load` (RPE x duracion total) es la carga percibida de referencia cuando la FC en agua es debil; no equivale a `load` ni a `trimp`,
+- `rpe_vs_cardio_discordance` es descriptiva: no cambia `cardio_score` ni el coste dominante,
+- `swim_context.history` compara solo con sesiones previas del mismo estilo, piscina y fuente; con menos de 3 no se resume y nunca se lee como tendencia,
+- en el analisis semanal, `swim_weekly_context` (declarado en `weekly_prep_manifest.json`) describe el reparto de minutos natacion / carrera-trail y la exposicion por estilo; no demuestra sustitucion de impacto,
+- `swim_context` todavia no alimenta `mecanico_score`.
 
 ### Confianza
 Usar:

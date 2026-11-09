@@ -1,153 +1,311 @@
-# SYA-02 Capa swim lite: sRPE, ritmo por vuelta, estilo y SWOLF
+# SYA-02 Capa swim desde Polar v4: largos validados, estilos, SWOLF y carga percibida
 
-> Reescrita el 2026-11-06 tras evaluar la version anterior contra datos reales.
-> Sustituye al alcance previo (parser por largo con fallback FIT/TCX y `swim_lengths.csv`).
-> Sigue absorbiendo `TYM-02`: su semantica de `SWOLF` se conserva.
+> Revisada el 2026-11-07 tras consultar Polar v4 para nueve sesiones reales.
+> Corrige la reducción a «swim lite por vueltas de Intervals» del 2026-11-06:
+> que un FIT regenerado no tenga mensajes `length` no implica que Polar carezca
+> de información por largo. Sigue absorbiendo `TYM-02`.
+> Estado: propuesta actualizada; auditoría ejecutada, integración pendiente.
 
-## Por que se reescribe
+## 1. Decisión y alcance
 
-### Paso 0 parcial ya ejecutado (2026-11-06)
+Construir un `swim_context` local de `analysis` con **Polar v4 como fuente
+principal de natación**. Recuperar piscina, estilos, brazadas, SWOLF por estilo
+y fases temporales; exponer largos cuando la coherencia de cada sesión
+permita interpretar sus fases como largos.
 
-Se inspeccionaron los 8 FIT swim cacheados en `analysis/reports/**/swim_*/artifacts/session.fit`:
+Intervals aporta contexto canónico, RPE y respaldo descriptivo cuando Polar
+no está disponible. El SWOLF de los FIT de Intervals auditados no sirve como
+alternativa técnica: no supera la comprobación de semántica.
 
-- todos son FIT **regenerados por Intervals.icu** (`file_id.product_name = Intervals.icu`), no el original de Polar,
-- **ningun** FIT tiene mensajes `length`, ni `swim_stroke`, ni `length_type`,
-- los `record` solo traen `heart_rate`, `temperature`, `timestamp` (sin distancia por segundo),
-- todos declaran `sub_sport = open_water` aunque son sesiones de piscina,
-- si hay `lap` (1-7 por sesion) con `total_distance`, `total_timer_time`, FC media/max/min y `SWOLF` (campo developer calculado por Intervals),
-- `session` trae `SWOLF` global, `avg_cadence` y `avg_speed`.
+El objetivo es describir carga percibida, estructura de nado, exposición por
+estilo y papel de la natación en la semana. Esta iteración no modifica
+`session_cost_model.py`, `sessions.csv`, `sessions_day.csv`,
+`ENDURANCE_HRV_weekly_coach.json`, `FINAL`, `DASHBOARD`, gate ni `reason_text`.
+No incorpora nuevos flujos OAuth ni APIs v3.
 
-Consecuencia: el fallback `fit_length_messages` del diseño anterior **no existe** con la fuente actual. La granularidad real disponible hoy es **por vuelta**, no por largo.
+## 2. Evidencia comprobada el 2026-11-07
 
-Ademas, la version anterior citaba `hrv_app/polar_client.py` y `/v3/exercises`, retirados en AYO-22.
+### Consulta directa a Polar
 
-### Perfil real de la natacion de este atleta
+Se utilizó `V4Client`, de `hrv_app/polar_client_v4.py`, con:
 
-Datos de `ENDURANCE_HRV_sessions.csv` (2025-05-15 → 2026-11-05):
+- `GET /v4/data/training-sessions/list`;
+- intervalo diario `[día T00:00:00, día siguiente T00:00:00)`;
+- `features=["samples", "laps", "statistics", "pause-times"]`.
 
-- 78 sesiones swim (13 % de sesiones, 6 % de la carga total),
-- 71 `easy`, 5 `work_moderate`, 2 `finish_strong`; FC media ~115 bpm; ~1.5 km en ~47 min,
-- RPE solo en 19/78 sesiones (media 4.2),
-- las notas describen natacion de descarga / cross-training: "volumen suave sin cargar articulaciones", "evitar el calor", "no hacer crol me hace llevar mejor la sesion", "en los giros notaba las rodillas", y sensacion repetida de sesion "costosa",
-- octubre 2026: 16 sesiones (bloque de sustitucion de impacto).
+La lista de features se envía mediante el cliente existente. El detalle viene
+en `exercises[]`; no hace falta suponer un endpoint separado de detalle.
 
-Lectura: `bajo_estimulo` cardio es mayoritariamente correcto. El hueco no es la eficiencia tecnica fina, sino:
+Muestra de conveniencia: ocho fechas con FIT swim cacheado y una sesión
+reciente. No equivale a comprobar las 78 sesiones históricas.
 
-1. la carga **percibida** (sesiones "costosas" con `cardio_score = 0`, FC de muneca debil en agua),
-2. el **estilo** como contexto articular (patada de braza y rodilla),
-3. la evolucion de **ritmo y SWOLF** como lectura de readaptacion,
-4. el **papel de la natacion** como sustituto de impacto en la semana.
+| Fecha | Distancia Polar (m) | Piscina (m) | Fases / largos declarados | Vueltas Polar |
+|---|---:|---:|---:|---:|
+| 2026-01-27 | 1525 | 25 | 61 / 61 | 9 |
+| 2026-02-05 | 1200 | 25 | 48 / 48 | 3 |
+| 2026-02-09 | 925 | 25 | 37 / 37 | 0 |
+| 2026-03-12 | 1725 | 25 | 69 / 69 | 5 |
+| 2026-04-07 | 1200 | 25 | 48 / 48 | 5 |
+| 2026-04-22 | 1100 | 25 | 44 / 44 | 0 |
+| 2026-05-12 | 2025 | 25 | 81 / 81 | 6 |
+| 2026-05-19 | 1850 | 25 | 74 / 74 | 5 |
+| 2026-11-05 | 1875 | 25 | 75 / 75 | 14 |
 
-## Objetivo
+Datos recuperados en las nueve sesiones:
 
-Exponer en `analysis` un `swim_context` reproducible y prudente usando primero lo que ya existe (FIT por vuelta de Intervals + `sessions.csv`), y enriquecerlo con estilo solo si una fuente lo trae de verdad.
+- `exercises[].statistics.swimmingStatistics`: `poolLength`, `poolUnits`,
+  `poolsSwum`, distancia, brazadas totales y `swimmingStyles[]`.
+- Por estilo: distancia, `strokeCount`, `swimmingTimeTotalMillis`, FC y
+  **`swolfAvg` de Polar**.
+- `exercises[].samples.swimmingPhases.phases[]`: `startOffsetMillis`,
+  `durationMillis`, `style` y `strokes`.
+- Samples de velocidad, distancia, cadencia y FC; `pauseTimes`.
+- Vueltas cuando existen, con distancia, duración y estadísticas swim.
 
-La integracion en `analysis/session_cost_model.py` (`swim_mechanical_score`) sigue **fuera de alcance**.
+Comprobaciones:
 
-## Fases
+- **537 fases**; en 9/9 sesiones su número coincide con `poolsSwum`.
+- En los **25 agregados por estilo**, `n_fases × poolLength` coincide con
+  distancia y la suma de brazadas coincide con `strokeCount`.
+- El SWOLF por estilo se reproduce con
+  `(suma(durationMillis) / 1000 + suma(strokes)) / n_fases`.
+  Error absoluto máximo frente a `swolfAvg`: **0,000064**, compatible con redondeo.
+- No hay solapamientos de fases. Sí hay huecos temporales: no se ha demostrado
+  que todo hueco sea descanso ni que coincida con una pausa de `pauseTimes`.
+- Las dos sesiones sin vueltas Polar sí tienen fases y estadísticas por
+  estilo. Las vueltas no pueden ser requisito de disponibilidad.
 
-### Fase A — Spike de fuentes (timebox 1-2 h)
+Ejemplo del 2026-05-19: 35 largos de braza, 875 m y SWOLF 57,7;
+39 largos de espalda, 975 m y SWOLF 88,6872. Se pueden separar estilos
+con datos directos, sin inferirlos desde notas ni desde la FC.
 
-Dump exploratorio de una sesion swim de referencia desde:
+### Corrección explícita del inventario de Intervals
 
-1. Polar AccessLink v4 `/training-sessions/list` (+ detalle/samples si existe) con el cliente `hrv_app/polar_client_v4.py`,
-2. Intervals.icu `/activity/{id}/file` (archivo original subido, no el FIT regenerado),
-3. campos de actividad de Intervals relacionados con natacion (`pool_length`, largos, brazadas, si existen).
+Los ocho FIT están regenerados por Intervals y no tienen mensajes `length`.
+La inspección actual corrige estas afirmaciones del documento del 2026-11-06:
 
-Verificar en cada uno: `length` / largos, `swim_stroke`, `pool_length`, pausas, brazadas, y **como calcula Intervals su `SWOLF`** (de donde salen brazadas y longitud de piscina).
+- **Sí contienen** `distance`, `speed` y `enhanced_speed` en los registros,
+  además de FC, temperatura y timestamp. Esto no demuestra que sean medidas
+  originales ni valida su uso como velocidad instantánea de nado.
+- Solo **3/8 FIT** tienen SWOLF de vuelta. En sus **12 vueltas válidas**,
+  coincide con `total_timer_time × 25 / total_distance`, con error inferior
+  a 0,000002. Es tiempo por 25 m sin contribución identificable de brazadas:
+  conservarlo como evidencia de auditoría, no como SWOLF interpretable.
+- Cinco FIT terminan con una vuelta de 1 s sin distancia; cuatro sesiones
+  tienen una sola vuelta con tiempo y distancia válidos.
+- En los ocho FIT, la distancia de sesión coincide con Polar, pero la suma
+  de sus vueltas válidas queda 25 m por debajo. Algunas vueltas difieren:
+  el 19 de mayo la segunda tiene 525 m en FIT y 550 m en Polar. No emparejar
+  vueltas por índice ni mezclar tiempo y distancia de fuentes distintas.
 
-Salida: informe corto en `research/audits/swim_sources/` con la decision de fuente. Sin codigo de aplicacion.
+Por tanto, se retira el uso del SWOLF de Intervals como «provisional con
+confianza baja». La consulta directa a Polar evita esa limitación en la muestra.
 
-### Fase B — Swim lite (no depende de A)
+### Trazabilidad y límites
 
-Desde el FIT por vuelta ya disponible y `sessions.csv`:
+- Consulta: `research/audits/swim_sources/scripts/probe_polar_swim.py`.
+- Validación offline: `research/audits/swim_sources/scripts/validate_probe.py`.
+- Extractos seleccionados y huellas FIT:
+  `research/audits/swim_sources/results/polar_swim_probe_2026-11-07.json`.
+- Conciliación:
+  `research/audits/swim_sources/results/polar_swim_validation_2026-11-07.json`.
+- Referencia: [Polar Dynamic API v4](https://www.polar.com/polar-api-v4/).
 
-- `srpe_load` = RPE × duracion (min) cuando hay RPE; ancla de carga principal en swim dada la FC de muneca debil,
-- `pace_per_100m` de sesion y por vuelta (con `total_timer_time` de vuelta),
-- `pace_drift_pct`: primera vs ultima vuelta activa,
-- `swolf_by_lap` (SWOLF de vuelta de Intervals) y `swolf_drift_pct` primera vs ultima vuelta,
-- `hr_by_lap` solo como contexto, `hr_confidence = "low_wrist_in_water"`,
-- `rpe_vs_cardio_discordance`: RPE ≥ 4 con `cardio_score = 0` → flag explicativo, no reclasificacion.
+Los resultados conservan campos seleccionados y agregados, no respuestas
+completas, rutas, tokens ni identificadores personales de Polar. La muestra
+cubre piscina de 25 m con braza, espalda y crol. No valida 50 m, yardas,
+aguas abiertas, mariposa, drill ni fases desconocidas. La consistencia interna
+no demuestra exactitud frente a un conteo manual.
 
-Contexto longitudinal y semanal:
+## 3. Jerarquía de fuentes y reglas
 
-- tendencia de `pace_per_100m` y `swolf` en las ultimas N sesiones comparables,
-- en `weekly_coach.json`: proporcion de volumen swim frente a volumen de impacto (carrera/trail) como contexto de sustitucion; retrospectivo, sin tocar gate ni `reason_text`.
+| Información | Fuente principal | Degradación permitida |
+|---|---|---|
+| Piscina, estilos, brazadas | Polar estadísticas y fases | Ausencia explícita, sin inferir |
+| SWOLF por estilo | Polar `swimmingStyles[].swolfAvg` | `null`; sin fallback al SWOLF FIT auditado |
+| Largo individual | Fase Polar validada como largo | Conservar fase sin distancia ficticia |
+| Vueltas | Polar `laps` | FIT Intervals descriptivo, con controles |
+| RPE y contexto de carga | `sessions.csv` y contexto coach existente | Ausencia explícita |
+| Contexto semanal | Agregado local desde `sessions.csv` | Sidecar local con cobertura |
 
-### Fase C — Estilo (solo si la Fase A encuentra dato directo)
+1. Distinguir `phase`, `length` y `lap`. Validar piscina/unidades, tipos,
+   tiempos, conteos y conciliación de distancia/brazadas antes de asignar
+   una longitud de piscina a cada fase. `TURN`, `OTHER`, `OTHER_SWIMMING`
+   y `DRILL` no heredan automáticamente la regla observada en crol/braza/espalda.
+2. El estilo es clasificación reportada por Polar, no observación humana
+   infalible. Lo declarado por el atleta se conserva aparte como contexto
+   subjetivo; no inferir estilo por ritmo, FC o SWOLF.
+3. `swolfAvg` es dato reportado. `duration_s + strokes` por largo validado
+   es una derivación local; registrar su procedencia y conciliación con
+   Polar. No etiquetarla como valor directamente recibido.
+4. No presentar SWOLF global mezclando estilos. Comparar mismo estilo,
+   piscina conocida y contexto de serie/ritmo comparable. No normalizar
+   25 m a 50 m ni comparar cuando falta piscina.
+5. SWOLF alto no equivale a mayor coste ni SWOLF menor demuestra por sí solo
+   mejora técnica. `breaststroke_pct` describe exposición, no riesgo de lesión.
+6. FC como contexto con procedencia/calidad. Usar `low_wrist_in_water` si
+   se identifica origen de muñeca; de otro modo, `sensor_unknown`.
+7. Sin Polar o sin correspondencia inequívoca, continuar con contexto parcial,
+   sin ampliar la búsqueda a toda la cuenta ni introducir otro OAuth.
 
-- `stroke_distribution`, `primary_stroke`, `drill_lengths`,
-- `breaststroke_pct` como contexto articular de rodilla,
-- `swolf_by_stroke` cuando haya estilo por largo o por vuelta,
-- `pool_length_m` desde la fuente.
+## 4. Desarrollo propuesto
 
-Si la Fase A no encuentra estilo: no inferirlo. Alternativa barata a valorar con el humano: registrar estilo dominante en las notas de la sesion.
+### A — Auditoría de fuentes: base ejecutada
 
-### Diferido (backlog)
+La consulta y conciliación anteriores sustituyen al spike pendiente. Hay
+evidencia suficiente para priorizar Polar. El archivo original de Intervals
+y TCX quedan como investigación opcional, no como dependencia.
 
-- `dps_by_stroke`, `stroke_rate_by_stroke`,
-- artifact por largo (`swim_lengths.csv`),
-- reconstruccion TCX por mesetas de distancia.
+Convertir las observaciones en fixtures mínimas sin datos personales y
+comprobar casos ausentes de la muestra. El resultado 9/9 no garantiza
+cobertura universal.
 
-## Contrato `swim_context`
+### B — Adquisición y normalización local
+
+- Reutilizar `V4Client` y su autenticación, con consulta diaria acotada y caché
+  del bundle de `analysis`; no añadir llamadas al sync HRV diario.
+- Solicitar las cuatro features. El consumo actual de sesiones en
+  `hrv_app/polar_sessions.py` solicita solo `samples`: no basta para esta capa.
+- Extraer swim del payload v4 **antes** de `v4_session_to_internal`:
+  `hrv_app/polar_adapters_v4.py` conserva campos generales y samples, pero
+  no transporta estilos, fases ni estadísticas swim. Crear un extractor
+  local en `analysis/`, sin ampliar el adaptador compartido salvo necesidad.
+- Emparejar por deporte, hora y duración; normalizar `startTime` usando
+  `timezoneOffsetMinutes`, incluido horario de verano. Guardar discrepancias
+  de distancia como QA. Correspondencia ambigua -> `ambiguous_match`.
+- Separar adquisición y función pura de transformación: recálculo desde
+  caché sin red. Errores de Polar no inutilizan el informe.
+- Generar `swim_phases.csv` y `swim_laps.csv` dentro de
+  `analysis/reports/<slug>/artifacts/`. Una fase incluye `length_validated`
+  y distancia derivada cuando proceda; no duplicarla en `swim_lengths.csv`.
+- Manifiesto con versión del extractor, fecha de consulta, features y huellas
+  de inputs/sidecars. La caché personal permanece fuera de Git.
+
+### C — Métricas e integración en el informe
+
+- Piscina, largos validados, distancia, duración de nado por estilo, brazadas
+  y SWOLF por estilo. Distribución por **distancia conocida**, con cobertura
+  y distancia sin estilo clasificable.
+- Ritmo: `100 × duration_s / distance_m`. Agregados mediante
+  `100 × suma_tiempos / suma_distancias`, no media simple de ritmos.
+  Separar `swim_time`, `lap_timer_time` y duración total de sesión.
+- Huecos entre fases como dato descriptivo. No llamarlos automáticamente
+  descanso ni sumarlos a `pauseTimes` suponiendo que son disjuntos.
+- `srpe_load = sessions.rpe × sessions.duration_min`, unidad `AU`, usando
+  minutos totales según contrato actual, RPE válido 1-10 y duración positiva.
+  No equivale a `load` ni a `trimp`.
+- Mantener aparte `coach_metrics.session_rpe`, ya existente y potencialmente
+  calculado sobre otra duración. Mostrar bases y discrepancias, sin
+  sobrescritura ni elección silenciosa. RPE ausente -> `null`; no usar el
+  cero del proveedor como RPE válido.
+- `rpe_vs_cardio_discordance`: heurística descriptiva RPE >= 4 y
+  `cardio_score == 0`; si falta un dato, `null`, no `false`.
+  No reclasifica coste ni demuestra fallo de FC.
+- Mismo `swim_context` en `summary.json`, `session_payload.json`,
+  informe y handoff, también cuando no hay RR.
+- Al implementar, actualizar `analysis/ANALYSIS_DICTIONARY.md` y
+  `analysis/SESSION_ANALYSIS_METHOD.md`. Son métricas locales, no contratos
+  HRV globales.
+
+### D — Contexto semanal y comparaciones
+
+- Sidecar semanal local descubierto por `weekly_prep_manifest.json`;
+  no escribir `ENDURANCE_HRV_weekly_coach.json`.
+- Minutos de natación y carrera/trail, y
+  `swim_share_of_swim_run = swim_min / (swim_min + run_trail_min)`, usando
+  `duration_min` en ambos términos. Denominador cero -> `null`. Declarar
+  categorías y fechas; otros deportes no entran en ese cociente. No implica
+  equivalencia de carga ni demuestra sustitución de impacto sin contexto.
+- Historia de mismo estilo/piscina/fuente/base temporal: valores y cobertura
+  de las últimas 5 sesiones anteriores elegibles. Con menos de 3, marcar
+  `too_few_sessions` y evitar resumen de tendencia. Son mínimos operativos
+  de presentación, no umbrales fisiológicos validados.
+- **Diferir la deriva automática** `pace_drift_pct` / `swolf_drift_pct`.
+  Primera y última vuelta pueden representar trabajos distintos. Adoptarla
+  exige validar bloques homogéneos, pausas, estilos y distancias; disponer
+  de dos valores no justifica interpretarlos como deterioro.
+
+## 5. Contrato local propuesto
+
+Conservar `null` y motivos estructurados en contextos parciales. Separar
+disponibilidad de interpretabilidad y registrar fuente/estado por métrica.
 
 ```json
-"swim_context": {
-  "swim_source": "intervals_fit_laps",
-  "granularity": "lap",
-  "pool_length_m": null,
-  "n_laps": 6,
-  "pace_per_100m_s": 192.0,
-  "pace_drift_pct": 4.1,
-  "swolf_by_lap": [45.8, 44.8, 51.1],
-  "swolf_session_note": "solo comparacion intra-sesion; estilo desconocido",
-  "swolf_drift_pct": 11.6,
-  "swolf_by_stroke": null,
-  "srpe_load": 240,
-  "rpe_vs_cardio_discordance": true,
-  "stroke_distribution": null,
-  "primary_stroke": null,
-  "hr_confidence": "low_wrist_in_water",
-  "signals_available": {
-    "lap_structure": true,
-    "lap_swolf": true,
-    "stroke_type": false,
-    "pool_length": false,
-    "rpe": true
+{
+  "swim_context": {
+    "schema_version": "swim_context_v1",
+    "status": "partial",
+    "swim_source": "polar_v4",
+    "granularity": "length",
+    "length_validation_status": "passed",
+    "pool_length_m": 25.0,
+    "n_phases": 74,
+    "n_lengths_validated": 74,
+    "n_laps": 5,
+    "swolf_source": "polar",
+    "swolf_validation_status": "validated_against_phases",
+    "swolf_by_stroke": {
+      "BREASTSTROKE": 57.7,
+      "BACKSTROKE": 88.6872
+    },
+    "stroke_distribution_basis": "distance_m",
+    "srpe_load": null,
+    "srpe_duration_basis": "sessions.duration_min",
+    "rpe_vs_cardio_discordance": null,
+    "quality_reasons": ["rpe_missing"],
+    "artifacts": {
+      "phases": "swim_phases.csv",
+      "laps": "swim_laps.csv"
+    }
   }
 }
 ```
 
-Valores de `swim_source`: `polar_v4`, `intervals_original_file`, `intervals_fit_laps`, `none`.
+Ejemplo basado en los campos swim del 2026-05-19; no es un artefacto ya
+implementado. La ausencia de RPE ilustra degradación parcial.
 
-## Reglas semanticas (heredadas de TYM-02 y ajustadas)
+- `status`: `available`, `partial`, `unavailable`.
+- `swim_source`: `polar_v4`, `intervals_fit_laps`, `none`; la fuente del
+  RPE se registra aparte aunque no haya fuente de estructura swim.
+- `granularity`: `length`, `phase`, `lap`, `session`, `none`.
+- Motivos: `polar_unavailable`, `ambiguous_match`, `pool_unknown`,
+  `unsupported_phase_type`, `phase_validation_failed`, `stroke_unknown`,
+  `too_few_lengths`, `rpe_missing`, `duration_missing`, `source_mismatch`.
+- Menos de 3 largos por estilo: conservar agregado oficial y tamaño de
+  muestra, marcar `too_few_lengths` y excluir de tendencias.
+- `swim_phases.csv`: ID, offsets, duración, estilo, brazadas, validación como
+  largo, distancia/ritmo/SWOLF derivados y motivos de exclusión.
+  `swim_laps.csv`: límites y magnitudes de una sola fuente por fila.
 
-1. `SWOLF` solo es comparable **dentro del mismo estilo**.
-2. No exponer el `SWOLF` global de sesion como metrica interpretable.
-3. Sin dato de estilo, `SWOLF` por vuelta solo se usa para **comparacion intra-sesion** (deriva) y como tendencia longitudinal con `confidence = low` y nota `stroke_unknown`.
-4. Con dato de estilo: `swolf_by_stroke`; `drill` excluido; estilo con pocos largos → `too_few_lengths`.
-5. Comparaciones longitudinales de `SWOLF` solo con la misma `pool_length_m`; si es desconocida, marcarlo. No normalizar 25 m ↔ 50 m.
-6. `SWOLF` alto no significa por si solo mas coste; puede reflejar ritmo, tecnica o contexto de serie (`SESSION_ANALYSIS_METHOD.md`).
-7. FC de muneca en agua = contexto debil, nunca ancla primaria.
-8. `sub_sport = open_water` del FIT de Intervals no es fiable: no usarlo para clasificar piscina / aguas abiertas.
-9. Sin fuente usable: `swim_source = "none"`, continuar el pipeline sin crash.
+## 6. Criterios de aceptación
 
-## Riesgos
+1. Polar v4 con cuatro features y correspondencia de sesión trazable.
+2. Los casos auditados reproducen piscina, distancia, estilos y brazadas.
+   SWOLF reconstruido por estilo dentro de 0,001 del reportado; una diferencia
+   mayor genera QA y bloquea la validación de la derivación.
+3. Solo hay largos tras validar coherencia. Sin vueltas siguen disponibles
+   fases/estadísticas; tipos no soportados no generan metros inventados.
+4. Cada métrica tiene valor/base/fuente o `null` con motivo. El SWOLF FIT
+   sospechoso no llega al informe como métrica técnica.
+5. Comparaciones por estilo/piscina/base temporal/tamaño de muestra.
+   Sin SWOLF global mezclado ni deriva automática primera/última.
+6. Resumen, payload e informe coherentes, también sin RR o sin Polar.
+   sRPE explica sus diferencias respecto a cargas ya existentes.
+7. Semanal mediante sidecar/manifiesto local. Comprobar que outputs
+   operativos globales y cost model permanecen intactos.
+8. Pruebas offline con fixtures mínimas: Polar completo, sin vueltas,
+   sin RPE, sin Polar/FIT, matching ambiguo, cambio horario, piscina/unidad
+   desconocida, `TURN`/`DRILL`, fases inconsistentes, vuelta FIT terminal
+   vacía, SWOLF sospechoso, contexto parcial y sesión no swim. Sin credenciales
+   ni API real en las pruebas.
 
-1. El `SWOLF` de Intervals puede depender de supuestos (longitud de piscina, brazadas derivadas de cadencia) no verificados → Fase A debe aclararlo antes de usarlo longitudinalmente.
-2. RPE escaso (19/78) limita `srpe_load`; requiere registrar RPE de forma sistematica.
-3. Pocas vueltas por sesion (a veces 1) → deriva no calculable; marcarlo explicitamente.
+## 7. Pendientes separados
 
-## Criterios de aceptacion
-
-1. Informe de Fase A en `research/audits/swim_sources/` con decision de fuente.
-2. `analysis` expone `swim_context` con `swim_source` y `granularity` para toda sesion swim, sin crash si falta dato.
-3. `srpe_load`, `pace_per_100m`, `pace_drift_pct`, `swolf_by_lap` y `swolf_drift_pct` disponibles con la fuente actual.
-4. `SWOLF` nunca se presenta como media global de sesion ni se compara entre estilos.
-5. Estilo solo aparece si hay dato directo; nunca inferido.
-6. Contexto semanal de proporcion swim / impacto visible en `weekly_coach.json` sin tocar gate, `FINAL`, `DASHBOARD` ni `reason_text`.
-7. Sin cambios en `session_cost_model.py` en esta iteracion.
-
-## Nota lateral
-
-En los informes swim aparece `durability_context.confidence = high` sin stream de velocidad. Revisar por separado si la confianza esta inflada.
+- Corregida la nota de `durability_context.confidence = high` «sin velocidad»:
+  los ocho summaries actuales sí incluyen velocidad por tercio. Una auditoría
+  debe investigar su procedencia, cobertura y calidad, no asumir ausencia.
+- Diferidos: deriva por bloques validada, DPS/frecuencia de brazada como
+  métricas interpretativas, fuentes originales adicionales y uso de swim
+  en el modelo de coste mecánico.
+- Captura prospectiva de RPE: se confirmó presencia en 19/78 sesiones hasta
+  el 2026-11-05. Los datos técnicos de Polar no sustituyen la percepción.

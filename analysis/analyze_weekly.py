@@ -744,6 +744,8 @@ def analyze_weekly(
             focus_sport=focus_sport,
             window_size=window_size,
             min_positive=min_positive,
+            sessions_csv=run_weekly_analysis_prep.DEFAULT_SESSIONS_CSV,
+            session_reports_dir=run_weekly_analysis_prep.DEFAULT_SESSION_REPORTS_DIR,
         )
 
     context = _load_weekly_context(today, weekly_dir)

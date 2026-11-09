@@ -5,11 +5,14 @@ import json
 from pathlib import Path
 
 from analysis import build_weekly_analysis_sidecars
+from analysis import swim_weekly
 from analysis import sya15_continuity
 
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_WEEKLY_REPORTS_DIR = ROOT / "analysis" / "reports" / "weekly"
+DEFAULT_SESSIONS_CSV = ROOT / "data" / "ENDURANCE_HRV_sessions.csv"
+DEFAULT_SESSION_REPORTS_DIR = ROOT / "analysis" / "reports"
 
 
 def default_weekly_dir(today) -> Path:
@@ -56,6 +59,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional minimum number of positive weeks required inside the rolling window.",
     )
+    parser.add_argument(
+        "--sessions-csv",
+        type=Path,
+        default=DEFAULT_SESSIONS_CSV,
+        help="Path to ENDURANCE_HRV_sessions.csv for the weekly swim sidecar.",
+    )
+    parser.add_argument(
+        "--session-reports-dir",
+        type=Path,
+        default=DEFAULT_SESSION_REPORTS_DIR,
+        help="Session reports root whose summary.json files provide swim_context.",
+    )
     return parser
 
 
@@ -100,7 +115,10 @@ def build_weekly_prep(
     focus_sport: str | None,
     window_size: int,
     min_positive: int | None,
+    sessions_csv: Path | None = None,
+    session_reports_dir: Path | None = None,
 ) -> dict[str, object]:
+    """Genera los sidecars semanales; el de natación solo si se pasa `sessions_csv`."""
     weekly_dir.mkdir(parents=True, exist_ok=True)
     artifacts_dir = weekly_dir / "artifacts"
     sidecars: list[dict[str, object]] = []
@@ -114,6 +132,16 @@ def build_weekly_prep(
         min_positive=min_positive,
     )
     sidecars.append(sya15_sidecar)
+
+    if sessions_csv is not None and Path(sessions_csv).exists():
+        sidecars.append(
+            swim_weekly.build_swim_weekly_sidecar(
+                today=today,
+                out_dir=artifacts_dir,
+                sessions_csv=Path(sessions_csv),
+                reports_root=Path(session_reports_dir or DEFAULT_SESSION_REPORTS_DIR),
+            )
+        )
 
     week_start, week_end = build_weekly_analysis_sidecars.weekly_bounds(today)
     manifest = {
@@ -142,6 +170,8 @@ def main() -> int:
         focus_sport=args.focus_sport,
         window_size=args.window_size,
         min_positive=args.min_positive,
+        sessions_csv=args.sessions_csv,
+        session_reports_dir=args.session_reports_dir,
     )
     print(json.dumps(manifest, indent=2, ensure_ascii=False))
     return 0
