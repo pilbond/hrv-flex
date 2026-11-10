@@ -16,7 +16,7 @@
 
 **Límite de alcance de este diccionario:**
 - documenta `CORE`, `FINAL`, `DASHBOARD`, `BETA_AUDIT`, `sleep`, `sessions_day`, `intensity_distribution_weekly`, `weekly_coach`, `wellness_subjective` y la metadata de sesiones,
-- documenta también los sidecars de trazabilidad `ENDURANCE_HRV_master_CORE_manifest.json` y `ENDURANCE_HRV_master_FINAL_manifest.json` como envoltorios operativos de corrida,
+- documenta también los sidecars de trazabilidad `ENDURANCE_HRV_master_CORE_manifest.json` y `ENDURANCE_HRV_master_FINAL_manifest.json` como envoltorios operativos de corrida; sus huellas y el linaje CORE↔FINAL son el criterio de coherencia que la UI valida antes de servir el gate (detalle en `ENDURANCE_HRV_Spec_Tecnica.md` y `GUIA_PYTHON_SCRIPTS.md`),
 - para el detalle columna-a-columna de `sessions.csv` (73 cols), la fuente canónica es `ENDURANCE_HRV_Sessions_Schema.md`; aquí sólo se ofrece el mapa,
 - no documenta artefactos locales de `analysis/` como `terrain_context`, `terrain_fit_context`, `terrain_intervals.csv` o `terrain_climbs.csv`,
 - cuando haga falta esa capa de análisis de terreno, la fuente correcta es `analysis/SESSION_ANALYSIS_METHOD.md` y `analysis/ANALYSIS_DICTIONARY.md`.

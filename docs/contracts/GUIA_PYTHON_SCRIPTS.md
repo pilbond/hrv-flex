@@ -53,6 +53,23 @@ Importante:
   - La misma respuesta conserva `pipeline_result` como registro diagnóstico
     completo; no debe tratarse como un segundo contrato independiente.
   - `GET /api/status` incluye tambien el resumen semanal de `ENDURANCE_HRV_weekly_coach.json` para que la UI pinte `planning_note`, `iso_week`, `window_end`, `data_quality` y `weekly_coach_z3_budget_summary` sin crear un endpoint nuevo.
+  - Antes de leer los canonicos verifica la coherencia de la generacion. Si
+    existe algun archivo de la generacion (CORE, BETA_AUDIT, FINAL, DASHBOARD o
+    cualquiera de los dos manifests) y los hashes o el linaje no cuadran,
+    responde `503` con `success=false`, `error=generation_incoherent`,
+    `diagnostics.generation_coherent=false` y
+    `diagnostics.generation_error={code, reason}`; la vista se construye sin
+    datos HRV/gate. Conserva `last_output` y `pipeline_result` de la ejecucion
+    anterior, mueve su `last_error` previo a `previous_error` y encabeza
+    `last_output` con el motivo actual para que el panel tecnico lo muestre. Un
+    directorio sin ningun archivo de generacion no es una incoherencia:
+    `generation_coherent` queda en `null` y se sirve `200` con el estado
+    habitual de «sin datos». La portada (`GET /`) aplica el mismo gate.
+  - `POST /api/import-seed`: si la seed trae algun archivo de la generacion HRV,
+    exige los seis (CORE, BETA_AUDIT, FINAL, DASHBOARD y ambos manifests) y una
+    generacion coherente antes de publicar; valida de nuevo `DATA_DIR` despues
+    de copiar y revierte lo publicado si algo falla. Sueño y sesiones se pueden
+    importar por separado.
   - `POST /api/sync` y `POST /api/sync-sessions` devuelven `202 Accepted` cuando el job queda corriendo en background; si terminan practicamente al instante, pueden devolver el resultado final en la propia respuesta.
   - No genera CSV por si solo; delega al pipeline.
 - Automatico o manual:
@@ -243,15 +260,15 @@ Importante:
 ## `hrv_app.backup_dropbox`
 - Que hace:
   - Backup opcional de los `ENDURANCE_HRV_*.csv/.json` de la raiz de `DATA_DIR` y del historial IA en `DATA_DIR/ai_briefs/**/ENDURANCE_HRV_*.json` a Dropbox tras un sync exitoso.
-  - Sube los artefactos a `HRV_BACKUP_DROPBOX_PATH`, preservando la ruta relativa de `ai_briefs/` y sobrescribiendo cada archivo (Dropbox conserva versiones anteriores por su cuenta).
-  - Descarga todos los archivos a staging dentro de `DATA_DIR`, valida el conjunto obligatorio y los publica con escritura atómica por archivo y rollback ante un fallo local; recrea subcarpetas como `ai_briefs/` y guarda los archivos sustituidos en `data/backup/pre_restore/`. La validación del restore es mínima; el pipeline aplica después el contrato de esquema canónico completo.
-  - Puede hacer auto-restore opt-in cuando falta o no es utilizable cualquiera de los cinco CSV obligatorios (CORE, BETA_AUDIT, FINAL, DASHBOARD y sueño), si `HRV_AUTO_RESTORE_ON_EMPTY_DATA=1`.
+  - Sube los artefactos a `HRV_BACKUP_DROPBOX_PATH`, preservando la ruta relativa de `ai_briefs/` y sobrescribiendo cada archivo (Dropbox conserva versiones anteriores por su cuenta). Antes de subir comprueba la coherencia de la generación: si no cuadra devuelve `status="incoherent_generation"` y no toca el remoto, para no sustituir un backup bueno por archivos que el restore rechazaría (caso tipico: un sync sin RR nuevos regenera FINAL sin pasar por `build_hrv_core.py`, asi que HG-10 no revisa la huella de CORE).
+  - Descarga todos los archivos a staging dentro de `DATA_DIR`, valida los cinco CSV obligatorios y la coherencia de CORE/BETA_AUDIT/FINAL/DASHBOARD con ambos manifests antes de publicar. Un backup antiguo sin manifests se rechaza sin tocar los datos operativos; el sync web no puede regenerarlos por la puerta HG-10. Publica con escritura atómica por archivo y rollback ante un fallo local; recrea subcarpetas como `ai_briefs/` y guarda los archivos sustituidos en `data/backup/pre_restore/`. El pipeline aplica después el contrato de esquema canónico completo.
+  - Puede hacer auto-restore opt-in cuando falta o no es utilizable alguno de los cinco CSV obligatorios (CORE, BETA_AUDIT, FINAL, DASHBOARD y sueño), si `HRV_AUTO_RESTORE_ON_EMPTY_DATA=1`. Un dataset completo cuyos manifests no forman una generación coherente **no** dispara el restore: publicar el backup encima sobrescribiría un histórico utilizable sin saber cuál de los dos es más reciente. Ese caso se reporta en `generation_coherent` del resultado y en un `[WARN]`, y lo bloquean el gate de lectura y la puerta HG-10.
   - Reutiliza las credenciales Dropbox ya configuradas para la ingesta RR.
 - Cuando usarlo:
   - El backup se ejecuta automáticamente al final de cada sync si `HRV_BACKUP_DROPBOX_ENABLED=1`.
   - La restauración se invoca desde `POST /api/restore-backup` en la UI web.
-  - El auto-restore bloquea el sync si no deja el conjunto obligatorio utilizable tras la restauración.
-  - NUNCA lanza excepciones en el backup (el sync continua); la restauración sí lanza si falta credencial, no hay archivos en `/hrv_backups/` o el restore no deja el conjunto obligatorio utilizable.
+  - El auto-restore bloquea el sync si no deja una generación coherente utilizable tras la restauración.
+  - NUNCA lanza excepciones en el backup (el sync continua); la restauración sí lanza si falta credencial, no hay archivos en `/hrv_backups/` o el restore no deja una generación coherente utilizable.
 - Entradas:
   - Variables de entorno Dropbox (`DROPBOX_ACCESS_TOKEN` o refresh trio), `HRV_BACKUP_DROPBOX_PATH`, `HRV_AUTO_RESTORE_ON_EMPTY_DATA`.
 - Salidas:
@@ -270,9 +287,12 @@ Importante:
 ## `hrv_app.run_manifest`
 - Que hace:
   - Genera sidecars atomicos de trazabilidad (`*_manifest.json`) con hashes de inputs/outputs, configuracion efectiva y timestamp.
-  - Proporciona `build_run_manifest()`, `artifact_signature()`, `file_digest()`, `stable_digest()`, `write_run_manifest_atomic()` y `utc_now_iso()`.
+  - Proporciona `build_run_manifest()`, `artifact_signature()`, `file_digest()`, `stable_digest()`, `write_run_manifest_atomic()`, `utc_now_iso()`, `generation_present()` y `verify_generation_coherence()`.
+  - `verify_generation_coherence()` valida que CORE, BETA_AUDIT, FINAL y DASHBOARD coincidan con sus manifests y pertenezcan al mismo linaje. Una generación parcial o alterada se rechaza con `GenerationCoherenceError` (`code=generation_incoherent` y un `reason` por tipo de fallo).
+  - `generation_present()` responde si hay algo de una generación en el directorio (`GENERATION_FILENAMES`). Es la unica definicion de «hay generacion» y la comparten la UI, el guard del seed y el backup: un directorio sin ninguno de esos archivos no es una incoherencia.
 - Cuando usarlo:
   - Lo importan `build_hrv_core.py` y `build_hrv_final_dashboard.py` para dejar manifests atomicos tras cada corrida.
+  - Lo importan `web_ui.py` y `hrv_app/backup_dropbox.py` para verificar la generación antes de servirla, importarla, restaurarla o respaldarla.
 
 ## `hrv_app.eval_utils`
 - Que hace:
@@ -435,7 +455,7 @@ Importante:
     - `z3_budget_by_sport` como lectura retrospectiva estructurada de percentil historico de Z3 por deporte o familia
     - `z3_budget_summary` como resumen corto visible en UI (`Contexto Z3 semanal`), deliberadamente asimetrico y solo surfaceado para bandas `high/very_high`
   - Esta capa sigue siendo retrospectiva y no introduce prescripcion automatica ni modifica `sessions_day`, `FINAL`, `DASHBOARD` o `reason_text`.
-- Si `HRV_AUTO_RESTORE_ON_EMPTY_DATA=1`, el CLI intenta restaurar el directorio de salida antes de procesar cuando falta o no es utilizable cualquiera de los cinco CSV obligatorios (CORE, BETA_AUDIT, FINAL, DASHBOARD y sueño).
+- Si `HRV_AUTO_RESTORE_ON_EMPTY_DATA=1`, el CLI intenta restaurar el directorio de salida antes de procesar cuando falta o no es utilizable alguno de los cinco CSV obligatorios (CORE, BETA_AUDIT, FINAL, DASHBOARD y sueño). Unos manifests incoherentes sobre un dataset utilizable no disparan el restore.
   - `sessions_metadata.json` pasa a ser la fuente canonica de `training_audit` para rebajar confianza de coaching/carga sin bloquear pipeline.
 - Automatico o manual:
   - Manual (no lo llama el flujo principal por defecto).

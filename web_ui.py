@@ -46,6 +46,10 @@ from hrv_app.polar_auth_v4 import (
     redact as redact_v4_bundle,
 )
 from hrv_app.pipeline_status import result_from_marker
+from hrv_app.run_manifest import (
+    GENERATION_FILENAMES,
+    GenerationCoherenceError, generation_present, verify_generation_coherence,
+)
 
 app = Flask(__name__)
 CORS(app)
@@ -62,6 +66,8 @@ ALLOWED_IMPORT_FILES = [
     "ENDURANCE_HRV_sleep.csv",
     "ENDURANCE_HRV_sessions.csv",
     "ENDURANCE_HRV_sessions_day.csv",
+    "ENDURANCE_HRV_master_CORE_manifest.json",
+    "ENDURANCE_HRV_master_FINAL_manifest.json",
 ]
 
 _RR_DELETE_DERIVED_CSVS = (
@@ -742,6 +748,13 @@ def _import_seed_csvs() -> dict:
     if not SEED_UPLOAD_DIR.exists():
         raise FileNotFoundError(f"No existe la carpeta de carga: {SEED_UPLOAD_DIR}")
 
+    has_seed_generation = generation_present(SEED_UPLOAD_DIR)
+    if has_seed_generation:
+        missing = [name for name in GENERATION_FILENAMES if not (SEED_UPLOAD_DIR / name).is_file()]
+        if missing:
+            raise RuntimeError("Seed HRV incompleta; faltan: " + ", ".join(missing))
+        verify_generation_coherence(SEED_UPLOAD_DIR)
+
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     backup_dir = DATA_DIR / "backup" / datetime.now().strftime("seed_import_%Y%m%d_%H%M%S")
 
@@ -749,21 +762,31 @@ def _import_seed_csvs() -> dict:
     missing = []
     backed_up = []
 
-    for name in ALLOWED_IMPORT_FILES:
-        source = SEED_UPLOAD_DIR / name
-        if not source.exists():
-            missing.append(name)
-            continue
-
-        dest = DATA_DIR / name
-        if dest.exists():
-            backup_dir.mkdir(parents=True, exist_ok=True)
-            backup_target = backup_dir / name
-            shutil.copy2(dest, backup_target)
-            backed_up.append(name)
-
-        shutil.copy2(source, dest)
-        imported.append(name)
+    published = []
+    try:
+        for name in ALLOWED_IMPORT_FILES:
+            source = SEED_UPLOAD_DIR / name
+            if not source.is_file():
+                missing.append(name)
+                continue
+            dest = DATA_DIR / name
+            if dest.exists():
+                backup_dir.mkdir(parents=True, exist_ok=True)
+                _restore_file_atomic(dest, backup_dir / name)
+                backed_up.append(name)
+            _restore_file_atomic(source, dest)
+            published.append(name)
+            imported.append(name)
+        if has_seed_generation:
+            verify_generation_coherence(DATA_DIR)
+    except Exception:
+        for name in reversed(published):
+            dest = DATA_DIR / name
+            if name in backed_up:
+                _restore_file_atomic(backup_dir / name, dest)
+            else:
+                dest.unlink(missing_ok=True)
+        raise
 
     if not imported:
         raise FileNotFoundError(
@@ -1065,12 +1088,18 @@ def _csv_runtime_diagnostics() -> dict:
     core_path = data_dir / "ENDURANCE_HRV_master_CORE.csv"
     final_path = data_dir / "ENDURANCE_HRV_master_FINAL.csv"
 
+    # Un directorio vacío no es una incoherencia; cualquier archivo de una
+    # generación parcial, incluidos sus manifests, exige verificarla.
+    has_generation = generation_present(data_dir)
+    if has_generation:
+        verify_generation_coherence(data_dir)
+
     quality_counts = {}
     rows = 0
     min_date = None
     max_date = None
 
-    if core_path.exists():
+    if has_generation:
         try:
             with core_path.open("r", encoding="utf-8", newline="") as f:
                 reader = csv.DictReader(f)
@@ -1092,7 +1121,7 @@ def _csv_runtime_diagnostics() -> dict:
             pass
 
     last_final_row = {}
-    if final_path.exists():
+    if has_generation:
         try:
             with final_path.open("r", encoding="utf-8", newline="") as f:
                 reader = csv.DictReader(f)
@@ -1110,6 +1139,7 @@ def _csv_runtime_diagnostics() -> dict:
         "core_max_date": max_date.isoformat() if max_date else None,
         "core_quality_counts": quality_counts,
         "final_path": str(final_path),
+        "generation_coherent": True if has_generation else None,
         "final_exists": final_path.exists(),
         "final_last_fecha": last_final_row.get("Fecha") if last_final_row else None,
         "final_last_hr_today": last_final_row.get("HR_today") if last_final_row else None,
@@ -1225,6 +1255,29 @@ def _build_status_payload() -> dict:
     return payload
 
 
+def _generation_incoherent_payload(exc: GenerationCoherenceError) -> dict:
+    state = _execution_snapshot()
+    app.logger.warning("HRV generation coherence check failed: %s", exc.reason)
+    diagnostics = {
+        "generation_coherent": False,
+        "generation_error": {"code": GenerationCoherenceError.code, "reason": exc.reason},
+    }
+    # El panel técnico lee last_output antes que last_error, así que el motivo
+    # actual encabeza la salida y la de la última ejecución queda debajo.
+    previous_output = str(state.get("last_output") or state.get("output") or "").strip()
+    technical_output = str(exc)
+    if previous_output:
+        technical_output = (
+            f"{technical_output}\n\n--- salida de la última ejecución ---\n{previous_output}"
+        )
+    state.update({"previous_error": state.get("last_error"),
+                  "success": False, "error": GenerationCoherenceError.code,
+                  "last_error": str(exc), "last_output": technical_output,
+                  "diagnostics": diagnostics,
+                  "view": ui_view.build_view(diagnostics)})
+    return state
+
+
 def _technical_summary_from_payload(payload: dict) -> str:
     return str(payload.get("last_output") or payload.get("output") or payload.get("last_error") or "").strip()
 
@@ -1327,7 +1380,10 @@ def _render_oauth_error_fallback(context: dict):
 @app.route('/')
 def index():
     """Interfaz web principal"""
-    initial_payload = _build_status_payload()
+    try:
+        initial_payload = _build_status_payload()
+    except GenerationCoherenceError as exc:
+        initial_payload = _generation_incoherent_payload(exc)
     initial_view = initial_payload.get("view") or ui_view.build_view({})
     try:
         return render_template(
@@ -1436,6 +1492,8 @@ def get_status():
     """Obtener estado actual"""
     try:
         return jsonify(_build_status_payload())
+    except GenerationCoherenceError as exc:
+        return jsonify(_generation_incoherent_payload(exc)), 503
     except Exception as exc:
         app.logger.exception("/api/status failed")
         payload = _execution_snapshot()

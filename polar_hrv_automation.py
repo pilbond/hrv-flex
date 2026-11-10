@@ -151,7 +151,7 @@ def main():
         # cuando los canónicos de esta corrida son válidos.
         backup_result = run_dropbox_backup()
         backup_status = str((backup_result or {}).get("status") or "disabled")
-        if backup_status in {"error", "partial", "no_credentials", "no_files"}:
+        if backup_status in {"error", "partial", "no_credentials", "no_files", "incoherent_generation"}:
             result.degrade("backup", "best_effort_error", "backup_failed", f"Backup Dropbox: {backup_status}")
         else:
             result.ok("backup", backup_status)

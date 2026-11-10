@@ -31,6 +31,11 @@ import requests
 
 from .config import DATA_DIR
 from .polar_utils import env_flag
+from .run_manifest import (
+    GenerationCoherenceError,
+    generation_present,
+    verify_generation_coherence,
+)
 
 _UPLOAD_URL = "https://content.dropboxapi.com/2/files/upload"
 _CREATE_FOLDER_URL = "https://api.dropboxapi.com/2/files/create_folder_v2"
@@ -335,6 +340,20 @@ def run_backup() -> dict:
             _warn(f"no hay artefactos ENDURANCE_HRV_* en {DATA_DIR}; se omite backup")
             return {"status": "no_files"}
 
+        # No sustituir un backup remoto bueno por una generación que el propio
+        # restore rechazaría: una etapa que regenera FINAL sin pasar por CORE
+        # (sync sin RR nuevos) no vuelve a comprobar la huella de CORE.
+        # Un DATA_DIR sin generación (solo sesiones y sueño) se respalda igual.
+        try:
+            if generation_present(DATA_DIR):
+                verify_generation_coherence(DATA_DIR)
+        except GenerationCoherenceError as exc:
+            _warn(
+                f"la generación de {DATA_DIR} no es coherente ({exc.reason}); se omite el backup "
+                "para no sustituir el remoto por archivos que el restore rechazaría"
+            )
+            return {"status": "incoherent_generation", "reason": exc.reason}
+
         root = _backup_root()
         uploaded = 0
         failed = 0
@@ -421,6 +440,13 @@ def restore_backup(data_dir: Path | None = None) -> dict:
         if missing:
             raise RuntimeError(f"Backup incompleto en {root}; faltan: {missing}")
         _validate_restore_set(staging_dir)
+        try:
+            verify_generation_coherence(staging_dir)
+        except GenerationCoherenceError as exc:
+            raise RuntimeError(
+                f"Backup HRV sin generación coherente en {root}: {exc}. "
+                "No se publicó ningún archivo; se necesita un backup con ambos manifests."
+            ) from exc
         # Publish every downloaded artifact after validating the required CSV set.
         backed_up = _publish_restore_set(staging_dir, target_dir, staged_names)
         return {
@@ -439,6 +465,13 @@ def auto_restore_if_empty(*, data_dir: Path | None = None, enabled: bool | None 
 
     Devuelve un dict de estado para que los entrypoints decidan si continúan.
     Si el restore queda parcial o falla, lanza para bloquear el sync.
+
+    Solo un conjunto obligatorio inservible (archivo ausente, ilegible o CORE sin
+    filas con fecha válida) cuenta como vacío. Un dataset completo cuyos manifests
+    no cuadran NO dispara el restore: publicar el backup encima sobrescribiría un
+    histórico utilizable sin saber cuál de los dos es más reciente. Ese caso se
+    reporta en `generation_coherent` y lo bloquea quien escribe (HG-10 en
+    `build_hrv_core.py`) o quien lee (el gate de `/api/status`).
     """
     target_dir = Path(data_dir) if data_dir is not None else DATA_DIR
     auto_restore_enabled = enabled if enabled is not None else env_flag("HRV_AUTO_RESTORE_ON_EMPTY_DATA", default=False)
@@ -449,16 +482,41 @@ def auto_restore_if_empty(*, data_dir: Path | None = None, enabled: bool | None 
     except RuntimeError:
         empty = True
 
+    generation_coherent: bool | None = None
+    if not empty:
+        try:
+            verify_generation_coherence(target_dir)
+            generation_coherent = True
+        except GenerationCoherenceError as exc:
+            generation_coherent = False
+            _warn(
+                f"el conjunto obligatorio de {target_dir} es utilizable pero su generación no es "
+                f"coherente ({exc.reason}); no se restaura nada para no sobrescribir el histórico"
+            )
+
     if not auto_restore_enabled:
-        return {"status": "disabled", "data_empty": empty, "core_rows": rows}
+        return {
+            "status": "disabled",
+            "data_empty": empty,
+            "core_rows": rows,
+            "generation_coherent": generation_coherent,
+        }
 
     if not empty:
-        return {"status": "skipped", "data_empty": False, "core_rows": rows}
+        return {
+            "status": "skipped",
+            "data_empty": False,
+            "core_rows": rows,
+            "generation_coherent": generation_coherent,
+        }
 
     if rows is None:
         print(f"[INFO] Auto-restore Dropbox: CORE ilegible o ausente en {target_dir}; restaurando backup...")
     else:
-        print(f"[INFO] Auto-restore Dropbox: DATA_DIR vacío en {target_dir}; restaurando backup...")
+        print(
+            f"[INFO] Auto-restore Dropbox: conjunto obligatorio incompleto o inservible en "
+            f"{target_dir} ({rows} fila(s) de CORE); restaurando backup..."
+        )
     try:
         result = restore_backup(target_dir)
     except Exception as exc:
@@ -468,8 +526,11 @@ def auto_restore_if_empty(*, data_dir: Path | None = None, enabled: bool | None 
 
     try:
         _validate_restore_set(target_dir)
-    except RuntimeError as exc:
-        raise RuntimeError(f"Auto-restore no dejó el conjunto obligatorio utilizable: {exc}") from exc
+        verify_generation_coherence(target_dir)
+    except (RuntimeError, GenerationCoherenceError) as exc:
+        raise RuntimeError(
+            f"Auto-restore no dejó una generación coherente utilizable: {exc}"
+        ) from exc
     post_rows = _core_row_count(target_dir)
 
     restored_count = len(result.get("restored", []))
@@ -483,4 +544,5 @@ def auto_restore_if_empty(*, data_dir: Path | None = None, enabled: bool | None 
         "data_empty": False,
         "core_rows": post_rows,
         "auto_restored": True,
+        "generation_coherent": True,
     }

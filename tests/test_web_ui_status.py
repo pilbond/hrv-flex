@@ -1,4 +1,3 @@
-import json
 import unittest
 import json
 from datetime import date
@@ -11,6 +10,7 @@ from jinja2 import TemplateNotFound
 
 import web_ui
 from hrv_app.pipeline_status import PIPELINE_RESULT_PREFIX, PipelineResult
+from hrv_app.run_manifest import GenerationCoherenceError, file_digest
 
 
 class WebUiStatusTests(unittest.TestCase):
@@ -123,7 +123,19 @@ class WebUiStatusTests(unittest.TestCase):
             self.assertEqual(status["pipeline_result"]["stage"], terminal.stage)
 
     def _write_final_csv(self, data_dir: Path, fecha: str, reason_text: str = "Reason text base") -> None:
-        (data_dir / "ENDURANCE_HRV_master_FINAL.csv").write_text(
+        core_path = data_dir / "ENDURANCE_HRV_master_CORE.csv"
+        beta_audit_path = data_dir / "ENDURANCE_HRV_master_BETA_AUDIT.csv"
+        final_path = data_dir / "ENDURANCE_HRV_master_FINAL.csv"
+        dashboard_path = data_dir / "ENDURANCE_HRV_master_DASHBOARD.csv"
+        core_manifest_path = data_dir / "ENDURANCE_HRV_master_CORE_manifest.json"
+        final_manifest_path = data_dir / "ENDURANCE_HRV_master_FINAL_manifest.json"
+
+        core_path.write_text(
+            f"Fecha,Calidad\n{fecha},OK\n",
+            encoding="utf-8",
+        )
+        beta_audit_path.write_text(f"Fecha,cRMSSD\n{fecha},42\n", encoding="utf-8")
+        final_path.write_text(
             (
                 "Fecha,HR_today,RMSSD_stable,lnRMSSD_today,lnRMSSD_used,ln_base60,SWC_ln,"
                 "gate_badge,gate_razon_base60,reason_text,decision_path,Action_detail,recovery_support_class\n"
@@ -131,6 +143,25 @@ class WebUiStatusTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        dashboard_path.write_text(f"Fecha,gate_badge\n{fecha},VERDE\n", encoding="utf-8")
+
+        core_manifest = {
+            "effective_config_hash": "test-core-config",
+            "outputs": [
+                {"role": "core", "sha256": file_digest(core_path)},
+                {"role": "beta_audit", "sha256": file_digest(beta_audit_path)},
+            ],
+        }
+        core_manifest_path.write_text(json.dumps(core_manifest), encoding="utf-8")
+        final_manifest = {
+            "source_manifest_sha256": file_digest(core_manifest_path),
+            "source_manifest_effective_config_hash": "test-core-config",
+            "outputs": [
+                {"role": "final", "sha256": file_digest(final_path)},
+                {"role": "dashboard", "sha256": file_digest(dashboard_path)},
+            ],
+        }
+        final_manifest_path.write_text(json.dumps(final_manifest), encoding="utf-8")
 
     def test_weekly_coach_diagnostics_exposes_planning_note(self):
         with TemporaryDirectory() as tmpdir:
@@ -317,6 +348,182 @@ class WebUiStatusTests(unittest.TestCase):
         self.assertEqual(diagnostics["hrv_summary_fallback_text"], "Todavía no hay salida FINAL disponible.")
         self.assertFalse(diagnostics["hrv_summary_has_reason_text"])
         self.assertTrue(diagnostics["hrv_summary_reason_is_fallback"])
+
+    def test_status_rejects_an_incoherent_generation_without_hrv_data(self):
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            fecha = date.today().isoformat()
+            self._write_final_csv(data_dir, fecha)
+            (data_dir / "ENDURANCE_HRV_master_FINAL.csv").write_text("altered", encoding="utf-8")
+
+            sensitive_state = {
+                "running": False,
+                "job_type": "hrv",
+                "last_output": "HRV_PRIVADA_EN_LOG",
+                "last_error": "RUTA_PRIVADA_EN_ERROR",
+                "pipeline_result": {"error": {"message": "DATO_PRIVADO_EN_RESULTADO"}},
+            }
+            with patch.object(web_ui, "DATA_DIR", data_dir), patch.object(
+                web_ui, "_execution_snapshot", return_value=sensitive_state
+            ):
+                with web_ui.app.test_client() as client:
+                    response = client.get("/api/status")
+
+        self.assertEqual(response.status_code, 503)
+        payload = response.get_json()
+        self.assertFalse(payload["success"])
+        self.assertFalse(payload["diagnostics"]["generation_coherent"])
+        self.assertEqual(payload["diagnostics"]["generation_error"]["code"], "generation_incoherent")
+        self.assertFalse(payload["view"]["hrv_today"]["exists"])
+        self.assertEqual(payload["diagnostics"]["generation_error"]["reason"], "hash FINAL no coincide")
+        self.assertEqual(payload["previous_error"], "RUTA_PRIVADA_EN_ERROR")
+        # El panel técnico lee last_output: el motivo actual encabeza y la salida
+        # de la última ejecución se conserva debajo.
+        technical = web_ui._technical_summary_from_payload(payload)
+        self.assertTrue(technical.startswith("Generación HRV incoherente: hash FINAL no coincide"))
+        self.assertIn("HRV_PRIVADA_EN_LOG", technical)
+        self.assertEqual(payload["pipeline_result"]["error"]["message"], "DATO_PRIVADO_EN_RESULTADO")
+
+    def test_status_distinguishes_empty_data_from_orphan_manifests(self):
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            with patch.object(web_ui, "DATA_DIR", data_dir):
+                with web_ui.app.test_client() as client:
+                    empty_response = client.get("/api/status")
+                    (data_dir / "ENDURANCE_HRV_master_CORE_manifest.json").write_text("{}", encoding="utf-8")
+                    partial_response = client.get("/api/status")
+
+        self.assertEqual(empty_response.status_code, 200)
+        self.assertIsNone(empty_response.get_json()["diagnostics"]["generation_coherent"])
+        self.assertEqual(partial_response.status_code, 503)
+        self.assertFalse(partial_response.get_json()["diagnostics"]["generation_coherent"])
+        self.assertFalse(partial_response.get_json()["view"]["hrv_today"]["exists"])
+
+    def test_status_hides_gate_when_beta_audit_is_missing(self):
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            self._write_final_csv(data_dir, date.today().isoformat())
+            (data_dir / "ENDURANCE_HRV_master_BETA_AUDIT.csv").unlink()
+            with patch.object(web_ui, "DATA_DIR", data_dir):
+                with web_ui.app.test_client() as client:
+                    response = client.get("/api/status")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(response.get_json()["view"]["hrv_today"]["exists"])
+
+    def test_seed_import_rejects_partial_generation_before_writing(self):
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            seed = root / "seed"
+            data = root / "data"
+            seed.mkdir()
+            data.mkdir()
+            (seed / "ENDURANCE_HRV_master_CORE.csv").write_text("Fecha\n2026-11-10\n", encoding="utf-8")
+            (seed / "ENDURANCE_HRV_master_CORE_manifest.json").write_text("{}", encoding="utf-8")
+            (seed / "ENDURANCE_HRV_master_FINAL_manifest.json").write_text("{}", encoding="utf-8")
+            with patch.object(web_ui, "SEED_UPLOAD_DIR", seed), patch.object(web_ui, "DATA_DIR", data):
+                with self.assertRaisesRegex(RuntimeError, "Seed HRV incompleta"):
+                    web_ui._import_seed_csvs()
+            self.assertEqual(list(data.iterdir()), [])
+
+    def test_seed_import_rejects_missing_beta_audit_before_writing(self):
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            seed = root / "seed"
+            data = root / "data"
+            seed.mkdir()
+            self._write_final_csv(seed, date.today().isoformat())
+            (seed / "ENDURANCE_HRV_master_BETA_AUDIT.csv").unlink()
+            with patch.object(web_ui, "SEED_UPLOAD_DIR", seed), patch.object(web_ui, "DATA_DIR", data):
+                with self.assertRaisesRegex(RuntimeError, "BETA_AUDIT"):
+                    web_ui._import_seed_csvs()
+            self.assertFalse(data.exists())
+
+    def test_seed_import_rolls_back_a_failed_publication(self):
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            seed = root / "seed"
+            data = root / "data"
+            seed.mkdir()
+            data.mkdir()
+            self._write_final_csv(seed, date.today().isoformat())
+            old_core = data / "ENDURANCE_HRV_master_CORE.csv"
+            old_core.write_text("previous core", encoding="utf-8")
+            atomic_copy = web_ui._restore_file_atomic
+
+            def fail_on_final_manifest(source, target):
+                if source.parent == seed and target.name == "ENDURANCE_HRV_master_FINAL_manifest.json":
+                    raise OSError("simulated publish failure")
+                return atomic_copy(source, target)
+
+            with patch.object(web_ui, "SEED_UPLOAD_DIR", seed), patch.object(web_ui, "DATA_DIR", data), patch.object(
+                web_ui, "_restore_file_atomic", side_effect=fail_on_final_manifest
+            ):
+                with self.assertRaisesRegex(OSError, "simulated publish failure"):
+                    web_ui._import_seed_csvs()
+            self.assertEqual(old_core.read_text(encoding="utf-8"), "previous core")
+            self.assertFalse((data / "ENDURANCE_HRV_master_FINAL.csv").exists())
+
+    def test_seed_import_publishes_a_coherent_generation(self):
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            seed = root / "seed"
+            data = root / "data"
+            seed.mkdir()
+            self._write_final_csv(seed, date.today().isoformat())
+            with patch.object(web_ui, "SEED_UPLOAD_DIR", seed), patch.object(web_ui, "DATA_DIR", data):
+                result = web_ui._import_seed_csvs()
+                web_ui.verify_generation_coherence(data)
+            self.assertIn("ENDURANCE_HRV_master_FINAL_manifest.json", result["imported"])
+
+    def test_seed_import_rolls_back_if_published_hashes_mismatch(self):
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            seed = root / "seed"
+            data = root / "data"
+            seed.mkdir()
+            data.mkdir()
+            self._write_final_csv(seed, date.today().isoformat())
+            old_core = data / "ENDURANCE_HRV_master_CORE.csv"
+            old_core.write_text("previous core", encoding="utf-8")
+            atomic_copy = web_ui._restore_file_atomic
+
+            def corrupt_published_final(source, target):
+                atomic_copy(source, target)
+                if source.parent == seed and target.name == "ENDURANCE_HRV_master_FINAL.csv":
+                    target.write_text("corrupted", encoding="utf-8")
+
+            with patch.object(web_ui, "SEED_UPLOAD_DIR", seed), patch.object(web_ui, "DATA_DIR", data), patch.object(
+                web_ui, "_restore_file_atomic", side_effect=corrupt_published_final
+            ):
+                with self.assertRaises(GenerationCoherenceError):
+                    web_ui._import_seed_csvs()
+            self.assertEqual(old_core.read_text(encoding="utf-8"), "previous core")
+            self.assertFalse((data / "ENDURANCE_HRV_master_FINAL.csv").exists())
+
+    def test_index_hides_the_gate_for_an_incoherent_generation(self):
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            fecha = date.today().isoformat()
+            self._write_final_csv(data_dir, fecha)
+            (data_dir / "ENDURANCE_HRV_master_DASHBOARD.csv").write_text("altered", encoding="utf-8")
+
+            sensitive_state = {
+                "running": False,
+                "job_type": "hrv",
+                "last_output": "HRV_PRIVADA_EN_LOG",
+                "last_error": "RUTA_PRIVADA_EN_ERROR",
+            }
+            with patch.object(web_ui, "DATA_DIR", data_dir), patch.object(
+                    web_ui, "_execution_snapshot", return_value=sensitive_state
+                ), \
+                    patch.object(web_ui, "render_template", side_effect=TemplateNotFound("index.html")):
+                with web_ui.app.test_client() as client:
+                    response = client.get("/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('id="hrvSummaryCard" hidden', response.get_data(as_text=True))
+        self.assertIn("HRV_PRIVADA_EN_LOG", response.get_data(as_text=True))
 
     def test_status_payload_includes_versioned_view_consistent_with_diagnostics(self):
         with TemporaryDirectory() as tmpdir:

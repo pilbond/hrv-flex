@@ -1026,7 +1026,13 @@ Si tu baseline actual está por debajo del P20 de todos tus baselines histórico
 | `ENDURANCE_HRV_master_CORE.csv` | La medición fisiológica del día, sin decisiones | 19 |
 | `ENDURANCE_HRV_master_CORE_manifest.json` | Sidecar atómico de trazabilidad de la corrida CORE/BETA: rutas, hashes de inputs/outputs y configuración efectiva | — |
 | `ENDURANCE_HRV_master_FINAL.csv` | Gate, veto agudo, sombras, residual, reason_text, auditoría raw-vs-ref y contexto de recuperación multiseñal | 67 |
-| `ENDURANCE_HRV_master_FINAL_manifest.json` | Sidecar atómico de trazabilidad de la corrida FINAL/DASHBOARD: enlaza el manifest de CORE y conserva hashes de outputs/configuración efectiva | — |
+| `ENDURANCE_HRV_master_FINAL_manifest.json` | Sidecar atómico de trazabilidad de la corrida FINAL/DASHBOARD y marcador de cierre: enlaza el manifest de CORE y conserva hashes de outputs/configuración efectiva | — |
+
+Ambos manifests son además el criterio de coherencia en lectura: la UI web valida
+CORE, BETA_AUDIT, FINAL y DASHBOARD contra sus huellas y el linaje CORE↔FINAL
+antes de servir el gate, y responde `503` sin datos HRV si no cuadran. La
+importación seed, el restore y el backup aplican la misma comprobación antes de
+publicar o subir. Ninguna de esas rutas recalcula métricas ni toca el gate.
 | `ENDURANCE_HRV_master_DASHBOARD.csv` | Lo esencial para decidir en 10 segundos + reason_text | 10 |
 | `ENDURANCE_HRV_sleep.csv` | Sueño nocturno y recuperación (Polar) | 26 |
 | `ENDURANCE_HRV_sessions.csv` | Detalle de cada sesión de entrenamiento, incluyendo primitivas mínimas de coach metrics por sesión y capa de durabilidad mecánica | 73 |

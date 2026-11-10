@@ -78,7 +78,7 @@ La UI estará en `http://localhost:8080` con el puerto por defecto. Registra en 
 | Sync HRV | `POST /api/sync` | Siempre. |
 | Sync de sesiones | `POST /api/sync-sessions` | Siempre; requiere credenciales de Intervals.icu. |
 | Borrar el último RR ingerido | `POST /api/delete-latest-rr` | Si hay algún RR en disco; pide confirmación. |
-| Importar CSV desde `seed_upload/` | `POST /api/import-seed` | Visible si existe la carpeta (`HRV_SEED_UPLOAD_DIR`) o con `HRV_SHOW_SEED_IMPORT=1`. |
+| Importar CSV desde `seed_upload/` | `POST /api/import-seed` | Visible si existe la carpeta (`HRV_SEED_UPLOAD_DIR`) o con `HRV_SHOW_SEED_IMPORT=1`. Si la seed trae algún archivo de la generación HRV debe traerlos todos (CORE, BETA_AUDIT, FINAL, DASHBOARD y ambos manifests) y ser coherente; si no, la importación se rechaza sin publicar nada. Sueño y sesiones se pueden importar por separado. |
 | Restaurar backup | `POST /api/restore-backup` | Visible con `HRV_BACKUP_DROPBOX_ENABLED=1`. |
 
 `GET /api/status` devuelve el estado actual. Las operaciones `POST` comparten un bloqueo: si una está en curso, las demás se rechazan con `409`. Ese bloqueo no cubre la línea de comandos, así que evita lanzar scripts sobre los mismos datos mientras la UI trabaja.
@@ -112,9 +112,9 @@ El procesamiento comprueba la compatibilidad del esquema y de la generación del
 
 Con `HRV_BACKUP_DROPBOX_ENABLED=1`, un sync HRV exitoso copia a Dropbox los archivos `ENDURANCE_HRV_*.csv` y `ENDURANCE_HRV_*.json` de la raíz de `HRV_DATA_DIR`, junto con los briefs fechados de `ai_briefs/`. La carpeta remota por defecto es `/hrv_backups`; puede cambiarse con `HRV_BACKUP_DROPBOX_PATH`. El lanzador `scripts\run-web-ui.bat` activa esta opción para su proceso.
 
-Cada archivo remoto se sobrescribe conservando su ruta relativa. Este backup incluye resultados e historial IA, pero no los RR, sus diagnósticos ni los tokens OAuth; conserva esas entradas por separado si necesitas reconstruir el histórico.
+Cada archivo remoto se sobrescribe conservando su ruta relativa, salvo que la generación local no sea coherente con sus manifests: en ese caso el backup se omite y el remoto queda intacto. Este backup incluye resultados e historial IA, pero no los RR, sus diagnósticos ni los tokens OAuth; conserva esas entradas por separado si necesitas reconstruir el histórico.
 
-La restauración se inicia desde la UI o `POST /api/restore-backup`. Descarga y valida en una carpeta temporal de `HRV_DATA_DIR` los cinco CSV obligatorios (CORE, BETA_AUDIT, FINAL, DASHBOARD y sueño) antes de publicarlos; guarda los archivos locales sustituidos en `backup/pre_restore/`. `HRV_AUTO_RESTORE_ON_EMPTY_DATA=1` intenta restaurar antes del sync si falta o no es utilizable cualquiera de esos CSV. Comprueba que el backup remoto corresponde a la misma generación del código antes de restaurarlo.
+La restauración se inicia desde la UI o `POST /api/restore-backup`. Descarga y valida en una carpeta temporal de `HRV_DATA_DIR` los cinco CSV obligatorios (CORE, BETA_AUDIT, FINAL, DASHBOARD y sueño) y la coherencia de la generación contra ambos manifests antes de publicarlos; un backup antiguo sin manifests se rechaza sin tocar los datos operativos. Guarda los archivos locales sustituidos en `backup/pre_restore/`. `HRV_AUTO_RESTORE_ON_EMPTY_DATA=1` intenta restaurar antes del sync si falta o no es utilizable cualquiera de esos CSV; unos manifests incoherentes sobre un dataset utilizable no disparan restore, para no sobrescribir un histórico bueno. Comprueba que el backup remoto corresponde a la misma generación del código antes de restaurarlo.
 
 ## Ejecución en servidor
 

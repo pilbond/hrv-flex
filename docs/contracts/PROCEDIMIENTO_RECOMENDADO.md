@@ -27,7 +27,8 @@ Esto hace:
 - El historico de CORE generado anteriormente con RR de Polar se conserva sin migracion retroactiva.
 - Si CORE no existe y hay RR en `rr_downloads/`, reprocesa esos RR locales primero (sin Dropbox ni Polar); solo si tampoco hay RR locales recurre a Dropbox con la ventana por defecto.
 - Si CORE existe pero esta vacio, es ilegible o no coincide con el esquema canonico vigente, el pipeline falla cerrado y no lo sustituye por un dataset nuevo.
-- Si `HRV_AUTO_RESTORE_ON_EMPTY_DATA=1`, el flujo intenta restaurar `DATA_DIR` desde Dropbox antes de cualquier sync mutante cuando falta o no es utilizable cualquiera de los cinco CSV obligatorios (CORE, BETA_AUDIT, FINAL, DASHBOARD y sueño); si el restore no deja ese conjunto utilizable, el sync se bloquea. Sin auto-restore, la recuperacion es manual.
+- Si `HRV_AUTO_RESTORE_ON_EMPTY_DATA=1`, el flujo intenta restaurar `DATA_DIR` desde Dropbox antes de cualquier sync mutante cuando falta o no es utilizable cualquiera de los cinco CSV obligatorios (CORE, BETA_AUDIT, FINAL, DASHBOARD y sueño); si el restore no deja una generacion coherente, el sync se bloquea. Sin auto-restore, la recuperacion es manual.
+- Un dataset completo cuyos manifests no cuadran no dispara auto-restore: no se sobrescribe un historico utilizable. Ese estado se avisa por log y lo bloquean el gate de lectura de la UI y la puerta HG-10 del builder, hasta regenerar una generacion coherente.
 - Actualiza `ENDURANCE_HRV_sleep.csv` mediante escritura atomica. Si el canonico existente esta vacio, es ilegible o tiene un esquema incompatible, la actualizacion se bloquea sin sobrescribirlo.
 - Para el sueño Polar, el flujo prueba primero la fecha exacta y, si no hay datos, el dia anterior; el fallback existe para cubrir retrasos o desplazamientos alrededor de medianoche, no para inventar filas.
 - Genera ENDURANCE_HRV_master_CORE.csv y ENDURANCE_HRV_master_BETA_AUDIT.csv.
@@ -61,7 +62,7 @@ Si usas la Web UI, basta con presionar "Sincronizar".
 | `POST` | `/api/sync` | Ejecuta `polar_hrv_automation.py --process` en background |
 | `POST` | `/api/sync-sessions` | Ejecuta `build_sessions.py --update` en background |
 | `GET` | `/api/status` | Estado actual del job, último output e info de weekly coach |
-| `POST` | `/api/import-seed` | Importa seed/artefactos auxiliares |
+| `POST` | `/api/import-seed` | Importa seed/artefactos auxiliares. Una seed que toque la generacion HRV debe traer CORE, BETA_AUDIT, FINAL, DASHBOARD y ambos manifests, coherentes entre si; si falta alguno o los hashes no cuadran, se rechaza sin publicar nada y `DATA_DIR` queda como estaba |
 | `POST` | `/api/restore-backup` | Restaura archivos HRV desde el último backup en Dropbox |
 | `POST` | `/api/delete-latest-rr` | Elimina el último RR ingerido |
 | `GET` | `/health` | Health check (`?strict=1` para validar frescura de FINAL) |
@@ -124,7 +125,7 @@ Si no hay sesión en un día, el CSV simplemente no incluye esa fecha. Es normal
   - `HRV_UI_KEY=<clave>` — protege `/api/*` con header `X-HRV-KEY` o `?key=`
   - `HRV_WARNING_MODE=adaptive90` — estrategia de warning (`adaptive90` | `healthy85` | `p20`)
 - `HRV_BACKUP_DROPBOX_ENABLED=1` — backup de artefactos a Dropbox tras sync exitoso
-- `HRV_AUTO_RESTORE_ON_EMPTY_DATA=1` — intenta restaurar `DATA_DIR` desde Dropbox cuando falta o no es utilizable cualquiera de los cinco CSV obligatorios (CORE, BETA_AUDIT, FINAL, DASHBOARD y sueño); un restore que no deje ese conjunto utilizable bloquea el sync
+- `HRV_AUTO_RESTORE_ON_EMPTY_DATA=1` — intenta restaurar `DATA_DIR` desde Dropbox cuando falta o no es utilizable cualquiera de los cinco CSV obligatorios (CORE, BETA_AUDIT, FINAL, DASHBOARD y sueño); un restore que no deje una generacion coherente bloquea el sync. Unos manifests incoherentes sobre un dataset utilizable no disparan restore
 - `HRV_STALE_MAX_DAYS=3` — umbral de `/health?strict=1`
 - `HRV_BACKUP_DROPBOX_PATH=/hrv_backups` — carpeta de backup en Dropbox; conserva subrutas como `ai_briefs/`
 - No subir a Git: `.env`, `.polar_tokens.json` ni datos personales.
