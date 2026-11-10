@@ -44,7 +44,7 @@ def _is_excluded_rr_path(path: Path, root: Path) -> bool:
         rel_parts = path.relative_to(root).parts[:-1]
     except ValueError:
         rel_parts = path.parts[:-1]
-    return any(part.startswith("_audit_") or part == "_incoming_dropbox_rr" for part in rel_parts)
+    return any(part == "_audit" or part.startswith("_audit_") or part == "_incoming_dropbox_rr" for part in rel_parts)
 
 
 def _dropbox_stage_dir(rr_dir: Path | str = OUTDIR) -> Path:

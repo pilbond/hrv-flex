@@ -1,0 +1,58 @@
+# Contexto de construcción Docker: excluir secretos, datos personales y ruido local.
+# El runtime solo necesita los entrypoints de la raíz, hrv_app/, analysis/,
+# templates/, static/, seed_upload/ y requirements_web.txt.
+
+# Secretos y tokens
+.env
+.env.*
+*.env
+!env.example
+.polar_tokens*.json
+tokens.json
+credentials.json
+secrets.json
+*_api_key.txt
+*_secret.txt
+.oauth_code.txt
+
+# Datos personales y copias
+data/
+rr_downloads/
+backup/
+bak/
+delete/
+out/
+*.zip
+*.bak
+*_backup/
+docs/legacy/
+research/archive/
+research/reports/
+research/**/results/
+research/.scratch/
+analysis/reports/
+analysis/.cache/
+
+# Git, entornos y cachés
+.git/
+.venv*/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+
+# Herramientas locales y agentes
+.agents/
+.claude/
+.codex-remote-attachments/
+.obsidian/
+.qodo/
+.qwen/
+.mcp.json
+.opencode.json
+.github/
+Claude outputs/
+_layout_preview/

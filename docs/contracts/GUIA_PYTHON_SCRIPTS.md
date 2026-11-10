@@ -60,15 +60,11 @@ Importante:
   - `POST /api/sync`, `POST /api/sync-sessions`, `POST /api/import-seed`, `POST /api/restore-backup` y `POST /api/delete-latest-rr` comparten estado y no deben ejecutarse en paralelo.
   - Si `HRV_UI_KEY` está definida, todos los `/api/*` exigen la clave vía header `X-HRV-KEY` o query `?key=`; sin definir, comportamiento histórico sin autenticación.
 
-## `canvas-tool.py`
-- Que hace:
-  - Gestiona `Project.canvas` mediante comandos de lectura, propuesta, inicio, pausa, cierre y dependencias.
-- Cuando usarlo:
-  - Solo para el workflow Kanvas documentado en `AGENTS.MD`.
-- Comando base:
-  - `python canvas-tool.py Project.canvas <command>`
-- Importante:
-  - No editar `Project.canvas` manualmente.
+## Kanvas
+- El tablero vigente es `kanvas.json` en la raiz; su workflow esta documentado en `AGENTS.MD`.
+- Usar `python .agents/skills/kanvas/kanvas.py <command>` para consultar o cambiar el tablero.
+- Ejecutar `status` al iniciar la sesion y `check` para validar el tablero. No editar `kanvas.json` a mano.
+- `Project.canvas` y `canvas-tool.py` son archivos historicos en `research/archive/kanvas_legacy/`.
 
 ## `polar_hrv_automation.py`
 - Que hace:
@@ -80,7 +76,7 @@ Importante:
   - Sync operativo principal (CLI o disparado desde web).
 - Flags:
   - `--process`: flujo completo (cubrir fechas + CORE + FINAL + DASHBOARD + SSM).
-  - `--auth`: forzar re-autenticacion Polar.
+  - La autorizacion v4 se inicia en `GET /auth` de la UI web; `--auth` se rechaza en el CLI.
   - `--auto`: detectar automaticamente dias faltantes desde ultimo registro.
   - `--all`: reprocesa RR ya existentes en `rr_downloads/` sin descargar nada nuevo.
   - `--days N`: limita la ventana de fechas a los ultimos N dias.

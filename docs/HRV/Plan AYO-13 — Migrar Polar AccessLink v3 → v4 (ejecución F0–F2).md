@@ -85,7 +85,7 @@ TOKEN_FILE_V4 = ...  # polar_tokens_v4.json, mismo resolver que TOKEN_FILE
 
 ## Subtareas Kanvas
 
-Con `python canvas-tool.py Project.canvas` proponer (purple) en grupo Plataforma, encadenadas con `add-dep` bajo AYO-13:
+Nota historica: estas subtareas se propusieron en el antiguo `Project.canvas`, conservado en `research/archive/kanvas_legacy/`. Para consultar el estado vigente, usar `kanvas.json` mediante `.agents/skills/kanvas/kanvas.py`.
 1. `AYO-13-F0` Capturar fixtures y matriz de paridad v3/v4
 2. `AYO-13-F1` Cliente v4 aislado y adaptadores (dep: F0)
 3. `AYO-13-F2` OAuth v4 y refresh bajo flag (dep: F1)

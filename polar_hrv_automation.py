@@ -6,7 +6,7 @@ POLAR HRV AUTOMATION - Railway/Render Compatible
 Funciona con .env (local) O variables de entorno (Railway/Render)
 
 Uso:
-    python polar_hrv_automation.py --auth         # Primera vez
+    # Primera autorización: abrir /auth en la UI web
     python polar_hrv_automation.py                # Después (desde última fecha CORE; si CORE está vacío, reintenta RR locales y luego últimos 7 días)
     python polar_hrv_automation.py --days 30      # Últimos 30 días
     python polar_hrv_automation.py --all          # Reprocesa RR ya descargados localmente (sin descargar nada nuevo)
@@ -93,7 +93,7 @@ def _debug_sports_v4() -> None:
 def main():
     _configure_stdio()
     parser = argparse.ArgumentParser(description='Polar HRV Automation')
-    parser.add_argument('--auth', action='store_true', help='Forzar re-autenticación')
+    parser.add_argument('--auth', action='store_true', help='No disponible en v4; autorizar mediante /auth en la UI web')
     parser.add_argument('--days', type=int, help='Días hacia atrás (ignora --auto)')
     parser.add_argument('--all', action='store_true', help='Reprocesa RR ya existentes en rr_downloads/, sin descargar nada nuevo (ignora --days y --auto)')
     parser.add_argument('--auto', action='store_true', help='Detectar automáticamente días faltantes desde último registro')

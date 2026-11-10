@@ -1,121 +1,145 @@
 # AYO-27 — Extension ChatGPT privada para HRV via Apps SDK
 
-## Decision propuesta
+## Estado
 
-Extender la aplicacion HRV a ChatGPT mediante una app privada basada en MCP y
-Apps SDK. El conector se desplegara como servicio HTTPS separado y de solo
-lectura, consumiendo la capa de consulta tipada definida por `AYO-15`.
+Propuesta **aparcada**. Revisada el 2026-11-09 contra el estado actual del
+repositorio. No se retira, pero no debe aprobarse hasta que se cumplan las
+condiciones de activación.
 
-No se expondran CSV, rutas locales, tokens, RR crudos, GPS, streams completos
-ni notas libres sin filtrar. Tampoco se habilitaran sincronizaciones,
-restauraciones, borrados ni ninguna mutacion en la primera version.
+## Decisión propuesta
 
-## Objetivo
+Extender la aplicación HRV a ChatGPT mediante una app privada basada en MCP y
+Apps SDK: un servidor MCP remoto, HTTPS y de solo lectura, que reutiliza la
+capa de consulta y el contrato de respuesta del MCP local
+([[AYO-15 Crear MCP de solo lectura para la aplicacion HRV]]).
 
-Permitir consultas en ChatGPT sobre los datos vivos y ya normalizados del
-atleta, por ejemplo:
+Uso N=1: una sola cuenta autorizada, la del atleta. Sin sync, restore,
+borrados ni ninguna mutación.
 
-- «¿Que ha cambiado en mi recuperacion esta semana?»
-- «¿Tiene sentido hacer intensidad manana?»
-- «Compara el coste cardiovascular de mis dos ultimas sesiones de subida.»
+## Condiciones de activación
 
-Las respuestas deben basarse en artefactos canonicos y sidecars reproducibles,
-no en interpretaciones libres de CSV ni en llamadas directas a Polar,
-Dropbox o Intervals.
+Aprobar la tarea solo cuando se cumplan todas:
+
+1. El MCP local está implementado y se ha usado de forma real durante varias
+   semanas, con un contrato de respuesta estable.
+2. Existe una necesidad concreta de consultar el estado HRV fuera del entorno
+   local (por ejemplo, desde el móvil en ChatGPT) que no cubren la UI web ni el
+   brief diario.
+3. La frontera de propietario OAuth y API de la app Flask está resuelta y
+   `/api/status` ya no expone diagnóstico interno innecesario.
+4. Se acepta explícitamente enviar datos de salud del atleta a un tercero
+   (OpenAI) como cambio de alcance del proyecto.
+
+## Qué datos puede servir
+
+En Railway solo existe el volumen `/data` con los outputs del pipeline. Los
+informes de `analysis/` se generan en local, no se sincronizan a `/data` ni
+entran en el backup de Dropbox, y `.dockerignore` excluye
+`analysis/reports/` de la imagen. Por tanto, el servidor remoto **solo** puede
+responder con:
+
+- `ENDURANCE_HRV_master_FINAL.csv`, `..._DASHBOARD.csv`,
+  `..._FINAL_reason_items.json` y manifests;
+- `ENDURANCE_HRV_sleep.csv`;
+- `ENDURANCE_HRV_sessions_day.csv` y `ENDURANCE_HRV_sessions.csv`;
+- `ENDURANCE_HRV_weekly_coach.json` e
+  `ENDURANCE_HRV_intensity_distribution_weekly.csv`.
+
+Quedan fuera los análisis de sesión (`session_payload.json`, `summary.json`,
+reports). Incorporarlos exigiría un flujo nuevo que suba artefactos de
+`analysis/` a `/data`, con redacción de rutas; sería una tarea aparte.
 
 ## Arquitectura
 
 ```text
 ChatGPT
   |
-  | OAuth 2.0 Authorization Code + PKCE (scope hrv:read)
+  | OAuth 2.1 Authorization Code + PKCE (scope hrv:read)
   v
-MCP HRV remoto (HTTPS, Railway)
+MCP HRV remoto (HTTPS, Railway, servicio o proceso separado de la UI Flask)
   |
   v
-HRVQueryService (AYO-15)
+hrv_app/query/  (misma capa que el MCP local)
   |
-  +-- outputs canonicos de data/
-  +-- manifests y sidecars de trazabilidad
-  +-- artefactos reproducibles de analysis/
+  v
+/data  (outputs canónicos y manifests; solo lectura)
 ```
 
-El servidor MCP no debe reutilizar ni ampliar directamente los endpoints
-operativos de Flask (`/api/sync`, `/api/status`, etc.). Compartira lectores y
-esquemas con la app, pero tendra autenticacion, limites y superficie publica
-propias.
+- No reutiliza ni amplía los endpoints operativos de Flask (`/api/sync`,
+  `/api/status`, etc.).
+- Comparte lectores y sobre de respuesta con el MCP local; tests de paridad
+  entre ambos.
+- Su caída no afecta al sync, la UI ni el pipeline.
 
-## Autenticacion y privacidad
+## Autenticación
 
-ChatGPT debe poder descubrir el recurso protegido y completar OAuth contra un
-proveedor de identidad de la propia aplicacion. El flujo debe soportar:
-
-- Authorization Code con PKCE `S256`;
-- metadatos de recurso protegido en `/.well-known/oauth-protected-resource`;
-- metadatos del authorization server;
-- validacion de audiencia, expiracion y scope `hrv:read` en cada llamada;
-- `resource` enlazado al token; y
-- redirect URI de ChatGPT permitida explicitamente.
-
-`HRV_UI_KEY` no sustituye OAuth: es una clave operativa de la UI y no ofrece
-identidad, consentimiento, expiracion ni scopes adecuados para un conector.
-
-Al ser una aplicacion N=1, la autorizacion debe quedar restringida a la cuenta
-del atleta. No se introducira modelo multi-atleta ni se compartiran las
-credenciales de proveedores con ChatGPT.
+- Authorization Code con PKCE `S256` y servidor de autorización propio o
+  delegado, restringido a la cuenta del atleta.
+- Metadatos de recurso protegido y de servidor de autorización según lo que
+  exija Apps SDK en el momento de implementar (verificar la documentación
+  vigente; los requisitos de autenticación de conectores han cambiado con el
+  tiempo).
+- Validación de audiencia, expiración y scope `hrv:read` en cada llamada.
+- Redirect URI de ChatGPT permitida explícitamente.
+- `HRV_UI_KEY` no sustituye OAuth: no ofrece identidad, consentimiento,
+  expiración ni scopes.
+- Rate limiting y auditoría de llamadas sin datos sensibles en logs.
 
 ## Herramientas iniciales
 
-Todas tendran `readOnlyHint: true`, limites de tamano, orden determinista,
-`as_of`, frescura, calidad y procedencia:
+Todas con `readOnlyHint: true`, límites de tamaño, orden determinista, `as_of`,
+frescura, calidad y procedencia:
 
 ```text
-get_today_status()
-get_hrv_trend(from, to)
-get_training_load(from, to)
-search_sessions(from, to, sport, limit)
-get_session_context(session_id)
-get_weekly_coach(date)
-get_analysis_report(session_id)
+get_today_status()              # equivale a hrv_get_daily_status(última fecha)
+get_hrv_trend(from, to)         # sobre hrv_get_date_range
+get_data_quality(from, to)      # sobre hrv_get_data_quality
+get_training_load(from, to)     # sessions_day, solo columnas allowlisted
+get_weekly_coach(date)          # weekly_coach.json; requiere contrato semanal estable
 ```
 
-Los resultados separaran `measured`, `derived`, `context`, `quality` y
-`provenance`. Cuando falte evidencia, devolveran `partial`, `stale` o
-`not_found`; nunca una conclusion inventada.
+Fuera de la primera versión: búsqueda y contexto de sesiones, informes de
+análisis y cualquier herramienta que devuelva texto libre (`notes_raw`).
 
 ## Interfaz opcional
 
-Apps SDK puede asociar una interfaz embebida a las herramientas: grafica de
-HRV/sueno/carga, tabla de sesiones y resumen semanal. La interfaz es una fase
-posterior: primero se valida el contrato MCP textual y sus respuestas
-estructuradas.
+Apps SDK permite una interfaz embebida (gráfica de HRV, sueño y carga). Solo se
+evalúa después de validar el contrato textual y si mejora consultas
+frecuentes.
 
 ## Fases
 
-1. Completar `AYO-15`: `HRVQueryService`, contrato tipado y MCP local por
-   `stdio` de solo lectura.
-2. Implementar servidor MCP remoto HTTPS con las mismas herramientas y tests
-   de paridad con la version local.
-3. Implementar OAuth, metadata, validacion de tokens, rate limiting y
-   auditoria sin datos sensibles.
-4. Conectar y probar como app privada de ChatGPT.
-5. Evaluar componente visual de Apps SDK solo si mejora consultas frecuentes.
+1. Comprobar las condiciones de activación.
+2. Servidor MCP remoto HTTPS con las herramientas iniciales y tests de paridad
+   con el MCP local.
+3. OAuth, metadatos, validación de tokens, rate limiting y auditoría.
+4. Conexión y prueba como app privada de ChatGPT.
+5. Evaluar interfaz visual.
 
-## Criterios de aceptacion
+## Relación con otras tareas
 
-1. El conector autentica mediante OAuth + PKCE y solo acepta `hrv:read`.
+- **AYO-15** (propuesta): dependencia dura; aporta capa de consulta y contrato.
+- **CAF-04** (propuesta): frontera de propietario OAuth y API; debe cerrarse
+  antes de abrir otra superficie autenticada en Railway.
+- **IU-04** (propuesta): reducción de `/api/status`; mismo criterio de
+  superficie mínima.
+- **SYA-18** (propuesta): condiciona `get_weekly_coach` si se apoya en el
+  manifest semanal.
+
+## Criterios de aceptación
+
+1. El conector autentica mediante OAuth + PKCE y solo acepta `hrv:read` de la
+   cuenta del atleta.
 2. Cada herramienta es estrictamente de solo lectura.
-3. No se filtran secretos, rutas absolutas, RR/GPS crudos, streams ni notas
-   libres no saneadas.
-4. El sync, la UI y el pipeline funcionan aunque el MCP este caido.
-5. Las respuestas conservan contratos HRV, causalidad temporal, calidad y
-   trazabilidad de `AYO-15`.
-6. El conector queda disponible como app privada, sin publicacion ni soporte
-   multiusuario implicitos.
+3. Solo sirve datos presentes en `/data`; no expone CSV completos, secretos,
+   rutas, RR, GPS, streams ni texto libre.
+4. El sync, la UI y el pipeline funcionan aunque el MCP remoto esté caído.
+5. Las respuestas son idénticas en contrato a las del MCP local para la misma
+   fecha y artefactos.
+6. El conector queda como app privada, sin publicación ni soporte multiusuario.
 
 ## Referencias
 
 - OpenAI Apps SDK: <https://developers.openai.com/apps-sdk>
-- Construccion del servidor MCP: <https://developers.openai.com/apps-sdk/build/mcp-server>
-- Autenticacion de Apps SDK: <https://developers.openai.com/apps-sdk/build/auth>
-- Plan local previo: `docs/HRV/AYO-15 Crear MCP de solo lectura para la aplicacion HRV.md`
+- Construcción del servidor MCP: <https://developers.openai.com/apps-sdk/build/mcp-server>
+- Autenticación de Apps SDK: <https://developers.openai.com/apps-sdk/build/auth>

@@ -43,7 +43,7 @@ Si usas la Web UI, basta con presionar "Sincronizar".
 | Flag | Qué hace |
 |------|----------|
 | `--process` | Flujo completo: cubrir fechas faltantes + CORE + FINAL + DASHBOARD + SSM |
-| `--auth` | Forzar re-autenticación Polar |
+| `--auth` | No disponible en v4; iniciar la autorización en `GET /auth` de la UI web |
 | `--auto` | Detectar automáticamente días faltantes desde último registro |
 | `--all` | Reprocesa RR ya existentes en `rr_downloads/` sin descargar nada nuevo |
 | `--days N` | Limita la ventana de fechas a buscar a los últimos N días |

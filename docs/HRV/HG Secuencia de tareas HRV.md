@@ -1,6 +1,6 @@
 # Secuencia de tareas HG (HRV)
 
-Estado comprobado el 2026-11-01 con `python canvas-tool.py Project.canvas status` y `show`. `Project.canvas` gobierna el estado de las tarjetas; esta nota resume dependencias y alcance técnico. No autoriza por sí misma un corte canónico.
+Estado historico comprobado el 2026-11-01 con el antiguo `Project.canvas`, ahora en `research/archive/kanvas_legacy/`. El estado vigente de las tarjetas se consulta en `kanvas.json`; esta nota conserva las dependencias y el alcance técnico de aquella fecha. No autoriza por sí misma un corte canónico.
 
 | Tarjeta | Kanvas | Entrega y relación con HG-10 |
 |---|---|---|

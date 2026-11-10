@@ -1,0 +1,1294 @@
+{
+  "kanvas": 1,
+  "title": "Project",
+  "groups": [
+    {
+      "id": "HG",
+      "name": "HRV Global"
+    },
+    {
+      "id": "SYA",
+      "name": "Analysis / Coach"
+    },
+    {
+      "id": "RE",
+      "name": "Contexto de carga"
+    },
+    {
+      "id": "FP",
+      "name": "Terreno / Perfomance"
+    },
+    {
+      "id": "AYO",
+      "name": "Plataforma"
+    },
+    {
+      "id": "PCV",
+      "name": "Pendientes con valor"
+    },
+    {
+      "id": "AP",
+      "name": "Intensity / Alerts"
+    },
+    {
+      "id": "MVP",
+      "name": "Migracion V4 Polar"
+    },
+    {
+      "id": "IU",
+      "name": "ia updates"
+    },
+    {
+      "id": "SM",
+      "name": "Semantica y analysis"
+    },
+    {
+      "id": "CAF",
+      "name": "Core Audit Fixes"
+    },
+    {
+      "id": "FLE",
+      "name": "Fable 5.2 Review"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "HG-03",
+      "title": "Preservar pares RR originalmente consecutivos",
+      "state": "done",
+      "group": "HG",
+      "desc": "Corregir metricas basadas en diferencias RR tras descartes; cubrir ventanas, cola, Poincare y rescate; auditar historico y actualizar contrato.\n\nAvance 2026-10-21: CORE conserva indices originales y helper de pares sin activar aun la definicion canonica. El RMSSD local de sesiones ya usa filas fisicas consecutivas. Control C verificado: excepciones historicas en CORE 6 fechas, BETA_AUDIT 2 y FINAL 2; DASHBOARD coincide; gate y Action coinciden en todas. H3/C cambia gate en 18 fechas. En el replay conjunto, HG-03 cambia 111/25/19/15 gates respecto a las mismas ventanas con inicio 0/60/90/120 s sin correccion de pares. Informes: research/reports/hg03_hg04_control_replay_2026-10-21.md y research/reports/hg04_early_windows_replay_2026-10-21.md.\n\nAlcance acotado 2026-10-27: esta tarjeta cubre solo la semántica de pares originalmente consecutivos y su verificación en copia aislada. Lo que dependía de decisiones de HG-04 y HG-09 (elegir ventana y QA con criterio externo, tratar ventanas insuficientes, actualizar contratos y ejecutar corte histórico controlado, incluidas las tres fechas sin RR) pasa a HG-10, que depende de esta tarjeta y de HG-09. Así se rompe la dependencia circular HG-04 → HG-03 → (HG-04, HG-09). Ningún CSV canónico se ha migrado.\n\nNota de desarrollo: [[RR_PARES_CONSECUTIVOS_TAREA]]"
+    },
+    {
+      "id": "HG-06",
+      "title": "HG-05A Diagnóstico y referencia ECG",
+      "state": "done",
+      "group": "HG",
+      "desc": "**Diagnóstico terminado; pendiente de revisión humana.** Hay un patrón repetido de parejas RR sospechosas, pero no se ha validado la identidad de sus picos. El replay mide el efecto hipotético de fusionarlas; la prueba objetiva con controles difíciles no permitió justificar esa fusión. HG-07 y HG-08 siguen en sombra.\n\n- [Documento principal e índice de todos los materiales](<docs/HRV/HG-06 Diagnostico y referencia ECG.md>)"
+    },
+    {
+      "id": "HG-01",
+      "title": "Propuesta baseline drift 60v180 (STAND BY)",
+      "state": "todo",
+      "group": "HG",
+      "deps": ["SYA-10"],
+      "desc": "Reformular y evaluar baseline drift 60v180 como metrica HRV longitudinal de contexto separada de PCV-02, verificando si aporta senal independiente frente a degraded_vs_best y degraded_vs_current_normal, sin tocar gate, flags canonicos, FINAL, DASHBOARD, sessions_day ni reason_text por ahora.\n\nNota de desarrollo: [[docs/HRV/HG-01 Propuesta baseline drift 60v180.md]]"
+    },
+    {
+      "id": "HG-02",
+      "title": "SSM-02 Desacoplar y optimizar build_hrv_ssm_validation.py del sync diario",
+      "state": "done",
+      "group": "HG",
+      "deps": ["SYA-17"],
+      "desc": "Documento de tarea: [HG-02 SSM-02 Desacoplar y optimizar build_hrv_ssm_validation.py del sync diario.md](C:/Pilbond/polar-hrv-automation/docs/HRV/HG-02%20SSM-02%20Desacoplar%20y%20optimizar%20build_hrv_ssm_validation.py%20del%20sync%20diario.md)\n\nAnálisis de rendimiento medido (2026-05-29): 72 s de pared en cada sync, dominado por _find_next_outcome_pairs O(N2) fila-a-fila (49 s) y re-emparejamiento redundante en rejilla phi y comparadores (26 s). El bootstrap (~3 s) es inocente. Tres soluciones por orden ROI: A) desacoplar del sync (cero riesgo); B) precomputar esqueleto de emparejamiento una sola vez y reutilizar por variante; C) vectorizar con merge_asof (requiere tests previos). Análisis completo: docs/ANALISIS_SSM_VALIDATION_RENDIMIENTO_2026-05-29.md"
+    },
+    {
+      "id": "HG-04",
+      "title": "Ventana fija de calculo de RMSSD_stable y revision de la estabilizacion",
+      "state": "done",
+      "group": "HG",
+      "deps": ["HG-03"],
+      "desc": "Estado 2026-10-26. Investigación de geometría HG-03 + inicio 90 s + corte máximo 375 s en copias aisladas; no hay cambio de producción. La medición diaria resulta próxima a la actual en promedio, pero eso no demuestra equivalencia ni superioridad fisiológica. La auditoría de diez ECG originales no halló errores del conversor entre 30 discrepancias revisadas; 19 de 29 días siguen no determinables. Las 30 ventanas alternativas por día muestran discordancia fuera de la cola. La cola cae en el decil superior en 7/10, resultado condicionado por seleccionar días con MISMATCH alto, pero no garantizado por esa selección. Se retiraron cifras de diez controles <8% sin fechas ni semilla guardadas. La decisión normativa sobre LAT_NAN, STAB_LAST2_MISMATCH y su efecto en Calidad, referencias, semáforo y acción queda ABIERTA y pasa a HG-09. Informe corregido: research/reports/hg04_errores_rr_ampliacion_10dias_2026-10-26.md. Nota consolidada: [[HG-04 Ventana de calculo de RMSSD_stable y revision de estabilizacion]]. Nueva tarea: [[HG-09 Politica de Calidad HRV para ventana 90-375 s]]."
+    },
+    {
+      "id": "HG-07",
+      "title": "HG-05B Reconstrucción RR en sombra",
+      "state": "proposed",
+      "group": "HG",
+      "deps": ["HG-06"],
+      "desc": "Con referencia ECG de HG-06, evaluar por origen falsos merges y cobertura de la regla suma+posición en conjunto no usado para proponerla. Implementar candidato solo en sombra en la capa lectora RR, preservando tramos de índices originales para coordinar con HG-03; comparar CORE QA baseline gate y acción en copia aislada. Activar fusión y recálculo histórico solo si la evidencia lo justifica y tras contrato. HG-04 puede seguir sin esperar este resultado. \n\nNota de desarrollo: [[HG-07 HG-08 Reconstruccion RR y detector ECG en origen]]",
+      "notes": [
+        {
+          "at": "2026-11-09T15:53:13Z",
+          "by": "codex",
+          "text": "Evaluacion 2026-11-09: valor residual condicionado, prioridad baja. HG-10 ya adopto pares consecutivos, inicio 90 s/corte 375 s/trim 15 s y QA por descartes de ventana. El replay de HG-06 usa geometria y QA anteriores y mide consecuencias hipoteticas, no mejoras demostradas. HG-06 no obtuvo referencia validada de identidad de picos. Recomiendo mantener en espera como alternativa de recuperacion RR; antes de implementar, replay acotado con baseline HG-10 y adjudicacion de casos afectados. No activar fusion ni extrapolar a historico Polar. Evaluacion documental y codigo; no nuevo replay. Sin cambio de estado ni alcance."
+        }
+      ]
+    },
+    {
+      "id": "HG-08",
+      "title": "Validación acotada del detector ECG: detección y temporización",
+      "state": "done",
+      "group": "HG",
+      "deps": ["HG-06"],
+      "desc": "Evaluar si una corrección concreta del detector ECG mejora la medición frente al pipeline HG-10 vigente. Investigación acotada: puede cerrarse sin adopción si la evidencia no demuestra una mejora o no permite acotar falsas correcciones.\n\nDos preguntas separadas:\n1. Detección: picos añadidos u omitidos. Priorizar discrepancias verificables, incluido el evento del 2026-10-29 alrededor de 235–237 s, junto a controles y casos ambiguos.\n2. Temporización: posición temporal de picos ya detectados. Evaluar el refinamiento del fiducial por separado, conservando pares físicos comunes para aislar su efecto; informar además el resultado del pipeline completo con sus propios filtros.\n\nPunto de partida: HG-06 vinculó por contenido 216 ECG con sus RR históricos; todos los picos archivados se reproducían a ≤5 ms, con 13 picos adicionales al reprocesar el 2026-04-15. No repetir el inventario general. Esa correspondencia no valida la identidad de los picos. Las comparaciones posteriores de HG-10 con refinamiento y HRVanalysis aportan reproducibilidad, no exactitud real. Las fechas 2026-03-06 y 2026-03-07 carecían de ZIP en aquel inventario; cualquier ampliación debe verificar fuente, contenido y huellas.\n\nTrabajo y criterios de cierre:\n- Fijar antes de evaluar un conjunto limitado de casos y controles, regla candidata, referencia independiente, tolerancia temporal e incertidumbre, límites aceptables de falsas correcciones y criterio de mejora relevante. Separar casos usados para diseñar la regla de los usados para evaluarla.\n- Para detección, adjudicar picos añadidos/omitidos y registrar falsos positivos, falsos negativos y casos no adjudicables. Para temporización, definir el fiducial y medir el error frente a la referencia; el acuerdo entre algoritmos o la mejora en simulación no bastan para acreditar exactitud real.\n- Ejecutar el control y la candidata en copia aislada con geometría y política de Calidad HG-10 vigentes. Exigir paridad del control y trazabilidad de ECG/ACC, RR, código y entorno. Comparar RR utilizables, RMSSD, Calidad, baseline, gate y Action, incluidos efectos posteriores sobre toda la serie.\n- Cerrar con una decisión documentada: proponer adopción solo si mejora la medida, acota falsas correcciones y justifica su impacto operativo; en otro caso conservar el detector vigente y registrar el resultado negativo o inconcluyente, sin ampliar indefinidamente la investigación.\n\nLa entrega es evidencia reproducible y una recomendación. La activación y cualquier recálculo histórico requieren decisión explícita posterior, tests y actualización contractual. Una eventual rederivación se limita a ECG/ACC de procedencia verificada; no modifica el histórico Polar. HG-07 permanece como alternativa condicionada, sin fusión automática.\n\nDesarrollo ampliado el 2026-11-09 en [[HG-07 HG-08 Reconstruccion RR y detector ECG en origen]], sección 4, HG-08. Ese apartado contiene el plan vigente; el resto de antecedentes se conserva con su fecha y límites.\n\nComparadores: C0 detector vigente; C1 refinamiento temporal conservando identidad y número de picos; C2 Hamilton con implementación/versionado explícitos; C3 Kalidas–Tamil (SWT, no Hilbert); C4 una CNN preentrenada opcional con pesos, licencia, código y salida temporal reproducibles. No usar un clasificador de ventanas como detector R ni presuponer superioridad frente a ondas T, movimiento o deriva. Si la CNN no es evaluable, documentarlo sin retrasar el resto.\n\nDesarrollo: congelar muestra y criterios, separar diseño/evaluación por fecha, adjudicar identidad y fiducial con incertidumbre, implementar adaptadores en research, comparar detección y temporización por separado y ejecutar replay cronológico solo de candidatas justificadas. Medir FP/FN, falsas correcciones, error temporal y de RR, RMSSD sobre pares físicos comunes y resultado completo con sus propios descartes. Registrar cobertura, incertidumbre por día, fallos y coste. El acuerdo entre detectores, un F1 alto con tolerancia amplia o una bajada de RMSSD no acreditan exactitud.\n\nEntregables: protocolo, referencia, manifiestos, adaptadores y resultados reproducibles, replay condicionado e informe de decisión por rama. No incluye entrenamiento desde cero, cambios del runtime ni adopción. La actualización documental mantiene HG-08 en proposed y no inicia la investigación.",
+      "notes": [
+        {
+          "at": "2026-11-09T15:53:14Z",
+          "by": "codex",
+          "text": "Evaluacion 2026-11-09: conserva mas valor potencial que HG-07, como validacion acotada del detector en origen. Separar numero/identidad de picos de precision temporal del fiducial. HG-06 ya verifico correspondencia de 216 ECG con RR historicos; no repetir ese inventario como trabajo pendiente general. Las comparaciones HG-10 con refinamiento y HRVanalysis aportan reproducibilidad, no exactitud real. Priorizar discrepancias concretas (p. ej. 2026-10-29, region ECG 235-237 s), controles y referencia independiente; medir impacto con geometria/QA HG-10 antes de adoptar. No hay mejora operativa demostrada ni autorizacion de backfill. Evaluacion documental y codigo; sin nuevo replay ni cambio de estado/alcance."
+        },
+        {
+          "at": "2026-11-09T15:58:26Z",
+          "by": "codex",
+          "text": "Alcance actualizado tras la evaluación del 2026-11-09: reutilizar evidencia de HG-06/HG-10, separar detección de temporización y fijar criterios de cierre sin adopción automática."
+        },
+        {
+          "at": "2026-11-09T19:55:56Z",
+          "by": "codex",
+          "text": "Documento y desarrollo ampliados a petición del usuario: refinamiento temporal, Hamilton, Kalidas–Tamil SWT y CNN opcional; protocolo, métricas, replay y cierre sin adopción automática. Corregida la atribución de Kalidas a Hilbert."
+        },
+        {
+          "at": "2026-11-09T20:09:29Z",
+          "by": "codex",
+          "text": "Arrancar la fase 0: reutilizar las fuentes de HG-06/HG-10, fijar muestra y criterios sin ver resultados de las ramas y comprobar la disponibilidad de una referencia ECG independiente. Condicionar los comparadores y el replay a esa evidencia."
+        },
+        {
+          "at": "2026-11-09T20:14:31Z",
+          "by": "codex",
+          "text": "Fase 0 iniciada. Protocolo y seleccion reproducible en research/experiments/hg08_detector. Verificados 15 ECG con ACC y preparados 39 extractos ciegos (3 de diseno, 36 de evaluacion), sin ejecutar comparadores. Coinciden 13 de 15 RR historicos por SHA-256. Pendientes la anotacion independiente y la paridad RR del 12 y 16 de marzo. Los extractos y el manifiesto son locales y estan excluidos de Git."
+        },
+        {
+          "at": "2026-11-09T23:11:57Z",
+          "by": "codex",
+          "text": "Adaptadores C0-C3 ejecutados en las tres grabaciones de diseno, con paquetes aislados. C0 reproduce 14/15 RR por SHA-256, incluidos 12 y 16 de marzo. El 15 de abril conserva la divergencia 479 frente a 466 RR. La muestra de evaluacion queda reservada para anotacion ciega. Protocolo, recuentos de diseno y plantilla en research/experiments/hg08_detector."
+        },
+        {
+          "at": "2026-11-09T23:11:58Z",
+          "by": "codex",
+          "text": "Question: ¿Puedes aportar una revisión independiente de los extractos ECG, o seguimos con una única revisión técnica exploratoria?"
+        },
+        {
+          "at": "2026-11-09T23:13:20Z",
+          "by": "codex",
+          "text": "El usuario confirma que no hay segunda revision independiente. Autoriza continuar con una unica lectura tecnica exploratoria, sin abrir resultados de las ramas de evaluacion antes de registrar la referencia. La temporizacion queda inconcluyente como validacion de exactitud."
+        },
+        {
+          "at": "2026-11-09T23:16:07Z",
+          "by": "codex",
+          "text": "Primera lectura tecnica cerrada antes de ejecutar las ramas en evaluacion. 36 paneles, 366 complejos visuales, 11 intervalos inciertos. SHA-256 de referencia: ba07f7f6b874e9925404e287210299f73f8745851651bb99c301b1e142562163"
+        },
+        {
+          "at": "2026-11-10T02:11:03Z",
+          "by": "codex",
+          "text": "Conservar el detector vigente. Evaluados 36 extractos de 12 fechas con una lectura tecnica ciega, 360 complejos puntuables y paridad C0 en las 12 fechas. Hamilton evita una deteccion adicional en una fecha, por debajo del minimo de tres fechas. Kalidas-Tamil introduce una deteccion adicional y una omision en otro registro. El refinamiento conserva identidades, pero su exactitud temporal queda inconcluyente con una sola referencia visual. C4 queda sin evaluar. Ninguna rama cumple el criterio de replay. Informe y casos E02/E14 en research/reports/hg08_detector_2026-11-10.md. Revisar la decision y sus limites."
+        },
+        {
+          "at": "2026-11-10T07:30:47Z",
+          "by": "codex",
+          "text": "Adenda C4 solicitada por el usuario. RPNet 1D-CNN con pesos de los autores evaluado en los mismos 36 extractos. 360 emparejados, 2 detecciones adicionales y 0 omisiones. Evita la deteccion adicional de C0 en E02, pero agrega dos nuevas en ese extracto. Los recuentos coinciden con ambas tolerancias. Se mantiene C0 y el estado de revision. Detalle y comandos en la adenda C4 de research/reports/hg08_detector_2026-11-10.md."
+        },
+        {
+          "at": "2026-11-10T08:01:43Z",
+          "by": "codex",
+          "text": "Adenda retrospectiva autorizada. Muestra: un extracto de 12 s por cada una de 20 fechas locales con mas del 10% de RR descartados en ventana, elegido por maxima concentracion de marcas offline de C0. Lectura cruda cerrada antes de inferir RPNet. 99 marcas visuales, 8 extractos completamente dudosos. Referencia SHA-256: ca0fb01d97620c0f555ad9ed08b65919654a1888e175a2c3e7068e6a89b8e95d"
+        },
+        {
+          "at": "2026-11-10T08:15:55Z",
+          "by": "codex",
+          "text": "Adenda en 20 fechas dificiles, con 96 complejos puntuables y ocho extractos enteros dudosos. RPNet recupera cinco omisiones de C0 en cuatro fechas, pero cambia 14 detecciones adicionales por 14 nuevas. Total 24 a 19 discrepancias, y 20 a 19 al retirar los dos dias del diseno inicial. RPNet no supera el requisito de cero errores nuevos. Conservar C0 y mantener HG-08 en revision. Informe y reproducibilidad en research/reports/hg08_detector_2026-11-10.md."
+        },
+        {
+          "at": "2026-11-10T08:29:54Z",
+          "by": "codex",
+          "text": "[[docs/HRV/HG-08 Resultado del analisis del detector ECG.md|Resultado del análisis del detector ECG]]"
+        }
+      ]
+    },
+    {
+      "id": "HG-05",
+      "title": "Descartes RR dentro de la ventana de medicion",
+      "state": "done",
+      "group": "HG",
+      "deps": ["HG-04"],
+      "desc": "Alcance descriptivo terminado el 2026-10-27. El script hg05_ventana_vs_global_375.py reproduce Artifact_pct de CORE en 507/507 fechas y compara, con inicio 90 s y corte 375 s, descartes globales frente a descartes de la ventana. Resultado: 36,5% de descartes antes de 90 s; la elección global/ventana cruza los umbrales vigentes del 15%/20% en 3/507 días, y el propio corte hace cruzar umbral a seis días ECG. El valor de una nueva columna sería principalmente descriptivo; no se ha demostrado superioridad de una regla de Calidad. Traspasos: HG-09 recibe los casos y decide la política de Calidad; HG-10 define Artifact_pct con registro cortado y posibles recuentos en ventana antes de contrato y corte histórico. Informe: research/reports/hg05_ventana_vs_global_375_2026-10-27.md. Nota: [[HG-05 Auditoria de deteccion de latidos y calidad de senal en ventana]]. Orden: [[HG Secuencia de tareas HRV]]. Producción sin cambios."
+    },
+    {
+      "id": "HG-09",
+      "title": "Política de Calidad HRV para ventana 90-375 s",
+      "state": "done",
+      "group": "HG",
+      "deps": ["HG-04"],
+      "desc": "Entregada de nuevo 2026-10-27 (tarde) para revisión humana. Evidencia nueva sobre STAB_LAST2_MISMATCH con protocolo previo: era ECG, 7 casos frente a 21 controles OK, revisión ciega con ECG (288 casos, incluidos 248 latidos concordantes). Tras corregir errores confirmados del conversor, ningún día cambia lnRMSSD de forma relevante ni cambia de flag; 0/7 frente a 0/21, IC95% −0,15 a 0,35. Repetibilidad: 0 pares con MISMATCH. Resultado: EVIDENCIA INSUFICIENTE; la decisión revisable de la mañana (MISMATCH elegible para referencias, cautela de acción) no queda confirmada ni refutada. Plan: repetir con ≥22 casos M y pares repetidos tras día MISMATCH. Informe: research/reports/hg09b_evidencia_mismatch_2026-10-27.md. Producción sin cambios. Nota: [[HG-09 Politica de Calidad HRV para ventana 90-375 s]]."
+    },
+    {
+      "id": "HG-10",
+      "title": "HG-03B Corte histórico y contrato de pares consecutivos",
+      "state": "done",
+      "group": "HG",
+      "deps": ["HG-03", "HG-09"],
+      "desc": "## HG-10 HG-03B Corte histórico y contrato de pares consecutivos\nPolítica B, geometría 90–375 s y umbrales de artefactos del tramo publicados en el data/ local de hrv-flex el 2026-11-05. CORE/FINAL 19/67 columnas; 513 fechas. Suite completa: 758 pruebas pasan. Respaldo verificado de 19 archivos y recuperación ensayada; briefs IA latest anteriores archivados. Evidencia: docs/HRV/HG-10 Validacion y corte local 2026-11-05.md. Railway requiere un corte independiente.",
+      "notes": [
+        {
+          "at": "2026-11-05T17:57:56Z",
+          "by": "claude-code",
+          "text": "Documento principal de la tarea: [[HG-10 Corte historico y contrato de pares consecutivos]]. Evidencia del corte local: [[HG-10 Validacion y corte local 2026-11-05]]."
+        }
+      ]
+    },
+    {
+      "id": "SYA-03",
+      "title": "Inventario y analisis ampliado de intervalsicugptcoach",
+      "state": "done",
+      "group": "SYA",
+      "desc": "Inventariar, recuperar y comparar los JSON ampliados de intervalsicugptcoach por deporte. Separar dato bruto, derivado FIT/streams, intervalos y coach analytics. Documentar que metricas merecen potencial canonizacion en sessions.csv o solo en analysis. Nota de desarrollo: [[docs/HRV/SYA-03 Inventario y analisis ampliado de intervalsicugptcoach.md]]"
+    },
+    {
+      "id": "SYA-04",
+      "title": "SYA-03A Fase 1 Extraccion minima canonica",
+      "state": "done",
+      "group": "SYA",
+      "desc": "Cerrar la extraccion minima canonica de metrics de intervalsicugptcoach. Definir campos finales, nombres canonicos, unidades, nullabilidad y criterios de presencia para sessions.csv, con actualizacion contractual si aplica.\n\nDocumento maestro: [[docs/HRV/SYA-03 Inventario y analisis ampliado de intervalsicugptcoach.md]]\nSecciones aplicables: resumen ejecutivo; 6.b Roadmap formal por fases; tabla priorizada; anexo exhaustivo.\nMarco obligatorio: ejecutar esta fase sin reabrir decisiones ya cerradas en SYA-03.\nEsta subtarea SI puede decidir: seleccion final de primitivas canonicas de Fase 1 y su formalizacion operativa.\nEsta subtarea NO puede decidir: reinterpretaciones globales fuera de Fase 1, nuevas senales compuestas o cambios de capa no defendidos en SYA-03.\nCierre obligatorio: actualizar SYA-03 si cambia cualquier conclusion, naming, unidad, nullabilidad o criterio contractual."
+    },
+    {
+      "id": "SYA-05",
+      "title": "SYA-03B Fase 2 Validacion semantica y backtest",
+      "state": "done",
+      "group": "SYA",
+      "desc": "Validar retrospectivamente los campos ambiguos de intervalsicugptcoach por deporte. Cerrar escala, formula, cobertura y destino recomendado de session_rpe, icu_intensity, polarization_index, average_cadence y average_stride.\n\nDocumento maestro: [[docs/HRV/SYA-03 Inventario y analisis ampliado de intervalsicugptcoach.md]]\nSecciones aplicables: resumen ejecutivo; 6.b Roadmap formal por fases; tabla priorizada; anexo exhaustivo.\nMarco obligatorio: ejecutar esta fase con trazabilidad contra las hipotesis y limites ya cerrados en SYA-03.\nEsta subtarea SI puede decidir: validacion o descarte de campos ambiguos y su destino entre sessions.csv, analysis o descarte.\nEsta subtarea NO puede decidir: canonizacion directa fuera de evidencia retrospectiva ni redisenar el roadmap completo.\nCierre obligatorio: actualizar SYA-03 con resultados de backtest, cobertura, formula final y decision de destino por campo."
+    },
+    {
+      "id": "SYA-06",
+      "title": "SYA-03C Fase 3 Enriquecimiento analitico no canonico",
+      "state": "done",
+      "group": "SYA",
+      "desc": "Explotar en analysis el valor de icu_intervals, icu_groups, icu_achievements, icu_zone_times, route_id y modelos coach sin contaminar sessions.csv. Definir lecturas tacticas, bloques y comparativas narrativas utiles.\n\nDocumento maestro: [[docs/HRV/SYA-03 Inventario y analisis ampliado de intervalsicugptcoach.md]]\nSecciones aplicables: resumen ejecutivo; 6.b Roadmap formal por fases; tabla priorizada; anexo exhaustivo.\nMarco obligatorio: mantener la separacion de capas y tratar esta fase como analysis-only salvo cambio previo en SYA-03.\nEsta subtarea SI puede decidir: usos analiticos, narrativos y tacticos dentro de analysis.\nEsta subtarea NO puede decidir: introducir estructuras ricas o modelos coach como columnas canonicas en sessions.csv.\nCierre obligatorio: actualizar SYA-03 con los usos reales encontrados, limites observados y cualquier descarte relevante."
+    },
+    {
+      "id": "SYA-07",
+      "title": "SYA-03D Fase 4 Senales compuestas validadas",
+      "state": "done",
+      "group": "SYA",
+      "desc": "Construir solo senales compuestas que hayan demostrado valor incremental frente a primitivas. Prioridad real tras la revision externa: formalizar subjective coherence / load mismatch usando load, trimp, session_rpe y hr_load; formalizar thermal cost score en version simple y auditable apoyada primero en average_weather_temp; y validar primitivas de durabilidad por tercios como entrada a durability score sin cerrar todavia una taxonomia fuerte por deporte.\n\nDocumento maestro: [[docs/HRV/SYA-03 Inventario y analisis ampliado de intervalsicugptcoach.md]]\nSecciones aplicables: resumen ejecutivo; 6.b Roadmap formal por fases; tabla priorizada; anexo exhaustivo; 8.1 Priorizacion refinada tras revision externa.\nMarco obligatorio: no crear nuevas senales compuestas sin evidencia previa de las fases 1-3 y sin formula auditable.\nEsta subtarea SI puede decidir: formula, test retrospectivo y destino de senales compuestas ya previstas en SYA-03.\nEsta subtarea NO puede decidir: introducir indices nuevos fuera del marco del documento maestro sin actualizar antes SYA-03; ni convertir hallazgos de weekly/baseline HRV en senales de sesion por simple conveniencia.\nCierre obligatorio: actualizar SYA-03 con definicion matematica, cobertura, valor incremental y destino final de cada senal compuesta."
+    },
+    {
+      "id": "SYA-08",
+      "title": "SYA-03E Fase 5 Consolidacion longitudinal y especializacion por deporte",
+      "state": "done",
+      "group": "SYA",
+      "desc": "Consolidar las senales ya validadas como capa madura de contexto del atleta por deporte y horizonte temporal. Prioridad real tras la revision externa: benchmarks por ruta o climb cuando exista repeticion suficiente; climb economy trend y sensibilidad termica individual como lecturas longitudinales; y divergencia cronica entre carga objetiva y subjetiva solo cuando ya exista una version validada en Fase 4.\n\nDocumento maestro: [[docs/HRV/SYA-03 Inventario y analisis ampliado de intervalsicugptcoach.md]]\nSecciones aplicables: resumen ejecutivo; 6.b Roadmap formal por fases; tabla priorizada; anexo exhaustivo; 8.1 Priorizacion refinada tras revision externa.\nMarco obligatorio: tratar esta fase como objetivo ideal posterior, dependiente de resultados validos de las fases 1-4.\nEsta subtarea SI puede decidir: consolidacion longitudinal, especializacion por deporte y benchmarks cuando exista cobertura suficiente.\nEsta subtarea NO puede decidir: saltarse validaciones previas o invadir el gate HRV con senales todavia experimentales; ni absorber tareas semanales o de baseline HRV global que pertenecen a otra capa.\nCierre obligatorio: actualizar SYA-03 con el modelo longitudinal final, criterios por deporte y limites reales de cobertura."
+    },
+    {
+      "id": "SYA-09",
+      "title": "SYA-03F Fase 6 Alineacion del weekly report",
+      "state": "done",
+      "group": "SYA",
+      "desc": "Auditar impacto de SYA-04/05/06 sobre weekly report: revisar uso de nuevas columnas de sessions.csv, decidir exclusion o inclusion explicita de analysis_only_context/coaching sidecars en semanal, validar si trimp y nuevas senales cambian lectura semanal, y actualizar WEEKLY_ANALYSIS_METHOD/guia asociada sin mezclar contrato de sesion con contrato semanal.\n\nNota de desarrollo: [[docs/HRV/SYA-09 Fase 6 Alineacion del weekly report]]"
+    },
+    {
+      "id": "SYA-10",
+      "title": "SYA-03G Backlog diferido de senales retrospectivas y HRV longitudinal",
+      "state": "done",
+      "group": "SYA",
+      "desc": "Agrupar propuestas valiosas que han quedado fuera del alcance inmediato de SYA-07/08/09: HRV rebound profile D+1/D+3 como lectura retrospectiva, baseline drift 60v180 o baseline adaptativo de largo plazo, continuidad aeróbica Z1 alta si se redefine bien en el marco de 3 zonas, y otras ideas que no encajan hoy ni como senal compuesta de sesion ni como weekly operativo. Esta subtarea SI puede: clasificar, reformular y decidir destino natural (weekly, HRV global, investigacion local) de cada idea diferida. Esta subtarea NO puede: colar estas ideas en analysis_only_context, sessions_day, FINAL o reason_text sin validacion y sin actualizar antes el marco maestro en SYA-03. Cierre obligatorio: dejar backlog diferido limpio y trazable en SYA-03 con criterio de reactivacion.\n\nNota de desarrollo: [[docs/HRV/SYA-10 Backlog diferido de senales retrospectivas y HRV longitudinal]]"
+    },
+    {
+      "id": "SYA-16",
+      "title": "HRV rebound profile D+1/D+3",
+      "state": "done",
+      "group": "SYA",
+      "desc": "Formalizar y evaluar la idea de HRV rebound profile D+1/D+3 como señal weekly retrospectiva, definiendo semántica, ventana temporal, relación entre sesión origen y respuesta HRV posterior, y criterios de activación sin incorporarla aún a analysis_only_context, sessions_day, FINAL ni reason_text.\\n\\nNota de desarrollo: [[SYA-16 HRV rebound profile D+1 D+3]]"
+    },
+    {
+      "id": "SYA-17",
+      "title": "SSM-01 Bayesian State-Space Model para estimacion de estado del atleta",
+      "state": "done",
+      "group": "SYA",
+      "desc": "Implementar capa sombra SSM Bayesiano (Banister + Kalman) para estimar fitness/fatiga latentes con incertidumbre explicita. Emite campos ssm_* en FINAL.csv sin tocar el gate actual. Fases: (1) sombra con parametros literatura (2) calibracion personal MCMC (3) promocion opcional al gate. 📄 Análisis: [[docs/HRV/SSM-01 Bayesian State-Space Model para estimacion de estado del atleta]]"
+    },
+    {
+      "id": "SYA-14",
+      "title": "Z3 budget semanal",
+      "state": "done",
+      "group": "SYA",
+      "deps": ["SYA-10", "SYA-09"],
+      "desc": "Redefinir z3 budget semanal como percentil historico de Z3 por deporte, usando ENDURANCE_HRV_intensity_distribution_weekly.csv para cuantificar si la semana actual esta baja, normal, alta o muy alta en Z3 respecto al historico comparable del mismo sport, sin incorporarlo aun a analysis_only_context, sessions_day, FINAL ni reason_text.\n\nNota de desarrollo: [[docs/HRV/SYA-14 Z3 budget semanal.md]]"
+    },
+    {
+      "id": "SYA-15",
+      "title": "Continuidad aeróbica Z1 alta",
+      "state": "done",
+      "group": "SYA",
+      "deps": ["SYA-10", "SYA-08"],
+      "desc": "Formalizar y evaluar la idea de continuidad aeróbica Z1 alta como señal longitudinal/per-sport no operativa, definiendo semántica, destino natural y criterio de activación sin incorporarla aún a analysis_only_context, sessions_day, FINAL ni reason_text.\\n\\nNota de desarrollo: [[docs/HRV/SYA-15 Continuidad aeróbica Z1 alta.md]]"
+    },
+    {
+      "id": "SYA-18",
+      "title": "Endurecer API local y manifest del semanal de analysis",
+      "state": "proposed",
+      "group": "SYA",
+      "deps": ["SYA-15"],
+      "desc": "Endurecer la capa semanal local de analysis tras SYA-15: API publica del sidecar, manifest semanal versionado, politica de inputs/degradacion y contrato de sincronizacion del report semanal sin tocar el pipeline HRV global. Nota de desarrollo: [[docs/HRV/SYA-18 Endurecer API local y manifest del semanal de analysis.md]]"
+    },
+    {
+      "id": "CDC-01",
+      "title": "Canonizar ACWR, monotony y strain como contexto de carga",
+      "state": "done",
+      "group": "RE",
+      "desc": "Incorporar ACWR, monotony y strain como capa canónica de contexto de carga para que el sistema pueda contextualizar el estado HRV dentro del patrón agudo-crónico y de la uniformidad de carga, sin dejarlo solo en texto semanal.\n\nDesarrollo propuesto: [[docs/HRV/CDC-01 Canonizar ACWR monotony y strain como contexto de carga]]"
+    },
+    {
+      "id": "RE-01",
+      "title": "Añadir contexto de recuperación multiseñal sin tocar el gate HRV",
+      "state": "done",
+      "group": "RE",
+      "desc": "Integrar tendencia HRV, pulso en reposo, sueno Polar y carga reciente en una capa de reglas transparentes de contexto de recuperacion que mejore la interpretacion y el texto operativo sin sustituir al semaforo HRV como arbitro principal.\n\n**Nota de desarrollo:** [[docs/HRV/RE-01 Anadir contexto de recuperacion multisenal sin tocar el gate HRV]]\n\n### Recovery Index compuesto — Confianza: 78%\n\n**Que es:** `(HRV × RestHR_ratio × Readiness)` como score unico 0-1.\n\n**Por que importa:** Tu sistema usa convergencia 2D (lnRMSSD + HR_today), que es superior conceptualmente al recovery index de intervalsicugptcoach. **Sin embargo**, la idea de integrar sleep_score en el indice tiene merito. Tu sleep actual es \"sidecar\" (solo informa reason_text), pero con buena cobertura de sueno, un recovery index que pondere HRV+HR+sleep daria mas resolucion en zona AMBAR (donde la decision es mas dificil).\n\n**Mejora concreta:** Subdividir AMBAR en \"AMBAR con buena recuperacion nocturna\" vs \"AMBAR con sueno fragmentado\" permitiria decisiones mas finas: Z2 largo vs Z2 corto."
+    },
+    {
+      "id": "RE-02",
+      "title": "Integrar wellness subjetivo de Intervals como contexto de recuperacion",
+      "state": "done",
+      "group": "RE",
+      "desc": "Integrar los campos subjetivos de wellness de Intervals como contexto estructurado de recuperacion, sin mezclar esta tarea con RE-01 y sin tocar el gate HRV.\n\nCampos objetivo:\n- fatigue\n- stress\n- mood\n- motivation\n- soreness\n- injury\n\nRationale: estos campos aportan una capa subjetiva real que hoy el pipeline no modela y que complementa HRV, sueno Polar y carga reciente.\n\nMejora: anadir contexto interpretable sobre fatiga percibida, estres, dolor, motivacion y lesion en FINAL/reason_text sin sustituir al semaforo.\n\nNota de desarrollo: [[docs/HRV/RE-02 Integrar wellness subjetivo de Intervals como contexto de recuperacion]]"
+    },
+    {
+      "id": "RE-03",
+      "title": "Sellar causalidad temporal del contexto",
+      "state": "done",
+      "group": "RE",
+      "desc": "Corregir la causalidad temporal del contexto de carga. Detalle en [RE-03](docs/HRV/RE-03%20Sellar%20causalidad%20temporal%20del%20contexto.md)."
+    },
+    {
+      "id": "RE-04",
+      "title": "Corregir semantica de carga ausente y ROJO sin carga previa",
+      "state": "done",
+      "group": "RE",
+      "desc": "Separar carga ausente de carga cero y corregir el mensaje de ROJO sin carga previa. Detalle en [RE-04](docs/HRV/RE-04%20Corregir%20semantica%20de%20carga%20ausente%20y%20ROJO%20sin%20carga%20previa.md)."
+    },
+    {
+      "id": "FP-01",
+      "title": "DI-01 Durability Index - Fatiga periferica en sesiones largas",
+      "state": "done",
+      "group": "FP",
+      "desc": "Spike de validacion y acotacion de `durability` clasica para sesiones largas. La semantica base ya esta en `sessions.csv` y `analysis`; lo que queda fuera se deriva a `FP-05`.\n\nTrazabilidad:\n- Documento de tarea: [FP-01 DI-01 Durability Index fatiga periferica en sesiones largas.md](C:/Pilbond/polar-hrv-automation/docs/HRV/FP-01%20DI-01%20Durability%20Index%20fatiga%20periferica%20en%20sesiones%20largas.md)\n- Gate clasico `run-aware` persistido en `data/ENDURANCE_HRV_sessions.csv` tras `python build_sessions.py --update`.\n- Casos validados: `i135583336` (`road_run`, 70.5 min, con potencia) e `i117906255` (`trail_run`, 78.4 min, con potencia)."
+    },
+    {
+      "id": "FP-02",
+      "title": "GAP-01 Incorporar GAP y VAM como capa analitica de terreno en analysis",
+      "state": "done",
+      "group": "FP",
+      "desc": "Incorporar GAP y VAM como capa analitica contextual en analysis, priorizando GAP por km o por intervalo y VAM solo en tramos de subida, sin inflar el contrato base de sessions.csv. Debe usar Intervals como fuente primaria (activity/intervals) y dejar un artefacto analitico o resumen estable para futuras reglas de fatiga periferica. Nota de desarrollo: [[docs/HRV/FP-02 GAP-01 Incorporar GAP y VAM como capa analitica de terreno]]"
+    },
+    {
+      "id": "FP-04",
+      "title": "Coste cardiovascular de subidas en ciclismo",
+      "state": "review",
+      "group": "FP",
+      "desc": "FP-04 Matched climbs en bike con potencia medida cuando exista\n\nDocumento operativo: [docs/HRV/FP-04 Coste cardiovascular de subidas en ciclismo.md](docs/HRV/FP-04%20Coste%20cardiovascular%20de%20subidas%20en%20ciclismo.md)",
+      "notes": [
+        {
+          "at": "2026-11-06T11:57:05Z",
+          "by": "claude-code",
+          "text": "matched_climbs implementado en analysis: compute_matched_climbs_context (fit_terrain_utils.py) y write_matched_climbs_csv en session_analysis_pipeline.py comparan subidas comparables dentro de una sesion bike. Pendiente para aceptar: la validacion end-to-end con 3+ sesiones bike outdoor que pide el documento FP-04 no esta documentada; si la quieres como requisito, devuelvela y la hago."
+        }
+      ]
+    },
+    {
+      "id": "FP-06",
+      "title": "Eficiencia contextual en run con segmentos comparables",
+      "state": "done",
+      "group": "FP",
+      "desc": "Documento de estado actual: [docs/HRV/FP-06 Eficiencia contextual en run.md](docs/HRV/FP-06%20Eficiencia%20contextual%20en%20run.md)\nDocumento base: [docs/HRV/FP-05 Eficiencia contextual en run con segmentos comparables.md](docs/HRV/FP-05%20Eficiencia%20contextual%20en%20run%20con%20segmentos%20comparables.md)\n\nObjetivo: dejar trazabilidad de la linea de eficiencia contextual en run para road_run y trail_run usando comparaciones entre tramos equivalentes, sin promoverla a contrato canonico.\n\nV1 ejecutable: matched_climbs sobre terrain_context / terrain_fit_context. grade_bins queda como evolucion posterior si hace falta mas estabilidad para road_run.\n\nNota: esta tarjeta actua como espejo operativo de FP-05; el documento canonico es FP-05."
+    },
+    {
+      "id": "SYA-02",
+      "title": "Capa swim desde Polar v4: largos, estilos, SWOLF y carga percibida",
+      "state": "done",
+      "group": "FP",
+      "desc": "Absorbe TYM-02. Propuesta revisada el 2026-11-07 tras consultar Polar v4 para las ocho sesiones con FIT swim cacheado y una reciente. Las 9/9 ofrecen piscina, estilos, brazadas, SWOLF por estilo y fases temporales. Las 537 fases cuadran con los largos declarados; en 25 agregados por estilo, distancia y brazadas concilian y el SWOLF reconstruido coincide con Polar (error maximo 0,000064).\n\nPolar v4 pasa a ser fuente principal mediante /training-sessions/list con features samples, laps, statistics y pause-times. Normalizador local previo al adaptador general, correspondencia de sesion explicita, cache reproducible y sidecars swim_phases.csv / swim_laps.csv. Solo convertir fases a largos tras validar coherencia. Usar Intervals para RPE/contexto y fallback descriptivo: su SWOLF auditado coincide con segundos por 25 m sin contribucion identificable de brazadas y no se admite como metrica tecnica.\n\nDesarrollo: A auditoria base ejecutada; B adquisicion y normalizacion local; C estilos, ritmo, SWOLF y sRPE con bases temporales explicitas, integrados en summary/payload/informe; D contexto semanal local y comparaciones elegibles por estilo/piscina. Diferir deriva automatica primera/ultima y aplicacion al cost model. Cada metrica debe tener valor/fuente o null con motivo; fases no soportadas y matching ambiguo degradan el contexto. Semanal mediante sidecar y weekly_prep_manifest, sin escribir weekly_coach operativo ni otros outputs globales.\n\nAceptacion: conciliacion de fixtures, SWOLF por estilo dentro de 0,001, tratamiento de ausencias y casos no soportados, pruebas offline y ausencia de cambios en gate, cost model y outputs canonicos. La muestra no valida otras piscinas, unidades ni tipos de fase. Implementacion pendiente; la tarea sigue propuesta.\n\nNota de desarrollo: [[docs/HRV/SYA-02 Replantear capa swim desde Polar Flow]]",
+      "notes": [
+        {
+          "at": "2026-11-06T14:16:59Z",
+          "by": "claude-code",
+          "text": "Reescrita tras Paso 0 parcial: los FIT de Intervals no traen largos ni estilo. Alcance reducido por fases; SWOLF se mantiene (por vuelta y por estilo)."
+        },
+        {
+          "at": "2026-11-07T12:27:48Z",
+          "by": "claude-code",
+          "text": "SWOLF: Polar pasa a ser la fuente de verdad; el de Intervals solo provisional o validado contra Polar. Nuevo campo swolf_source."
+        },
+        {
+          "at": "2026-11-07T12:51:16Z",
+          "by": "codex",
+          "text": "Revision codex 2026-11-07: la orientacion swim lite es adecuada, pero conviene corregir evidencias y contrato antes de implementarla. Inspeccion actual de 8 FIT: todos regenerados por Intervals y sin length; todos SI contienen distance/speed en record. Solo 3 FIT tienen SWOLF: en sus 12 vueltas validas SWOLF coincide con total_timer_time*25/total_distance (error <0.000002), indicio de valor sin componente de brazadas; no usarlo como SWOLF interpretable hasta validar origen y semantica. Cinco FIT terminan con lap de 1 s sin distancia; cuatro tienen una sola vuelta con distancia/tiempo validos. Propuesta: B0 independiente con sRPE reconciliado con coach_metrics.session_rpe, vueltas validas y ritmo descriptivo; SWOLF/derivas sujetos a validacion A y comparabilidad de estilo/piscina/serie; ausencias con null y motivo. Semanal en sidecar local de analysis y weekly_prep_manifest, no escribir weekly_coach global. Completar contrato con procedencia/estado por metrica, lap_id, unidades y base temporal; aceptar resultados parciales y pruebas sin RPE, una vuelta, terminal vacia, estilo desconocido y SWOLF sospechoso. La nota sobre durability sin velocidad tampoco concuerda con los summaries actuales (incluyen speed_mean por tercio); auditar procedencia/calidad, no asumir ausencia. No se modifica el MD ni se inicia implementacion."
+        },
+        {
+          "at": "2026-11-07T13:14:45Z",
+          "by": "codex",
+          "text": "Actualizado el MD y la propuesta tras consulta real a Polar v4: 9 sesiones, 537 fases y 25 agregados por estilo conciliados. Se corrige la premisa de granularidad limitada a vueltas de Intervals; Polar es fuente principal y su SWOLF por estilo esta verificado. Auditoria reproducible en research/audits/swim_sources. Integracion pendiente."
+        },
+        {
+          "at": "2026-11-08T18:41:46Z",
+          "by": "claude-code",
+          "text": "Plan: extractor local en analysis/ (Polar v4 training-sessions con samples, laps, statistics, pause-times; cache en el bundle), funcion pura de normalizacion a swim_phases.csv / swim_laps.csv y swim_context, integracion en summary/payload/informe, sRPE y discordancia RPE-cardio, pruebas offline con fixtures sinteticas, y actualizacion de ANALYSIS_DICTIONARY.md y SESSION_ANALYSIS_METHOD.md. Sin tocar sync HRV, cost model ni outputs globales. El sidecar semanal (fase D) va despues de cerrar B/C."
+        },
+        {
+          "at": "2026-11-08T18:59:20Z",
+          "by": "claude-code",
+          "text": "Fases B y C implementadas, sin commit. Nuevo modulo analysis/swim_context.py: consulta Polar v4 con las cuatro features solo desde prepare_bundle (sin tocar el sync HRV), correspondencia por hora local y duracion (ambigua -> ambiguous_match, cambio horario con duracion casi igual), cache recortada sin series por segundo ni ids, transformacion pura a swim_context + swim_phases.csv + swim_laps.csv, y fallback descriptivo de vueltas del FIT de Intervals sin su SWOLF. swim_context llega a summary.json, session_payload.json, technical_report, report.auto.md y a las reglas del prompt de analisis. sRPE = sessions.rpe x duration_min (AU), comparado con session_rpe de Intervals sin elegir; rpe_vs_cardio_discordance null si falta un dato.\nVerificado en vivo (salida en scratchpad, sin tocar informes existentes): 2026-05-19 da 74 largos validados, braza 875 m SWOLF 57.7 y espalda 975 m SWOLF 88.69, reconstruidos a <0.001; 2026-11-06 da 76 largos con crol y espalda.\nPruebas: tests/test_swim_context.py (30 casos offline) y suite completa de tests/ 825 en verde.\nDocs: ANALYSIS_DICTIONARY.md (artefactos y swim_context) y SESSION_ANALYSIS_METHOD.md (contrato 1.7).\nPendiente: fase D (sidecar semanal y comparaciones por estilo/piscina)."
+        },
+        {
+          "at": "2026-11-08T19:18:16Z",
+          "by": "claude-code",
+          "text": "Fases B, C y D implementadas; sin commit.\n- Sesion: analysis/swim_context.py consulta Polar v4 (cuatro features) solo al preparar el bundle swim, valida fases como largos y expone swim_context en summary, payload, informe tecnico y report.auto.md, con swim_phases.csv, swim_laps.csv y polar_swim_source.json. SWOLF solo de Polar y por estilo; sRPE y discordancia RPE-cardio descriptivos.\n- Historial: swim_context.history compara con hasta 5 sesiones previas del mismo estilo, piscina y fuente; con menos de 3 marca too_few_sessions y no resume.\n- Semanal: analysis/swim_weekly.py genera swim_weekly_context.json/.md, declarado en weekly_prep_manifest.json; minutos natacion vs carrera/trail, swim_share_of_swim_run, 4 semanas previas y distancia por estilo con cobertura. No escribe weekly_coach.\n- Verificado en vivo en scratchpad: 2026-05-19 (74 largos, SWOLF braza 57.7 / espalda 88.69 validados) y 2026-11-06 (76 largos); semana 2026-11-02 con 100 % natacion y 0 min de carrera en las ultimas 5 semanas.\n- Pruebas: tests/test_swim_context.py y tests/test_swim_weekly.py (39 casos offline); suite tests/ 834 en verde.\n- Docs: ANALYSIS_DICTIONARY.md y SESSION_ANALYSIS_METHOD.md (contrato 1.7).\n- Limite: historial y estilos semanales solo cubren sesiones cuyo informe se haya regenerado con este codigo; los 8 informes swim existentes no tienen swim_context."
+        },
+        {
+          "at": "2026-11-08T19:21:47Z",
+          "by": "codex",
+          "text": "Revision critica codex: reproducidos cuatro defectos pendientes. (1) match_swim_exercise acepta por hora una sesion de 10 min frente a una fila de 60 min: duration_gap_min=50 y status=matched. (2) validate_lengths marca passed y genera largos/SWOLF derivados cuando swimmingStyles esta vacio, sin conciliacion de distancia/brazadas por estilo. (3) un SWOLF oficial discrepante genera mismatch pero deja largos y swolf_derived validados; no bloquea la derivacion segun el criterio acordado. (4) el semanal acepta contextos de informes huerfanos si no hay IDs swim esa semana, dando cobertura 1 de 0 y distancia por estilo. Revisar antes de aceptar; no se modifica implementacion ni estado."
+        },
+        {
+          "at": "2026-11-08T19:36:40Z",
+          "by": "claude-code",
+          "text": "Revisados y corregidos los cuatro defectos de la revision codex (reproducidos antes de tocar):\n(1) match_swim_exercise exige duracion conocida y a <=5 min ademas de hora a <=20 min; si solo falla la duracion devuelve no_match con reason=duration_mismatch y el contexto marca source_mismatch.\n(2) validate_lengths falla si swimmingStyles esta vacio o si un estilo validable de las fases no tiene agregado oficial.\n(3) un SWOLF oficial que no se reproduce desde las fases (>0,001) marca source_mismatch y phase_validation_failed: sin largos validados, sin swolf_derived y sin historial. Sin swolfAvg los largos pueden validarse pero no se deriva SWOLF por largo.\n(4) el semanal solo cuenta swim_context de sesiones swim de esa semana en sessions.csv; los informes huerfanos ya no dan cobertura.\nRegresiones anadidas (46 casos swim); suite tests/ 841 en verde. Las dos sesiones reales cacheadas siguen validando (74 y 76 largos, SWOLF validado). Diccionario actualizado."
+        },
+        {
+          "at": "2026-11-08T20:33:54Z",
+          "by": "codex",
+          "text": "Segunda revision codex: 182 pruebas relacionadas pasan, incluidas regresiones de los cuatro defectos anteriores. Tres casos adicionales reproducidos: (1) cache existente devuelve match antiguo sin revalidar; ejercicio de 10 min frente a sesion de 60 min se rechaza en matching fresco pero conserva matched y largos validados al cargar cache. (2) falta swimmingTimeTotalMillis de un estilo: agregado suma su distancia y cero tiempo, devuelve pace=100 s/100m frente a 180 con ambos tiempos; status available y sin motivos. (3) fase sin startOffsetMillis se acepta como largo validado con offset null, sin poder comprobar su ubicacion/solapamiento. Pendientes antes de aceptar: revalidacion de cache, cobertura temporal del ritmo y validacion de offsets. Sin cambios de codigo ni estado."
+        },
+        {
+          "at": "2026-11-08T20:47:00Z",
+          "by": "claude-code",
+          "text": "Segunda revision codex: los tres casos reproducidos y corregidos.\n(1) Cache: fetch_polar_swim_source solo reutiliza la cache si coincide fecha y features y si el ejercicio guardado vuelve a emparejar con la fila actual (hora y duracion); un no_match guardado tambien se reconsulta. build_swim_context repite la correspondencia sobre cualquier fuente guardada: si ya no cuadra descarta el ejercicio (swim_source none, source_mismatch) y polar_swim_source.json no se copia a artifacts.\n(2) Ritmo: el ritmo agregado y swim_time_s exigen tiempo en todos los estilos con distancia; si falta alguno quedan null con duration_missing (status partial).\n(3) Offsets: una fase sin startOffsetMillis o sin duracion positiva hace fallar la validacion de largos.\nRegresiones anadidas (52 casos swim); suite tests/ 847 en verde; las dos sesiones reales revalidadas contra sessions.csv siguen matched/passed (74 y 76 largos). Diccionario actualizado. Sin commit."
+        },
+        {
+          "at": "2026-11-08T20:50:22Z",
+          "by": "codex",
+          "text": "Revision final codex: confirmadas las correcciones de cache, tiempo agregado ausente y offsets ausentes. Queda una regresion P2 reproducida en attach_swim_context: la decision de leer FIT se toma antes de revalidar la fuente Polar. Si el cache contiene exercise pero se rechaza por duracion, read_fit_laps no se ejecuta y el contexto termina source=none, n_laps=0 pese a disponer de vueltas FIT utilizables. Decidir fallback tras validar Polar, o pasar vueltas FIT al constructor para que elija. Sin cambios de codigo ni estado."
+        },
+        {
+          "at": "2026-11-08T20:59:15Z",
+          "by": "claude-code",
+          "text": "Uso real: build_sessions --update sin sesiones nuevas ni cambios (589). Generados en analysis/reports los informes swim de 2026-11-02, 03, 05, 06 y 07: todos matched/passed (71-80 largos, crol y espalda, SWOLF por estilo validado, sin RPE). El historial se acumula en orden: el 07 ya compara con 4 sesiones previas por estilo. Sidecar semanal 2026-11-02..08 regenerado con cobertura 5 de 5."
+        },
+        {
+          "at": "2026-11-08T21:06:43Z",
+          "by": "claude-code",
+          "text": "Revision final codex corregida: attach_swim_context lee siempre las vueltas FIT y build_swim_context decide el fallback despues de revalidar Polar; si la fuente Polar cacheada se rechaza, el contexto queda intervals_fit_laps con sus vueltas y source_mismatch, y no se copia polar_swim_source.json. Dos regresiones nuevas; suite tests/ 849 en verde. Los cinco informes de la semana no cambian (todos emparejados con Polar). Sin commit."
+        }
+      ]
+    },
+    {
+      "id": "SYA-12",
+      "title": "TYM-03 FP-05 Extender terrain climbs a trail y road run con potencia medida Polar",
+      "state": "done",
+      "group": "FP",
+      "desc": "Extender la tabla de subidas (terrain_climbs) a trail y road run.\n\n\n\nAnálisis técnico detallado: [[docs/SYA-12_terrain_climbs_trail_road_run_analysis.md]]"
+    },
+    {
+      "id": "TYM-01",
+      "title": "FP-03 Extender capa de terreno FIT a bike para exponer coste cardiovascular por subida",
+      "state": "done",
+      "group": "FP",
+      "desc": "Extender fit_terrain_utils.py (FP-02 V3) al deporte bike: activar deteccion de climbs FIT para sesiones de ciclismo outdoor, exponer hr/cadencia/potencia por subida en terrain_fit_context y terrain_climbs.csv. Resuelve la dilusion de FC en sesiones de montana donde la sesion completa aparece en Z1 pero las subidas reales generaron carga Z2-Z3. Iteracion A: activar soporte bike + cadence_unit=rpm. Iteracion B: distribucion de zonas por climb. Nota de desarrollo: [[docs/HRV/FP-03 Coste cardiovascular de subidas en ciclismo]]"
+    },
+    {
+      "id": "FP-07",
+      "title": "Validacion y calibracion de umbrales de eficiencia contextual en run",
+      "state": "done",
+      "group": "FP",
+      "deps": ["FP-06"],
+      "desc": "## FP-07 Validacion y calibracion de umbrales de eficiencia contextual en run\\n\\nEstado: auditado. La logica de \u001bfficiency_context ya incluye \u001bfficiency_audit con buckets y separacion \threshold_gap vs signal_conflict.\\n\\nBarrido historico: 25 sesiones aplicables; 13 mixed_signal = 3 \threshold_gap + 10 signal_conflict.\\n\\nSiguiente paso: revisar si alguna subclase merece label nuevo o si se mantiene como audit local."
+    },
+    {
+      "id": "AYO-01",
+      "title": "ARQ-01 Desacoplar polar_hrv_automation en modulos y casos de uso",
+      "state": "done",
+      "group": "AYO",
+      "desc": "Refactor operativo incremental para separar config/runtime, cliente Polar, Dropbox RR, sleep store, Intervals sync, reporting CLI y runner de subprocess en modulos pequenos, dejando polar_hrv_automation.py como entrypoint y orquestador fino. Debe preservar CLI, outputs canonicos y flujo Dropbox primero con Polar como fallback. Nota de desarrollo: [[docs/HRV/ARQ-01 Desacoplar polar_hrv_automation en modulos y casos de uso]]"
+    },
+    {
+      "id": "AYO-02",
+      "title": "Extraer config y constantes operativas",
+      "state": "done",
+      "group": "AYO",
+      "desc": "Extraer runtime, paths, flags y constantes globales a config.py, mover _qprint y corregir el bug actual del bloque de credenciales para que no pueda fallar con NameError al importar. Nota de desarrollo: [[docs/HRV/AYO-02 Extraer config y constantes operativas]]"
+    },
+    {
+      "id": "AYO-03",
+      "title": "Extraer reporting CLI",
+      "state": "done",
+      "group": "AYO",
+      "desc": "Separar el rendering textual del flujo operativo moviendo helpers _print_*, summaries diarios/7d y mapeos de display a cli_reporting.py. Nota de desarrollo: [[docs/HRV/AYO-03 Extraer reporting CLI]]"
+    },
+    {
+      "id": "AYO-04",
+      "title": "Extraer runner de subprocess",
+      "state": "done",
+      "group": "AYO",
+      "desc": "Encapsular la frontera con build_hrv_core.py y build_hrv_final_dashboard.py en un modulo pequeno que unifique construccion de comandos, env, encoding y manejo de errores. Nota de desarrollo: [[docs/HRV/AYO-04 Extraer runner de subprocess]]"
+    },
+    {
+      "id": "AYO-05",
+      "title": "Extraer integracion Dropbox RR",
+      "state": "done",
+      "group": "AYO",
+      "desc": "Aislar la estrategia Dropbox primero moviendo deteccion de RR por fecha, calculo de fechas faltantes y wrapper de importacion via egc_to_rr.py a un modulo propio. Nota de desarrollo: [[docs/HRV/AYO-05 Extraer integracion Dropbox RR]]"
+    },
+    {
+      "id": "AYO-06",
+      "title": "Extraer cliente Polar y ciclo OAuth token",
+      "state": "done",
+      "group": "AYO",
+      "desc": "Separar la frontera de red hacia Polar y cerrar la ambiguedad restante del ciclo OAuth/token, manteniendo el flujo productivo oficial en web_ui.py y tratando do_oauth_flow como dev-only o retirandolo. Nota de desarrollo: [[docs/HRV/AYO-06 Extraer cliente Polar y ciclo OAuth token]]"
+    },
+    {
+      "id": "AYO-07",
+      "title": "Extraer sleep store",
+      "state": "done",
+      "group": "AYO",
+      "desc": "Aislar la persistencia y el recalculo de ENDURANCE_HRV_sleep.csv en un modulo propio, separado del cliente Polar y del entrypoint. Nota de desarrollo: [[docs/HRV/AYO-07 Extraer sleep store]]"
+    },
+    {
+      "id": "AYO-08",
+      "title": "Extraer sync con Intervals",
+      "state": "done",
+      "group": "AYO",
+      "desc": "Separar la integracion opcional con Intervals, incluyendo payload wellness, lectura del master y agregados de activities, para que no toque el flujo principal. Nota de desarrollo: [[docs/HRV/AYO-08 Extraer sync con Intervals]]"
+    },
+    {
+      "id": "AYO-09",
+      "title": "Reducir main a casos de uso",
+      "state": "done",
+      "group": "AYO",
+      "desc": "Reducir main() a un coordinador fino con funciones de caso de uso y eliminar ramas repetidas de salida temprana, manteniendo el contrato CLI actual. Nota de desarrollo: [[docs/HRV/AYO-09 Reducir main a casos de uso]]"
+    },
+    {
+      "id": "AYO-10",
+      "title": "Tests de regresion operativa de cierre",
+      "state": "done",
+      "group": "AYO",
+      "desc": "Cerrar la refactorizacion con tests de integracion y no regresion que validen el contrato operativo del entrypoint, los outputs esperados y la compatibilidad basica con web_ui.py. Nota de desarrollo: [[docs/HRV/AYO-10 Tests de regresion operativa de cierre]]"
+    },
+    {
+      "id": "AYO-11",
+      "title": "ARQ-02 Reordenar modulos Python internos fuera de la raiz del repo",
+      "state": "done",
+      "group": "AYO",
+      "desc": "Reordenacion estructural del repo en dos posibles alcances: opcion A de limpieza ligera moviendo solo scripts auxiliares fuera de la raiz, u opcion B de paquete interno para modulos de implementacion. Antes de ejecutar la opcion completa debe cerrarse una fase 0 de inventario de imports, entrypoints, analysis y tests, evitando wrappers import * como estrategia general. Nota de desarrollo: [[docs/HRV/ARQ-02 Reordenar modulos Python internos fuera de la raiz del repo]]\n\nFase 0: [[docs/HRV/ARQ-02 Inventario de imports y consumidores.md]]"
+    },
+    {
+      "id": "AYO-12",
+      "title": "Revisar contenido y utilidad de tests",
+      "state": "proposed",
+      "group": "AYO",
+      "desc": "Auditar el contenido actual de tests/ para separar cobertura útil de humo o redundancias, documentar qué se mantiene, qué se puede fusionar/eliminar y confirmar si hay algo que deba moverse a research/."
+    },
+    {
+      "id": "AYO-15",
+      "title": "Crear MCP de solo lectura para la aplicacion HRV",
+      "state": "proposed",
+      "group": "AYO",
+      "desc": "Servidor MCP local (stdio), de solo lectura, sobre los artefactos ya generados en data/: estado diario, explicación del gate, rango de fechas acotado y calidad/cobertura, con frescura y procedencia en cada respuesta. Reutiliza el payload determinista del brief diario extrayéndolo a una capa de consulta compartida (sin imports con efectos laterales). Sin credenciales, sin red, sin RR/GPS/streams ni rutas absolutas, fuera de la imagen de Railway. Sesiones y semana quedan fuera del MVP.\n\nNota: [[docs/HRV/AYO-15 Crear MCP de solo lectura para la aplicacion HRV]] · Plan: [[docs/HRV/Plan AYO-15 — MCP solo lectura HRV (plan de desarrollo)]]",
+      "notes": [
+        {
+          "at": "2026-11-09T18:07:56Z",
+          "by": "claude-code",
+          "text": "Revisada 2026-11-09: MVP de 4 herramientas, reutiliza payload del brief diario, sin referencias a AYO-14"
+        }
+      ]
+    },
+    {
+      "id": "AYO-25",
+      "title": "Extraer UI a archivos estaticos (Fase 1 desacople frontend)",
+      "state": "done",
+      "group": "AYO",
+      "desc": "Extraer la UI embebida de `web_ui.py` a `templates/` y `static/`: `templates/index.html`, `templates/oauth_success.html`, `templates/oauth_error.html`, `static/ui.css`, `static/ui.js`. `web_ui.py` pasa a `render_template()` y conserva solo backend. Incluir: ajuste de tests (`python -m pytest tests/test_web_ui_status.py tests/test_web_ui_security.py`) y puente mínimo Jinja->JS para `sync_timeout_sec`. Excluir: HTMX/Vue, build step, cambios en Docker/Railway y cualquier keep/drop funcional de UI hoy inactiva (`weeklyCoachCard`, `importBtn`). Análisis de viabilidad: docs/HRV/Evaluacion viabilidad migracion UI a Vue.md\n: [[AYO-25_UI_extraction_phase1]]"
+    },
+    {
+      "id": "AYO-26",
+      "title": "Auditoría técnica operativa 2026-07-10",
+      "state": "review",
+      "group": "AYO",
+      "desc": "Auditar con evidencia literal los flujos POST /api/sync, OAuth v4 y RR Dropbox; documentar riesgos, doc drift, no verificado y fortalezas en \n\n [[CODE_AUDIT_2026-07-10]]",
+      "notes": [
+        {
+          "at": "2026-11-06T11:57:04Z",
+          "by": "claude-code",
+          "text": "Auditoria terminada: el informe docs/CODE_AUDIT_2026-07-10.md cubre /api/sync, OAuth v4 y RR Dropbox con riesgos, desfase documental y fortalezas. Sus hallazgos se convirtieron en CAF-01..CAF-07 (CAF-01 y CAF-02 ya done). A revisar: que el informe sigue siendo la referencia y que no queda ningun hallazgo sin tarea CAF."
+        }
+      ]
+    },
+    {
+      "id": "IU-13",
+      "title": "Manifest minimo de trazabilidad para CORE FINAL y DASHBOARD",
+      "state": "done",
+      "group": "AYO",
+      "desc": "Añadir un manifest minimo de trazabilidad para CORE, FINAL y DASHBOARD. Detalle en [IU-13](docs/HRV/IU-13%20Manifest%20minimo%20de%20trazabilidad%20para%20CORE%20FINAL%20y%20DASHBOARD.md)."
+    },
+    {
+      "id": "AYO-14",
+      "title": "~~Evaluar e integrar MCP para Polar v4~~ (DESCARTADA)",
+      "state": "proposed",
+      "group": "AYO",
+      "deps": ["AYO-13"],
+      "desc": "Evaluar importar polar-mcp-unofficial, adaptarlo o construir un MCP propio de solo lectura. Debe quedar fuera del camino critico de Railway, proteger tokens y entregar payloads acotados para agentes y analysis.\n\nNota de desarrollo: [[docs/HRV/AYO-14 Evaluar e integrar MCP para Polar v4]]",
+      "notes": [
+        {
+          "at": "2026-11-06T11:55:42Z",
+          "by": "claude-code",
+          "text": "Descartada 2026-11-06: se solapa con AYO-15 (MCP de solo lectura HRV); con v4 ya como runtime unico, un MCP solo de Polar aporta poco valor."
+        }
+      ]
+    },
+    {
+      "id": "AYO-27",
+      "title": "Extensión ChatGPT privada para HRV vía Apps SDK",
+      "state": "proposed",
+      "group": "AYO",
+      "deps": ["AYO-15", "CAF-04", "IU-04"],
+      "desc": "Aparcada hasta cumplir sus condiciones de activación: MCP local en uso real, necesidad concreta de acceso remoto, frontera OAuth/API resuelta y aceptación explícita de enviar datos de salud a un tercero. Fase remota privada del MCP HRV para ChatGPT: servidor HTTPS en Railway separado de la UI, OAuth + PKCE restringido al atleta, scope hrv:read y herramientas read-only con el mismo contrato que AYO-15. Solo sirve datos de /data (estado, tendencia, calidad, carga, weekly coach); sin análisis de sesión, CSV completos, tokens, RR/GPS ni mutaciones.\n\nNota: [[docs/HRV/AYO-27 Extension ChatGPT privada para HRV via Apps SDK]]",
+      "notes": [
+        {
+          "at": "2026-11-09T18:07:57Z",
+          "by": "claude-code",
+          "text": "Revisada 2026-11-09: aparcada con condiciones de activación; alcance limitado a /data"
+        }
+      ]
+    },
+    {
+      "id": "PCV-02",
+      "title": "Baseline adaptativo largo plazo",
+      "state": "done",
+      "group": "PCV",
+      "desc": "Tipo de valor: calibracion longitudinal y progresion semanal. Analisis: [[docs/HRV/PCV-02 Baseline adaptativo largo plazo.md]]"
+    },
+    {
+      "id": "PCV-03",
+      "title": "Capa de carga relativa del atleta",
+      "state": "done",
+      "group": "PCV",
+      "desc": "Tipo de valor: explicabilidad, deteccion temprana y personalizacion. Analisis: [[docs/HRV/PCV-03 Capa de carga relativa del atleta.md]]"
+    },
+    {
+      "id": "PCV-04",
+      "title": "Coach semanal estructurado en producto",
+      "state": "done",
+      "group": "PCV",
+      "desc": "PCV-04 Coach semanal estructurado en producto\n\nRedefinida como tarea de contrato y sidecar semanal determinista. Debe crear una salida estructurada reproducible llamada ENDURANCE_HRV_weekly_coach.json a partir de ENDURANCE_HRV_sessions_day.csv, ENDURANCE_HRV_intensity_distribution_weekly.csv y ENDURANCE_HRV_master_DASHBOARD.csv, sin narrativa LLM, sin endpoint y sin UI.\n\nEsta tarea SI puede: fijar campos minimos, semantica semanal y lugar canonico en build_sessions.py; documentar el output en docs/contracts/.\n\nEsta tarea NO puede: generar week_verdict, next_week_guidance, exponer api weekly coach, tocar FINAL o DASHBOARD ni absorber PCV-05 o PCV-06.\n\nNota de desarrollo: [[docs/HRV/PCV-04 Coach semanal estructurado en producto.md]]"
+    },
+    {
+      "id": "PCV-05",
+      "title": "Planning note semanal",
+      "state": "done",
+      "group": "PCV",
+      "desc": "Tipo de valor: accion inmediata y traduccion analisis -> plan. Analisis: [[docs/HRV/PCV-05 Planning note semanal.md]]"
+    },
+    {
+      "id": "PCV-06",
+      "title": "Integracion UI/API del coach semanal",
+      "state": "done",
+      "group": "PCV",
+      "desc": "Tipo de valor: visibilidad operativa y acceso desde producto. Analisis: [[docs/HRV/PCV-06 Integracion UI API del coach semanal.md]]"
+    },
+    {
+      "id": "PCV-07",
+      "title": "~~PCV-01 SWC configurable o adaptativo~~ (DESCARTADA)",
+      "state": "proposed",
+      "group": "PCV",
+      "desc": "Tipo de valor: precision del gate y reduccion de falsos positivos. Analisis: [[docs/HRV/PCV-07 SWC configurable o adaptativo.md]]"
+    },
+    {
+      "id": "AP-01",
+      "title": "NDLI-01 NDLI (Neural Load Density Index) - Aviso proactivo de clustering",
+      "state": "done",
+      "group": "AP",
+      "desc": "Implementar deteccion predictiva de sesiones high-intensity agrupadas en ventana corta (3-5d).\n\n**Rationale:** bad_streak es reactivo (fatiga ya ocurrio). NDLI es predictivo: detecta que llevas 3 dias con work_intense incluso si gate sigue VERDE. Latencia HRV es 24-48h; NDLI alerta antes.\n\n**Datos:** intensity_category en sessions.csv (ya disponible).\n\n**Calculo:** Contar work_intense en ventana 3-5d; generar aviso 'VERDE pero clustering alto — considera Z1 manana'.\n\n**Mejora:** Primer componente proactivo del sistema.\n\n**Nota de desarrollo:** [[docs/HRV/AP-01 NDLI-01 NDLI aviso proactivo de clustering]]\n\n### NDLI (Neural Load Density Index) — Confianza: 75%\n\n**Que es:** Clustering de sesiones de alta intensidad en ventana corta. Detecta acumulacion de estres neural.\n\n**Por que importa:** Tu `bad_streak` cuenta dias consecutivos con gate no-verde, que es reactivo (la fatiga ya ocurrio). NDLI es predictivo: detecta que llevas 3 dias con sesiones `work_intense` incluso si el gate sigue verde porque el ANS aun no ha respondido (la respuesta HRV tiene latencia de 24-48h).\n\n**Mejora concreta:** Un NDLI alto con gate VERDE generaria un aviso preventivo: 'gate verde pero clustering de intensidad alto — considera Z1 manana'. Esto seria el primer componente proactivo del sistema (actualmente todo es reactivo al HRV del dia).\n\n**Confianza:** 75% | **Esfuerzo:** Bajo"
+    },
+    {
+      "id": "AP-02",
+      "title": "RP-01 Integrar senal mecanica de deportes de pie desde Polar Flow AccessLink en el pipeline",
+      "state": "done",
+      "group": "AP",
+      "desc": "Validar y, si la cobertura y calidad lo permiten, incorporar una capa minima de senal mecanica para deportes de pie (`road_run`, `trail_run`, `hike`) procedente de Polar Flow/AccessLink al pipeline de sesiones.\n\nSenales a investigar:\n- potencia\n- running power\n- GAP\n- velocidad por mitades\n- cadencia por mitades\n\nObjetivo: habilitar metricas futuras mas ricas en carrera y sostenimiento mecanico sin depender solo de proxies por FC o estructura.\n\nNota de desarrollo: [[docs/HRV/AP-02 Integrar running power de Polar Flow AccessLink en el pipeline]]"
+    },
+    {
+      "id": "AP-03",
+      "title": "Revisar AP-01 con capa run-aware tras GAP",
+      "state": "done",
+      "group": "AP",
+      "desc": "## Objetivo\n\nEvaluar si la v1 de AP-01 gana valor en `trail_run` al enriquecer el clustering con la capa de terreno ya disponible (`FP-02` + `SYA-12`).\n\nLa tarea es de validacion retrospectiva y `forward-only`: no reescribe el historico, no toca el gate HRV y no sustituye la v1 salvo evidencia clara.\n\n## Scope\n\n- In scope: `trail_run`.\n- Out of scope: `road_run` y `bike` hasta que exista cobertura suficiente y estable.\n- Señales candidatas: `terrain_fit_context` / `terrain_context` primero; `run_power_mean` y `power_ratio` solo como apoyo si estan disponibles.\n\n## Preguntas a resolver\n\n1. La capa de terreno mejora la deteccion de clustering reciente en `trail_run` frente a `intensity_category` sola?\n2. La mejora supera o solo replica la informacion ya capturada por `load_3d`, `ACWR`, `monotony` y `strain`?\n3. Hay suficiente lift para justificar una capa paralela en sombra, o conviene dejar AP-01 intacta?\n\n## Entrega esperada\n\n- Informe comparativo v1 vs candidata run-aware, separado por `trail_run`.\n- Decision explicita: mantener v1, abrir capa paralela en sombra, o descartar.\n- Si no hay evidencia suficiente, no tocar `reason_text`, `sessions_day.csv` ni el contrato operativo.\n\n## Criterio de arranque\n\nEmpezar por construir la tabla de evaluacion retrospectiva sobre `trail_run` y medir paso `VERDE -> no-VERDE` a `24-48h`, lift vs baseline y solapamiento con el contexto de carga.\n\n## Nota de desarrollo\n\n[[docs/HRV/AP-03 Revisar AP-01 con capa run-aware tras GAP.md]]"
+    },
+    {
+      "id": "DO-01",
+      "title": "Canonizar resumen de distribución de intensidad por deporte",
+      "state": "done",
+      "group": "AP",
+      "desc": "Convertir la materia prima actual de sesiones en una capa estable de lectura por deporte que describa la distribución observada de intensidad y permita clasificar patrones como polarizado, piramidal, threshold o mixto con base en la estructura real de las sesiones.\n\n### Polarisation Index (Seiler 80/20) — Confianza: 85%\n\n**Qué es:** Distribución Z1+Z2 vs Z3 como ratio normalizado. Target: ≥75% en Z1-Z2.\n\n**Por qué importa:** Tu sistema ya calcula `z1_pct`, `z2_pct`, `z3_pct` por sesión y `z3_7d_sum` en daily. Pero **no hay un índice de polarización semanal** que sintetice si la distribución global es correcta. `z3_7d_sum` detecta exceso de Z3, pero no detecta _déficit de Z1_ (demasiado Z2 — \"black hole\" de intensidad, el error más común en resistencia).\n\n**Mejora concreta:** Un polarisation_index semanal en sessions_day.csv permitiría detectar el \"agujero negro\" de intensidad: semanas donde casi todo es Z2 (ni fácil ni duro), que sabotean adaptaciones sin generar fatiga aparente. El gate seguiría verde, pero el entrenamiento sería subóptimo.\n\n\nDesarrollo propuesto: [[docs/HRV/DO-01 Canonizar resumen de distribucion de intensidad por deporte]]"
+    },
+    {
+      "id": "DO-02",
+      "title": "Integrar señal semanal de polarización/distribución en sessions_day",
+      "state": "done",
+      "group": "AP",
+      "desc": "Proyectar la capa de DO-01 a sessions_day.csv como señal contextual diaria rolling sobre D-7..D-1, excluyendo siempre el día actual. La implementación debe recalcular la ventana directamente desde sessions.csv, no proyectar sin más el sidecar semanal. Paso previo: codificar sport -> sport_family; la dominancia se resuelve por familia y exige dominant_family_share >= 0.60. V1 añade dominant_family_prev_7d, dominant_family_share_prev_7d, z1/z2/z3_pct_weighted_prev_7d, distribution_signal_confidence_prev_7d, polarisation_index_prev_7d e intensity_blackhole_flag. Fórmula v1: (z1+z3)/max(z2,1). Flag si hay confianza rolling suficiente, volumen suficiente, polarisation_index_prev_7d < 2.2, z2 >= 30 y z3 <= 10.\n\nDesarrollo propuesto: [[docs/HRV/DO-02 Integrar senal semanal de polarizacion distribucion en sessions_day]]"
+    },
+    {
+      "id": "AYO-13",
+      "title": "Migrar Polar AccessLink de v3 a v4",
+      "state": "done",
+      "group": "MVP",
+      "desc": "Migrar OAuth, refresh, sleep, Nightly Recharge y sesiones a Polar Dynamic API v4 mediante dual stack, shadow y corte controlado. Mantener Dropbox como fuente RR primaria y no cambiar outputs canonicos sin validacion. Consolida el alcance operativo de IU-01/IU-02.\n\nNota de desarrollo: [[docs/HRV/AYO-13 Migrar Polar AccessLink de v3 a v4]]\nPropuesta: [[Plan AYO-13 — Migrar Polar AccessLink v3 → v4 (ejecución F0–F2)]]"
+    },
+    {
+      "id": "AYO-16",
+      "title": "AYO-13-F0 Capturar fixtures y matriz de paridad v3 v4",
+      "state": "done",
+      "group": "MVP",
+      "deps": ["AYO-13"],
+      "desc": "Script dev scripts/capture_v4_fixtures.py (OAuth local contra auth.polar.com, descarga sleeps, nightly, training-sessions, ppi por rango), fixtures anonimizados en tests/fixtures/polar_v4 y polar_v3, y matriz de paridad en docs/HRV. Confirma empiricamente: registro de usuario v4, x_user_id en token, samples RR en training-sessions, micro-sesiones BODY_AND_MIND."
+    },
+    {
+      "id": "AYO-17",
+      "title": "AYO-13-F1 Cliente v4 aislado y adaptadores",
+      "state": "done",
+      "group": "MVP",
+      "deps": ["AYO-16"],
+      "desc": "hrv_app/polar_client_v4.py (V4Client: Bearer, rate limit 0.4s, timeouts, PolarV4Error sin tokens, retry unico tras 401) y hrv_app/polar_adapters_v4.py (TypedDicts InternalSleep/InternalNightly/InternalExercise = shape v3 consumido; v4_*_to_internal, index_by_date). Sin imports desde codigo productivo. Tests de contrato con fixtures."
+    },
+    {
+      "id": "AYO-18",
+      "title": "AYO-13-F2 OAuth v4 y refresh bajo feature flag",
+      "state": "done",
+      "group": "MVP",
+      "deps": ["AYO-17"],
+      "desc": "hrv_app/polar_auth_v4.py (build_auth_url_v4, exchange, refresh_token_v4, bundle polar_tokens_v4.json con provider_version/scopes/refresh_token, get_valid_access_token con lock+releer disco, redact). Flag POLAR_API_VERSION=v3|v4|shadow en config.py. web_ui: /auth?provider=v4, state con version, callback dispatch, diagnostics refreshable sin refresh_token. Consolida IU-01 e IU-02. Runtime default sigue v3."
+    },
+    {
+      "id": "AYO-19",
+      "title": "AYO-13-F3 Lecturas shadow y sidecar de auditoria",
+      "state": "done",
+      "group": "MVP",
+      "deps": ["AYO-18"],
+      "desc": "hrv_app/polar_shadow.py + hook al final de --process en polar_hrv_automation.py. Sidecar data/audit/polar_v4_shadow.jsonl: presencia y diffs por fecha x dominio (sleep, nightly, sessions) + latencia, status, refreshes. Solo lee v4; no re-consulta v3 ni duplica escrituras. scripts/shadow_report.py de solo lectura. Requiere POLAR_API_VERSION=shadow en Railway y 7-14 dias de observacion."
+    },
+    {
+      "id": "AYO-20",
+      "title": "AYO-13-F4 Dropbox RR",
+      "state": "done",
+      "group": "MVP",
+      "deps": ["AYO-19"],
+      "desc": "AYO-20 AYO-13-F4 Dropbox como unica fuente de nuevos RR matinales\nDoc fuente: : [[AYO-20 AYO-13-F4 Dropbox como unica fuente de nuevos RR matinales]]\nDefinir F4 como politica operativa simple: los nuevos RR matinales entran solo desde Dropbox; si Dropbox no cubre una fecha, no entra al pipeline. El historico de CORE ya generado con RR de Polar se conserva sin migracion retroactiva. Auto: desde ultima fecha CORE + 1 hasta hoy. --days N: backfill manual. --all: reprocesado local sin descarga. PPI queda fuera del pipeline HRV y, si interesa, se trata como research/auditoria separada."
+    },
+    {
+      "id": "AYO-21",
+      "title": "AYO-13-F5 Corte controlado a v4",
+      "state": "done",
+      "group": "MVP",
+      "deps": ["AYO-19"],
+      "desc": "F5.1 implementado: hrv_app/polar_gateway.py (sleep/nightly dispatch por POLAR_API_VERSION), sleep_store apunta al gateway y consulta en v4 aunque x_user_id sea None, polar_hrv_automation.main en v4 no exige token/registro v3 (--debug-sports queda en v3). Tests anadidos (gateway dispatch, guard v4, entrypoint independiente).\nF5.2 implementado: V4Client.list_sports() (API_V4_ROOT + /sports/list), _v4_mechanical_samples_to_v3() en polar_adapters_v4.py, PolarSessionClient flag-aware (POLAR_V4_SESSIONS), backend v4 por fecha con cache, --debug-sports migrado a v4 con ventana 7 dias. 19 tests nuevos en test_polar_sessions_v4.py. Suite: 593 passed.\nPendiente: validacion operativa con sync real POLAR_API_VERSION=v4 POLAR_V4_SESSIONS=1 y gate de la matriz (§7 del plan). Bloquea AYO-22.\n[[Plan AYO-21 — AYO-13-F5 Corte controlado a v4]]"
+    },
+    {
+      "id": "AYO-23",
+      "title": "AYO-13-F5.3 Consolidar runtime v4 y aislar legado v3",
+      "state": "done",
+      "group": "MVP",
+      "deps": ["AYO-21"],
+      "desc": "Separar el corte operativo final a v4 de la retirada fisica de v3: poner v4 como runtime normal, simplificar web_ui/auth, migrar analysis fuera de polar_client/polar_oauth_local legacy y dejar v3 solo como rollback temporal pre-F6. Prioridad: simpleza operativa, utilidad y buen funcionamiento; sin re-arquitectura ni borrado masivo. [[Plan AYO-23 — AYO-13-F5.3 Consolidar runtime v4 y aislar legado v3]]"
+    },
+    {
+      "id": "AYO-22",
+      "title": "AYO-13-F6 Retirada v3 y limpieza",
+      "state": "done",
+      "group": "MVP",
+      "deps": ["AYO-20", "AYO-21", "AYO-23"],
+      "desc": "Solo tras cerrar la matriz de paridad: retirar registro de usuario y endpoints v3, polar_oauth_local a v4, constantes y credenciales v3 de Railway, migrar analysis/session_analysis_pipeline.py. Actualizar AGENTS.md, CLAUDE.md y docs operativas. Mantener rollback documentado un ciclo de despliegue\n[[Plan AYO-22 — AYO-13-F6 Retirada v3 y limpieza]]"
+    },
+    {
+      "id": "AYO-24",
+      "title": "AYO-13-F5.4 Paridad funcional v3→v4 en analysis y RR de sesion",
+      "state": "done",
+      "group": "MVP",
+      "deps": ["AYO-23"],
+      "desc": "Recuperar en v4 la capacidad de analysis para obtener RR de sesiones de entrenamiento con paridad funcional respecto a v3. Regla de migracion: ninguna capacidad operativa util se pierde al pasar a v4; F6 queda bloqueada hasta cerrar esta paridad.\n [[Plan AYO-24 — AYO-13-F5.4 Paridad funcional v3→v4 en analysis y RR de sesion]]]"
+    },
+    {
+      "id": "IU-01",
+      "title": "~~Validar state OAuth y endurecer callbacks web~~ (DESCARTADA)",
+      "state": "proposed",
+      "group": "IU",
+      "desc": "Cerrar huecos reales del flujo OAuth web: persistir y validar state, endurecer /auth/callback y /oauth/callback, evitar interpolacion insegura de errores y revisar que el flujo productivo solo exponga la superficie minima necesaria. Alcance: seguridad operativa web, no refactor arquitectonico general del cliente Polar.\n\nNota de desarrollo: [[docs/HRV/IU-01 Validar state OAuth y endurecer callbacks web]]",
+      "notes": [
+        {
+          "at": "2026-11-06T11:55:39Z",
+          "by": "claude-code",
+          "text": "Descartada 2026-11-06: el state OAuth ya tiene TTL y es de un solo uso (web_ui.py _issue_oauth_state/_consume_oauth_state). Lo que faltaba (state ligado al navegador, sin clave en URL) queda en CAF-04."
+        }
+      ]
+    },
+    {
+      "id": "IU-02",
+      "title": "~~Implementar refresh token Polar operativo~~ (DESCARTADA)",
+      "state": "proposed",
+      "group": "IU",
+      "desc": "Implementar refresh token real para el flujo Polar y para consumidores internos que hoy invalidan tokens expirados. Objetivo: evitar degradacion funcional por expiracion, unificar ciclo de refresh/persistencia y mantener trazabilidad sin exponer secretos. Alcance: flujo operativo, no cambio de contrato HRV.\n\nNota de desarrollo: [[docs/HRV/IU-02 Implementar refresh token Polar operativo]]",
+      "notes": [
+        {
+          "at": "2026-11-06T11:55:40Z",
+          "by": "claude-code",
+          "text": "Descartada 2026-11-06: refresh implementado en v4 (polar_auth_v4.refresh_access_token_v4, bundle_needs_refresh); cubierto por AYO-18/AYO-13."
+        }
+      ]
+    },
+    {
+      "id": "IU-03",
+      "title": "~~Escritura atomica de ENDURANCE_HRV_sleep.csv~~ (DESCARTADA)",
+      "state": "proposed",
+      "group": "IU",
+      "desc": "Sustituir la escritura directa de ENDURANCE_HRV_sleep.csv por persistencia atomica con reemplazo seguro, alineada con el patron ya usado en tokens y outputs de sesiones. Objetivo: reducir riesgo de corrupcion o truncado ante fallo, timeout o cierre del proceso.\n\nNota de desarrollo: [[docs/HRV/IU-03 Escritura atomica de ENDURANCE_HRV_sleep.csv]]",
+      "notes": [
+        {
+          "at": "2026-11-06T11:55:41Z",
+          "by": "claude-code",
+          "text": "Descartada 2026-11-06: sleep_store.py ya escribe con write_csv_atomic."
+        }
+      ]
+    },
+    {
+      "id": "IU-04",
+      "title": "Reducir exposicion de /api/status",
+      "state": "proposed",
+      "group": "IU",
+      "desc": "Revisar /api/status para dejar solo diagnostico operativo estrictamente necesario. Quitar paths sensibles, detalles internos innecesarios y senales que ayuden a fingerprinting del entorno. Mantener utilidad para troubleshooting sin convertir el endpoint en inventario interno del sistema.\n\nNota de desarrollo: [[docs/HRV/IU-04 Reducir exposicion de api status]]"
+    },
+    {
+      "id": "IU-05",
+      "title": "Eliminar errores silenciosos y sanear errores OAuth",
+      "state": "proposed",
+      "group": "IU",
+      "desc": "Retirar except/pass en diagnosticos y revisar propagacion de errores OAuth para no filtrar cuerpos remotos ni perder trazabilidad local. Objetivo: logs utiles sin secretos ni HTML inseguro, y fallos observables cuando un CSV o callback se rompe.\n\nNota de desarrollo: [[docs/HRV/IU-05 Eliminar errores silenciosos y sanear errores OAuth]]"
+    },
+    {
+      "id": "IU-06",
+      "title": "Captura prospectiva minima de RPE sintomas y timestamp",
+      "state": "proposed",
+      "group": "IU",
+      "desc": "Definir e integrar una captura prospectiva minima para validacion real del sistema: RPE diario, sintomas/enfermedad y timestamp exacto de medicion. Prioridad metodologica alta: no meterlo aun en el gate, sino asegurar recogida reproducible para validar valor predictivo del sistema y reducir ambiguedad circadiana.\n\nNota de desarrollo: [[docs/HRV/IU-06 Captura prospectiva minima de RPE sintomas y timestamp]]"
+    },
+    {
+      "id": "IU-07",
+      "title": "Integrar hrr_drop_bpm en analysis",
+      "state": "proposed",
+      "group": "IU",
+      "desc": "Dar uso analitico sistematico a hrr_drop_bpm ya disponible en sessions.csv: exponerlo en summary/session_payload cuando aplique, decidir reglas narrativas minimas y validar si aporta lectura de coste o recuperacion post-esfuerzo antes de inventar nuevas metricas.\n\nNota de desarrollo: [[docs/HRV/IU-07 Integrar hrr_drop_bpm en analysis]]"
+    },
+    {
+      "id": "IU-08",
+      "title": "Simplificar reports de analysis y alinearlos con el metodo",
+      "state": "proposed",
+      "group": "IU",
+      "desc": "Reducir secciones infladas o redundantes del report de analysis para volver a una salida mas disciplinada y util. Revisar analyst_prompt_rules y session_analysis_pipeline para alinear el informe con SESSION_ANALYSIS_METHOD, separar lo realmente accionable de coaching ornamental y evitar expansion narrativa sin evidencia equivalente.\n\nNota de desarrollo: [[docs/HRV/IU-08 Simplificar reports de analysis y alinearlos con el metodo]]"
+    },
+    {
+      "id": "IU-09",
+      "title": "Rebajar protagonismo de HR@0.75 en la narrativa",
+      "state": "proposed",
+      "group": "IU",
+      "desc": "Mantener HR@0.75 como descriptor secundario cuando sea usable, pero bajar su peso en tablas, warnings y narracion. Objetivo: no sobrerrepresentar una senal de utilidad irregular ni forzar lectura de umbral fino cuando la calidad DFA/modelo no la sostiene.\n\nNota de desarrollo: [[docs/HRV/IU-09 Rebajar protagonismo de HR@0.75 en la narrativa]]"
+    },
+    {
+      "id": "IU-10",
+      "title": "~~Endurecer runtime web de despliegue~~ (DESCARTADA)",
+      "state": "proposed",
+      "group": "IU",
+      "desc": "Revisar hardening minimo del runtime web: estrategia de arranque mas robusta que python web_ui.py si procede, .dockerignore y coherencia documental de timeout/runtime. No toca logica HRV; es limpieza operativa para reducir fragilidad de despliegue y desalineacion entre codigo y docs.\n\nNota de desarrollo: [[docs/HRV/IU-10 Endurecer runtime web de despliegue]]",
+      "notes": [
+        {
+          "at": "2026-11-06T11:55:41Z",
+          "by": "claude-code",
+          "text": "Descartada 2026-11-06: absorbida por CAF-05 (seccion Absorcion de IU-10). El .dockerignore pendiente debe recogerse en CAF-05."
+        }
+      ]
+    },
+    {
+      "id": "IU-14",
+      "title": "Auto-restore del dataset desde Dropbox cuando DATA_DIR arranca vacio",
+      "state": "done",
+      "group": "IU",
+      "desc": "Si falta el dataset operativo tras redeploy, intentar restore desde Dropbox antes de sync mutante y bloquear el sync si la restauracion falla para no pisar el backup sano.\nNota de desarrollo: [[IU-14 Auto-restore del dataset desde Dropbox cuando DATA_DIR arranca vacio]]"
+    },
+    {
+      "id": "IU-15",
+      "title": "Evaluar salidas HRV y SSM asistidas por IA dentro de la app",
+      "state": "done",
+      "group": "IU",
+      "desc": "Evaluar si el render del reason_text, la salida interpretativa del SSM y otras capas narrativas/explicativas del producto deben poder generarse mediante IA por API dentro de la app, sin sustituir gate ni logica canonica. Analisis en docs/HRV/IU-15 Evaluar salidas HRV y SSM asistidas por IA dentro de la app.md\n[[IU-15 Evaluar salidas HRV y SSM asistidas por IA dentro de la app]]"
+    },
+    {
+      "id": "IU-18",
+      "title": "Rediseño visual UI",
+      "state": "done",
+      "group": "IU",
+      "desc": "Mejoras visuales sobre la base estructural de IU-17: gate badge con color (VERDE/AMARILLO/ROJO), jerarquia en grid HRV, color de card segun estado, nota de coach semanal visible, acciones en una sola card. Sin framework, sin cambios en pipeline. Analisis completo en [[IU-18 Rediseño visual UI]]"
+    },
+    {
+      "id": "IU-19",
+      "title": "Organizar historial de briefs IA",
+      "state": "done",
+      "group": "IU",
+      "desc": "Mover los sidecars fechados de daily y SSM a data/ai_briefs, conservar latest en data y migrar el histórico existente de forma segura."
+    },
+    {
+      "id": "IU-16",
+      "title": "Rediseñar brief mínimo SSM experimental",
+      "state": "done",
+      "group": "IU",
+      "deps": ["IU-15"],
+      "desc": "Definir criterio de uso, versión mínima del mensaje SSM y plantillas operativas para prueba controlada sin activar el texto actual por defecto\n[[IU-16 Rediseñar brief mínimo SSM experimental]]"
+    },
+    {
+      "id": "IU-17",
+      "title": "Refactor estructural UI",
+      "state": "done",
+      "group": "IU",
+      "deps": ["IU-18"],
+      "desc": "Separar capa de presentacion de la logica de formato en web_ui.py + templates + ui.js. Eliminar triple-render de la card HRV. Anadir viewmodel versionado en hrv_app/ui_view.py. Sin rediseno visual (queda para iteracion posterior). Analisis completo en [[IU-17 Refactor estructural UI]]"
+    },
+    {
+      "id": "IU-20",
+      "title": "IU-20 Trazabilidad prospectiva y evaluación a 14 días del brief IA",
+      "state": "done",
+      "group": "IU",
+      "deps": ["IU-15", "IU-19"],
+      "desc": "Instrumentación sidecar v2 ya implementada y verificada. Pendiente: subir código/tests/docs, desplegar en Railway, confirmar el primer sidecar v2 y evaluar al menos 10 briefs durante 14 días. Documento: docs/HRV/IU-20 Trazabilidad prospectiva y evaluación a 14 días del brief IA.md. No versionar data ni sidecars personales. Cierre: clasificar incidencias y decidir S3+S8, corrección de contexto o mantener comportamiento.\n[[IU-20 Trazabilidad prospectiva y evaluación a 14 días del brief IA]]",
+      "notes": [
+        {
+          "at": "2026-11-06T11:59:44Z",
+          "by": "claude-code",
+          "text": "Evaluacion a 14 dias realizada (2026-11-06): research/audits/system/2026-11-06/EVALUACION_IU20_BRIEF_IA_2026-11-06.md\n- Trazabilidad OK: 33 sidecars v2 (2026-10-02 a 11-06), 0 errores de validacion, 0 secretos, prompt y config constantes. Faltan 3 dias (10-18, 10-30, 11-04).\n- El modelo es fiel: 1 inferencia causal clara sin respaldo en 31 briefs.\n- Los problemas vienen de la entrada: dias AMBAR sin item que explique la causa del gate (5 de 7), morning_hrv \"green\" con gate AMBAR, accion contradictoria el 10-26 (SUAVE_QUALITY con \"Z2 razonable\") y discordancia nocturna en 15 de 20 dias ROJO (ver IU-21).\nRecomendacion: corregir primero la preparacion del contexto (item de causa del gate, coherencia morning_hrv/gate, accion que respete Action_detail) y despues repetir la evaluacion antes de decidir S3."
+        },
+        {
+          "at": "2026-11-06T11:59:45Z",
+          "by": "claude-code",
+          "text": "Question: Decision de cierre: corregir primero la preparacion del contexto (recomendado), implementar S3+S8, o mantener el comportamiento actual?"
+        },
+        {
+          "at": "2026-11-06T12:01:33Z",
+          "by": "claude-code",
+          "text": "Decision del humano (2026-11-06): corregir primero la preparacion del contexto; S3+S8 queda pendiente de repetir la evaluacion."
+        },
+        {
+          "at": "2026-11-06T12:01:34Z",
+          "by": "claude-code",
+          "text": "Evaluacion cerrada con decision: corregir primero el contexto. Trazabilidad v2 cumple todos los criterios (33 sidecars, 0 errores de validacion, 0 secretos, 3 dias ausentes documentados). Informe: research/audits/system/2026-11-06/EVALUACION_IU20_BRIEF_IA_2026-11-06.md. El trabajo de correccion queda en una propuesta nueva."
+        }
+      ]
+    },
+    {
+      "id": "SS-01",
+      "title": "Separar dato, proxy, inferencia y acción en la salida analítica",
+      "state": "done",
+      "group": "SM",
+      "desc": "Definir una salida semantica estructurada que separe explicitamente dato medido, proxy, inferencia y accion para mejorar trazabilidad y reducir ambiguedad entre pipeline, UI y modulo analysis en informes diarios y semanales.\n\nNota de desarrollo: [[docs/HRV/SS-01 Separar dato proxy inferencia y accion en la salida analitica]]"
+    },
+    {
+      "id": "SYA-01",
+      "title": "SS-02 Consumir reason_items en analysis para resolver tension y cautelas",
+      "state": "done",
+      "group": "SM",
+      "desc": "Activar un consumidor real de reason_items en analysis para enriquecer el payload diario, derivar flags canonicas de cautela y tension, y dejar de depender solo de reason_text en la resolucion del informe.\\n\\nNota de desarrollo: [[docs/HRV/SS-02 Consumir reason_items en analysis para resolver tension y cautelas]]"
+    },
+    {
+      "id": "SYA-11",
+      "title": "Diseño e implementación de error_context y exit_context",
+      "state": "done",
+      "group": "SM",
+      "desc": "Implementar anclas estructuradas (error_context y exit_context) para secciones de juicio del informe programático. | Alcance: §Dónde Estuvo el Error (nombrar locus: decisión/dosis/timing), §Cómo Habría Encajado Mejor, §Qué Construye vs Consume, §Qué Repetir. | Arquitectura Modelo 3: código computa señales no triviales (gate_vs_execution_delta, load_rank_in_sport_7d, block_role_signals, adaptation_signals); analista sintetiza narrativa. | Patrón idéntico a build_final_reason_rendered() (SYA-01). | Pendientes: _build_error_context(), _build_exit_context(), actualizar narrative_targets en payload, reglas en analyst_prompt_rules.md. | Diseño completo: [[docs/HRV/SYA-11 Diseño de error_context y exit_context.md]] | Depende: SYA-01 (en Review)"
+    },
+    {
+      "id": "SYA-13",
+      "title": "Diccionario local de analysis",
+      "state": "done",
+      "group": "SM",
+      "desc": "Crear un diccionario local de analysis para centralizar artefactos, contextos JSON y taxonomias exploratorias. Ver [docs/HRV/SYA-13 Diccionario local de analysis.md](docs/HRV/SYA-13%20Diccionario%20local%20de%20analysis.md)"
+    },
+    {
+      "id": "UX-01",
+      "title": "Mejorar legibilidad del reason_text",
+      "state": "done",
+      "group": "SM",
+      "desc": "Mejorar claridad e informacion didactica del campo reason_text en FINAL.csv y DASHBOARD.csv. Cambios de copy en build_hrv_final_dashboard.py: parametro message= en _emit_reason(), cadenas de _recovery_summary_message() y _recovery_action_message(). Sin tocar logica HRV, gates, esquemas, separador pipe ni orden de emision. No introducir hipotesis causales nuevas ni forzar valores parciales en mensajes agregados. Los asserts literales del test de contrato y el fixture afectado de CLI se actualizan en el mismo commit. Nota de desarrollo: [[docs/HRV/UX-01 Mejorar legibilidad del reason_text]]"
+    },
+    {
+      "id": "CAF-01",
+      "title": "Fail-closed de canónicos CORE/BETA/sleep",
+      "state": "done",
+      "group": "CAF",
+      "desc": "ImplementaciÃ³n y criterios en docs/HRV/CORE_AUDIT_FIX_01_FAIL_CLOSED_CANONICALS.md. Impedir que histÃ³ricos ilegibles se conviertan en datasets vacÃ­os y asegurar escritura atÃ³mica de sleep\n\n[[CORE_AUDIT_FIX_01_FAIL_CLOSED_CANONICALS]]"
+    },
+    {
+      "id": "CAF-02",
+      "title": "Propagación de estados y errores del pipeline",
+      "state": "done",
+      "group": "CAF",
+      "desc": "ImplementaciÃ³n y criterios en docs/HRV/CORE_AUDIT_FIX_02_PIPELINE_STATUS.md. Propagar fallos de CORE, FINAL, Dropbox y restore hasta exit code, API status y backup.\n\n[[CORE_AUDIT_FIX_02_PIPELINE_STATUS]]"
+    },
+    {
+      "id": "CAF-03",
+      "title": "Restore y backup por generaciÃ³n completa",
+      "state": "doing",
+      "group": "CAF",
+      "desc": "Implementación y criterios en `docs/HRV/CORE_AUDIT_FIX_03_RESTORE_GENERATION.md`. Descargar y validar el conjunto obligatorio en staging antes de publicarlo localmente; fallar de forma cerrada ante descargas o validaciones incompletas. Sin generaciones remotas, manifests ni hashes en este alcance.\n\n[[CORE_AUDIT_FIX_03_RESTORE_GENERATION]]"
+    },
+    {
+      "id": "CAF-04",
+      "title": "Frontera de propietario OAuth y API",
+      "state": "proposed",
+      "group": "CAF",
+      "desc": "ImplementaciÃ³n y criterios en docs/HRV/CORE_AUDIT_FIX_04_OWNER_AUTH.md. Proteger OAuth y todos los POST operativos con sesiÃ³n de propietario, state ligado y sin claves en URLs.\n\n[[CORE_AUDIT_FIX_04_OWNER_AUTH]]"
+    },
+    {
+      "id": "CAF-05",
+      "title": "Runtime WSGI de producciÃ³n en Railway",
+      "state": "proposed",
+      "group": "CAF",
+      "desc": "ImplementaciÃ³n y criterios en docs/HRV/CORE_AUDIT_FIX_05_RAILWAY_WSGI.md. Sustituir app.run por un servidor WSGI de producciÃ³n y verificar health, shutdown y volumen.\n\n[[CORE_AUDIT_FIX_05_RAILWAY_WSGI]]"
+    },
+    {
+      "id": "CAF-06",
+      "title": "Manifest y publicaciÃ³n canÃ³nica",
+      "state": "proposed",
+      "group": "CAF",
+      "desc": "ImplementaciÃ³n y criterios en docs/HRV/CORE_AUDIT_FIX_06_GENERATION_MANIFEST.md. Validar hashes y coherencia de generaciÃ³n antes de que UI y consumidores lean artefactos.\n\n[[CORE_AUDIT_FIX_06_GENERATION_MANIFEST]]"
+    },
+    {
+      "id": "CAF-07",
+      "title": "RetenciÃ³n y capacidad de backups",
+      "state": "proposed",
+      "group": "CAF",
+      "desc": "ImplementaciÃ³n y criterios en docs/HRV/CORE_AUDIT_FIX_07_BACKUP_RETENTION.md. Medir capacidad, aplicar pruning seguro y alertar antes de agotar el volumen.\n[[CORE_AUDIT_FIX_07_BACKUP_RETENTION]]"
+    },
+    {
+      "id": "IU-21",
+      "title": "Integrar Nightly Recharge en el contexto de recuperacion y los briefs",
+      "state": "done",
+      "group": "IU",
+      "at": "2026-11-06T11:30:47Z",
+      "by": "codex",
+      "desc": "Conservar las valoraciones personales de Polar v4 y usarlas para explicar la recuperacion nocturna. Corregir la discordancia causada por sleep_basic_ok. Desarrollo y aceptacion en [[IU-21_POLAR_NIGHTLY_RECHARGE_CONTEXTO]].",
+      "notes": [
+        {
+          "at": "2026-11-06T11:33:45Z",
+          "by": "codex",
+          "text": "Documento renombrado con el prefijo IU-21 y enlace actualizado."
+        },
+        {
+          "at": "2026-11-06T18:42:48Z",
+          "by": "claude-code",
+          "text": "Plan (claude-code):\n1. Adaptador v4: conservar recoveryIndicator, recoveryIndicatorSubLevel, ansStatus, ansRate, sleepScore.scoreRate y baselines RMSSD/RRI.\n2. sleep.csv: columnas nuevas al final; CSV históricos de 17 columnas se aceptan y se completan vacíos; una respuesta parcial ya no borra valores persistidos.\n3. FINAL: sleep_basic_ok deja de contar como apoyo; valoraciones Polar como evidencia explícita, un código por dominio (autonómico, sueño) para no contar dos veces el mismo índice; mensajes que nombran el componente.\n4. Brief diario: bloque polar_nightly_recharge con fecha, valores y etiquetas.\n5. Contratos, tests y comparación antes/después en directorio aislado.\nPendiente de permiso del humano: consulta real a Polar v4 de 2026-11-06 (requiere refresh del token local)."
+        },
+        {
+          "at": "2026-11-06T19:01:54Z",
+          "by": "claude-code",
+          "text": "Implementación hecha sin tocar el gate: sleep.csv con 26 columnas (acepta las 17 históricas), sleep_basic_ok ya no cuenta como apoyo, valoraciones Polar con un código por dominio y brief con sleep_context.polar_nightly_recharge. 784 tests en verde. Resultados y comparación antes/después en el md de la tarea, sección «Resultados de la implementación». Sin commit."
+        },
+        {
+          "at": "2026-11-06T19:01:54Z",
+          "by": "claude-code",
+          "text": "Question: ¿Autorizas consultar Polar v4 (2026-11-06 y días recientes) desde local? Requiere refrescar el token v4 local, caducado; el refresh rota el refresh token de ese bundle."
+        },
+        {
+          "at": "2026-11-06T20:38:41Z",
+          "by": "claude-code",
+          "text": "Respuesta del humano: autoriza la consulta a Polar v4 desde local, con refresh del token v4 local."
+        },
+        {
+          "at": "2026-11-06T20:56:29Z",
+          "by": "claude-code",
+          "text": "Contraste con la API real: el 2026-11-06 da Nightly Recharge 1, SNA 1 (ansStatus -8,56) y carga de sueño 1, igual que en Flow. Escalas coherentes en 13 noches. meanBaselineRmssd/Rri llegan siempre a 0: se guardan sin interpretar y no van al brief. Recuperación local en data/ENDURANCE_HRV_sleep.csv: 286 fechas de 2026, copia en data/backup/pre_nightly_ratings/, columnas originales intactas. Con datos reales, el 2026-11-06 queda ROJO respaldado; aparecen 41 VERDE frágiles (decisión pendiente). Detalle en el md. 784 tests en verde. Sin commit."
+        },
+        {
+          "at": "2026-11-06T21:01:35Z",
+          "by": "claude-code",
+          "text": "Decisión del humano: mantener la regla de VERDE frágil tal cual, también con cautelas de Polar."
+        },
+        {
+          "at": "2026-11-06T21:01:35Z",
+          "by": "claude-code",
+          "text": "Las valoraciones de Nightly Recharge ya explican la recuperación nocturna, sin tocar el gate ni la acción.\n- 2026-11-06: deja de salir como discordancia falsa y queda «ROJO respaldado por estado del SNA nocturno de Polar por debajo de lo habitual y carga de sueño de Polar por debajo de lo habitual». Coincide con Flow: Nightly Recharge 1, SNA 1 y carga de sueño 1.\n- sleep.csv pasa a 26 columnas y acepta el formato histórico de 17. Un reintento parcial ya no borra datos. sleep_basic_ok ya no cuenta como señal favorable.\n- El brief recibe las valoraciones con su fecha y etiqueta, y nombra el componente concreto.\n- El sleep.csv local se ha rellenado para 286 noches de 2026, con copia en data/backup/pre_nightly_ratings/. FINAL y los briefs locales se regeneran en el próximo sync.\n\nVerificado: 784 tests en verde y comparación antes/después en directorio aislado. Solo cambian las columnas de contexto de recuperación y reason_text. Detalle en el md de la tarea.\n\nPara revisar:\n- Las tablas de la segunda comparación: 41 VERDE pasan a frágil, según la regla que decidiste mantener.\n- Pendiente: commit, despliegue en Railway y la misma recuperación allí, porque el sync solo reconsulta hoy y ayer."
+        },
+        {
+          "at": "2026-11-06T21:13:43Z",
+          "by": "codex",
+          "text": "Revisión crítica (codex): antes de aceptar, corregir el brief cuando falta la noche de la fecha FINAL: daily_brief.py selecciona la última fila sleep <= fecha y publica polar_nightly_recharge.available=true con valoraciones de una noche anterior (líneas 863/880), aunque el criterio pide expresar la ausencia. Revisar también _classify_sleep: score 50 con scoreRate 1 pasa de red a amber (líneas 325-331); documentar la precedencia deseada. Contrato Estructura.md línea 522 aún exige 17 columnas y fallará con el esquema nuevo de 26. Falta procedimiento reproducible de backfill y publicación en Railway; el propio documento declara que solo se recuperó local. Verificación: pytest -q tests => 784 passed, 38 subtests; 17 tests IU-21 pasan. Mantengo IU-21 en review."
+        },
+        {
+          "at": "2026-11-07T07:51:35Z",
+          "by": "claude-code",
+          "text": "Revisión atendida, los cuatro hallazgos corregidos (detalle en «Correcciones tras la revisión» del md):\n1. El brief solo publica valoraciones Polar si la fila de sueño es del mismo día que el FINAL; si no, available=false con el motivo.\n2. Sueño en el brief, igual que en FINAL: la carga de sueño de Polar sustituye al umbral de score 65 (1 → red, 2 → amber, 3–5 sin cautela); sin valoración sigue el umbral.\n3. Nuevo scripts/backfill_polar_nightly_ratings.py (copia previa, --dry-run, idempotente), con instrucciones para Railway en GUIA_PYTHON_SCRIPTS.md.\n4. Ejemplo de Estructura.md a 26 columnas.\n791 tests en verde.\nAviso: a las 21:55 del 6-nov una restauración desde Dropbox devolvió data/ENDURANCE_HRV_sleep.csv a 17 columnas. La versión con valoraciones está en data/backup/pre_restore/; no la he tocado."
+        },
+        {
+          "at": "2026-11-07T07:55:46Z",
+          "by": "claude-code",
+          "text": "Datos locales recuperados: sleep.csv con valoraciones devuelto desde data/backup/pre_restore (respaldo previo en data/backup/pre_ratings_recovery/). FINAL y DASHBOARD regenerados solo con el builder: gate y acción idénticos, reason_text cambia en 257 días, 2026-11-06 ROJO respaldado."
+        },
+        {
+          "at": "2026-11-07T09:10:16Z",
+          "by": "codex",
+          "text": "Segunda revisión (codex, 2026-11-07): mejoras anteriores presentes y suite tests/ verde (791). Comparación independiente pre_restore vs FINAL actual en 516 fechas comunes: gate/Action/Action_detail idénticos, 257 reason_text distintos, 41 VERDE supported->fragile, discordancias 77->116; diferencias numéricas fuera del contexto son solo ruido <=7.3e-14. Nuevos hallazgos: (1) el brief oculta ratings de noche anterior pero sigue exponiendo score/duración y clasificación autoritativa de esa noche como contexto del día actual; reproducción: FINAL 06-11 + sleep 05-11 score 50 => available=false pero sleep_context.classification=red. (2) backfill por defecto solo toma fechas con las nueve columnas nuevas vacías; si hay rating parcial no rellena los faltantes. Copia local: 4 noches con 1-2 de las tres valoraciones, omitidas por --dry-run (12 candidatas). (3) códigos fuera de escala: FINAL los ignora, pero brief pone available=true si los tres son inválidos y entrega label=codigo_desconocido. Revisar antes de aceptar. El enfoque central de separar gate y contexto sigue siendo razonable. Pendiente Railway/commit según documento."
+        },
+        {
+          "at": "2026-11-07T09:18:03Z",
+          "by": "claude-code",
+          "text": "Segunda revisión atendida (detalle en «Segunda revisión» del md):\n1. Brief: si la última fila de sueño es de otra noche, sleep_context sale not_available, sin score, duración ni clasificación de esa noche.\n2. Backfill: reintenta también las fechas con valoraciones parciales (hoy 16 candidatas). Recuento corregido: 282 fechas con las tres valoraciones.\n3. Brief: available=false si todos los códigos están fuera de escala, igual que FINAL.\n4. FINAL: Nightly Recharge entra si falta un componente y el presente es neutro. No cambia ningún día del histórico local."
+        },
+        {
+          "at": "2026-11-07T09:38:05Z",
+          "by": "codex",
+          "text": "Revisión final de cierre (codex, 2026-11-07): verificados los cuatro puntos de la segunda revisión. Reproducciones: noche anterior -> sleep_context not_available sin score; códigos inválidos -> available=false; backfill parcial -> fecha candidata; Nightly Recharge desfavorable con componente neutro y otro ausente -> polar_recharge_poor. Dry-run local: 16 fechas candidatas. Suite del proyecto: 795 tests y 38 subtests pasan. Builder ejecutado en directorio aislado con los datos locales actuales: 517 filas; frente al FINAL publicado, 0 cambios de gate, Action, recovery_support_class y reason_text. Sin hallazgos funcionales bloqueantes locales. Quedan commit, despliegue y backfill en Railway indicados en el documento; no verificados aquí. Mantener review para aceptación humana tras esos pasos."
+        }
+      ]
+    },
+    {
+      "id": "IU-22",
+      "title": "Coherencia del contexto del brief IA con el gate",
+      "state": "done",
+      "group": "IU",
+      "deps": ["IU-20"],
+      "at": "2026-11-06T12:01:35Z",
+      "by": "claude-code",
+      "desc": "Que el brief IA diario reciba un contexto coherente con el gate, segun la evaluacion de IU-20 (research/audits/system/2026-11-06/EVALUACION_IU20_BRIEF_IA_2026-11-06.md). Sin tocar el gate ni su calculo.\n- Emitir un reason_item con la causa del gate (gate_raw_reason, suavizado, residual) cuando no sea VERDE: hoy 5 de 7 dias AMBAR no la llevan.\n- Que morning_hrv.classification/interpretation no diga \"verde, dia favorable\" cuando el gate final es AMBAR o ROJO.\n- Que el item action_constraint respete Action_detail (p. ej. SUAVE_QUALITY no debe decir \"Z2 razonable\"; build_hrv_final_dashboard.py _recovery_action_message).\n- Actualizar docs/contracts/ y tests.\nTerminado cuando: tests en verde, docs/contracts al dia y, tras desplegar, el script de la evaluacion IU-20 no muestra esas tres incoherencias. La discordancia nocturna se trata en IU-21.",
+      "notes": [
+        {
+          "at": "2026-11-06T14:36:43Z",
+          "by": "claude-code",
+          "text": "Analisis previo (2026-11-06). Veredicto: aporta valor; implementar con este orden.\n1) morning_hrv \"green\" con gate AMBAR es un BUG de tilde, no de diseño: _classify_morning (hrv_app/ai/daily_brief.py:235) compara con \"AMBAR\" pero gate_final vale \"ÁMBAR\"; todo AMBAR sin quality_flag cae a green (6/6 en sidecars). _expected_tone ya normaliza la tilde; reutilizar esa normalizacion + test con \"ÁMBAR\". Commit propio, primero.\n2) action_constraint: pasar Action_detail a _recovery_action_message; con SUAVE_QUALITY no emitir accion de recuperacion (data_quality ya dice Z1-Z2 max 90min; 10-26 tenia dos acciones contradictorias). Con DESCARGA, decir descarga.\n3) Causa del gate: nuevo tipo gate_cause cuando gate != VERDE, con variant estructurado a partir de gate_razon_base60 (2D_LN/2D_HR/2D_AMBOS), decision_path (override shadow28/42), divergencia raw vs suavizado 3d y baseline60_degraded. Extender raw_today_rebound a AMBAR (caso 10-11). Cambia reason_text de la UI -> actualizar docs/contracts/.\nMejoras de metrica dentro del alcance (columnas ya existentes): magnitud en unidades SWC (d_ln/SWC_ln, d_HR/SWC_HR) en renderable_metrics; distinguir AMBAR solo por FC (2D_HR).\nFuera de alcance (tareas aparte): tendencia 3d mejorando/empeorando; CV lnRMSSD 7d (no existe en FINAL, cambia esquema).\nVerificacion: se puede adelantar regenerando payloads en local y pasando research/audits/system/2026-11-06/scripts/iu20_eval.py, sin esperar al despliegue."
+        },
+        {
+          "at": "2026-11-06T17:46:11Z",
+          "by": "codex",
+          "text": "Revision codex: 66 tests + 9 subtests pasan. Pendiente: raw_today_rebound atribuye a media 3d un AMBAR/ROJO causado por override (repro: base60 VERDE, final AMBAR, raw VERDE); gate_cause afirma que una misma base 28/42 sale peor 2/3 aunque persistencia puede sumar 1 dia de cada base; _classify_morning mantiene interpretacion de caida RMSSD para ROJO por override desde AMBAR de FC sola. Reforzar tests integrados y replay IU-20 antes de cerrar."
+        },
+        {
+          "at": "2026-11-06T17:56:28Z",
+          "by": "codex",
+          "text": "Segunda revision codex: las 3 incoherencias de la revision anterior estan corregidas en el diff actual; 67 tests + 9 subtests pasan y Kanvas check OK. Hallazgo restante: _classify_morning en ROJO entrega 'Senal ... esta en reason_items' como interpretation autoritativa; ese texto interno y sin tildes puede copiarse al brief (IU-20 ya observo copia literal de interpretation). Usar redaccion para atleta. No consta aun evaluacion IU-20 posterior al despliegue; IU-22 sigue doing."
+        },
+        {
+          "at": "2026-11-06T18:24:42Z",
+          "by": "codex",
+          "text": "Ultima revision codex: sin hallazgos nuevos en el cambio de IU-22. Corregida la interpretation ROJO para atleta, sin jerga interna; las tres incoherencias previas siguen resueltas. 67 tests + 9 subtests pasan, git diff HEAD --check y Kanvas check OK. Criterio aun no verificado: evaluacion IU-20 tras despliegue; la tarea sigue doing."
+        }
+      ]
+    },
+    {
+      "id": "FLE-01",
+      "title": "Aislar las pruebas de restauración",
+      "state": "proposed",
+      "group": "FLE",
+      "at": "2026-11-10T11:44:40Z",
+      "by": "codex",
+      "desc": "Impedir que la suite restaure datos operativos. Verificar rechazo sin invocación y autorización con una restauración simulada.\n\n[[docs/HRV/FLE-01 Aislar las pruebas de restauracion.md|Descripción y desarrollo]]"
+    },
+    {
+      "id": "FLE-02",
+      "title": "Verificar acceso, token y backup en Railway",
+      "state": "proposed",
+      "group": "FLE",
+      "at": "2026-11-10T11:44:40Z",
+      "by": "codex",
+      "desc": "Comprobar protección efectiva, persistencia en el volumen y destino Dropbox por entorno. Coordinar los cambios de runtime con las tareas CAF existentes.\n\n[[docs/HRV/FLE-02 Verificar la configuracion operativa de Railway.md|Descripción y desarrollo]]"
+    },
+    {
+      "id": "FLE-03",
+      "title": "Actualizar el sueño cuando no hay RR nuevos",
+      "state": "proposed",
+      "group": "FLE",
+      "at": "2026-11-10T11:44:40Z",
+      "by": "codex",
+      "desc": "Distinguir ausencia legítima de errores de origen y seguir hasta el refresco de sueño cuando no hay RR objetivo.\n\n[[docs/HRV/FLE-03 Actualizar el sueno cuando no hay RR nuevos.md|Descripción y desarrollo]]"
+    },
+    {
+      "id": "FLE-04",
+      "title": "Proteger los históricos de sesiones y wellness",
+      "state": "proposed",
+      "group": "FLE",
+      "at": "2026-11-10T11:44:40Z",
+      "by": "codex",
+      "desc": "Validar ambos históricos antes de escribir y hacer visible el fallo sin truncar datos operativos.\n\n[[docs/HRV/FLE-04 Proteger los historicos de sesiones y wellness.md|Descripción y desarrollo]]"
+    },
+    {
+      "id": "FLE-05",
+      "title": "Decidir y validar la recuperación mediante seed",
+      "state": "proposed",
+      "group": "FLE",
+      "at": "2026-11-10T11:44:40Z",
+      "by": "codex",
+      "desc": "Decidir si se conserva la importación y asegurar que una seed incompatible no pueda sustituir datos operativos.\n\n[[docs/HRV/FLE-05 Decidir y validar la recuperacion mediante seed.md|Descripción y desarrollo]]"
+    },
+    {
+      "id": "FLE-06",
+      "title": "Fijar dependencias compatibles con Python 3.11",
+      "state": "proposed",
+      "group": "FLE",
+      "deps": ["FLE-01"],
+      "at": "2026-11-10T11:44:40Z",
+      "by": "codex",
+      "desc": "Usar versiones reproducibles compatibles con CI y producción y resolver los avisos de pandas comprobados.\n\n[[docs/HRV/FLE-06 Fijar dependencias compatibles con Python 3.11.md|Descripción y desarrollo]]"
+    },
+    {
+      "id": "FLE-07",
+      "title": "Limitar la cola de estabilidad al tramo medido",
+      "state": "proposed",
+      "group": "FLE",
+      "at": "2026-11-10T11:44:40Z",
+      "by": "codex",
+      "desc": "Aplicar los mínimos vigentes sobre la cola del tramo, cubrir registros cortos y medir el impacto antes de publicar.\n\n[[docs/HRV/FLE-07 Limitar la cola de estabilidad al tramo medido.md|Descripción y desarrollo]]"
+    },
+    {
+      "id": "FLE-08",
+      "title": "Calcular el contexto de carga disponible por la mañana",
+      "state": "proposed",
+      "group": "FLE",
+      "at": "2026-11-10T11:44:40Z",
+      "by": "codex",
+      "desc": "Calcular contexto hasta D−1 y distinguir descanso confirmado, métrica ausente y sesiones todavía sin sincronizar.\n\n[[docs/HRV/FLE-08 Calcular el contexto de carga disponible por la manana.md|Descripción y desarrollo]]"
+    },
+    {
+      "id": "FLE-09",
+      "title": "Distinguir errores de formato y ausencia de sueño",
+      "state": "proposed",
+      "group": "FLE",
+      "at": "2026-11-10T11:44:40Z",
+      "by": "codex",
+      "desc": "Hacer visible un formato Polar inesperado y evitar que se retire el dato previo al confundirlo con ausencia válida.\n\n[[docs/HRV/FLE-09 Distinguir errores de formato y ausencia de sueno.md|Descripción y desarrollo]]"
+    },
+    {
+      "id": "FLE-10",
+      "title": "Validar fechas, huecos y duplicados de RR",
+      "state": "proposed",
+      "group": "FLE",
+      "at": "2026-11-10T11:44:40Z",
+      "by": "codex",
+      "desc": "Acordar reglas de fecha, reintento de huecos y selección de duplicados, con trazabilidad y pruebas de frontera.\n\n[[docs/HRV/FLE-10 Validar fechas huecos y duplicados de RR.md|Descripción y desarrollo]]"
+    },
+    {
+      "id": "FLE-11",
+      "title": "Contrastar rachas y ancla sana con la Spec",
+      "state": "proposed",
+      "group": "FLE",
+      "at": "2026-11-10T11:44:40Z",
+      "by": "codex",
+      "desc": "Cuantificar el efecto sobre acción y warnings, y dejar decidida la semántica de rachas y ancla sana.\n\n[[docs/HRV/FLE-11 Contrastar rachas y ancla sana con la Spec.md|Descripción y desarrollo]]"
+    },
+    {
+      "id": "FLE-12",
+      "title": "Separar cobertura posterior y predictiva en SSM",
+      "state": "proposed",
+      "group": "FLE",
+      "at": "2026-11-10T11:44:40Z",
+      "by": "codex",
+      "desc": "Alinear metadatos y textos con la cobertura medida y evaluar cualquier pretensión predictiva con un corte cronológico.\n\n[[docs/HRV/FLE-12 Separar cobertura posterior y predictiva en SSM.md|Descripción y desarrollo]]"
+    },
+    {
+      "id": "FLE-13",
+      "title": "Incorporar la evidencia ECG a la decisión HG-08",
+      "state": "proposed",
+      "group": "FLE",
+      "deps": ["HG-08"],
+      "at": "2026-11-10T11:44:40Z",
+      "by": "codex",
+      "desc": "Documentar la comparación con pares HG-10 y sus límites como adenda a HG-08, conservando la decisión sobre el detector.\n\n[[docs/HRV/FLE-13 Incorporar la evidencia ECG a la decision HG-08.md|Descripción y desarrollo]]"
+    },
+    {
+      "id": "FLE-14",
+      "title": "Alinear documentación y retirar restos v3 verificados",
+      "state": "proposed",
+      "group": "FLE",
+      "at": "2026-11-10T11:44:40Z",
+      "by": "codex",
+      "desc": "Actualizar contratos y guías desalineados y retirar solo restos cuyo desuso se pueda comprobar.\n\n[[docs/HRV/FLE-14 Alinear documentacion y retirar restos v3 verificados.md|Descripción y desarrollo]]"
+    }
+  ]
+}

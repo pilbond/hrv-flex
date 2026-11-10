@@ -96,5 +96,3 @@ htmlcov/
 # Backups
 *.bak
 *_backup/
-# Added by code-review-graph
-.code-review-graph/

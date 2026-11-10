@@ -148,6 +148,11 @@ class DropboxRrContractTests(unittest.TestCase):
             audit_dir = root / "_audit_2026-03-01" / "rr_out"
             audit_dir.mkdir(parents=True, exist_ok=True)
             audit_rr = audit_dir / "ENDURANCE_2026-03-01_from_jsonl_v9_RR.CSV"
+            grouped_audit_dir = root / "_audit" / "_audit_2026-03-02" / "rr_out"
+            grouped_audit_dir.mkdir(parents=True, exist_ok=True)
+            (grouped_audit_dir / "ENDURANCE_2026-03-02_from_jsonl_RR.CSV").write_text(
+                "duration,offline\n200,0\n", encoding="utf-8"
+            )
 
             canonical.write_text("duration,offline\n100,0\n", encoding="utf-8")
             audit_rr.write_text("duration,offline\n200,0\n", encoding="utf-8")
@@ -155,6 +160,7 @@ class DropboxRrContractTests(unittest.TestCase):
             indexed = dropbox_rr._scan_rr_files_by_date(root, source_tag="from_jsonl")
 
             self.assertEqual(indexed[date(2026, 3, 1)], canonical)
+            self.assertNotIn(date(2026, 3, 2), indexed)
 
     def test_run_dropbox_rr_import_for_dates_updates_index_from_subprocess(self):
         with tempfile.TemporaryDirectory() as tmpdir:

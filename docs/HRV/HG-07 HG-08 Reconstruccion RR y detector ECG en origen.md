@@ -1,5 +1,7 @@
 # HG-07 / HG-08: reconstrucción RR en sombra y detector ECG en origen
 
+> **Actualización vigente — 2026-11-09.** HG-08 sigue en `proposed`: validación acotada de detección y temporización frente al pipeline HG-10. Su plan de desarrollo vigente está en §4, apartado HG-08; sustituye las fases pendientes históricas que contradigan ese alcance. Incluye refinamiento del fiducial, Hamilton, Kalidas–Tamil (SWT) y una CNN opcional, sin adopción ni recálculo histórico autorizados. HG-07 conserva su alcance separado. Las referencias siguientes a CORE de 18 columnas, diagnóstico aún no persistido, geometrías previas o HG-06 pendiente son antecedentes: hoy CORE tiene 19 columnas, los diagnósticos prospectivos están implementados y HG-06 está cerrado. La geometría y Calidad de control son las vigentes de HG-10.
+
 > **Reorganización 2026-10-27.** Esta nota se llamaba «HG-05 Auditoría de detección de latidos y calidad de señal en ventana». Casi todo su contenido es alcance y evidencia de HG-06, HG-07 y HG-08, así que pasa a ser la nota de desarrollo de HG-07 y HG-08. Lo propio de HG-05 (descartes en ventana) se movió a la [nota de HG-05](<HG-05 Auditoria de deteccion de latidos y calidad de senal en ventana.md>) y la secuencia de §9 a [Secuencia de tareas HG](<HG Secuencia de tareas HRV.md>). Las líneas «Estado» y «Actualización de dependencia» que siguen describen la tarjeta HG-05 a 2026-10-21 y se conservan como antecedente.
 
 Estado: tarea bloqueada por HG-04 en Kanvas (`gray`), revisada el 2026-10-21. Documento de alcance y hallazgos exploratorios; por sí mismo no cambia el pipeline, los canónicos ni la QA.
@@ -161,15 +163,83 @@ La suma y la posición de la división son dos filtros útiles para **generar ca
 
 **Cierre de HG-07:** decisión explícita de adoptar o no la fusión, con evidencia de falsos positivos y efecto histórico. Una suma cercana a la mediana no basta para declarar un pico R falso.
 
-### HG-08 — validar una corrección del detector ECG en origen
+### HG-08 — validación acotada del detector ECG: detección y temporización
 
-El barrido de HG-06 enlazó por contenido el RR histórico con el ECG de 216/218 fechas `from_jsonl` de CORE; no se encontraron ZIP ECG fechados para el 6 y 7 de marzo de 2026. Se confirmó ECG y ACC dentro de los ZIP de los dos días principales, pero el ACC de la era completa no se auditó. Esta cobertura permite estudiar una posible corrección en origen de la era ECG; todavía no valida un detector alternativo ni autoriza rederivar RR.
+**Objetivo:** determinar si una alternativa concreta mejora la medición de RR matinales del H10 frente al detector vigente, con falsas correcciones acotadas. La entrega es evidencia reproducible y una decisión; puede cerrarse sin adopción por resultado negativo o inconcluyente. No incluye clasificación de arritmias, estimación de estrés, entrenamiento de una red desde cero ni validación durante ejercicio.
 
-1. Usar la referencia anotada de HG-06 para comparar `detect_rpeaks()` vigente con alternativas predefinidas. Evaluar picos espurios y perdidos, incluidos controles sin anomalías y señales de morfología ambigua. Una ventana de fusión relativa al RR es **hipótesis de implementación**, no umbral ya aprobado; comparar también evidencia de forma del ECG. Separar conjunto de diseño y evaluación.
-2. Aprovechar el inventario ECG/RR por contenido de 216 fechas y comprobar el ACC antes de cualquier rederivación. El 15 de abril tiene 13 picos adicionales al reprocesar hoy el mismo eje temporal; registrar versiones de código y bibliotecas e investigar esa divergencia. Tratar 2026-03-06 y 2026-03-07 como fechas sin raw localizado.
-3. Si una alternativa mejora la detección sin falsos cambios relevantes en controles, rederivar **solo desde el mismo ECG/ACC de origen** en una copia aislada, conservar el RR previo, registrar fuente/hash y versión, y comparar cronológicamente CORE, QA, baseline y gate. Documentar qué hacer con las dos fechas sin raw verificable, sin imputarlas ni cambiar su fuente. La era Polar permanece fuera de esta rederivación.
+HG-06 vinculó por contenido 216/218 fechas ECG/RR: se reutiliza ese inventario, sin repetirlo como trabajo pendiente general. La reproducción de los picos archivados a ≤5 ms demuestra correspondencia, no identidad ni exactitud del fiducial. Los 13 picos adicionales del 2026-04-15 siguen siendo una divergencia que debe explicarse o delimitarse antes de usar esa fecha como control reproducible. Las fechas 2026-03-06/07 carecían de ZIP en aquel inventario; cualquier nueva cobertura requiere comprobar contenido y huellas. La disponibilidad de ACC se comprueba para cada fecha seleccionada. Las comparaciones previas de HG-10 con refinamiento y HRVanalysis son antecedentes de reproducibilidad, no una referencia independiente de exactitud.
 
-**Preferencia técnica condicional:** si el detector corregido se valida y la cobertura real lo permite, corregir la era ECG en origen antes que fusionar RR después. No se activa hasta disponer de referencia, replay, contrato y política histórica. HG-07 sigue siendo comparador y posible solución acotada donde haya evidencia propia.
+#### A. Preguntas separadas y comparadores
+
+1. **Detección:** ¿hay latidos omitidos o detecciones adicionales? Adjudicar identidad sobre ECG, sin convertir automáticamente una firma RR o una onda de amplitud baja en un pico falso.
+2. **Temporización:** para los mismos latidos físicos, ¿mejora el tiempo asignado al fiducial? Un desplazamiento constante se cancela en RR; su variación entre latidos puede modificar RMSSD. Evaluar esta pregunta conservando los mismos pares físicos y la misma máscara de inclusión.
+3. **Efecto operativo:** ¿qué cambia al ejecutar cada rama con sus propios descartes, ACC y CORE/FINAL vigentes? Separarlo del experimento de temporización para no confundir mejor localización con distinta selección de RR.
+
+| Rama | Desarrollo previsto | Condición o límite |
+|---|---|---|
+| C0 — control | Ejecutar `detect_rpeaks()` y el pipeline vigente con versiones y configuración congeladas | Debe reproducir el control antes de interpretar cualquier diferencia |
+| C1 — refinamiento temporal | Mantener identidad y número de detecciones de C0 y ajustar el fiducial en una vecindad ECG acotada; evaluar estimación submuestra si es viable | Fijar polaridad, búsqueda y desplazamiento máximo; marcar ambigüedad, sin añadir o borrar latidos ni cruzar complejos vecinos |
+| C2 — Hamilton | Probar una implementación identificada de Hamilton, por ejemplo `hamilton2002`, con su preprocesamiento documentado | No tratar «Hamilton-Tompkins» como especificación inequívoca; fijar artículo, biblioteca, versión y parámetros |
+| C3 — Kalidas–Tamil | Probar un detector SWT identificado, por ejemplo `kalidas2017` | Verificar filtros, escalas wavelet, padding y compatibilidad con 130 Hz; no atribuirle propiedades de un detector Hilbert |
+| C4 — CNN opcional | Evaluar un único modelo preentrenado que entregue posiciones o probabilidades por muestra y permita reconstruir tiempos R | Exigir pesos, licencia, preprocesamiento, código y versión reproducibles; si faltan, cerrar esta rama como no evaluable sin retrasar C0–C3 |
+
+El detector propio usa máximos de energía suavizada, no un ajuste posterior al pico R del ECG (`egc_to_rr.py:482–515`, revisión 2026-11-09). Esto justifica probar C1, pero no demuestra por sí solo un error. C2–C4 se comparan primero en su salida nativa; cualquier refinamiento común posterior se declara como variante separada y se congela antes de la evaluación. No multiplicar combinaciones después de ver los resultados. La posible fusión de HG-07 no se activa ni se mezcla con estas ramas.
+
+**Corrección de las propuestas recibidas:** Kalidas–Tamil (2017) corresponde a la transformada wavelet estacionaria (SWT), no a Hilbert. La implementación consultada de NeuroKit incluso eleva al cuadrado los coeficientes; por tanto, tampoco respalda la afirmación de que elimina esa etapa. Hamilton es un comparador pertinente, pero su superioridad frente a ondas T altas o ruido de correa en este atleta queda por medir. No asumir que una deflexión amplia sea una T, ni trasladar afirmaciones sobre ejercicio al protocolo matinal. Un detector Hilbert solo se consideraría en otra ampliación con referencia e implementación concretas.
+
+La CNN del texto recibido, con `GlobalAveragePooling1D` y una única salida por ventana, es un clasificador de segmentos y no proporciona tiempos R. No se usa como detector RR. El modelo candidato debe resolver localización temporal; una buena clasificación global o un F1 alto con tolerancia amplia no acreditan precisión de RR. Remuestrear de 130 Hz a otra frecuencia no crea información nueva ni garantiza precisión de 1 ms.
+
+#### B. Fase 0 — protocolo, muestra y referencia
+
+- Congelar antes de evaluar: preguntas, ramas, parámetros, presupuesto de registros/revisión, criterios de exclusión, tolerancia de emparejamiento, mejora mínima relevante y máximo aceptable de falsas correcciones. Estos valores quedan pendientes de justificar en el protocolo; no inventar un umbral a partir del resultado favorable.
+- Separar diseño y evaluación por grabación/fecha, no por ventanas solapadas del mismo ECG. Reservar controles y casos difíciles no usados para ajustar parámetros. Registrar que es una muestra dirigida N=1, sin estimar prevalencia general ni generalización a otros atletas.
+- Incluir la discrepancia del 2026-10-29 alrededor de 235–237 s, los casos útiles de HG-06, días limpios y casos ambiguos. Cubrir, si existen en los datos, deflexiones amplias compatibles con T, QRS de baja amplitud o invertidos, deriva, movimiento y secuencias irregulares. No asignar diagnóstico clínico a estas categorías técnicas.
+- Verificar ECG/ACC, timestamps, unidades, huecos, duplicados, duración y SHA-256. La frecuencia nominal es 130 Hz; el eje temporal observado gobierna el cálculo y los huecos no se rellenan silenciosamente. Reutilizar huellas e índices de HG-06.
+- Construir una referencia adjudicada sin mostrar la identidad de la rama candidata cuando sea posible. Registrar revisor, procedimiento, fiducial, tiempo o rango de incertidumbre, etiqueta y motivo: latido identificable, detección espuria, incierto o señal no interpretable. Las anotaciones técnicas previas se conservan con sus límites; el consenso entre algoritmos no sustituye una referencia independiente.
+- Diferenciar incertidumbre de identidad e incertidumbre temporal. A 130 Hz hay unos 7,69 ms entre muestras: la interpolación puede estimar posiciones intermedias, pero no certifica exactitud submuestra. Si la referencia no permite resolver la mejora propuesta, concluir «temporización inconcluyente»; la simulación puede verificar código y sensibilidad, no suplir esa evidencia real.
+
+**Salida de fase:** protocolo congelado, manifiesto de selección y tabla de anotación. Si no hay referencia suficiente, cerrar o reducir explícitamente la pregunta antes de implementar más candidatos.
+
+#### C. Fase 1 — implementación aislada y reproducible
+
+- Código futuro en `research/experiments/hg08_detector/scripts/`; resultados, configuración y manifiestos en `research/experiments/hg08_detector/results/`. Informe en `research/reports/`. Son rutas previstas, no artefactos ya ejecutados. No copiar ECG/RR personales completos a investigación ni modificar `data/`, el convertidor operativo o dependencias de producción.
+- Crear adaptadores con salida común: índice/tiempo de detección, tiempo refinado cuando exista, identidad física emparejada, incertidumbre, estado y motivo. Conservar detecciones sin refinar para auditar cada transformación.
+- Registrar versiones de código, Python y bibliotecas, configuración efectiva, hashes de entradas y pesos, semilla cuando proceda y comandos de reproducción. Mantener el entorno experimental separado; no añadir TensorFlow, NeuroKit o PyWavelets al runtime por esta evaluación.
+- Documentar el preprocesamiento exigido por cada implementación: filtros y fase, normalización, frecuencia, conversión índice-tiempo, retardos, arranque y bordes. No imponer un filtro común que invalide el método original ni corregir retardos usando las etiquetas de evaluación.
+- Para C1, comprobar que conserva número, orden e identidad de latidos; ante una vecindad ambigua, mantener el original o abstenerse según regla predefinida. Para CNN, fijar solape, combinación de probabilidades, umbral, periodo refractario y tratamiento de bordes. Registrar remuestreo y mapeo al tiempo original.
+- Verificar con pruebas focalizadas el emparejamiento uno a uno, ausencia de duplicados en bordes, mapeo temporal, señal invertida, huecos, RR contiguos y reproducibilidad. Las pruebas sintéticas verifican la implementación, no acreditan superioridad fisiológica.
+
+#### D. Fase 2 — evaluación de detección y temporización
+
+| Capa | Medidas mínimas | Protección contra una conclusión engañosa |
+|---|---|---|
+| Identidad de latidos | TP, FP, FN, sensibilidad, precisión y F1; tabla de cada cambio | Emparejamiento uno a uno con tolerancia predefinida; inciertos y no interpretables separados, nunca contados como aciertos |
+| Falsas correcciones | Detecciones correctas alteradas incorrectamente y nuevas omisiones/adiciones, con denominador explícito | Informar resultados en controles y casos difíciles; cero errores en una muestra pequeña no implica riesgo cero |
+| Tiempo del fiducial | Sesgo firmado, MAE, percentiles del error absoluto y dispersión entre latidos | Separar retardo constante de jitter; informar incertidumbre de referencia y cobertura emparejada |
+| RR sobre pares comunes | Sesgo/MAE de RR y error en diferencias sucesivas; RMSSD y lnRMSSD sobre idénticos pares válidos | No unir a través de latidos omitidos o descartados; publicar cuántos pares quedan y cuáles se excluyen |
+| Pipeline completo | RR utilizables, descartes y motivos, RMSSD/lnRMSSD, Calidad y cambios por fecha | Cada rama aplica sus propios filtros; presentar separado del análisis con máscara fija |
+| Coste y fallos | Tiempo por registro, memoria, errores, abstenciones y dependencias | Medir en el entorno elegido; no prometer milisegundos de inferencia sin benchmark |
+
+Informar resultados por grabación y tipo de caso, además del agregado. Calcular incertidumbre respetando la agrupación por día; no tratar miles de latidos correlacionados como miles de sujetos independientes. Mostrar contraejemplos y pérdidas de cobertura. No seleccionar el ganador por menor RMSSD, más RR aceptados o menos días rojos: ninguna de esas direcciones implica mayor exactitud.
+
+#### E. Fase 3 — replay de impacto y cierre
+
+1. Solo las alternativas que superen la evaluación acotada pasan al replay cronológico. Usar una copia aislada, sin publicar canónicos. Exigir paridad de C0 y registrar `GEOMETRY_VERSION=hg10_s90_t375_trim15` y `QUALITY_POLICY_VERSION=hg10_latnan_aviso_art_window_v2`, junto con las demás opciones efectivas del control.
+2. Verificar procedencia de cada ECG/ACC que se rederive para el experimento. Preservar las fechas no cubiertas y todo el histórico Polar; documentar cobertura y excepciones. No ejecutar `--all` ni migraciones sobre el directorio operativo.
+3. Comparar RR, CORE, BETA_AUDIT, FINAL y DASHBOARD, incluidos `rejected_rr_pct_window`, Calidad, baseline, gate y Action. Mantener sueño y carga idénticos entre ramas. Medir la propagación sobre fechas posteriores de toda la serie disponible, aunque solo cambien algunos RR de entrada.
+4. Entregar tablas de discrepancias, manifiestos, comandos, límites y decisión por rama: mejora demostrada, sin mejora, perjudicial, inconcluyente o no evaluable. El presupuesto y los criterios se fijan en fase 0; no ampliar indefinidamente la muestra ni incorporar nuevos detectores para obtener un resultado positivo.
+5. Recomendar adopción solo si mejora la medida, acota falsas correcciones y justifica complejidad e impacto operativo. Si no, conservar C0 y cerrar con el resultado negativo o inconcluyente. Una eventual adopción requiere decisión explícita posterior, implementación operativa, tests, actualización de `docs/contracts/` y política histórica/rollback; no forma parte de esta actualización documental.
+
+**Entregables de desarrollo:** protocolo y muestra congelados; adaptadores C0–C3 y, si es viable, C4; referencia con incertidumbre; tablas de detección/temporización/RR; replay condicionado; informe de decisión. HG-08 puede cerrarse sin CNN y sin adopción. HG-07 permanece como alternativa independiente, sin fusión automática.
+
+#### F. Referencias y alcance de lo que respaldan
+
+- [Polar BLE SDK — H10](https://github.com/polarofficial/polar-ble-sdk/blob/master/documentation/products/PolarH10.md): características de adquisición, incluido ECG a 130 Hz; no valida un detector alternativo.
+- [NeuroKit — implementación de detectores](https://neuropsychology.github.io/NeuroKit/_modules/neurokit2/ecg/ecg_findpeaks.html): permite identificar Hamilton (2002) y Kalidas–Tamil (2017), este último SWT con elevación al cuadrado en esa implementación. Consulta 2026-11-09; fijar versión exacta al experimentar.
+- [Zahid et al. — detección R con CNN 1D](https://arxiv.org/abs/2101.01666): encoder-decoder con clasificación por muestra, evaluado en CPSC y MIT-BIH; candidato bibliográfico, no validación en este H10 ni compromiso de pesos disponibles.
+- [Yalcin y Latoschik — generación de ECG desde PPG](https://pmc.ncbi.nlm.nih.gov/articles/PMC12916403/): referencia aportada en el texto original, pero su objetivo es distinto; no respalda adoptar la CNN propuesta para RR del H10.
+
+**Preferencia técnica condicional:** si se demuestra una mejora, valorar corregir en origen antes que fusionar RR posteriormente. La elección depende de exactitud, falsas correcciones, cobertura y coste; ningún algoritmo se declara superior por su nombre o arquitectura.
 
 ### HG-05 — descartes dentro de la ventana fija de HG-04
 
