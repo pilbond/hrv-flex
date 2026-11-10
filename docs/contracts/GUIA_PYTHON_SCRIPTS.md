@@ -244,14 +244,14 @@ Importante:
 - Que hace:
   - Backup opcional de los `ENDURANCE_HRV_*.csv/.json` de la raiz de `DATA_DIR` y del historial IA en `DATA_DIR/ai_briefs/**/ENDURANCE_HRV_*.json` a Dropbox tras un sync exitoso.
   - Sube los artefactos a `HRV_BACKUP_DROPBOX_PATH`, preservando la ruta relativa de `ai_briefs/` y sobrescribiendo cada archivo (Dropbox conserva versiones anteriores por su cuenta).
-  - Restaura archivos desde Dropbox a `DATA_DIR` con escritura atómica, recreando subcarpetas como `ai_briefs/`, y backup previo de los archivos existentes en `data/backup/pre_restore/`.
-  - Puede hacer auto-restore opt-in cuando `DATA_DIR` arranca vacío o con `CORE` ilegible, si `HRV_AUTO_RESTORE_ON_EMPTY_DATA=1`.
+  - Descarga todos los archivos a staging dentro de `DATA_DIR`, valida el conjunto obligatorio y los publica con escritura atómica por archivo y rollback ante un fallo local; recrea subcarpetas como `ai_briefs/` y guarda los archivos sustituidos en `data/backup/pre_restore/`. La validación del restore es mínima; el pipeline aplica después el contrato de esquema canónico completo.
+  - Puede hacer auto-restore opt-in cuando falta o no es utilizable cualquiera de los cinco CSV obligatorios (CORE, BETA_AUDIT, FINAL, DASHBOARD y sueño), si `HRV_AUTO_RESTORE_ON_EMPTY_DATA=1`.
   - Reutiliza las credenciales Dropbox ya configuradas para la ingesta RR.
 - Cuando usarlo:
   - El backup se ejecuta automáticamente al final de cada sync si `HRV_BACKUP_DROPBOX_ENABLED=1`.
   - La restauración se invoca desde `POST /api/restore-backup` en la UI web.
-  - El auto-restore bloquea el sync si no deja un `CORE` usable tras la restauración.
-  - NUNCA lanza excepciones en el backup (el sync continua); la restauración sí lanza si falta credencial, no hay archivos en `/hrv_backups/` o el restore no deja un `CORE` usable.
+  - El auto-restore bloquea el sync si no deja el conjunto obligatorio utilizable tras la restauración.
+  - NUNCA lanza excepciones en el backup (el sync continua); la restauración sí lanza si falta credencial, no hay archivos en `/hrv_backups/` o el restore no deja el conjunto obligatorio utilizable.
 - Entradas:
   - Variables de entorno Dropbox (`DROPBOX_ACCESS_TOKEN` o refresh trio), `HRV_BACKUP_DROPBOX_PATH`, `HRV_AUTO_RESTORE_ON_EMPTY_DATA`.
 - Salidas:
@@ -435,7 +435,7 @@ Importante:
     - `z3_budget_by_sport` como lectura retrospectiva estructurada de percentil historico de Z3 por deporte o familia
     - `z3_budget_summary` como resumen corto visible en UI (`Contexto Z3 semanal`), deliberadamente asimetrico y solo surfaceado para bandas `high/very_high`
   - Esta capa sigue siendo retrospectiva y no introduce prescripcion automatica ni modifica `sessions_day`, `FINAL`, `DASHBOARD` o `reason_text`.
-- Si `HRV_AUTO_RESTORE_ON_EMPTY_DATA=1`, el CLI intenta restaurar el directorio de salida antes de procesar cuando detecta un `CORE` vacío, ilegible o ausente.
+- Si `HRV_AUTO_RESTORE_ON_EMPTY_DATA=1`, el CLI intenta restaurar el directorio de salida antes de procesar cuando falta o no es utilizable cualquiera de los cinco CSV obligatorios (CORE, BETA_AUDIT, FINAL, DASHBOARD y sueño).
   - `sessions_metadata.json` pasa a ser la fuente canonica de `training_audit` para rebajar confianza de coaching/carga sin bloquear pipeline.
 - Automatico o manual:
   - Manual (no lo llama el flujo principal por defecto).

@@ -14,7 +14,8 @@ histórica y la capacidad del backup remoto se evaluarán por separado en CAF-07
 
 - `hrv_app/backup_dropbox.py`.
 - `/api/restore-backup`.
-- Auto-restore al arrancar con `DATA_DIR` vacío o ilegible.
+- Auto-restore antes del sync si falta o no es utilizable cualquiera de los
+  cinco CSV obligatorios en `DATA_DIR`.
 
 ## Implementación esperada
 
@@ -23,7 +24,8 @@ histórica y la capacidad del backup remoto se evaluarán por separado en CAF-07
 2. Validar antes de publicar que están presentes los canónicos obligatorios:
    `CORE`, `BETA_AUDIT`, `FINAL`, `DASHBOARD` y `sleep`.
 3. Validar que los CSV obligatorios son legibles y que `CORE` contiene al
-   menos una fila utilizable.
+   menos una fila utilizable. Esta comprobación de restore es mínima: el
+   pipeline verifica después el esquema canónico completo y su generación.
 4. Publicar en `DATA_DIR` solo tras completar todas las descargas y
    validaciones. Si la publicación local falla, restaurar el snapshot previo
    de los archivos que se hubieran sustituido.

@@ -27,7 +27,7 @@ Esto hace:
 - El historico de CORE generado anteriormente con RR de Polar se conserva sin migracion retroactiva.
 - Si CORE no existe y hay RR en `rr_downloads/`, reprocesa esos RR locales primero (sin Dropbox ni Polar); solo si tampoco hay RR locales recurre a Dropbox con la ventana por defecto.
 - Si CORE existe pero esta vacio, es ilegible o no coincide con el esquema canonico vigente, el pipeline falla cerrado y no lo sustituye por un dataset nuevo.
-- Si `HRV_AUTO_RESTORE_ON_EMPTY_DATA=1`, el flujo intenta restaurar `DATA_DIR` desde Dropbox antes de cualquier sync mutante cuando no hay un CORE usable; si el restore no deja un CORE valido, el sync se bloquea. Sin auto-restore, la recuperacion es manual.
+- Si `HRV_AUTO_RESTORE_ON_EMPTY_DATA=1`, el flujo intenta restaurar `DATA_DIR` desde Dropbox antes de cualquier sync mutante cuando falta o no es utilizable cualquiera de los cinco CSV obligatorios (CORE, BETA_AUDIT, FINAL, DASHBOARD y sueño); si el restore no deja ese conjunto utilizable, el sync se bloquea. Sin auto-restore, la recuperacion es manual.
 - Actualiza `ENDURANCE_HRV_sleep.csv` mediante escritura atomica. Si el canonico existente esta vacio, es ilegible o tiene un esquema incompatible, la actualizacion se bloquea sin sobrescribirlo.
 - Para el sueño Polar, el flujo prueba primero la fecha exacta y, si no hay datos, el dia anterior; el fallback existe para cubrir retrasos o desplazamientos alrededor de medianoche, no para inventar filas.
 - Genera ENDURANCE_HRV_master_CORE.csv y ENDURANCE_HRV_master_BETA_AUDIT.csv.
@@ -124,7 +124,7 @@ Si no hay sesión en un día, el CSV simplemente no incluye esa fecha. Es normal
   - `HRV_UI_KEY=<clave>` — protege `/api/*` con header `X-HRV-KEY` o `?key=`
   - `HRV_WARNING_MODE=adaptive90` — estrategia de warning (`adaptive90` | `healthy85` | `p20`)
 - `HRV_BACKUP_DROPBOX_ENABLED=1` — backup de artefactos a Dropbox tras sync exitoso
-- `HRV_AUTO_RESTORE_ON_EMPTY_DATA=1` — intenta restaurar `DATA_DIR` desde Dropbox cuando CORE falta, esta vacio o es ilegible; un restore que no deje un CORE valido bloquea el sync
+- `HRV_AUTO_RESTORE_ON_EMPTY_DATA=1` — intenta restaurar `DATA_DIR` desde Dropbox cuando falta o no es utilizable cualquiera de los cinco CSV obligatorios (CORE, BETA_AUDIT, FINAL, DASHBOARD y sueño); un restore que no deje ese conjunto utilizable bloquea el sync
 - `HRV_STALE_MAX_DAYS=3` — umbral de `/health?strict=1`
 - `HRV_BACKUP_DROPBOX_PATH=/hrv_backups` — carpeta de backup en Dropbox; conserva subrutas como `ai_briefs/`
 - No subir a Git: `.env`, `.polar_tokens.json` ni datos personales.

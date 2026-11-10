@@ -114,7 +114,7 @@ Con `HRV_BACKUP_DROPBOX_ENABLED=1`, un sync HRV exitoso copia a Dropbox los arch
 
 Cada archivo remoto se sobrescribe conservando su ruta relativa. Este backup incluye resultados e historial IA, pero no los RR, sus diagnósticos ni los tokens OAuth; conserva esas entradas por separado si necesitas reconstruir el histórico.
 
-La restauración se inicia desde la UI o `POST /api/restore-backup`. Antes de reemplazar archivos locales existentes, guarda una copia en `data/backup/pre_restore/` o la ruta equivalente bajo `HRV_DATA_DIR`. `HRV_AUTO_RESTORE_ON_EMPTY_DATA=1` permite restaurar al iniciar el sync cuando CORE falta, está vacío o no se puede leer. Comprueba que el backup remoto corresponde a la misma generación del código antes de restaurarlo.
+La restauración se inicia desde la UI o `POST /api/restore-backup`. Descarga y valida en una carpeta temporal de `HRV_DATA_DIR` los cinco CSV obligatorios (CORE, BETA_AUDIT, FINAL, DASHBOARD y sueño) antes de publicarlos; guarda los archivos locales sustituidos en `backup/pre_restore/`. `HRV_AUTO_RESTORE_ON_EMPTY_DATA=1` intenta restaurar antes del sync si falta o no es utilizable cualquiera de esos CSV. Comprueba que el backup remoto corresponde a la misma generación del código antes de restaurarlo.
 
 ## Ejecución en servidor
 

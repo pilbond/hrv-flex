@@ -24,6 +24,7 @@ import os
 import shutil
 import sys
 import tempfile
+from datetime import date
 from pathlib import Path, PurePosixPath
 
 import requests
@@ -39,6 +40,15 @@ _DOWNLOAD_URL = "https://content.dropboxapi.com/2/files/download"
 _TOKEN_URL = "https://api.dropboxapi.com/oauth2/token"
 
 _TIMEOUT_SEC = 60
+
+_RESTORE_REQUIRED_CSVS = (
+    "ENDURANCE_HRV_master_CORE.csv",
+    "ENDURANCE_HRV_master_BETA_AUDIT.csv",
+    "ENDURANCE_HRV_master_FINAL.csv",
+    "ENDURANCE_HRV_master_DASHBOARD.csv",
+    "ENDURANCE_HRV_sleep.csv",
+)
+_CORE_REQUIRED_COLUMNS = {"Fecha", "Calidad", "HR_stable", "RMSSD_stable", "lnRMSSD"}
 
 
 def _warn(message: str) -> None:
@@ -117,10 +127,101 @@ def _core_row_count(data_dir: Path | None = None) -> int | None:
         return None
 
 
-def data_dir_is_empty(data_dir: Path | None = None) -> bool:
-    """Detecta el caso operativo que nos interesa: CORE ausente, vacío o ilegible."""
-    rows = _core_row_count(data_dir)
-    return rows is None or rows == 0
+def _validate_restore_set(directory: Path) -> None:
+    """Require the complete operational dataset before making it visible."""
+    for name in _RESTORE_REQUIRED_CSVS:
+        path = directory / name
+        if not path.is_file():
+            raise RuntimeError(f"Falta el canónico obligatorio {name}")
+        try:
+            with path.open("r", encoding="utf-8-sig", newline="") as handle:
+                reader = csv.reader(handle, strict=True)
+                header = next(reader, None)
+                if not header or not any(field.strip() for field in header):
+                    raise ValueError("sin cabecera CSV")
+                rows = [row for row in reader if row]
+                if name == "ENDURANCE_HRV_master_CORE.csv":
+                    if any(len(row) != len(header) for row in rows):
+                        raise ValueError("filas CORE con distinto número de columnas")
+                    missing = _CORE_REQUIRED_COLUMNS - set(header)
+                    if missing:
+                        raise ValueError(f"CORE sin columnas obligatorias: {sorted(missing)}")
+                    if not rows:
+                        raise ValueError("CORE sin filas")
+                    fecha_index = header.index("Fecha")
+                    valid_date_found = False
+                    for row in rows:
+                        fecha = row[fecha_index].strip()
+                        try:
+                            valid_date_found = date.fromisoformat(fecha).isoformat() == fecha
+                        except ValueError:
+                            continue
+                        if valid_date_found:
+                            break
+                    if not valid_date_found:
+                        raise ValueError("CORE sin fila con Fecha válida")
+        except Exception as exc:
+            raise RuntimeError(f"Canónico ilegible o inválido {name}: {exc}") from exc
+
+
+def _publish_restore_set(staging_dir: Path, target_dir: Path, names: list[str]) -> list[str]:
+    """Publish staged files atomically per file and roll back on any failure."""
+    from .io_utils import _replace_atomic
+
+    backup_dir = target_dir / "backup" / "pre_restore"
+    existed: dict[str, bool] = {}
+    backed_up: list[str] = []
+    published: list[str] = []
+    try:
+        for name in names:
+            dest = target_dir / Path(name)
+            existed[name] = dest.exists()
+            if dest.exists():
+                durable = backup_dir / Path(name)
+                durable.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(dest, durable)
+                backed_up.append(name)
+        for name in names:
+            dest = target_dir / Path(name)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(dir=dest.parent, prefix=f"{dest.name}.", suffix=".tmp")
+            os.close(fd)
+            tmp_path = Path(tmp)
+            try:
+                shutil.copyfile(staging_dir / Path(name), tmp_path)
+                _replace_atomic(tmp_path, dest)
+            finally:
+                if tmp_path.exists():
+                    try:
+                        tmp_path.unlink()
+                    except OSError:
+                        pass
+            published.append(name)
+    except Exception as exc:
+        rollback_errors = []
+        for name in reversed(published):
+            dest = target_dir / Path(name)
+            try:
+                if existed[name]:
+                    fd, tmp = tempfile.mkstemp(dir=dest.parent, prefix=f"{dest.name}.", suffix=".rollback")
+                    os.close(fd)
+                    tmp_path = Path(tmp)
+                    try:
+                        shutil.copyfile(backup_dir / Path(name), tmp_path)
+                        _replace_atomic(tmp_path, dest)
+                    finally:
+                        if tmp_path.exists():
+                            try:
+                                tmp_path.unlink()
+                            except OSError:
+                                pass
+                elif dest.exists():
+                    dest.unlink()
+            except Exception as rollback_exc:
+                rollback_errors.append(f"{name}: {rollback_exc}")
+        suffix = f"; rollback incompleto: {'; '.join(rollback_errors)}" if rollback_errors else ""
+        raise RuntimeError(f"Falló la publicación del restore: {exc}{suffix}") from exc
+    return backed_up
 
 
 def _upload_file(token: str, local_path: Path, dropbox_path: str) -> bool:
@@ -284,9 +385,7 @@ def list_available_backups() -> dict:
 
 
 def restore_backup(data_dir: Path | None = None) -> dict:
-    """Descarga el backup de Dropbox al directorio indicado. Lanza en caso de error."""
-    from .io_utils import _replace_atomic
-
+    """Download, validate, then publish the complete required dataset."""
     target_dir = Path(data_dir) if data_dir is not None else DATA_DIR
     token = _get_access_token()
     if not token:
@@ -298,59 +397,45 @@ def restore_backup(data_dir: Path | None = None) -> dict:
         raise FileNotFoundError(f"No hay archivos en {root}")
 
     target_dir.mkdir(parents=True, exist_ok=True)
-    backup_dir = target_dir / "backup" / "pre_restore"
+    staging_dir = Path(tempfile.mkdtemp(prefix="restore_staging_", dir=target_dir))
+    try:
+        staged_names = []
+        failed = []
+        for name in file_names:
+            rel_path = _safe_relative_path(name)
+            if rel_path is None:
+                failed.append(name)
+                continue
+            data = _download_file(token, f"{root}/{rel_path}")
+            if data is None:
+                failed.append(name)
+                continue
+            staged_path = staging_dir / Path(rel_path)
+            staged_path.parent.mkdir(parents=True, exist_ok=True)
+            staged_path.write_bytes(data)
+            staged_names.append(rel_path)
 
-    restored = []
-    failed = []
-    backed_up = []
-    for name in file_names:
-        rel_path = _safe_relative_path(name)
-        if rel_path is None:
-            failed.append(name)
-            continue
-
-        data = _download_file(token, f"{root}/{rel_path}")
-        if data is None:
-            failed.append(name)
-            continue
-
-        dest = target_dir / Path(rel_path)
-        if dest.exists():
-            backup_target = backup_dir / Path(rel_path)
-            backup_target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(dest, backup_target)
-            backed_up.append(name)
-
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=dest.parent, prefix=f"{dest.name}.", suffix=".tmp")
-        os.close(fd)
-        tmp_path = Path(tmp)
-        try:
-            tmp_path.write_bytes(data)
-            _replace_atomic(tmp_path, dest)
-        finally:
-            if tmp_path.exists():
-                try:
-                    tmp_path.unlink()
-                except OSError:
-                    pass
-        restored.append(name)
-
-    if not restored:
-        raise RuntimeError(f"No se pudo descargar ningún archivo de {root}")
-
-    return {
-        "status": "ok" if not failed else "partial",
-        "source_folder": root,
-        "restored": restored,
-        "failed": failed,
-        "backed_up": backed_up,
-        "backup_dir": str(backup_dir) if backed_up else None,
-    }
+        if failed:
+            raise RuntimeError(f"Descarga incompleta desde {root}: {failed}")
+        missing = sorted(set(_RESTORE_REQUIRED_CSVS) - set(staged_names))
+        if missing:
+            raise RuntimeError(f"Backup incompleto en {root}; faltan: {missing}")
+        _validate_restore_set(staging_dir)
+        # Publish every downloaded artifact after validating the required CSV set.
+        backed_up = _publish_restore_set(staging_dir, target_dir, staged_names)
+        return {
+            "status": "ok",
+            "source_folder": root,
+            "restored": staged_names,
+            "backed_up": backed_up,
+            "backup_dir": str(target_dir / "backup" / "pre_restore") if backed_up else None,
+        }
+    finally:
+        shutil.rmtree(staging_dir, ignore_errors=True)
 
 
 def auto_restore_if_empty(*, data_dir: Path | None = None, enabled: bool | None = None) -> dict:
-    """Restaura Dropbox si el dataset operativo está vacío.
+    """Restaura Dropbox si el conjunto obligatorio no es utilizable.
 
     Devuelve un dict de estado para que los entrypoints decidan si continúan.
     Si el restore queda parcial o falla, lanza para bloquear el sync.
@@ -358,7 +443,11 @@ def auto_restore_if_empty(*, data_dir: Path | None = None, enabled: bool | None 
     target_dir = Path(data_dir) if data_dir is not None else DATA_DIR
     auto_restore_enabled = enabled if enabled is not None else env_flag("HRV_AUTO_RESTORE_ON_EMPTY_DATA", default=False)
     rows = _core_row_count(target_dir)
-    empty = rows is None or rows == 0
+    try:
+        _validate_restore_set(target_dir)
+        empty = False
+    except RuntimeError:
+        empty = True
 
     if not auto_restore_enabled:
         return {"status": "disabled", "data_empty": empty, "core_rows": rows}
@@ -374,14 +463,14 @@ def auto_restore_if_empty(*, data_dir: Path | None = None, enabled: bool | None 
         result = restore_backup(target_dir)
     except Exception as exc:
         raise RuntimeError(f"Auto-restore falló: {exc}") from exc
-    if result.get("status") != "ok" or result.get("failed"):
+    if result.get("status") != "ok":
         raise RuntimeError(f"Auto-restore incompleto desde Dropbox: {result}")
 
+    try:
+        _validate_restore_set(target_dir)
+    except RuntimeError as exc:
+        raise RuntimeError(f"Auto-restore no dejó el conjunto obligatorio utilizable: {exc}") from exc
     post_rows = _core_row_count(target_dir)
-    if post_rows is None or post_rows == 0:
-        raise RuntimeError(
-            f"Auto-restore no dejó un CORE usable en {target_dir}: core_rows={post_rows}"
-        )
 
     restored_count = len(result.get("restored", []))
     print(

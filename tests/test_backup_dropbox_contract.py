@@ -193,7 +193,15 @@ class BackupDropboxContractTests(unittest.TestCase):
 
 
 class RestoreBackupContractTests(unittest.TestCase):
-    def test_restore_downloads_files_atomically_to_data_dir(self):
+    def _canonical_entries(self):
+        return [{".tag": "file", "name": name} for name in backup_dropbox._RESTORE_REQUIRED_CSVS]
+
+    def _canonical_content(self, name):
+        if name == "ENDURANCE_HRV_master_CORE.csv":
+            return b"Fecha,Calidad,HR_stable,RMSSD_stable,lnRMSSD\n2026-06-11,OK,52,42,3.74\n"
+        return b"Fecha,valor\n2026-06-11,1\n"
+
+    def test_restore_rejects_missing_required_files_without_touching_data_dir(self):
         env = {"DROPBOX_ACCESS_TOKEN": "tok", "HRV_BACKUP_DROPBOX_PATH": "/hrv_backups"}
         file_entries = {
             "entries": [
@@ -218,27 +226,164 @@ class RestoreBackupContractTests(unittest.TestCase):
             with patch.dict("os.environ", env, clear=False), \
                     patch.object(backup_dropbox, "DATA_DIR", data_dir), \
                     patch.object(backup_dropbox.requests, "post", side_effect=fake_post):
-                result = backup_dropbox.restore_backup()
-
-            self.assertEqual(result["status"], "ok")
-            self.assertEqual(len(result["restored"]), 2)
-            self.assertIn("ENDURANCE_HRV_sleep.csv", result["backed_up"])
-            self.assertEqual(result["source_folder"], "/hrv_backups")
+                with self.assertRaisesRegex(RuntimeError, "faltan"):
+                    backup_dropbox.restore_backup()
             self.assertEqual(
                 (data_dir / "ENDURANCE_HRV_sleep.csv").read_text(encoding="utf-8"),
-                "Fecha\n2026-06-11\n",
-            )
-            backup_dir = data_dir / "backup" / "pre_restore"
-            self.assertTrue((backup_dir / "ENDURANCE_HRV_sleep.csv").exists())
-            self.assertEqual(
-                (backup_dir / "ENDURANCE_HRV_sleep.csv").read_text(encoding="utf-8"),
                 "old\n",
             )
+
+    def test_restore_validates_then_publishes_complete_set(self):
+        env = {"DROPBOX_ACCESS_TOKEN": "tok", "HRV_BACKUP_DROPBOX_PATH": "/hrv_backups"}
+        file_entries = {"entries": self._canonical_entries()}
+
+        def fake_post(url, **kwargs):
+            if url == backup_dropbox._LIST_FOLDER_URL:
+                return _response(200, file_entries)
+            if url == backup_dropbox._DOWNLOAD_URL:
+                name = __import__("json").loads(kwargs["headers"]["Dropbox-API-Arg"])["path"].removeprefix("/hrv_backups/")
+                resp = _response(200)
+                resp.content = self._canonical_content(name)
+                return resp
+            return _response(200, {})
+
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir) / "data"
+            data_dir.mkdir()
+            (data_dir / "ENDURANCE_HRV_sleep.csv").write_text("old\n", encoding="utf-8")
+            with patch.dict("os.environ", env, clear=False), \
+                    patch.object(backup_dropbox, "DATA_DIR", data_dir), \
+                    patch.object(backup_dropbox.requests, "post", side_effect=fake_post), \
+                    patch.object(backup_dropbox, "_validate_restore_set", wraps=backup_dropbox._validate_restore_set) as validate_mock:
+                result = backup_dropbox.restore_backup()
+            self.assertEqual(validate_mock.call_args.args[0].parent, data_dir)
+            self.assertFalse(validate_mock.call_args.args[0].exists())
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(set(result["restored"]), set(backup_dropbox._RESTORE_REQUIRED_CSVS))
+            self.assertIn("ENDURANCE_HRV_sleep.csv", result["backed_up"])
+            self.assertEqual((data_dir / "ENDURANCE_HRV_sleep.csv").read_text(encoding="utf-8"),
+                             "Fecha,valor\n2026-06-11,1\n")
+            self.assertEqual((data_dir / "backup/pre_restore/ENDURANCE_HRV_sleep.csv").read_text(encoding="utf-8"), "old\n")
+
+    def test_restore_rolls_back_files_when_publication_fails(self):
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            target = root / "data"
+            staging = root / "staging"
+            target.mkdir()
+            staging.mkdir()
+            names = ["ENDURANCE_HRV_master_CORE.csv", "ENDURANCE_HRV_master_FINAL.csv"]
+            for name in names:
+                (target / name).write_text(f"old {name}\n", encoding="utf-8")
+                (staging / name).write_text(f"new {name}\n", encoding="utf-8")
+
+            import hrv_app.io_utils as io_utils
+            original_replace = io_utils._replace_atomic
+            calls = {"count": 0}
+
+            def fail_second_replace(src, dst):
+                calls["count"] += 1
+                if calls["count"] == 2:
+                    raise OSError("publication failure")
+                return original_replace(src, dst)
+
+            with patch.object(io_utils, "_replace_atomic", side_effect=fail_second_replace):
+                with self.assertRaisesRegex(RuntimeError, "Falló la publicación"):
+                    backup_dropbox._publish_restore_set(staging, target, names)
+            for name in names:
+                self.assertEqual((target / name).read_text(encoding="utf-8"), f"old {name}\n")
+
+    def test_restore_rejects_invalid_csv_without_touching_existing_files(self):
+        env = {"DROPBOX_ACCESS_TOKEN": "tok", "HRV_BACKUP_DROPBOX_PATH": "/hrv_backups"}
+        entries = {"entries": self._canonical_entries()}
+
+        def fake_post(url, **kwargs):
+            if url == backup_dropbox._LIST_FOLDER_URL:
+                return _response(200, entries)
+            if url == backup_dropbox._DOWNLOAD_URL:
+                path = __import__("json").loads(kwargs["headers"]["Dropbox-API-Arg"])["path"]
+                name = path.removeprefix("/hrv_backups/")
+                resp = _response(200)
+                resp.content = b'"unterminated' if name == "ENDURANCE_HRV_master_FINAL.csv" else self._canonical_content(name)
+                return resp
+            return _response(200, {})
+
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir) / "data"
+            data_dir.mkdir()
+            previous = data_dir / "ENDURANCE_HRV_master_CORE.csv"
+            previous.write_text("previous core\n", encoding="utf-8")
+            with patch.dict("os.environ", env, clear=False), \
+                    patch.object(backup_dropbox, "DATA_DIR", data_dir), \
+                    patch.object(backup_dropbox.requests, "post", side_effect=fake_post):
+                with self.assertRaisesRegex(RuntimeError, "ilegible o inválido"):
+                    backup_dropbox.restore_backup()
+            self.assertEqual(previous.read_text(encoding="utf-8"), "previous core\n")
+            self.assertFalse((data_dir / "ENDURANCE_HRV_master_FINAL.csv").exists())
+
+    def test_restore_rejects_core_without_required_columns_or_valid_date(self):
+        env = {"DROPBOX_ACCESS_TOKEN": "tok", "HRV_BACKUP_DROPBOX_PATH": "/hrv_backups"}
+        invalid_cores = (
+            b"dato\nbasura\n",
+            b"Fecha,Calidad,HR_stable,RMSSD_stable,lnRMSSD\nnot-a-date,OK,52,42,3.74\n",
+        )
+        for invalid_core in invalid_cores:
+            with self.subTest(core=invalid_core), TemporaryDirectory() as tmpdir:
+                data_dir = Path(tmpdir) / "data"
+                data_dir.mkdir()
+                previous = data_dir / "ENDURANCE_HRV_master_CORE.csv"
+                previous.write_bytes(self._canonical_content(previous.name))
+
+                def fake_post(url, **kwargs):
+                    if url == backup_dropbox._LIST_FOLDER_URL:
+                        return _response(200, {"entries": self._canonical_entries()})
+                    if url == backup_dropbox._DOWNLOAD_URL:
+                        name = __import__("json").loads(kwargs["headers"]["Dropbox-API-Arg"])["path"].removeprefix("/hrv_backups/")
+                        resp = _response(200)
+                        resp.content = invalid_core if name == previous.name else self._canonical_content(name)
+                        return resp
+                    return _response(200, {})
+
+                with patch.dict("os.environ", env, clear=False), \
+                        patch.object(backup_dropbox, "DATA_DIR", data_dir), \
+                        patch.object(backup_dropbox.requests, "post", side_effect=fake_post):
+                    with self.assertRaisesRegex(RuntimeError, "CORE"):
+                        backup_dropbox.restore_backup()
+                self.assertEqual(previous.read_bytes(), self._canonical_content(previous.name))
+                self.assertFalse((data_dir / "ENDURANCE_HRV_master_FINAL.csv").exists())
+
+    def test_restore_validation_tolerates_blank_lines_and_earlier_invalid_core_date(self):
+        with TemporaryDirectory() as tmpdir:
+            directory = Path(tmpdir)
+            for name in backup_dropbox._RESTORE_REQUIRED_CSVS:
+                content = self._canonical_content(name)
+                if name == "ENDURANCE_HRV_master_CORE.csv":
+                    content = content.replace(
+                        b"2026-06-11,OK,52,42,3.74\n",
+                        b"not-a-date,OK,52,42,3.74\n2026-06-11,OK,52,42,3.74\n",
+                    )
+                (directory / name).write_bytes(content + b"\n")
+            backup_dropbox._validate_restore_set(directory)
+
+    def test_short_row_in_derived_csv_does_not_block_recovery(self):
+        with TemporaryDirectory() as tmpdir:
+            directory = Path(tmpdir)
+            for name in backup_dropbox._RESTORE_REQUIRED_CSVS:
+                (directory / name).write_bytes(self._canonical_content(name))
+            (directory / "ENDURANCE_HRV_master_FINAL.csv").write_bytes(
+                b"Fecha,valor\n2026-06-11\n"
+            )
+            backup_dropbox._validate_restore_set(directory)
+            with patch.object(backup_dropbox, "restore_backup") as restore_mock:
+                result = backup_dropbox.auto_restore_if_empty(data_dir=directory, enabled=True)
+            self.assertEqual(result["status"], "skipped")
+            restore_mock.assert_not_called()
 
     def test_restore_recreates_ai_brief_history_subdirectories(self):
         env = {"DROPBOX_ACCESS_TOKEN": "tok", "HRV_BACKUP_DROPBOX_PATH": "/hrv_backups"}
         file_entries = {
             "entries": [
+                *self._canonical_entries(),
                 {
                     ".tag": "file",
                     "name": "ENDURANCE_HRV_ai_daily_brief_2026-07-10.json",
@@ -253,7 +398,12 @@ class RestoreBackupContractTests(unittest.TestCase):
                 return _response(200, file_entries)
             if url == backup_dropbox._DOWNLOAD_URL:
                 resp = _response(200)
-                resp.content = b'{"summary":"ok"}'
+                path = __import__("json").loads(kwargs["headers"]["Dropbox-API-Arg"])["path"]
+                if "ai_daily" in path:
+                    resp.content = b'{"summary":"ok"}'
+                else:
+                    name = next(n for n in backup_dropbox._RESTORE_REQUIRED_CSVS if n in path)
+                    resp.content = self._canonical_content(name)
                 return resp
             return _response(200, {})
 
@@ -267,7 +417,7 @@ class RestoreBackupContractTests(unittest.TestCase):
 
             restored_path = data_dir / "ai_briefs" / "daily" / "ENDURANCE_HRV_ai_daily_brief_2026-07-10.json"
             self.assertEqual(result["status"], "ok")
-            self.assertEqual(result["restored"], ["ai_briefs/daily/ENDURANCE_HRV_ai_daily_brief_2026-07-10.json"])
+            self.assertIn("ai_briefs/daily/ENDURANCE_HRV_ai_daily_brief_2026-07-10.json", result["restored"])
             self.assertTrue(restored_path.exists())
             self.assertEqual(restored_path.read_text(encoding="utf-8"), '{"summary":"ok"}')
 
@@ -275,11 +425,7 @@ class RestoreBackupContractTests(unittest.TestCase):
         env = {"DROPBOX_ACCESS_TOKEN": "tok", "HRV_BACKUP_DROPBOX_PATH": "/hrv_backups"}
         first_page = {
             "entries": [
-                {
-                    ".tag": "file",
-                    "name": "ENDURANCE_HRV_master_FINAL.csv",
-                    "path_display": "/hrv_backups/ENDURANCE_HRV_master_FINAL.csv",
-                },
+                *self._canonical_entries(),
             ],
             "has_more": True,
             "cursor": "cursor-1",
@@ -304,7 +450,9 @@ class RestoreBackupContractTests(unittest.TestCase):
                 return _response(200, second_page)
             if url == backup_dropbox._DOWNLOAD_URL:
                 resp = _response(200)
-                resp.content = b"payload"
+                arg = __import__("json").loads(kwargs["headers"]["Dropbox-API-Arg"])["path"]
+                name = next((n for n in backup_dropbox._RESTORE_REQUIRED_CSVS if n in arg), None)
+                resp.content = self._canonical_content(name) if name else b"payload"
                 return resp
             return _response(200, {})
 
@@ -316,13 +464,8 @@ class RestoreBackupContractTests(unittest.TestCase):
                 result = backup_dropbox.restore_backup()
 
             self.assertEqual(result["status"], "ok")
-            self.assertEqual(
-                result["restored"],
-                [
-                    "ENDURANCE_HRV_master_FINAL.csv",
-                    "ai_briefs/ssm/ENDURANCE_HRV_ai_ssm_brief_2026-07-10.json",
-                ],
-            )
+            self.assertIn("ENDURANCE_HRV_master_FINAL.csv", result["restored"])
+            self.assertIn("ai_briefs/ssm/ENDURANCE_HRV_ai_ssm_brief_2026-07-10.json", result["restored"])
 
     def test_restore_without_credentials_raises(self):
         env = {"DROPBOX_ACCESS_TOKEN": "", "DROPBOX_REFRESH_TOKEN": ""}
@@ -368,11 +511,9 @@ class RestoreBackupContractTests(unittest.TestCase):
             with patch.dict("os.environ", env, clear=False), \
                     patch.object(backup_dropbox, "DATA_DIR", data_dir), \
                     patch.object(backup_dropbox.requests, "post", side_effect=fake_post):
-                result = backup_dropbox.restore_backup()
-
-        self.assertEqual(result["status"], "partial")
-        self.assertEqual(len(result["restored"]), 1)
-        self.assertEqual(len(result["failed"]), 1)
+                with self.assertRaisesRegex(RuntimeError, "Descarga incompleta"):
+                    backup_dropbox.restore_backup()
+            self.assertFalse((data_dir / "ENDURANCE_HRV_sleep.csv").exists())
 
 
 class AutoRestoreIfEmptyContractTests(unittest.TestCase):
@@ -381,7 +522,10 @@ class AutoRestoreIfEmptyContractTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmpdir:
             data_dir = Path(tmpdir)
-            (data_dir / "ENDURANCE_HRV_master_CORE.csv").write_text("Fecha\n2026-06-11\n", encoding="utf-8")
+            for name in backup_dropbox._RESTORE_REQUIRED_CSVS:
+                content = ("Fecha,Calidad,HR_stable,RMSSD_stable,lnRMSSD\n2026-06-11,OK,52,42,3.74\n"
+                           if name == "ENDURANCE_HRV_master_CORE.csv" else "Fecha,Valor\n2026-06-11,1\n")
+                (data_dir / name).write_text(content, encoding="utf-8")
 
             with patch.dict("os.environ", env, clear=False), \
                     patch.object(backup_dropbox, "DATA_DIR", data_dir), \
@@ -391,10 +535,6 @@ class AutoRestoreIfEmptyContractTests(unittest.TestCase):
         self.assertEqual(result["status"], "skipped")
         self.assertFalse(result["data_empty"])
         restore_mock.assert_not_called()
-
-    def test_data_dir_is_empty_treats_unreadable_core_as_empty(self):
-        with patch.object(backup_dropbox, "_core_row_count", return_value=None):
-            self.assertTrue(backup_dropbox.data_dir_is_empty(Path("/tmp/ignored")))
 
     def test_core_row_count_returns_none_on_decode_error(self):
         with TemporaryDirectory() as tmpdir:
@@ -409,7 +549,6 @@ class AutoRestoreIfEmptyContractTests(unittest.TestCase):
             "status": "ok",
             "source_folder": "/hrv_backups",
             "restored": ["ENDURANCE_HRV_master_CORE.csv"],
-            "failed": [],
             "backed_up": [],
             "backup_dir": None,
         }
@@ -420,6 +559,7 @@ class AutoRestoreIfEmptyContractTests(unittest.TestCase):
             with patch.dict("os.environ", env, clear=False), \
                     patch.object(backup_dropbox, "DATA_DIR", data_dir), \
                     patch.object(backup_dropbox, "_core_row_count", side_effect=[0, 1]), \
+                    patch.object(backup_dropbox, "_validate_restore_set", side_effect=[RuntimeError("missing"), None]), \
                     patch.object(backup_dropbox, "restore_backup", return_value=dict(restore_result)) as restore_mock:
                 result = backup_dropbox.auto_restore_if_empty()
 
@@ -434,7 +574,6 @@ class AutoRestoreIfEmptyContractTests(unittest.TestCase):
             "status": "ok",
             "source_folder": "/hrv_backups",
             "restored": ["ENDURANCE_HRV_master_CORE.csv"],
-            "failed": [],
             "backed_up": [],
             "backup_dir": None,
         }
@@ -447,6 +586,7 @@ class AutoRestoreIfEmptyContractTests(unittest.TestCase):
             with patch.dict("os.environ", env, clear=False), \
                     patch.object(backup_dropbox, "DATA_DIR", data_dir), \
                     patch.object(backup_dropbox, "_core_row_count", side_effect=[None, 1]), \
+                    patch.object(backup_dropbox, "_validate_restore_set", side_effect=[RuntimeError("missing"), None]), \
                     patch.object(backup_dropbox, "restore_backup", return_value=dict(restore_result)) as restore_mock:
                 result = backup_dropbox.auto_restore_if_empty()
 
@@ -454,23 +594,30 @@ class AutoRestoreIfEmptyContractTests(unittest.TestCase):
         self.assertFalse(result["data_empty"])
         restore_mock.assert_called_once()
 
-    def test_auto_restore_blocks_on_partial_restore(self):
+    def test_auto_restore_blocks_on_restore_failure(self):
         env = {"HRV_AUTO_RESTORE_ON_EMPTY_DATA": "1"}
-        partial_result = {
-            "status": "partial",
-            "source_folder": "/hrv_backups",
-            "restored": ["ENDURANCE_HRV_master_CORE.csv"],
-            "failed": ["ENDURANCE_HRV_sleep.csv"],
-        }
-
         with TemporaryDirectory() as tmpdir:
             data_dir = Path(tmpdir)
 
             with patch.dict("os.environ", env, clear=False), \
                     patch.object(backup_dropbox, "DATA_DIR", data_dir), \
-                    patch.object(backup_dropbox, "restore_backup", return_value=dict(partial_result)):
-                with self.assertRaises(RuntimeError):
+                    patch.object(backup_dropbox, "restore_backup", side_effect=RuntimeError("Descarga incompleta")):
+                with self.assertRaisesRegex(RuntimeError, "Auto-restore falló: Descarga incompleta"):
                     backup_dropbox.auto_restore_if_empty()
+
+    def test_auto_restore_repairs_missing_canonical_even_when_core_has_rows(self):
+        env = {"HRV_AUTO_RESTORE_ON_EMPTY_DATA": "1"}
+        restore_result = {"status": "ok", "restored": list(backup_dropbox._RESTORE_REQUIRED_CSVS)}
+        with TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            with patch.dict("os.environ", env, clear=False), \
+                    patch.object(backup_dropbox, "DATA_DIR", data_dir), \
+                    patch.object(backup_dropbox, "_core_row_count", side_effect=[1, 1]), \
+                    patch.object(backup_dropbox, "_validate_restore_set", side_effect=[RuntimeError("missing"), None]), \
+                    patch.object(backup_dropbox, "restore_backup", return_value=restore_result) as restore_mock:
+                result = backup_dropbox.auto_restore_if_empty()
+        self.assertEqual(result["status"], "restored")
+        restore_mock.assert_called_once()
 
     def test_auto_restore_blocks_when_restore_does_not_make_core_usable(self):
         env = {"HRV_AUTO_RESTORE_ON_EMPTY_DATA": "1"}
@@ -478,7 +625,6 @@ class AutoRestoreIfEmptyContractTests(unittest.TestCase):
             "status": "ok",
             "source_folder": "/hrv_backups",
             "restored": ["ENDURANCE_HRV_master_CORE.csv"],
-            "failed": [],
             "backed_up": [],
             "backup_dir": None,
         }
@@ -490,7 +636,7 @@ class AutoRestoreIfEmptyContractTests(unittest.TestCase):
                     patch.object(backup_dropbox, "DATA_DIR", data_dir), \
                     patch.object(backup_dropbox, "_core_row_count", side_effect=[0, 0]), \
                     patch.object(backup_dropbox, "restore_backup", return_value=dict(restore_result)):
-                with self.assertRaises(RuntimeError):
+                with self.assertRaisesRegex(RuntimeError, "Auto-restore no dejó el conjunto obligatorio utilizable"):
                     backup_dropbox.auto_restore_if_empty()
 
 

@@ -98,7 +98,7 @@ Estado actual de implementacion observado:
   - `analysis_only_context` en `summary.json` y `session_payload.json`
   - `coach_metrics.json`, `coach_intervals.csv` y `coach_groups.csv` como sidecars locales reproducibles
   - esta capa no modifica `sessions.csv`, `sessions_day.csv`, `FINAL` ni `DASHBOARD`.
-- `hrv_app/backup_dropbox.py`: backup opcional de `ENDURANCE_HRV_*` de la raiz de `DATA_DIR` y del historial IA en `data/ai_briefs/` a Dropbox (`HRV_BACKUP_DROPBOX_ENABLED`, sobrescribe en cada sync); restauracion via `POST /api/restore-backup` con escritura atomica y backup previo de los archivos existentes en `data/backup/pre_restore/`,
+- `hrv_app/backup_dropbox.py`: backup opcional de `ENDURANCE_HRV_*` de la raiz de `DATA_DIR` y del historial IA en `data/ai_briefs/` a Dropbox (`HRV_BACKUP_DROPBOX_ENABLED`, sobrescribe en cada sync); la restauracion descarga primero a staging dentro de `DATA_DIR`, valida CORE, BETA_AUDIT, FINAL, DASHBOARD y sleep, publica los archivos y revierte los sustituidos si falla la publicacion, conservando su copia previa en `data/backup/pre_restore/`,
 - `/health?strict=1` devuelve 503 si el FINAL falta o su ultima fecha supera `HRV_STALE_MAX_DAYS` (default 3); sin `strict` sigue siendo 200 (liveness),
 - si `HRV_UI_KEY` esta definida, todos los `/api/*` exigen la clave via header `X-HRV-KEY` o `?key=`; el `state` de OAuth se valida con TTL y uso unico,
 - `build_hrv_core.py`, `build_hrv_final_dashboard.py` y `build_sessions.py` usan `hrv_app.io_utils` para escrituras atomicas (eliminadas las implementaciones locales duplicadas),
