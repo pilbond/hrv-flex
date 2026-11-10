@@ -370,18 +370,28 @@ class WebUiHealthStalenessTests(unittest.TestCase):
 
 class WebUiRestoreBackupTests(unittest.TestCase):
     def test_restore_backup_requires_ui_key(self):
-        with patch.dict("os.environ", {"HRV_UI_KEY": "s3cret"}, clear=False):
-            import importlib
-            importlib.reload(web_ui)
+        fake_result = {
+            "status": "ok",
+            "source_folder": "/hrv_backups",
+            "restored": ["ENDURANCE_HRV_sleep.csv"],
+            "failed": [],
+            "backed_up": [],
+            "backup_dir": None,
+        }
+        with patch.object(web_ui, "UI_KEY", "s3cret"), \
+                patch("hrv_app.backup_dropbox.restore_backup", return_value=fake_result) as restore_mock:
             with web_ui.app.test_client() as client:
                 denied = client.post("/api/restore-backup")
+                self.assertEqual(denied.status_code, 401)
+                restore_mock.assert_not_called()
                 allowed = client.post(
                     "/api/restore-backup",
                     headers={"X-HRV-KEY": "s3cret"},
                 )
-        importlib.reload(web_ui)
-        self.assertEqual(denied.status_code, 401)
-        self.assertIn(allowed.status_code, (200, 400))
+
+        self.assertEqual(allowed.status_code, 200)
+        self.assertEqual(allowed.get_json()["restored"], ["ENDURANCE_HRV_sleep.csv"])
+        restore_mock.assert_called_once_with()
 
     def test_restore_backup_returns_result(self):
         fake_result = {

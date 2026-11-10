@@ -1165,11 +1165,33 @@
     {
       "id": "FLE-01",
       "title": "Aislar las pruebas de restauración",
-      "state": "proposed",
+      "state": "review",
       "group": "FLE",
       "at": "2026-11-10T11:44:40Z",
       "by": "codex",
-      "desc": "Impedir que la suite restaure datos operativos. Verificar rechazo sin invocación y autorización con una restauración simulada.\n\n[[docs/HRV/FLE-01 Aislar las pruebas de restauracion.md|Descripción y desarrollo]]"
+      "desc": "Impedir que la suite restaure datos operativos. Verificar rechazo sin invocación y autorización con una restauración simulada.\n\n[[docs/HRV/FLE-01 Aislar las pruebas de restauracion.md|Descripción y desarrollo]]",
+      "notes": [
+        {
+          "at": "2026-11-10T12:38:38Z",
+          "by": "codex",
+          "text": "Plan: sustituir las restauraciones reales de las pruebas por simulaciones, cubrir rechazo y autorización, y ejecutar las pruebas afectadas."
+        },
+        {
+          "at": "2026-11-10T12:41:16Z",
+          "by": "codex",
+          "text": "La prueba vulnerable ya simula restore_backup: 401 sin invocación y 200 con resultado simulado e invocación única. El resto de pruebas de restauración ya usa directorios temporales y frontera Dropbox simulada. Verificado: pytest tests/test_web_ui_security.py tests/test_backup_dropbox_contract.py -q (52 passed)."
+        },
+        {
+          "at": "2026-11-10T12:41:17Z",
+          "by": "codex",
+          "text": "Las pruebas de restauración ya no pueden llamar a Dropbox ni modificar datos operativos durante la comprobación de autorización. La petición sin clave se rechaza sin invocar la restauración; con clave válida devuelve una restauración simulada. Verificado con 52 pruebas de UI y backup."
+        },
+        {
+          "at": "2026-11-10T12:50:52Z",
+          "by": "codex",
+          "text": "Revisión atendida: la prueba ahora afirma 401 y restore_mock.assert_not_called() antes de enviar la petición autorizada; después comprueba 200 y una sola invocación simulada. Verificación focalizada: 52 pruebas pasan; git diff --check correcto."
+        }
+      ]
     },
     {
       "id": "FLE-02",

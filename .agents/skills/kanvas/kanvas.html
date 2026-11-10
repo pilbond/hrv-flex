@@ -1497,7 +1497,7 @@ function layout(tasks, b, opts) {
 }
 
 // The layout with the lanes of the groups in `alone` on a track each; `cross` counts its crossings.
-function layoutIn(tasks, b, { vertical, levelGap, manual = false, emptyLanes = true, stubs = [], alone = new Set() }) {
+function layoutIn(tasks, b, { vertical, levelGap, compactLanes = true, manual = false, emptyLanes = true, stubs = [], alone = new Set() }) {
   const vis = new Map(tasks.map((t) => [key(t.id), t]));
   const depsOf = new Map(tasks.map((t) => [key(t.id), t.deps.map(key).filter((d) => vis.has(d))]));
   const depth = chainDepths(depsOf);
@@ -1840,13 +1840,14 @@ function layoutIn(tasks, b, { vertical, levelGap, manual = false, emptyLanes = t
   const stacked = Math.max(0, place() - LANE_GAP);
   const depthSpan = (maxDepth + 1) * CL + maxDepth * levelGap;
   // Lanes sharing a track split it along the flow, each from just before its first depth, where a lane head
-  // goes when the flow runs down.
+  // goes when the flow runs down. Their bounds keep the full graph depth so packed cards can use that space.
   for (const track of tracks) {
     const first = new Map(track.map((l) => [l, Math.min(...[...l.cells].filter(([, ids]) => ids.length).map(([d]) => d))]));
     track.sort((a, c) => first.get(a) - first.get(c));
     const starts = track.map((l, i) => (i ? colStart(first.get(l)) - (vertical ? LANE_HEAD : LANE_PAD) : 0));
     track.forEach((l, i) => {
-      const end = i + 1 < track.length ? starts[i + 1] - LANE_GAP / 2 : (vertical ? LANE_HEAD + LANE_PAD : LANE_PAD * 2) + depthSpan;
+      const fullEnd = (vertical ? LANE_HEAD + LANE_PAD : LANE_PAD * 2) + depthSpan;
+      const end = i + 1 < track.length ? starts[i + 1] - LANE_GAP / 2 : fullEnd;
       if (vertical) Object.assign(l, { top: starts[i], height: end - starts[i] }); else Object.assign(l, { left: starts[i], width: end - starts[i] });
     });
   }
@@ -1855,10 +1856,95 @@ function layoutIn(tasks, b, { vertical, levelGap, manual = false, emptyLanes = t
     l.done = b.tasks.filter((t) => t.state === "done" && (l.id ? t.group === l.id : !knownGroups.has(t.group))).length;
     l.empty = !tasks.some((t) => laneOfTask(t) === l) && !stubs.some((s) => s.group === l.id);
   }
-  const width = vertical ? stacked : LANE_PAD * 2 + depthSpan;
-  const height = vertical ? (lanes.length ? LANE_HEAD + depthSpan + LANE_PAD : 0) : stacked;
   const pos = new Map();
   for (const t of tasks) { const k = key(t.id); pos.set(k, P(colStart(depthOf.get(k)), center.get(k) - CA / 2)); }
+
+  // Cards with no visible dependency can use otherwise-empty cells in their own group.
+  // This is deliberately limited to isolated cards: moving a connected card would make the
+  // left-to-right (or top-to-bottom) dependency order misleading. Connected cards reserve
+  // their current grid cell; the remaining cards fill the gaps, row by row.
+  if (compactLanes) {
+    const along = (p) => vertical ? p.y : p.x, across = (p) => vertical ? p.x : p.y;
+    for (const l of lanes) {
+      const cards = tasks.filter((t) => laneOfTask(t) === l).map((t) => key(t.id));
+      const movable = cards.filter((k) => !up.get(k).length && !down.get(k).length);
+      if (movable.length < 2) continue;
+      const lo = 0, hi = maxDepth;
+      const occupied = new Set();
+      for (const k of cards) if (!movable.includes(k)) {
+        const p = pos.get(k);
+        const col = Math.round((along(p) - colStart(0)) / (CL + levelGap));
+        const row = Math.max(0, Math.round((across(p) - l.base) / (CA + GAP_Y)));
+        occupied.add(`${col}:${row}`);
+      }
+      movable.sort((a, c) => depthOf.get(a) - depthOf.get(c) || across(pos.get(a)) - across(pos.get(c)));
+      for (const k of movable) {
+        let row = 0, col = lo;
+        while (true) {
+          col = Array.from({ length: hi - lo + 1 }, (_, i) => lo + i).find((d) => !occupied.has(`${d}:${row}`));
+          if (col !== undefined) break;
+          row++;
+        }
+        occupied.add(`${col}:${row}`);
+        pos.set(k, P(colStart(col), l.base + row * (CA + GAP_Y)));
+      }
+    }
+
+    // A final geometric guard uses the actual card rectangles, rather than grid
+    // coordinates alone. It protects cards with no visible edges when a reserved
+    // connected card sits between two packed rows.
+    for (const l of lanes) {
+      const cards = tasks.filter((t) => laneOfTask(t) === l).map((t) => key(t.id));
+      const movable = cards.filter((k) => !up.get(k).length && !down.get(k).length)
+        .sort((a, c) => (vertical ? pos.get(a).x - pos.get(c).x || pos.get(a).y - pos.get(c).y : pos.get(a).y - pos.get(c).y || pos.get(a).x - pos.get(c).x));
+      for (const k of movable) {
+        const p = pos.get(k);
+        let changed = true;
+        while (changed) {
+          changed = false;
+          for (const other of cards) {
+            if (other === k) continue;
+            const q = pos.get(other);
+            const overlaps = p.x < q.x + CW && q.x < p.x + CW && p.y < q.y + CH && q.y < p.y + CH;
+            if (!overlaps) continue;
+            if (vertical) p.x = q.x + CW + GAP_Y; else p.y = q.y + CH + GAP_Y;
+            changed = true;
+          }
+        }
+      }
+    }
+  }
+
+  // Packing can reduce a lane's cross-flow footprint. Rebuild the tracks from the
+  // cards' final positions, then shift every later track and its edge anchors up
+  // (or left) so the empty bottom/right area disappears with the old arrangement.
+  let packedStacked = stacked;
+  if (compactLanes) {
+    let offset = 0;
+    for (const track of tracks) {
+      const extent = Math.max(...track.map((l) => {
+        const cards = tasks.filter((t) => laneOfTask(t) === l).map((t) => pos.get(key(t.id)));
+        const ends = cards.map((p) => vertical ? p.x - l.left + CW + LANE_PAD : p.y - l.top + CH + LANE_PAD);
+        return Math.max(vertical ? CW + LANE_PAD * 2 : LANE_HEAD + 54 + LANE_PAD, ...ends);
+      }));
+      for (const l of track) {
+        const base = vertical ? offset + LANE_PAD : offset + LANE_HEAD;
+        const delta = base - l.base;
+        if (vertical) Object.assign(l, { left: offset, width: extent, base });
+        else Object.assign(l, { top: offset, height: extent, base });
+        for (const [k, lane] of laneOf) if (lane === l) center.set(k, center.get(k) + delta);
+        for (const t of tasks) if (laneOfTask(t) === l) {
+          const p = pos.get(key(t.id));
+          if (vertical) p.x += delta; else p.y += delta;
+        }
+      }
+      offset += extent + LANE_GAP;
+    }
+    packedStacked = Math.max(0, offset - LANE_GAP);
+  }
+
+  const width = vertical ? packedStacked : LANE_PAD * 2 + depthSpan;
+  const height = vertical ? (lanes.length ? LANE_HEAD + depthSpan + LANE_PAD : 0) : packedStacked;
 
   const line = (a, c) => [a, { x: a.x + (c.x - a.x) / 3, y: a.y + (c.y - a.y) / 3 }, { x: a.x + (c.x - a.x) * 2 / 3, y: a.y + (c.y - a.y) * 2 / 3 }, c];
   const edges = chains.map(({ from, to, via }) => {
@@ -2008,7 +2094,7 @@ const phone = matchMedia("(max-width: 640px), (pointer: coarse) and (max-device-
 const coarse = matchMedia("(pointer: coarse)");
 // The view chosen on wider screens, and the one chosen on phones, which start on the board.
 const prefs = (() => {
-  const defaults = { view: "graph", phoneView: "board", orient: "horizontal", arrange: "auto", hideDone: false, theme: null, levelGap: 70 };
+  const defaults = { view: "graph", phoneView: "board", orient: "horizontal", arrange: "auto", hideDone: false, compactLanes: true, theme: null, levelGap: 70 };
   try { return Object.assign(defaults, JSON.parse(localStorage.getItem("kanvas:prefs") || "{}")); } catch (e) { return defaults; }
 })();
 const savePrefs = () => { try { localStorage.setItem("kanvas:prefs", JSON.stringify(prefs)); } catch (e) { /* storage disabled */ } };
@@ -2805,7 +2891,7 @@ const stubEls = new Map();
 const graphFold = () => foldDone(graphTasks(), board, unfolded, ui.selected);
 function renderGraph() {
   const { tasks, stubs } = graphFold();
-  const opts = { vertical: prefs.orient === "vertical", levelGap: prefs.levelGap, manual: prefs.arrange === "manual", emptyLanes: !prefs.hideDone && !ui.groups.size, stubs };
+  const opts = { vertical: prefs.orient === "vertical", levelGap: prefs.levelGap, compactLanes: prefs.compactLanes !== false, manual: prefs.arrange === "manual", emptyLanes: !prefs.hideDone && !ui.groups.size, stubs };
   // Lane counts include hidden finished tasks, so every task is part of the key.
   const k = JSON.stringify([opts, prefs.hideDone, [...ui.groups], board.groups.map((g) => [g.id, g.name]), board.tasks.map((t) => [t.id, t.group, t.deps, t.state])]);
   const L = k === layoutKey && lastLayout ? lastLayout : layout(tasks, board, opts);
@@ -3020,7 +3106,7 @@ function home() {
 function fillScreen() {
   const { tasks, stubs } = graphFold();
   if (!tasks.length && !stubs.length) return fit(true);
-  const opts = { vertical: prefs.orient === "vertical", manual: prefs.arrange === "manual", emptyLanes: !prefs.hideDone && !ui.groups.size, stubs };
+  const opts = { vertical: prefs.orient === "vertical", compactLanes: prefs.compactLanes !== false, manual: prefs.arrange === "manual", emptyLanes: !prefs.hideDone && !ui.groups.size, stubs };
   // Size grows in step with the spacing, so two layouts tell it for every spacing.
   const a = layout(tasks, board, { ...opts, levelGap: LEVEL_GAP.min }), b = layout(tasks, board, { ...opts, levelGap: LEVEL_GAP.max });
   // Spacings are compared in the room above the zoom bar, where the graph can take the whole width. With the
@@ -4830,6 +4916,8 @@ function displayMenu() {
       phone.matches && row("View", ["G", "B"], seg("View", [["graph", "Graph", "graph"], ["board", "Board", "columns"]], ui.view, (v) => { setView(v); fill(); })),
       graph && h("div", { class: "d-head" }, "Graph"),
       graph && row("Direction", ["L"], seg("Direction", [["horizontal", "Left to right", "right"], ["vertical", "Top to bottom", "down"]], prefs.orient === "vertical" ? "vertical" : "horizontal", toggleOrient)),
+      graph && row("Group layout", [], seg("Group layout", [[true, "Pack cards"], [false, "Keep levels"]], prefs.compactLanes !== false, setCompactLanes),
+        "Pack cards fills each group's unused grid cells with tasks that have no visible dependency; connected tasks keep their dependency order."),
       // Phones have no room for the spacing slider in the zoom bar.
       graph && phone.matches && row("Spacing between levels", [], h("input", { type: "range", class: "d-range", min: LEVEL_GAP.min, max: LEVEL_GAP.max, step: 10, value: prefs.levelGap, "aria-label": "Spacing between dependency levels", oninput: (e) => setLevelGap(+e.target.value) })),
       graph && row("Card order", ["M"], seg("Card order", [["auto", "Automatic"], ["manual", "Manual"]], manual ? "manual" : "auto", toggleArrange),
@@ -5515,7 +5603,7 @@ function toggleOrient() {
 // Task ids in an order that makes the manual layout show what the automatic one shows now.
 function automaticOrder() {
   const tasks = board.tasks.filter((t) => !(prefs.hideDone && t.state === "done"));
-  const L = layout(tasks, board, { vertical: prefs.orient === "vertical", levelGap: prefs.levelGap });
+  const L = layout(tasks, board, { vertical: prefs.orient === "vertical", levelGap: prefs.levelGap, compactLanes: prefs.compactLanes !== false });
   const across = (t) => (L.vertical ? L.pos.get(key(t.id)).x : L.pos.get(key(t.id)).y);
   const cellOf = (t) => `${laneId(t)}|${L.vertical ? L.pos.get(key(t.id)).y : L.pos.get(key(t.id)).x}`;
   const cells = new Map();
@@ -5543,6 +5631,15 @@ function toggleArrange() {
   const differs = !store.readOnly && !sameJson(ids, board.tasks.filter((t) => ids.includes(t.id)).map((t) => t.id));
   toast(compact("Manual layout: drag a card up or down to move it, or into another group.",
     differs ? h("button", { class: "link", onclick: (e) => { e.target.closest(".toast").remove(); useAutomaticOrder(); } }, "Start from the automatic order") : null), "", differs ? 9000 : 4000);
+}
+
+function setCompactLanes(compactLanes) {
+  compactLanes = compactLanes !== false;
+  if ((prefs.compactLanes !== false) === compactLanes) return;
+  prefs.compactLanes = compactLanes;
+  savePrefs();
+  fitted = false;
+  render();
 }
 
 // Keeps the point at the middle of the viewport in place while the graph stretches along the flow.
