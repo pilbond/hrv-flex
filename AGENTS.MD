@@ -71,7 +71,7 @@ Elementos estructurales estables del repo:
 ## 6. Snapshot actual (2026-06-17)
 Estado actual de implementacion observado:
 
-- la UI expone `/api/sync`, `/api/sync-sessions`, `/api/status`, `/api/import-seed`, `/api/restore-backup`, `/api/delete-latest-rr` y endpoints OAuth,
+- la UI expone `/api/sync`, `/api/sync-sessions`, `/api/status`, `/api/restore-backup`, `/api/delete-latest-rr` y endpoints OAuth,
 - `build_sessions.py` genera `ENDURANCE_HRV_sessions.csv`, `ENDURANCE_HRV_sessions_day.csv`, `ENDURANCE_HRV_intensity_distribution_weekly.csv`, `ENDURANCE_HRV_weekly_coach.json`, `ENDURANCE_HRV_sessions_metadata.json` y `ENDURANCE_HRV_wellness_subjective.csv`,
 - `ENDURANCE_HRV_sessions_day.csv` ya incluye contexto canonico de carga (`acwr_simple_prev`, `monotony_7d_prev`, `strain_7d_prev`, `load_ctx_ready`), clustering reciente de intensidad (`intense_day`, `intense_days_prev_3d`, `intense_days_prev_5d`, `intensity_clustering_flag`, `intensity_clustering_level`) y la señal rolling de polarizacion por familia (`dominant_family_prev_7d`, `dominant_family_share_prev_7d`, `n_sessions_usable_prev_7d`, `z1/z2/z3_pct_weighted_prev_7d`, `distribution_signal_confidence_prev_7d`, `polarisation_index_prev_7d`, `intensity_blackhole_flag`, `intensity_blackhole_episode_id`, `intensity_blackhole_episode_len`),
 - `ENDURANCE_HRV_intensity_distribution_weekly.csv` ya resume la distribucion observada por `sport x week` con ponderacion por minutos, patron (`polarized`, `pyramidal`, `threshold`, `mixed`) y confianza explicita,
@@ -110,11 +110,11 @@ Si este bloque queda desactualizado, debe actualizarse o reducirse.
 ## 7. Arquitectura actual
 - `web_ui.py`
   Flask + UI movil.
-  Endpoints: `/`, `/auth`, `/auth/callback`, `/oauth/callback`, `/api/sync`, `/api/sync-sessions`, `/api/status`, `/api/import-seed`, `/api/restore-backup`, `/api/delete-latest-rr`, `/health`.
+  Endpoints: `/`, `/auth`, `/auth/callback`, `/oauth/callback`, `/api/sync`, `/api/sync-sessions`, `/api/status`, `/api/restore-backup`, `/api/delete-latest-rr`, `/health`.
   `POST /api/sync` ejecuta `polar_hrv_automation.py --process` en thread.
   `POST /api/sync-sessions` ejecuta `build_sessions.py --update` en thread.
   `POST /api/restore-backup` descarga el último backup de Dropbox a `DATA_DIR` (requiere `HRV_BACKUP_DROPBOX_ENABLED`).
-  Los jobs HRV, sesiones, import seed, restore backup y borrado del ultimo RR comparten estado operativo y no deben ejecutarse en paralelo.
+  Los jobs HRV, sesiones, restore backup y borrado del ultimo RR comparten estado operativo y no deben ejecutarse en paralelo.
 
 - `polar_hrv_automation.py`
   Orquesta el flujo principal.
@@ -226,8 +226,6 @@ Operativas:
 - `HRV_DISABLE_BACKUP=1`
 - `HRV_SYNC_TIMEOUT_SEC`
 - `HRV_DROPBOX_RR_TIMEOUT_SEC`
-- `HRV_SEED_UPLOAD_DIR`
-- `HRV_SHOW_SEED_IMPORT`
 - `HRV_UI_KEY` (opcional: si está definida, todos los `/api/*` exigen la clave vía header `X-HRV-KEY` o query `?key=`; sin definir, comportamiento histórico sin autenticación)
 - `HRV_STALE_MAX_DAYS` (umbral de `/health?strict=1`: devuelve 503 si el FINAL falta o su última fecha supera el umbral; default 3. `/health` sin `strict` sigue siendo 200 liveness)
 - `HRV_BACKUP_DROPBOX_ENABLED` (opcional: tras cada sync exitoso sube los `ENDURANCE_HRV_*.csv/.json` de la raiz de `DATA_DIR` y el historial `DATA_DIR/ai_briefs/**/ENDURANCE_HRV_*.json` a Dropbox, sobrescribiendo; usa las credenciales Dropbox ya configuradas; nunca rompe el sync)
@@ -304,7 +302,6 @@ Contrato:
 - `POST /api/sync`
 - `POST /api/sync-sessions`
 - `GET /api/status`
-- `POST /api/import-seed`
 - `POST /api/restore-backup`
 - `POST /api/delete-latest-rr`
 - `GET /health`
@@ -391,8 +388,7 @@ Reglas para `research/`:
 - resultados generados en `research/**/results/` o `research/reports/`,
 - trabajo descartable en `research/.scratch/`,
 - no escribir resultados junto a scripts,
-- no colocar experimentos en la raiz, `analysis/`, `docs/contracts/`,
-  `seed_upload/` ni `data/`,
+- no colocar experimentos en la raiz, `analysis/`, `docs/contracts/` ni `data/`,
 - no importar codigo de `research/` desde la aplicacion,
 - una investigacion solo pasa a la aplicacion mediante implementacion
   explicita, tests y actualizacion contractual cuando corresponda.

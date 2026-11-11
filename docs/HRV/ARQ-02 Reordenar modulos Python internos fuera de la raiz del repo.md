@@ -70,7 +70,6 @@ Tras ejecutar `ARQ-01`, la raiz del repo sigue mezclando tres tipos de ficheros 
      - `backup/`
      - `research/archive/new/` (antes `new/`)
    - directorios con uso o referencias activas que no deben tratarse igual:
-     - `seed_upload/` (directorio operativo real usado por `web_ui.py`)
      - `delete/` (referencia activa en `analysis/`, pero no directorio operativo del flujo HRV)
 
 Eso vuelve poco legible la raiz y complica distinguir:
@@ -110,7 +109,6 @@ Mover solo scripts auxiliares a `scripts/python/`:
 - clasificar directorios ruidosos de la raiz:
   - eliminar temporales de smoke/debug cuando no formen parte del trabajo activo
   - revisar `backup/` y `research/archive/new/` como material historico/manual a reubicar o dejar fuera de alcance
-  - mantener `seed_upload/` fuera del alcance de limpieza visual al ser directorio operativo
   - tratar `delete/` como referencia activa de `analysis/`, pero no como directorio operativo del flujo HRV
 
 Ventajas:

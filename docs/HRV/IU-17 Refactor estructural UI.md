@@ -102,7 +102,6 @@ def build_dashboard_viewmodel(payload: dict) -> dict:
             ...
           },
           "actions": {
-            "show_seed_import": bool,
             "show_restore_backup": bool,
             "delete_last_rr_enabled": bool,
           }

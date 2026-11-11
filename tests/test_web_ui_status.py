@@ -411,95 +411,11 @@ class WebUiStatusTests(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertFalse(response.get_json()["view"]["hrv_today"]["exists"])
 
-    def test_seed_import_rejects_partial_generation_before_writing(self):
-        with TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            seed = root / "seed"
-            data = root / "data"
-            seed.mkdir()
-            data.mkdir()
-            (seed / "ENDURANCE_HRV_master_CORE.csv").write_text("Fecha\n2026-11-10\n", encoding="utf-8")
-            (seed / "ENDURANCE_HRV_master_CORE_manifest.json").write_text("{}", encoding="utf-8")
-            (seed / "ENDURANCE_HRV_master_FINAL_manifest.json").write_text("{}", encoding="utf-8")
-            with patch.object(web_ui, "SEED_UPLOAD_DIR", seed), patch.object(web_ui, "DATA_DIR", data):
-                with self.assertRaisesRegex(RuntimeError, "Seed HRV incompleta"):
-                    web_ui._import_seed_csvs()
-            self.assertEqual(list(data.iterdir()), [])
+    def test_import_seed_endpoint_is_removed(self):
+        with web_ui.app.test_client() as client:
+            response = client.post("/api/import-seed")
 
-    def test_seed_import_rejects_missing_beta_audit_before_writing(self):
-        with TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            seed = root / "seed"
-            data = root / "data"
-            seed.mkdir()
-            self._write_final_csv(seed, date.today().isoformat())
-            (seed / "ENDURANCE_HRV_master_BETA_AUDIT.csv").unlink()
-            with patch.object(web_ui, "SEED_UPLOAD_DIR", seed), patch.object(web_ui, "DATA_DIR", data):
-                with self.assertRaisesRegex(RuntimeError, "BETA_AUDIT"):
-                    web_ui._import_seed_csvs()
-            self.assertFalse(data.exists())
-
-    def test_seed_import_rolls_back_a_failed_publication(self):
-        with TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            seed = root / "seed"
-            data = root / "data"
-            seed.mkdir()
-            data.mkdir()
-            self._write_final_csv(seed, date.today().isoformat())
-            old_core = data / "ENDURANCE_HRV_master_CORE.csv"
-            old_core.write_text("previous core", encoding="utf-8")
-            atomic_copy = web_ui._restore_file_atomic
-
-            def fail_on_final_manifest(source, target):
-                if source.parent == seed and target.name == "ENDURANCE_HRV_master_FINAL_manifest.json":
-                    raise OSError("simulated publish failure")
-                return atomic_copy(source, target)
-
-            with patch.object(web_ui, "SEED_UPLOAD_DIR", seed), patch.object(web_ui, "DATA_DIR", data), patch.object(
-                web_ui, "_restore_file_atomic", side_effect=fail_on_final_manifest
-            ):
-                with self.assertRaisesRegex(OSError, "simulated publish failure"):
-                    web_ui._import_seed_csvs()
-            self.assertEqual(old_core.read_text(encoding="utf-8"), "previous core")
-            self.assertFalse((data / "ENDURANCE_HRV_master_FINAL.csv").exists())
-
-    def test_seed_import_publishes_a_coherent_generation(self):
-        with TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            seed = root / "seed"
-            data = root / "data"
-            seed.mkdir()
-            self._write_final_csv(seed, date.today().isoformat())
-            with patch.object(web_ui, "SEED_UPLOAD_DIR", seed), patch.object(web_ui, "DATA_DIR", data):
-                result = web_ui._import_seed_csvs()
-                web_ui.verify_generation_coherence(data)
-            self.assertIn("ENDURANCE_HRV_master_FINAL_manifest.json", result["imported"])
-
-    def test_seed_import_rolls_back_if_published_hashes_mismatch(self):
-        with TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            seed = root / "seed"
-            data = root / "data"
-            seed.mkdir()
-            data.mkdir()
-            self._write_final_csv(seed, date.today().isoformat())
-            old_core = data / "ENDURANCE_HRV_master_CORE.csv"
-            old_core.write_text("previous core", encoding="utf-8")
-            atomic_copy = web_ui._restore_file_atomic
-
-            def corrupt_published_final(source, target):
-                atomic_copy(source, target)
-                if source.parent == seed and target.name == "ENDURANCE_HRV_master_FINAL.csv":
-                    target.write_text("corrupted", encoding="utf-8")
-
-            with patch.object(web_ui, "SEED_UPLOAD_DIR", seed), patch.object(web_ui, "DATA_DIR", data), patch.object(
-                web_ui, "_restore_file_atomic", side_effect=corrupt_published_final
-            ):
-                with self.assertRaises(GenerationCoherenceError):
-                    web_ui._import_seed_csvs()
-            self.assertEqual(old_core.read_text(encoding="utf-8"), "previous core")
-            self.assertFalse((data / "ENDURANCE_HRV_master_FINAL.csv").exists())
+        self.assertEqual(response.status_code, 404)
 
     def test_index_hides_the_gate_for_an_incoherent_generation(self):
         with TemporaryDirectory() as tmpdir:

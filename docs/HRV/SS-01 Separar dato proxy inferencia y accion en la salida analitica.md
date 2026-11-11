@@ -717,7 +717,6 @@ Entonces el cambio ya no es interno y hay que actualizar al menos:
 - `COLS_FINAL` en `build_hrv_final_dashboard.py`
 - `docs/contracts/ENDURANCE_HRV_Diccionario.md`
 - `docs/contracts/ENDURANCE_HRV_Spec_Tecnica.md`
-- headers de `seed_upload`
 - tests de contrato que validen el schema publico
 
 Decision v3:

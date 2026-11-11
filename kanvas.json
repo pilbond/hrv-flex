@@ -49,6 +49,10 @@
     {
       "id": "FLE",
       "name": "Fable 5.2 Review"
+    },
+    {
+      "id": "RME",
+      "name": "Revisión de mejoras noviembre 2026"
     }
   ],
   "tasks": [
@@ -1017,7 +1021,7 @@
     {
       "id": "CAF-03",
       "title": "Restore y backup por generaciÃ³n completa",
-      "state": "review",
+      "state": "done",
       "group": "CAF",
       "desc": "Implementación y criterios en `docs/HRV/CORE_AUDIT_FIX_03_RESTORE_GENERATION.md`. Descargar y validar el conjunto obligatorio en staging antes de publicarlo localmente; fallar de forma cerrada ante descargas o validaciones incompletas. Sin generaciones remotas, manifests ni hashes en este alcance.\n\n[[CORE_AUDIT_FIX_03_RESTORE_GENERATION]]",
       "notes": [
@@ -1105,7 +1109,7 @@
     {
       "id": "CAF-06",
       "title": "Manifest y publicaciÃ³n canÃ³nica",
-      "state": "review",
+      "state": "done",
       "group": "CAF",
       "desc": "ImplementaciÃ³n y criterios en docs/HRV/CORE_AUDIT_FIX_06_GENERATION_MANIFEST.md. Validar hashes y coherencia de generaciÃ³n antes de que UI y consumidores lean artefactos.\n\n[[CORE_AUDIT_FIX_06_GENERATION_MANIFEST]]",
       "notes": [
@@ -1397,11 +1401,28 @@
     {
       "id": "FLE-05",
       "title": "Decidir y validar la recuperación mediante seed",
-      "state": "proposed",
+      "state": "done",
       "group": "FLE",
       "at": "2026-11-10T11:44:40Z",
       "by": "codex",
-      "desc": "Decidir si se conserva la importación y asegurar que una seed incompatible no pueda sustituir datos operativos.\n\n[[docs/HRV/FLE-05 Decidir y validar la recuperacion mediante seed.md|Descripción y desarrollo]]"
+      "desc": "Decidir si se conserva la importación y asegurar que una seed incompatible no pueda sustituir datos operativos.\n\n[[docs/HRV/FLE-05 Decidir y validar la recuperacion mediante seed.md|Descripción y desarrollo]]",
+      "notes": [
+        {
+          "at": "2026-11-10T22:15:21Z",
+          "by": "codex",
+          "text": "Plan: retirar la importación seed y sus superficies (UI/API, configuración, pruebas y documentación), eliminar la seed versionada del checkout y verificar que la restauración desde Dropbox sigue intacta."
+        },
+        {
+          "at": "2026-11-10T22:22:16Z",
+          "by": "codex",
+          "text": "Decisión aplicada: se elimina import seed; Dropbox es la única recuperación. Se retiraron endpoint, superficie UI, variables, diagnósticos, pruebas y datos versionados de seed_upload/. No se reescribe el historial Git."
+        },
+        {
+          "at": "2026-11-10T22:22:16Z",
+          "by": "codex",
+          "text": "La recuperación queda solo en Dropbox: ya no hay botón, endpoint ni configuración de import seed, y se retiraron los snapshots personales versionados. Verificado con 93 pruebas relevantes (restore, manifests, UI y seguridad); comprueba que la app muestra únicamente Restaurar backup cuando esté habilitado."
+        }
+      ]
     },
     {
       "id": "FLE-06",
@@ -1485,6 +1506,63 @@
       "at": "2026-11-10T11:44:40Z",
       "by": "codex",
       "desc": "Actualizar contratos y guías desalineados y retirar solo restos cuyo desuso se pueda comprobar.\n\n[[docs/HRV/FLE-14 Alinear documentacion y retirar restos v3 verificados.md|Descripción y desarrollo]]"
+    },
+    {
+      "id": "RME-02",
+      "title": "Hacer que «Qué hacer» refleje la acción calculada",
+      "state": "proposed",
+      "group": "RME",
+      "deps": ["IU-17"],
+      "at": "2026-11-11T17:44:05Z",
+      "by": "claude-code",
+      "desc": "La instrucción de la tarjeta expresa la acción ya calculada en términos que el atleta pueda aplicar. Se da por terminada cuando un ROJO con DESCARGA, SUAVE o SUAVE_QUALITY recibe la instrucción que le corresponde, tanto al abrir como al actualizar la pantalla. Para NO se conserva la indicación de repetir o esperar referencia según la causa. «Qué pasó» sigue explicando el color base. Evidencia en research/reports/revision_mejoras_2026-11/05_sintesis.md, §2."
+    },
+    {
+      "id": "RME-04",
+      "title": "Corregir test OAuth dependiente de credenciales locales",
+      "state": "proposed",
+      "group": "RME",
+      "deps": ["FLE-01"],
+      "at": "2026-11-11T17:44:05Z",
+      "by": "claude-code",
+      "desc": "Corregir el test OAuth que falla en un checkout limpio sin credenciales. Fijar credenciales ficticias en esa prueba para que alcance la rama de escape HTML que pretende verificar. Terminado cuando esa prueba pasa en la copia limpia usada en el Prompt 5. El test del JSON ignorado corresponde a RME-05. Evidencia y corrección en research/reports/revision_mejoras_2026-11/05_sintesis.md, §4 y Resumen.",
+      "notes": [
+        {
+          "at": "2026-11-11T17:55:14Z",
+          "by": "codex",
+          "text": "Revisión por pregunta del atleta: se acota al fallo reproducido en copia limpia."
+        }
+      ]
+    },
+    {
+      "id": "RME-05",
+      "title": "Usar una fuente versionada para los textos y la configuración JSON de la UI",
+      "state": "proposed",
+      "group": "RME",
+      "deps": ["IU-17"],
+      "at": "2026-11-11T17:44:05Z",
+      "by": "claude-code",
+      "desc": "La UI local y una copia limpia usan la misma fuente versionada para textos y configuración JSON. Se da por terminada cuando se retira la segunda copia y el render inicial, las claves que lee JS, el diálogo de restauración y la prueba del cargador se verifican en una copia limpia. El alcance se limita a textos y configuración JSON. Evidencia en research/reports/revision_mejoras_2026-11/05_sintesis.md, §5."
+    },
+    {
+      "id": "RME-06",
+      "title": "Contrastar utilidad del gate en decisiones reales",
+      "state": "proposed",
+      "group": "RME",
+      "deps": ["IU-06"],
+      "at": "2026-11-11T17:59:47Z",
+      "by": "codex",
+      "desc": "Evaluar prospectivamente si el gate mostrado aporta a la decisión del atleta más allá de sus sensaciones. Terminado cuando se ha fijado comparador y resultado antes de analizar, se conserva qué se sabía cada mañana, se informa cobertura y episodios, y se concluye utilidad, ausencia de ventaja o evidencia insuficiente sin cambiar el gate automáticamente. Aprovecha la captura sostenible de IU-06. Evidencia en research/reports/revision_mejoras_2026-11/05_sintesis.md, §7."
+    },
+    {
+      "id": "RME-07",
+      "title": "Decidir temporización ECG con referencia del sensor",
+      "state": "proposed",
+      "group": "RME",
+      "deps": ["FLE-13"],
+      "at": "2026-11-11T17:59:47Z",
+      "by": "codex",
+      "desc": "Resolver si conservar la marca temporal actual del latido, refinar el ápice o usar el RR del sensor. Terminado cuando unas capturas simultáneas adicionales, incluida alguna de señal imperfecta si el atleta las realiza, se contrastan con criterios fijados previamente, se repite el replay aislado de Calidad, gate y acción y se documenta una decisión trazable. Puede cerrarse conservando el método vigente si la evidencia sigue siendo insuficiente. Evidencia en research/reports/revision_mejoras_2026-11/05_sintesis.md, §8."
     }
   ]
 }

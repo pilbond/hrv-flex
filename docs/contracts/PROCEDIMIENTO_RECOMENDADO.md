@@ -62,7 +62,6 @@ Si usas la Web UI, basta con presionar "Sincronizar".
 | `POST` | `/api/sync` | Ejecuta `polar_hrv_automation.py --process` en background |
 | `POST` | `/api/sync-sessions` | Ejecuta `build_sessions.py --update` en background |
 | `GET` | `/api/status` | Estado actual del job, último output e info de weekly coach |
-| `POST` | `/api/import-seed` | Importa seed/artefactos auxiliares. Una seed que toque la generacion HRV debe traer CORE, BETA_AUDIT, FINAL, DASHBOARD y ambos manifests, coherentes entre si; si falta alguno o los hashes no cuadran, se rechaza sin publicar nada y `DATA_DIR` queda como estaba |
 | `POST` | `/api/restore-backup` | Restaura archivos HRV desde el último backup en Dropbox |
 | `POST` | `/api/delete-latest-rr` | Elimina el último RR ingerido |
 | `GET` | `/health` | Health check (`?strict=1` para validar frescura de FINAL) |

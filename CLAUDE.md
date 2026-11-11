@@ -154,13 +154,12 @@ Endpoints:
 - `GET /auth/callback`, `/oauth/callback` — intercambio de code → tokens
 - `POST /api/sync` — ejecuta `polar_hrv_automation.py --process` en thread
 - `POST /api/sync-sessions` — ejecuta `build_sessions.py --update` en thread
-- `POST /api/import-seed` — importa seed/artefactos auxiliares
 - `POST /api/restore-backup` — restaura archivos HRV desde el último backup en Dropbox
 - `POST /api/delete-latest-rr` — elimina el ultimo RR ingerido
 - `GET /api/status` — estado actual
 - `GET /health` — health check
 
-**Regla crítica:** `/api/sync`, `/api/sync-sessions`, `/api/import-seed`, `/api/restore-backup` y `/api/delete-latest-rr` **NO deben ejecutarse en paralelo**. El estado operativo es compartido; si uno está corriendo, el otro debe rechazarse.
+**Regla crítica:** `/api/sync`, `/api/sync-sessions`, `/api/restore-backup` y `/api/delete-latest-rr` **NO deben ejecutarse en paralelo**. El estado operativo es compartido; si uno está corriendo, el otro debe rechazarse.
 
 ### `polar_hrv_automation.py`
 Orquestador del flujo principal.
@@ -349,14 +348,13 @@ GET  /oauth/callback
 POST /api/sync
 POST /api/sync-sessions
 GET  /api/status
-POST /api/import-seed
 POST /api/restore-backup
 POST /api/delete-latest-rr
 GET  /health
 ```
 
 ### Regla operativa de concurrencia
-- Todos los endpoints POST operativos (`/api/sync`, `/api/sync-sessions`, `/api/import-seed`, `/api/restore-backup`, `/api/delete-latest-rr`) **comparten estado en memoria**
+- Todos los endpoints POST operativos (`/api/sync`, `/api/sync-sessions`, `/api/restore-backup`, `/api/delete-latest-rr`) **comparten estado en memoria**
 - **NO ejecutar en paralelo**
 - Si uno está corriendo, rechazar el otro (409 Conflict o similar)
 - La UI web debe evitar permitir botones simultáneos
@@ -445,12 +443,12 @@ python egc_to_rr.py --dropbox-folder /ruta/carpeta --dropbox-recursive --outdir 
 
 ### HRV global
 - ✅ Módulos internos reorganizados en `hrv_app/`; entrypoints de raíz (`web_ui.py`, `polar_hrv_automation.py`, `build_sessions.py`) intactos
-- ✅ UI expone `/api/sync`, `/api/sync-sessions`, `/api/status`, `/api/import-seed`, `/api/restore-backup`, `/api/delete-latest-rr` y endpoints OAuth
+- ✅ UI expone `/api/sync`, `/api/sync-sessions`, `/api/status`, `/api/restore-backup`, `/api/delete-latest-rr` y endpoints OAuth
 - ✅ `build_sessions.py` genera `sessions`, `sessions_day`, `intensity_distribution_weekly`, `weekly_coach`, `sessions_metadata` y `wellness_subjective`
 - ✅ Dropbox es la única fuente de nuevos RR matinales; sin fallback Polar para fechas nuevas (`--all` reprocesa solo RR locales; `list_exercises` queda detrás de `--debug-sports`)
 - ✅ v3 completamente retirado; v4 es el único runtime Polar; `polar_client.py`, `polar_oauth_local.py` y `polar_shadow.py` eliminados; `POLAR_API_VERSION` y `POLAR_V4_SESSIONS` suprimidos; `analysis/session_analysis_pipeline.py` sin dependencias legacy v3
 - ✅ `ENDURANCE_HRV_sleep.csv` es archivo canónico de sueño (26 cols, con valoraciones de Nightly Recharge; acepta CSV históricos de 17; carga en sessions_day.csv)
-- ✅ Los jobs HRV, sesiones, import seed, restore backup y borrado del último RR comparten estado y no se ejecutan simultáneamente
+- ✅ Los jobs HRV, sesiones, restore backup y borrado del último RR comparten estado y no se ejecutan simultáneamente
 - ✅ `hrv_app/backup_dropbox.py`: backup opcional de `ENDURANCE_HRV_*` de la raíz de `DATA_DIR` y del historial IA en `data/ai_briefs/` a Dropbox (`HRV_BACKUP_DROPBOX_ENABLED`, overwrite tras cada sync); restauración vía `POST /api/restore-backup` con escritura atómica y backup previo en `data/backup/pre_restore/`
 - ✅ `/health?strict=1` devuelve 503 si el FINAL falta o su última fecha supera `HRV_STALE_MAX_DAYS` (default 3); sin `strict` sigue siendo 200 (liveness)
 - ✅ Si `HRV_UI_KEY` está definida, todos los `/api/*` exigen la clave vía header `X-HRV-KEY` o `?key=`; OAuth `state` validado con TTL y uso único

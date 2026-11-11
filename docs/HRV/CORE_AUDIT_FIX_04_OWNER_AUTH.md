@@ -103,6 +103,6 @@ ya existe la barrera `HRV_UI_KEY`.
 - Ningún secreto (clave de UI, `state`) viaja en query string ni se registra
   en logs.
 - Tests parametrizados que cubran `/api/sync`, `/api/sync-sessions`,
-  `/api/import-seed`, `/api/restore-backup` y `/api/delete-latest-rr` para:
+  `/api/restore-backup` y `/api/delete-latest-rr` para:
   clave ausente, clave incorrecta, clave por `?key=` (rechazada) y clave por
   header (aceptada); más el caso de callback OAuth sin cookie de sesión.

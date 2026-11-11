@@ -34,7 +34,7 @@ Importante:
 ## `web_ui.py`
 - Que hace:
   - Levanta Flask (UI + API).
-  - Expone endpoints: `/`, `/auth`, `/auth/callback`, `/oauth/callback`, `/api/sync`, `/api/sync-sessions`, `/api/status`, `/api/import-seed`, `/api/restore-backup`, `/api/delete-latest-rr`, `/health`.
+  - Expone endpoints: `/`, `/auth`, `/auth/callback`, `/oauth/callback`, `/api/sync`, `/api/sync-sessions`, `/api/status`, `/api/restore-backup`, `/api/delete-latest-rr`, `/health`.
   - En `/api/sync` dispara `polar_hrv_automation.py --process`.
   - En `/api/sync-sessions` dispara `build_sessions.py --update`.
   - La UI prioriza los controles operativos, despues la tarjeta `Lectura HRV de hoy` (viewmodel `hrv_app.ui_view`, con indicadores de Calidad/Estabilidad, bloque Gate/Accion/Que paso/Que hacer, reason text y brief IA), y por ultimo `Detalle tecnico` / `raw output` (colapsado por defecto, con boton para expandir).
@@ -65,16 +65,11 @@ Importante:
     directorio sin ningun archivo de generacion no es una incoherencia:
     `generation_coherent` queda en `null` y se sirve `200` con el estado
     habitual de «sin datos». La portada (`GET /`) aplica el mismo gate.
-  - `POST /api/import-seed`: si la seed trae algun archivo de la generacion HRV,
-    exige los seis (CORE, BETA_AUDIT, FINAL, DASHBOARD y ambos manifests) y una
-    generacion coherente antes de publicar; valida de nuevo `DATA_DIR` despues
-    de copiar y revierte lo publicado si algo falla. Sueño y sesiones se pueden
-    importar por separado.
   - `POST /api/sync` y `POST /api/sync-sessions` devuelven `202 Accepted` cuando el job queda corriendo en background; si terminan practicamente al instante, pueden devolver el resultado final en la propia respuesta.
   - No genera CSV por si solo; delega al pipeline.
 - Automatico o manual:
   - Automatico en Railway (start command).
-  - `POST /api/sync`, `POST /api/sync-sessions`, `POST /api/import-seed`, `POST /api/restore-backup` y `POST /api/delete-latest-rr` comparten estado y no deben ejecutarse en paralelo.
+  - `POST /api/sync`, `POST /api/sync-sessions`, `POST /api/restore-backup` y `POST /api/delete-latest-rr` comparten estado y no deben ejecutarse en paralelo.
   - Si `HRV_UI_KEY` está definida, todos los `/api/*` exigen la clave vía header `X-HRV-KEY` o query `?key=`; sin definir, comportamiento histórico sin autenticación.
 
 ## Kanvas

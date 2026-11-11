@@ -47,7 +47,6 @@ from hrv_app.polar_auth_v4 import (
 )
 from hrv_app.pipeline_status import result_from_marker
 from hrv_app.run_manifest import (
-    GENERATION_FILENAMES,
     GenerationCoherenceError, generation_present, verify_generation_coherence,
 )
 
@@ -56,19 +55,6 @@ CORS(app)
 # Respeta headers X-Forwarded-* cuando corre detrás de Railway/Proxy
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 app.config["PREFERRED_URL_SCHEME"] = "https"
-
-SEED_UPLOAD_DIR = Path((os.environ.get("HRV_SEED_UPLOAD_DIR") or "seed_upload").strip() or "seed_upload")
-ALLOWED_IMPORT_FILES = [
-    "ENDURANCE_HRV_master_CORE.csv",
-    "ENDURANCE_HRV_master_BETA_AUDIT.csv",
-    "ENDURANCE_HRV_master_FINAL.csv",
-    "ENDURANCE_HRV_master_DASHBOARD.csv",
-    "ENDURANCE_HRV_sleep.csv",
-    "ENDURANCE_HRV_sessions.csv",
-    "ENDURANCE_HRV_sessions_day.csv",
-    "ENDURANCE_HRV_master_CORE_manifest.json",
-    "ENDURANCE_HRV_master_FINAL_manifest.json",
-]
 
 _RR_DELETE_DERIVED_CSVS = (
     "ENDURANCE_HRV_master_CORE.csv",
@@ -153,9 +139,6 @@ DEFAULT_UI_RUNTIME_CONFIG = {
         "bannerStartHrv": "Iniciando sincronización HRV...",
         "bannerStartSessions": "Iniciando sincronización de sesiones...",
         "bannerConnectionErrorPrefix": "Error de conexión: ",
-        "importStart": "Importando CSV seed a /data...",
-        "importSuccess": "CSV seed importados a /data",
-        "importButtonRunning": "Importando...",
         "restoreConfirm": "Se restaurarán los archivos HRV del último backup en Dropbox. Los archivos actuales se guardarán en data/backup/. ¿Continuar?",
         "restoreStart": "Descargando backup desde Dropbox...",
         "restoreSuccessFallbackSource": "Dropbox",
@@ -381,7 +364,6 @@ def _require_ui_key():
 JOB_LABELS = {
     'hrv': 'sincronización HRV',
     'sessions': 'sincronización de sesiones',
-    'seed_import': 'importación CSV seed',
     'delete_rr': 'borrado del último RR',
     'restore_backup': 'restauración desde Dropbox',
 }
@@ -720,86 +702,6 @@ def _token_diagnostics_v4() -> dict:
 
 
 _token_diagnostics = _token_diagnostics_v4
-
-
-def _seed_upload_diagnostics() -> dict:
-    files = []
-    for name in ALLOWED_IMPORT_FILES:
-        path = SEED_UPLOAD_DIR / name
-        if path.exists():
-            try:
-                size = path.stat().st_size
-            except OSError:
-                size = None
-            files.append({
-                "name": name,
-                "size": size,
-            })
-
-    return {
-        "seed_upload_dir": str(SEED_UPLOAD_DIR),
-        "seed_upload_exists": SEED_UPLOAD_DIR.exists(),
-        "seed_upload_files": files,
-        "seed_upload_file_count": len(files),
-    }
-
-
-def _import_seed_csvs() -> dict:
-    if not SEED_UPLOAD_DIR.exists():
-        raise FileNotFoundError(f"No existe la carpeta de carga: {SEED_UPLOAD_DIR}")
-
-    has_seed_generation = generation_present(SEED_UPLOAD_DIR)
-    if has_seed_generation:
-        missing = [name for name in GENERATION_FILENAMES if not (SEED_UPLOAD_DIR / name).is_file()]
-        if missing:
-            raise RuntimeError("Seed HRV incompleta; faltan: " + ", ".join(missing))
-        verify_generation_coherence(SEED_UPLOAD_DIR)
-
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    backup_dir = DATA_DIR / "backup" / datetime.now().strftime("seed_import_%Y%m%d_%H%M%S")
-
-    imported = []
-    missing = []
-    backed_up = []
-
-    published = []
-    try:
-        for name in ALLOWED_IMPORT_FILES:
-            source = SEED_UPLOAD_DIR / name
-            if not source.is_file():
-                missing.append(name)
-                continue
-            dest = DATA_DIR / name
-            if dest.exists():
-                backup_dir.mkdir(parents=True, exist_ok=True)
-                _restore_file_atomic(dest, backup_dir / name)
-                backed_up.append(name)
-            _restore_file_atomic(source, dest)
-            published.append(name)
-            imported.append(name)
-        if has_seed_generation:
-            verify_generation_coherence(DATA_DIR)
-    except Exception:
-        for name in reversed(published):
-            dest = DATA_DIR / name
-            if name in backed_up:
-                _restore_file_atomic(backup_dir / name, dest)
-            else:
-                dest.unlink(missing_ok=True)
-        raise
-
-    if not imported:
-        raise FileNotFoundError(
-            f"No se encontraron CSV permitidos en {SEED_UPLOAD_DIR}"
-        )
-
-    return {
-        "imported": imported,
-        "missing": missing,
-        "backed_up": backed_up,
-        "backup_dir": str(backup_dir) if backed_up else None,
-        "data_dir": str(DATA_DIR),
-    }
 
 
 def _rr_download_dir() -> Path:
@@ -1233,7 +1135,6 @@ def _build_status_payload() -> dict:
     csv_info = _csv_runtime_diagnostics()
     weekly_coach_info = _weekly_coach_diagnostics()
     dropbox_info = _dropbox_runtime_diagnostics()
-    seed_info = _seed_upload_diagnostics()
     rr_info = _latest_rr_diagnostics()
 
     diagnostics = {
@@ -1245,7 +1146,6 @@ def _build_status_payload() -> dict:
         **_ai_ssm_brief_diagnostics(csv_info.get("final_last_fecha")),
         **weekly_coach_info,
         **dropbox_info,
-        **seed_info,
         **rr_info,
     }
     diagnostics.update(_compose_hrv_summary_diagnostics(diagnostics))
@@ -1390,7 +1290,6 @@ def index():
             'index.html',
             ui_copy=UI_COPY,
             runtime_config={**UI_RUNTIME_CONFIG, "sync_timeout_sec": _sync_timeout_seconds()},
-            show_seed_import=env_flag('HRV_SHOW_SEED_IMPORT', SEED_UPLOAD_DIR.exists()),
             show_restore_backup=env_flag('HRV_BACKUP_DROPBOX_ENABLED', False),
             view=initial_view,
             initial_technical_output=_technical_summary_from_payload(initial_payload),
@@ -1504,27 +1403,6 @@ def get_status():
             "status_error": str(exc),
         }
         return jsonify(payload), 500
-
-
-@app.route('/api/import-seed', methods=['POST'])
-def import_seed():
-    """Importar CSV canónicos desde seed_upload hacia HRV_DATA_DIR."""
-    if not _try_begin_execution('seed_import'):
-        return _api_error(_in_progress_error(_execution_snapshot().get('job_type'), MSG['seed_import_in_progress_suffix']), 409)
-
-    try:
-        result = _import_seed_csvs()
-        _set_execution_result(
-            'seed_import',
-            True,
-            json.dumps(result, ensure_ascii=False, indent=2),
-            '',
-            MSG["seed_import_started"],
-        )
-        return _api_success(MSG["seed_import_started"], job_type='seed_import', **result)
-    except Exception as exc:
-        _set_execution_result('seed_import', False, '', str(exc), MSG["seed_import_error"])
-        return _api_error(str(exc), job_type='seed_import')
 
 
 @app.route('/api/restore-backup', methods=['POST'])

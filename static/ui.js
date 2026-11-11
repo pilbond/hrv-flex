@@ -48,11 +48,6 @@
             },
         },
         auxiliary: {
-            importSeed: {
-                button: el('importBtn'),
-                text: el('importBtnText'),
-                runningText: uiText('importButtonRunning'),
-            },
             restoreBackup: {
                 button: el('restoreBackupBtn'),
                 text: el('restoreBackupBtnText'),
@@ -267,8 +262,6 @@
         else if (data.running && data.job_type === 'sessions') setButtonState('sessions', 'running');
 
         setSyncButtonsDisabled(Boolean(data.running));
-        setAuxButtonDisabled(DOM.auxiliary.importSeed, Boolean(data.running));
-
         const latestRrPath = data?.view?.system?.latest_rr_path;
         setAuxButtonDisabled(DOM.auxiliary.deleteLastRr, Boolean(data.running || !latestRrPath));
 
@@ -323,26 +316,6 @@
             if (control?.text) control.text.textContent = control.idleText;
             setSyncButtonsDisabled(false);
             showBanner('error', uiText('bannerConnectionErrorPrefix') + error.message);
-        }
-    }
-
-    async function importSeedCsvs() {
-        const control = DOM.auxiliary.importSeed;
-
-        setButtonLoading(control);
-        showBanner('info', uiText('importStart'));
-
-        try {
-            const response = await apiFetch('/api/import-seed', { method: 'POST' });
-            const data = await response.json();
-            if (!response.ok || !data.success) throw new Error(data.error || 'Error importando CSV seed');
-            renderTechnicalOutput(JSON.stringify(data, null, 2));
-            showBanner('success', uiText('importSuccess'));
-            await refreshDashboard();
-        } catch (error) {
-            showBanner('error', error.message);
-        } finally {
-            resetAuxButton(control);
         }
     }
 
@@ -484,9 +457,6 @@
     }
 
     function bindAuxiliaryButtons() {
-        if (DOM.auxiliary.importSeed.button) {
-            DOM.auxiliary.importSeed.button.addEventListener('click', importSeedCsvs);
-        }
         if (DOM.auxiliary.restoreBackup.button) {
             DOM.auxiliary.restoreBackup.button.addEventListener('click', restoreFromDropbox);
         }
