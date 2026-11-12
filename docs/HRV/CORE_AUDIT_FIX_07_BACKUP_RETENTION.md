@@ -1,71 +1,84 @@
-# Core Audit Fix 07 — Retirar backup local redundante
+# Core Audit Fix 07 — Retención del backup local de CORE y BETA_AUDIT
 
-> **Reencuadre (2026-07-17).** La definición original asumía un volumen `/data`
-> persistente y finito que el backup local podía llegar a llenar. La realidad
-> operativa es otra: `/data` **se borra en cada redeploy** y el histórico se
-> reconstruye desde Dropbox (auto-restore IU-14). Por tanto los snapshots
-> locales `data/backup/CORE_backup_*` **no aportan durabilidad** (se pierden con
-> el volumen) y **no pueden causar crecimiento indefinido** (el volumen se
-> resetea en cada redeploy). El objetivo pasa de "retención/pruning" a
-> "eliminar un mecanismo redundante".
+> **Reencuadre (2026-11-12).** El volumen de Railway en `/data` existe (500 MB) y,
+> con `RAILWAY_RUN_UID=0`, persiste entre redeploys (comprobado por el atleta el
+> 2026-11-11). La premisa del reencuadre de julio («`/data` se borra en cada
+> redeploy») era un síntoma: la app no podía escribir en el volumen y usaba
+> `/app/data`. Con el volumen operativo, las copias locales se acumulan sin límite.
+> Se descarta retirarlas: son la única copia de versiones anteriores, porque el
+> backup de Dropbox sobrescribe. El objetivo pasa a ser **conservar solo las
+> últimas N copias**. Prioridad media: al ritmo actual el volumen tardaría años en
+> llenarse.
+
+> **Reencuadre (2026-07-17), superado.** Proponía retirar el backup local por
+> considerar efímero el volumen. Esa premisa resultó falsa (ver arriba).
 
 ## Objetivo
 
-Retirar el backup local dated de `build_hrv_core.py` por ser redundante: no
-protege contra la pérdida real (el volumen efímero) y añade escrituras y código
-sin valor operativo. La protección durable ya es Dropbox + auto-restore.
+Acotar el espacio que ocupan las copias locales sin perder la vuelta atrás
+manual de las últimas ejecuciones.
 
 ## Contexto
 
-- Único mecanismo de crecimiento local: `build_hrv_core.py:940-948` copia
-  `CORE_backup_{ts}.csv` y `BETA_AUDIT_backup_{ts}.csv` a `data/backup/` en cada
-  ejecución del core (activo por defecto; `HRV_DISABLE_BACKUP` es opt-out).
-- `build_hrv_final_dashboard.py` **no** genera backups (las entradas
-  `FINAL_backup_*` / `DASHBOARD_backup_*` del `.gitignore` son legacy).
-- El backup a Dropbox (`hrv_app/backup_dropbox.py`) es **overwrite** y vive
-  fuera del volumen; no tiene problema de crecimiento y queda fuera de alcance.
-- La protección contra "una generación nueva mala pisa un CORE bueno" ya está
-  cubierta por CAF-01 (fail-closed de canónicos), CAF-02 (propagación de estado
-  del pipeline) y CAF-03 (restore/backup por generación completa).
+- `build_hrv_core.py:1217-1234` copia `CORE_backup_{ts}.csv` y
+  `BETA_AUDIT_backup_{ts}.csv` a `DATA_DIR/backup/` justo antes de sobrescribir
+  los canónicos. Guardan el estado anterior a cada ejecución. Activo por
+  defecto; `HRV_DISABLE_BACKUP` lo desactiva.
+- La medición inicial encontró 111 copias de cada tipo y 57 MB. En la inspección
+  del 2026-11-12 había 6 copias de cada tipo y unos 2 MB en CSV (20 MB contando
+  las subcarpetas). Cada par ronda 360 KB; con un sync diario son unos 130 MB al
+  año en un volumen de 500 MB.
+- El backup de Dropbox (`hrv_app/backup_dropbox.py`) sobrescribe cada fichero:
+  conserva una sola versión. Si una ejecución publica un CORE que pasa las
+  comprobaciones pero es incorrecto, se sube y pisa el anterior. Las copias
+  locales son entonces el único sitio con la versión previa. El historial de
+  versiones propio de Dropbox no se ha verificado para el plan del atleta y no
+  se cuenta con él.
+- Limitaciones conocidas de las copias locales: están en el mismo volumen que
+  los originales, solo cubren CORE y BETA_AUDIT (no una generación completa con
+  manifests) y la recuperación es manual.
 
 ## Alcance
 
-- `build_hrv_core.py`: bloque de backup local (`data/backup/CORE_backup_*`,
-  `BETA_AUDIT_backup_*`).
-- Documentación asociada (`AGENTS.md`, `CLAUDE.md`, contratos) si mencionan el
-  backup local como garantía.
+- `build_hrv_core.py`: tras crear las copias, borrar las más antiguas y conservar
+  las últimas N de cada tipo.
+- Una variable de configuración para N con valor por defecto (p. ej. 10).
+- Documentación operativa que describa el backup local.
 
 ## Fuera de alcance
 
-- El backup/restore a Dropbox y el auto-restore (se mantienen; son la
-  durabilidad real).
-- `data/backup/pre_restore/` que crea `restore_backup()` (snapshot transitorio
-  previo a una restauración; no crece de forma no acotada).
-- La política de re-autenticación tras redeploy y la posible falta de un Volume
-  persistente en Railway → **problema separado**, mayor que CAF-07 (ver Notas).
+- El backup y restore a Dropbox, y el auto-restore.
+- `DATA_DIR/backup/pre_restore/` que crea `restore_backup()`.
+- `DATA_DIR/backup/deleted_rr/` del borrado del último RR.
+- Convertir las copias locales en generaciones completas restaurables.
 
 ## Implementación esperada
 
-1. Eliminar el bloque de backup local dated de `build_hrv_core.py`.
-2. Retirar o neutralizar `HRV_DISABLE_BACKUP` si queda sin uso (o documentar que
-   ya no aplica).
-3. Ajustar la documentación que describa el backup local como salvaguarda.
+1. Reservar una plaza por tipo para la copia recién creada. Las plazas
+   restantes se asignan a las copias con nombre fechado (`YYYYMMDD_HHMMSS`)
+   más recientes por nombre. Las copias con otros nombres quedan fuera de la poda.
+2. `HRV_CORE_BACKUP_RETENTION` vale 30 por defecto. Los valores inválidos,
+   incluidos los negativos, se avisan y usan 30. `0` o `HRV_DISABLE_BACKUP=1`
+   desactivan la copia y la poda.
+3. Si falla la inspección de las copias, se avisa y se omite la poda de ese
+   tipo. Si falla el borrado de una copia antigua, se avisa y se sigue con
+   las demás. En ambos casos el core continúa.
+4. Documentar el comportamiento y la variable en `AGENTS.MD`, `CLAUDE.md` y la
+   guía de scripts.
 
 ## Aceptación
 
-- El core deja de escribir `data/backup/CORE_backup_*` / `BETA_AUDIT_backup_*`.
-- El resto del pipeline (escritura atómica canónica, manifests, Dropbox backup,
-  auto-restore) sigue funcionando sin cambios.
-- Tests actualizados si alguno dependía del backup local.
-- Documentación coherente: la durabilidad se describe apoyada en Dropbox +
-  auto-restore, no en copias same-volume.
+- Tras varias ejecuciones quedan como máximo N copias de cada tipo, las más
+  recientes.
+- Con más de N copias previas (caso actual), la primera ejecución poda las
+  sobrantes.
+- La copia previa a la ejecución en curso siempre se conserva.
+- El resto del pipeline (escritura atómica, manifests, backup Dropbox,
+  auto-restore) no cambia.
+- Tests de la poda (orden, límite, fallos al inspeccionar o borrar) y documentación coherente.
 
 ## Notas / seguimiento
 
-- **Riesgo mayor detectado, fuera de esta tarjeta:** si `/data` se borra en cada
-  redeploy, `polar_tokens.json` (que vive en `/data` y **no** se respalda en
-  Dropbox — `backup_dropbox.py` solo sube `ENDURANCE_HRV_*`) también se pierde,
-  lo que implicaría re-autenticar OAuth Polar tras cada despliegue. Conviene una
-  tarjeta aparte para: (a) confirmar si debería existir un Railway Volume
-  persistente en `/data`, y (b) si no, incluir los tokens en el
-  backup/restore Dropbox. No abordar dentro de CAF-07.
+- **Resuelto (2026-11-11):** el riesgo de perder el token tras cada redeploy no
+  se debía a la falta de volumen, sino a los permisos de escritura sobre él y a
+  que faltaba `POLAR_TOKEN_PATH_V4`. Corregido por configuración.

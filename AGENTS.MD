@@ -189,7 +189,7 @@ Defaults actuales si no hay variables:
 
 - `HRV_DATA_DIR = data`
 - `RR_DOWNLOAD_DIR = data/rr_downloads`
-- `POLAR_TOKEN_PATH = .polar_tokens.json`
+- `POLAR_TOKEN_PATH_V4 = .polar_tokens_v4.json` (relativo al directorio de trabajo)
 
 Por tanto, en local:
 
@@ -214,7 +214,7 @@ Nota:
 Muy recomendadas:
 
 - `PUBLIC_URL` (ej. `https://tu-app.up.railway.app`)
-- `POLAR_TOKEN_PATH` (ej. `/data/polar_tokens.json`)
+- `POLAR_TOKEN_PATH_V4` (ej. `/data/polar_tokens_v4.json`; `POLAR_TOKEN_PATH` es la variable v3 y el runtime no la usa)
 - `HRV_DATA_DIR` (ej. `/data`)
 - `RR_DOWNLOAD_DIR` (ej. `/data/rr_downloads`)
 - `INTERVALS_API_KEY`
@@ -224,9 +224,10 @@ Operativas:
 
 - `HRV_QUIET=1`
 - `HRV_DISABLE_BACKUP=1`
+- `HRV_CORE_BACKUP_RETENTION=30` (copias locales fechadas de CORE y BETA_AUDIT a conservar por tipo; `0` las desactiva. `HRV_DISABLE_BACKUP=1` sigue siendo el interruptor global)
 - `HRV_SYNC_TIMEOUT_SEC`
 - `HRV_DROPBOX_RR_TIMEOUT_SEC`
-- `HRV_UI_KEY` (opcional: si está definida, todos los `/api/*` exigen la clave vía header `X-HRV-KEY` o query `?key=`; sin definir, comportamiento histórico sin autenticación)
+- `HRV_UI_KEY` (si está definida, todos los `/api/*` exigen la clave vía header `X-HRV-KEY` o query `?key=`; sin definir, `/api/*` queda sin autenticación. Recomendada en Railway y **pendiente de configurar** en el despliegue actual: ver sección 13)
 - `HRV_STALE_MAX_DAYS` (umbral de `/health?strict=1`: devuelve 503 si el FINAL falta o su última fecha supera el umbral; default 3. `/health` sin `strict` sigue siendo 200 liveness)
 - `HRV_BACKUP_DROPBOX_ENABLED` (opcional: tras cada sync exitoso sube los `ENDURANCE_HRV_*.csv/.json` de la raiz de `DATA_DIR` y el historial `DATA_DIR/ai_briefs/**/ENDURANCE_HRV_*.json` a Dropbox, sobrescribiendo; usa las credenciales Dropbox ya configuradas; nunca rompe el sync)
 - `HRV_BACKUP_DROPBOX_PATH` (carpeta del backup; default `/hrv_backups`)
@@ -272,12 +273,14 @@ Principio no negociable de produccion:
 - esta prohibido abrir navegador desde backend,
 - esta prohibido usar HTTPServer local para callback en produccion.
 
-Persistencia Railway recomendada:
+Persistencia Railway requerida:
 
 - volumen montado en `/data`
-- `POLAR_TOKEN_PATH=/data/polar_tokens.json`
+- `RAILWAY_RUN_UID=0`: la imagen del `Dockerfile` se ejecuta con un usuario sin privilegios y Railway monta el volumen como root. Sin esta variable la app no puede escribir en `/data` y pasa sin aviso a `./data` dentro del contenedor, que se pierde en cada redeploy. Se comprueba en `/api/status`: `core_path`, `final_path`, `token_path` y `rr_download_dir` deben empezar por `/data/`
+- `POLAR_TOKEN_PATH_V4=/data/polar_tokens_v4.json` (sin ella el token se guarda en el directorio de trabajo del contenedor y hay que reautorizar Polar tras cada redeploy)
 - `HRV_DATA_DIR=/data`
 - `RR_DOWNLOAD_DIR=/data/rr_downloads`
+- los valores de las rutas se escriben sin comillas literales: el codigo no las elimina y una ruta que empieza por `"` se interpreta como relativa al contenedor
 
 Reglas:
 
@@ -290,7 +293,7 @@ Flujo esperado:
 2. backend redirige a Polar
 3. callback en `/auth/callback` o `/oauth/callback`
 4. intercambio de `code` por tokens
-5. persistencia en `POLAR_TOKEN_PATH`
+5. persistencia en `POLAR_TOKEN_PATH_V4`
 
 ## 12. Endpoints y jobs
 Contrato:
@@ -308,7 +311,7 @@ Contrato:
 
 Regla operativa:
 
-- los cinco endpoints POST operativos comparten estado de ejecucion en memoria,
+- los cuatro endpoints POST operativos comparten estado de ejecucion en memoria,
 - no deben ejecutarse en paralelo,
 - si un job esta corriendo, cualquier otro debe rechazarse.
 
@@ -317,13 +320,14 @@ Regla operativa:
 - no loguear tokens ni `client_secret`,
 - rotar secretos si se exponen,
 - no exponer tokens ni artefactos sensibles por HTTP,
-- tratar `research/archive/` como material historico sensible.
+- tratar `research/archive/` como material historico sensible,
+- **pendiente:** `HRV_UI_KEY` aun no esta definida en Railway. Se recomienda definirla con una cadena aleatoria larga (p. ej. `python -c "import secrets; print(secrets.token_urlsafe(32))"`): sin ella cualquiera que alcance la URL publica puede leer `/api/status` y lanzar sync, restore o borrado del ultimo RR. La UI lee la clave de `?key=` en la URL de la pagina; `/` y `/auth` no quedan cubiertos.
 
 ## 14. Criterios de aceptacion
 1. `/auth` devuelve 302 a Polar con `redirect_uri` correcto.
-2. `/auth/callback` guarda tokens en `POLAR_TOKEN_PATH`.
+2. `/auth/callback` guarda tokens en `POLAR_TOKEN_PATH_V4`.
 3. `POST /api/sync` genera o actualiza `CORE`, `BETA_AUDIT`, `sleep`, `FINAL` y `DASHBOARD`.
-4. Tras redeploy, `/api/sync` sigue funcionando si hay Volume.
+4. Tras redeploy, `/api/sync` sigue funcionando sin restaurar ni reautorizar (volumen en `/data` con escritura y token en el volumen).
 5. Logs utiles sin secretos.
 6. RR se almacenan y leen desde `data/rr_downloads/`.
 7. Si faltan fechas nuevas en `CORE`, se intentan cubrir desde Dropbox (unica fuente); si Dropbox no las cubre, esas fechas no entran al pipeline (sin fallback Polar).

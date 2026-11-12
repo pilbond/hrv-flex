@@ -23,7 +23,8 @@ Variables de entorno:
   HRV_DATA_DIR       Directorio de datos (default: ./data)
   RR_DOWNLOAD_DIR    Directorio de archivos RR (default: ./data/rr_downloads)
   HRV_QUIET          Silenciar mensajes (1/true/yes)
-  HRV_DISABLE_BACKUP Deshabilitar backups (1/true/yes)
+  HRV_DISABLE_BACKUP Deshabilitar backups locales (1/true/yes)
+  HRV_CORE_BACKUP_RETENTION  Copias CORE/BETA_AUDIT a conservar (default: 30; 0 deshabilita)
 """
 
 import os
@@ -987,6 +988,44 @@ def duplicate_rr_dates(files: List[Path]) -> List[str]:
     return sorted(date for date, count in counts.items() if count > 1)
 
 
+def core_backup_retention() -> int:
+    """Número de snapshots locales a conservar por tipo; inválidos vuelven al default."""
+    raw = os.environ.get("HRV_CORE_BACKUP_RETENTION", "30").strip()
+    try:
+        retention = int(raw)
+    except ValueError:
+        retention = -1
+    if retention >= 0:
+        return retention
+    print("[WARN] HRV_CORE_BACKUP_RETENTION inválida; se usa 30.", file=sys.stderr)
+    return 30
+
+
+def prune_core_backups(
+    backup_dir: Path, retention: int, *, current_copies: tuple[Path, ...] = ()
+) -> None:
+    """Conserva las copias más recientes por tipo sin abortar CORE si falla la poda."""
+    if retention <= 0:
+        return
+    for prefix in ("CORE", "BETA_AUDIT"):
+        pattern = re.compile(rf"{prefix}_backup_[0-9]{{8}}_[0-9]{{6}}\.csv")
+        try:
+            backups = sorted(
+                (path for path in backup_dir.glob(f"{prefix}_backup_*.csv")
+                 if pattern.fullmatch(path.name)),
+                key=lambda path: (path in current_copies, path.name),
+                reverse=True,
+            )
+        except OSError as exc:
+            print(f"[WARN] No se pudo inspeccionar los backups de {prefix}: {exc}", file=sys.stderr)
+            continue
+        for old_path in backups[retention:]:
+            try:
+                old_path.unlink()
+            except OSError as exc:
+                print(f"[WARN] No se pudo podar backup antiguo {old_path}: {exc}", file=sys.stderr)
+
+
 def canonical_geometry_issue(core_path: Path, beta_path: Path, manifest_path: Path) -> Optional[str]:
     """Impide mezclar la geometría HG-10 con una generación canónica anterior."""
     if not core_path.exists() and not beta_path.exists() and not manifest_path.exists():
@@ -1178,16 +1217,21 @@ def main():
     # Backup y guardar
     ts = time.strftime("%Y%m%d_%H%M%S")
     disable_backup = os.environ.get("HRV_DISABLE_BACKUP", "").strip().lower() in {"1", "true", "yes", "on"}
+    backup_retention = core_backup_retention()
 
-    if not disable_backup:
+    if not disable_backup and backup_retention > 0:
         backup_dir = DATA_DIR / "backup"
-        backup_dir.mkdir(exist_ok=True)
-        
-        if OUT_CORE.exists():
-            shutil.copy2(OUT_CORE, backup_dir / f"CORE_backup_{ts}.csv")
-        if OUT_BETA_AUDIT.exists():
-            shutil.copy2(OUT_BETA_AUDIT, backup_dir / f"BETA_AUDIT_backup_{ts}.csv")
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        current_copies = []
+        for prefix, source in (("CORE", OUT_CORE), ("BETA_AUDIT", OUT_BETA_AUDIT)):
+            if source.exists():
+                backup_path = backup_dir / f"{prefix}_backup_{ts}.csv"
+                shutil.copy2(source, backup_path)
+                current_copies.append(backup_path)
+        prune_core_backups(backup_dir, backup_retention, current_copies=tuple(current_copies))
         _qprint(f"\n[INFO] Backups en {backup_dir}/")
+    elif not disable_backup:
+        _qprint("[INFO] HRV_CORE_BACKUP_RETENTION=0; copias locales desactivadas.")
 
     # Guardar
     write_csv_atomic(core_df, OUT_CORE)

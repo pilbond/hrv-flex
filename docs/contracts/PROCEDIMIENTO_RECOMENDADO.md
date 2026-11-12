@@ -76,7 +76,10 @@ Local:
 Railway (con Volume en `/data`):
 - `HRV_DATA_DIR=/data`
 - `RR_DOWNLOAD_DIR=/data/rr_downloads`
-- `POLAR_TOKEN_PATH=/data/polar_tokens.json`
+- `POLAR_TOKEN_PATH_V4=/data/polar_tokens_v4.json`
+- `RAILWAY_RUN_UID=0` (el Dockerfile ejecuta sin root y el volumen se monta como root; sin ella la app escribe en `./data` dentro del contenedor y los datos y el token se pierden en cada redeploy)
+- `HRV_UI_KEY=<cadena aleatoria larga>`: recomendada, **pendiente de configurar** (sin ella `/api/*` es anónimo)
+- Rutas sin comillas dentro del valor. Comprobación: `core_path`, `final_path`, `token_path` y `rr_download_dir` de `/api/status` empiezan por `/data/`
 - `HRV_DROPBOX_RR_ENABLED=1`
 - `HRV_DROPBOX_NO_AUX=1`
 - `HRV_DROPBOX_FOLDER_PATH=/ruta/carpeta`
@@ -120,7 +123,8 @@ Si no hay sesión en un día, el CSV simplemente no incluye esa fecha. Es normal
 - Para evitar guardar artefactos JSONL auxiliares en entornos web, usa `HRV_DROPBOX_NO_AUX=1`.
 - Variables operativas adicionales (ver `CLAUDE.md` para lista completa):
   - `HRV_QUIET=1` — logs mínimos
-  - `HRV_DISABLE_BACKUP=1` — no respaldar CSVs
+  - `HRV_DISABLE_BACKUP=1` — desactiva todas las copias locales de CORE/BETA_AUDIT
+  - `HRV_CORE_BACKUP_RETENTION=30` — copias locales fechadas máximas por tipo; conserva las más recientes. `0` las desactiva. Un fallo de poda se avisa y no interrumpe el core.
   - `HRV_UI_KEY=<clave>` — protege `/api/*` con header `X-HRV-KEY` o `?key=`
   - `HRV_WARNING_MODE=adaptive90` — estrategia de warning (`adaptive90` | `healthy85` | `p20`)
 - `HRV_BACKUP_DROPBOX_ENABLED=1` — backup de artefactos a Dropbox tras sync exitoso

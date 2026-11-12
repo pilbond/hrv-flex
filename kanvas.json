@@ -593,7 +593,7 @@
     {
       "id": "AYO-26",
       "title": "Auditoría técnica operativa 2026-07-10",
-      "state": "review",
+      "state": "done",
       "group": "AYO",
       "desc": "Auditar con evidencia literal los flujos POST /api/sync, OAuth v4 y RR Dropbox; documentar riesgos, doc drift, no verificado y fortalezas en \n\n [[CODE_AUDIT_2026-07-10]]",
       "notes": [
@@ -610,21 +610,6 @@
       "state": "done",
       "group": "AYO",
       "desc": "Añadir un manifest minimo de trazabilidad para CORE, FINAL y DASHBOARD. Detalle en [IU-13](docs/HRV/IU-13%20Manifest%20minimo%20de%20trazabilidad%20para%20CORE%20FINAL%20y%20DASHBOARD.md)."
-    },
-    {
-      "id": "AYO-14",
-      "title": "~~Evaluar e integrar MCP para Polar v4~~ (DESCARTADA)",
-      "state": "proposed",
-      "group": "AYO",
-      "deps": ["AYO-13"],
-      "desc": "Evaluar importar polar-mcp-unofficial, adaptarlo o construir un MCP propio de solo lectura. Debe quedar fuera del camino critico de Railway, proteger tokens y entregar payloads acotados para agentes y analysis.\n\nNota de desarrollo: [[docs/HRV/AYO-14 Evaluar e integrar MCP para Polar v4]]",
-      "notes": [
-        {
-          "at": "2026-11-06T11:55:42Z",
-          "by": "claude-code",
-          "text": "Descartada 2026-11-06: se solapa con AYO-15 (MCP de solo lectura HRV); con v4 ya como runtime unico, un MCP solo de Polar aporta poco valor."
-        }
-      ]
     },
     {
       "id": "AYO-27",
@@ -675,13 +660,6 @@
       "state": "done",
       "group": "PCV",
       "desc": "Tipo de valor: visibilidad operativa y acceso desde producto. Analisis: [[docs/HRV/PCV-06 Integracion UI API del coach semanal.md]]"
-    },
-    {
-      "id": "PCV-07",
-      "title": "~~PCV-01 SWC configurable o adaptativo~~ (DESCARTADA)",
-      "state": "proposed",
-      "group": "PCV",
-      "desc": "Tipo de valor: precision del gate y reduccion de falsos positivos. Analisis: [[docs/HRV/PCV-07 SWC configurable o adaptativo.md]]"
     },
     {
       "id": "AP-01",
@@ -798,60 +776,11 @@
       "desc": "Recuperar en v4 la capacidad de analysis para obtener RR de sesiones de entrenamiento con paridad funcional respecto a v3. Regla de migracion: ninguna capacidad operativa util se pierde al pasar a v4; F6 queda bloqueada hasta cerrar esta paridad.\n [[Plan AYO-24 — AYO-13-F5.4 Paridad funcional v3→v4 en analysis y RR de sesion]]]"
     },
     {
-      "id": "IU-01",
-      "title": "~~Validar state OAuth y endurecer callbacks web~~ (DESCARTADA)",
-      "state": "proposed",
-      "group": "IU",
-      "desc": "Cerrar huecos reales del flujo OAuth web: persistir y validar state, endurecer /auth/callback y /oauth/callback, evitar interpolacion insegura de errores y revisar que el flujo productivo solo exponga la superficie minima necesaria. Alcance: seguridad operativa web, no refactor arquitectonico general del cliente Polar.\n\nNota de desarrollo: [[docs/HRV/IU-01 Validar state OAuth y endurecer callbacks web]]",
-      "notes": [
-        {
-          "at": "2026-11-06T11:55:39Z",
-          "by": "claude-code",
-          "text": "Descartada 2026-11-06: el state OAuth ya tiene TTL y es de un solo uso (web_ui.py _issue_oauth_state/_consume_oauth_state). Lo que faltaba (state ligado al navegador, sin clave en URL) queda en CAF-04."
-        }
-      ]
-    },
-    {
-      "id": "IU-02",
-      "title": "~~Implementar refresh token Polar operativo~~ (DESCARTADA)",
-      "state": "proposed",
-      "group": "IU",
-      "desc": "Implementar refresh token real para el flujo Polar y para consumidores internos que hoy invalidan tokens expirados. Objetivo: evitar degradacion funcional por expiracion, unificar ciclo de refresh/persistencia y mantener trazabilidad sin exponer secretos. Alcance: flujo operativo, no cambio de contrato HRV.\n\nNota de desarrollo: [[docs/HRV/IU-02 Implementar refresh token Polar operativo]]",
-      "notes": [
-        {
-          "at": "2026-11-06T11:55:40Z",
-          "by": "claude-code",
-          "text": "Descartada 2026-11-06: refresh implementado en v4 (polar_auth_v4.refresh_access_token_v4, bundle_needs_refresh); cubierto por AYO-18/AYO-13."
-        }
-      ]
-    },
-    {
-      "id": "IU-03",
-      "title": "~~Escritura atomica de ENDURANCE_HRV_sleep.csv~~ (DESCARTADA)",
-      "state": "proposed",
-      "group": "IU",
-      "desc": "Sustituir la escritura directa de ENDURANCE_HRV_sleep.csv por persistencia atomica con reemplazo seguro, alineada con el patron ya usado en tokens y outputs de sesiones. Objetivo: reducir riesgo de corrupcion o truncado ante fallo, timeout o cierre del proceso.\n\nNota de desarrollo: [[docs/HRV/IU-03 Escritura atomica de ENDURANCE_HRV_sleep.csv]]",
-      "notes": [
-        {
-          "at": "2026-11-06T11:55:41Z",
-          "by": "claude-code",
-          "text": "Descartada 2026-11-06: sleep_store.py ya escribe con write_csv_atomic."
-        }
-      ]
-    },
-    {
       "id": "IU-04",
       "title": "Reducir exposicion de /api/status",
       "state": "proposed",
       "group": "IU",
       "desc": "Revisar /api/status para dejar solo diagnostico operativo estrictamente necesario. Quitar paths sensibles, detalles internos innecesarios y senales que ayuden a fingerprinting del entorno. Mantener utilidad para troubleshooting sin convertir el endpoint en inventario interno del sistema.\n\nNota de desarrollo: [[docs/HRV/IU-04 Reducir exposicion de api status]]"
-    },
-    {
-      "id": "IU-05",
-      "title": "Eliminar errores silenciosos y sanear errores OAuth",
-      "state": "proposed",
-      "group": "IU",
-      "desc": "Retirar except/pass en diagnosticos y revisar propagacion de errores OAuth para no filtrar cuerpos remotos ni perder trazabilidad local. Objetivo: logs utiles sin secretos ni HTML inseguro, y fallos observables cuando un CSV o callback se rompe.\n\nNota de desarrollo: [[docs/HRV/IU-05 Eliminar errores silenciosos y sanear errores OAuth]]"
     },
     {
       "id": "IU-06",
@@ -880,20 +809,6 @@
       "state": "proposed",
       "group": "IU",
       "desc": "Mantener HR@0.75 como descriptor secundario cuando sea usable, pero bajar su peso en tablas, warnings y narracion. Objetivo: no sobrerrepresentar una senal de utilidad irregular ni forzar lectura de umbral fino cuando la calidad DFA/modelo no la sostiene.\n\nNota de desarrollo: [[docs/HRV/IU-09 Rebajar protagonismo de HR@0.75 en la narrativa]]"
-    },
-    {
-      "id": "IU-10",
-      "title": "~~Endurecer runtime web de despliegue~~ (DESCARTADA)",
-      "state": "proposed",
-      "group": "IU",
-      "desc": "Revisar hardening minimo del runtime web: estrategia de arranque mas robusta que python web_ui.py si procede, .dockerignore y coherencia documental de timeout/runtime. No toca logica HRV; es limpieza operativa para reducir fragilidad de despliegue y desalineacion entre codigo y docs.\n\nNota de desarrollo: [[docs/HRV/IU-10 Endurecer runtime web de despliegue]]",
-      "notes": [
-        {
-          "at": "2026-11-06T11:55:41Z",
-          "by": "claude-code",
-          "text": "Descartada 2026-11-06: absorbida por CAF-05 (seccion Absorcion de IU-10). El .dockerignore pendiente debe recogerse en CAF-05."
-        }
-      ]
     },
     {
       "id": "IU-14",
@@ -1222,10 +1137,47 @@
     },
     {
       "id": "CAF-07",
-      "title": "RetenciÃ³n y capacidad de backups",
-      "state": "proposed",
+      "title": "Retención y capacidad de backups",
+      "state": "review",
       "group": "CAF",
-      "desc": "ImplementaciÃ³n y criterios en docs/HRV/CORE_AUDIT_FIX_07_BACKUP_RETENTION.md. Medir capacidad, aplicar pruning seguro y alertar antes de agotar el volumen.\n[[CORE_AUDIT_FIX_07_BACKUP_RETENTION]]"
+      "desc": "Conservar solo las últimas N copias locales de CORE y BETA_AUDIT (N configurable, p. ej. 10) para acotar el espacio en el volumen sin perder la vuelta atrás manual de las últimas ejecuciones. Terminada cuando el core poda las copias antiguas en cada ejecución, con tests y documentación. Prioridad media. Detalle en [[CORE_AUDIT_FIX_07_BACKUP_RETENTION]]",
+      "notes": [
+        {
+          "at": "2026-11-12T12:31:10Z",
+          "by": "claude-code",
+          "text": "2026-11-12: la premisa del reencuadre de julio («/data se borra en cada redeploy») era un síntoma: la app no podía escribir en el volumen y usaba /app/data. Con RAILWAY_RUN_UID=0 el volumen de 500 MB persiste, así que los CORE_backup_* se acumulan y pueden llenarlo. Prioridad operativa alta. Reencuadre añadido a la nota de desarrollo."
+        },
+        {
+          "at": "2026-11-12T13:33:23Z",
+          "by": "claude-code",
+          "text": "Reencuadre 2026-11-12: retención de las últimas N copias en vez de retirarlas, porque el backup de Dropbox sobrescribe y las copias locales son la única versión previa. Prioridad media: unos 130 MB/año en un volumen de 500 MB; corrige la nota anterior que la daba como alta."
+        },
+        {
+          "at": "2026-11-12T14:39:11Z",
+          "by": "agent",
+          "text": "Plan: añadir retención configurable de copias CORE/BETA_AUDIT al builder, cobertura focalizada y documentación operativa; mantener la copia previa a la ejecución y hacer best-effort los fallos de poda."
+        },
+        {
+          "at": "2026-11-12T14:42:03Z",
+          "by": "agent",
+          "text": "Implementado retention configurable: 10 copias fechadas por tipo por defecto; HRV_CORE_BACKUP_RETENTION=0 desactiva la copia y HRV_DISABLE_BACKUP=1 sigue siendo el interruptor global. La poda va después de tomar el snapshot y fallar al borrar solo produce WARN. Documentadas ambas variables en AGENTS.MD, CLAUDE.md, GUIA_PYTHON_SCRIPTS.md y PROCEDIMIENTO_RECOMENDADO.md. Verificación: 16 tests focalizados pasan; git diff --check y kanvas check OK; suite completa no ejecutada. Revisar si 10 copias por tipo es la política deseada."
+        },
+        {
+          "at": "2026-11-12T14:58:25Z",
+          "by": "codex",
+          "text": "Corregidos los hallazgos de la revisión: la poda solo cuenta archivos con nombre fechado y reserva una plaza por tipo a la copia recién creada, incluso si el reloj retrocede. Los valores negativos avisan y usan 10. Documentación actualizada; 18 pruebas focalizadas pasan y git diff --check correcto. No se ejecutó la poda sobre los datos reales."
+        },
+        {
+          "at": "2026-11-12T15:07:53Z",
+          "by": "codex",
+          "text": "Corregido el fallo de la segunda revisión: si listar o inspeccionar las copias de un tipo devuelve OSError, la poda avisa y pasa al otro tipo sin abortar CORE. La prueba reproduce PermissionError y verifica que se conservan las copias CORE y se poda BETA_AUDIT. Documentación actualizada, 19 pruebas focalizadas y diff --check correctos."
+        },
+        {
+          "at": "2026-11-12T15:35:43Z",
+          "by": "codex",
+          "text": "Ajuste de revisión: default de retención elevado a 30 y documentado; test renombrado a thirty, eliminado parche QUIET. Test de main() cubre retención positiva (incluye current_copies), 0 y HRV_DISABLE_BACKUP. Eliminado is_file; se conserva el manejo de error de glob por tipo. Referencia/cifras históricas del informe precisadas. 19 tests focalizados pasan; diff --check correcto."
+        }
+      ]
     },
     {
       "id": "IU-21",
@@ -1378,7 +1330,19 @@
       "group": "FLE",
       "at": "2026-11-10T11:44:40Z",
       "by": "codex",
-      "desc": "Comprobar protección efectiva, persistencia en el volumen y destino Dropbox por entorno. Coordinar los cambios de runtime con las tareas CAF existentes.\n\n[[docs/HRV/FLE-02 Verificar la configuracion operativa de Railway.md|Descripción y desarrollo]]"
+      "desc": "Comprobar protección efectiva, persistencia en el volumen y destino Dropbox por entorno. Coordinar los cambios de runtime con las tareas CAF existentes.\n\n[[docs/HRV/FLE-02 Verificar la configuracion operativa de Railway.md|Descripción y desarrollo]]",
+      "notes": [
+        {
+          "at": "2026-11-11T22:57:10Z",
+          "by": "claude-code",
+          "text": "Causa encontrada y corregida en Railway (2026-11-11), con variables y sin cambios de código:\n- El volumen ya estaba montado en /data, pero la app no podía escribir en él: el Dockerfile arranca con USER app y Railway monta el volumen como root. config.py pasaba sin avisar a /app/data, que es efímero. /api/status mostraba core_path=/app/data/... Por eso había que restaurar tras cada redeploy.\n- Arreglado con RAILWAY_RUN_UID=0, según la documentación de Railway sobre volúmenes. El atleta confirma que ya funciona.\n- Además: faltaba POLAR_TOKEN_PATH_V4 (el token iba a /app/.polar_tokens_v4.json; solo existía la variable v3 POLAR_TOKEN_PATH, que no se usa) y RR_DOWNLOAD_DIR contenía una comilla literal (\"/data/rr).\nPendiente de código: avisar o fallar en producción si HRV_DATA_DIR no admite escritura, en lugar de cambiar de carpeta en silencio; rechazar comillas en las rutas de las variables; alinear Dockerfile (USER app) y railway.json (NIXPACKS) con lo que realmente se ejecuta."
+        },
+        {
+          "at": "2026-11-12T12:31:09Z",
+          "by": "claude-code",
+          "text": "2026-11-12: HRV_UI_KEY no está definida en Railway; /api/* es anónimo en la URL pública. Definirla es el primer paso pendiente (solo configuración). Documentación operativa actualizada con RAILWAY_RUN_UID=0, POLAR_TOKEN_PATH_V4 y rutas sin comillas. Estado detallado en la nota de desarrollo, sección «Estado (2026-11-12)»."
+        }
+      ]
     },
     {
       "id": "FLE-03",
@@ -1563,6 +1527,51 @@
       "at": "2026-11-11T17:59:47Z",
       "by": "codex",
       "desc": "Resolver si conservar la marca temporal actual del latido, refinar el ápice o usar el RR del sensor. Terminado cuando unas capturas simultáneas adicionales, incluida alguna de señal imperfecta si el atleta las realiza, se contrastan con criterios fijados previamente, se repite el replay aislado de Calidad, gate y acción y se documenta una decisión trazable. Puede cerrarse conservando el método vigente si la evidencia sigue siendo insuficiente. Evidencia en research/reports/revision_mejoras_2026-11/05_sintesis.md, §8."
+    },
+    {
+      "id": "G-01",
+      "title": "Orden Ejecución",
+      "state": "todo",
+      "at": "2026-11-12T12:22:51Z",
+      "by": "human",
+      "desc": "#\tTarea\tPor qué ahí\n1. Funcionamiento y datos\t\t\n1\tCAF-07 Retención de backups\tSube por lo de ayer. Ahora que /data persiste, cada sync deja una copia CORE_backup_* en el volumen de 500 MB. En local ya son 111 copias y 57 MB. Si el volumen se llena, los syncs fallarán. Es el riesgo más cercano\n2\tFLE-02 Acceso, token y backup en Railway\tLa configuración ya está resuelta. Queda el código para que un /data sin escritura no vuelva a pasar en silencio, más la parte de acceso (ver nivel 2)\n3\tFLE-03 Sueño sin RR nuevos\tSi sincronizas sin ECG en Dropbox, el sync corta antes de actualizar el sueño. Es un fallo reproducido\n4\tFLE-10 Duplicados de RR\tDecide qué grabación entra en el gate cuando hay dos el mismo día. Pasa en 11 de 228 fechas\n5\tFLE-04, FLE-09\tHistóricos de sesiones vacíos o sueño retirado por un error de lectura. No ha ocurrido, pero el fallo sería silencioso\n6\tFLE-07 Cola de estabilidad\tLatente: solo afecta a una grabación cortada\n7\tCAF-05 Servidor WSGI\tAhora se usa el servidor de desarrollo de Flask y los builders no tienen timeout. No consta ningún fallo\n2. Seguridad\t\t\n8\tCAF-04 Frontera de propietario OAuth y API\tCon la clave definida, /api/* está protegido, pero / y /auth quedan abiertos y la clave puede ir en la URL. Sin la clave, cualquiera puede borrar RR o restaurar. Absorbe IU-04\n3. Decisión de la mañana\t\t\n9\tRME-02 «Qué hacer» coherente con la acción\tContradice la acción en los ROJO y en 16 días VERDE con dato dudoso\n10\tFLE-08 Contexto de carga\t«Carga no disponible» cuando sí la hay, unas 4 mañanas al mes\n11\tRME-07 (+FLE-13) Temporización ECG\tPuede cambiar 11 de 237 gates, pero solo avanza si grabas el RR del sensor en paralelo\n4. Mantenimiento\t\t\n12\tRME-04, RME-05\tLa suite falla en una copia limpia: 2 tests\n13\tFLE-06\tFijar dependencias. Producción usa 3.11 y en local tienes 3.12\n14\tFLE-14 (+FLE-11, textos de FLE-12)\tDocumentación y restos de la v3, incluida la variable POLAR_TOKEN_PATH\n15\tAYO-12\tRevisión de tests sin ningún problema concreto detrás\n5. Investigación o fuera de la mañana\t\t\n16\tIU-06, RME-06\tValidar el gate. Depende de que retomes el registro subjetivo\n17\tFLE-12, HG-07\tSSM en sombra y reconstrucción RR: no afectan a la decisión\n18\tIU-08, IU-09, SYA-18, FP-04 (en review)\tAnálisis de sesiones, en pausa por la lesión\n19\tAYO-15, AYO-27\tCapacidades nuevas (MCP, ChatGPT)\n—\tHG-01, IU-07\tObsoletas según el triaje: rechazar o retirar"
+    },
+    {
+      "id": "RME-08",
+      "title": "Retirar las páginas de respaldo escritas en Python",
+      "state": "proposed",
+      "group": "RME",
+      "deps": ["RME-05"],
+      "at": "2026-11-12T15:33:46Z",
+      "by": "claude-code",
+      "desc": "La pantalla principal y las dos páginas de OAuth existen una sola vez, en templates/. Hoy web_ui.py guarda además una copia HTML de cada una por si falta la plantilla, y cada cambio visual hay que repetirlo ahí. Esas plantillas sí están en git, así que el respaldo no protege nada una vez resuelta la fuente de textos. Se da por terminada cuando desaparecen las tres copias y sus bloques de captura, una plantilla ausente produce un error visible en el log, y la pantalla principal y el flujo OAuth se comprueban en una copia limpia del repositorio."
+    },
+    {
+      "id": "RME-09",
+      "title": "Definir cada campo de la tarjeta HRV en un solo sitio",
+      "state": "proposed",
+      "group": "RME",
+      "at": "2026-11-12T15:33:46Z",
+      "by": "claude-code",
+      "desc": "Añadir o mover un dato de «Lectura HRV de hoy» pasa a tocar el viewmodel y una línea de HTML. Hoy la tarjeta se pinta al abrir (plantilla) y se repinta campo a campo al refrescar (ui.js, con un mapa de 20 referencias), de modo que cada campo se declara tres veces. La plantilla marca cada campo con un atributo y un bucle genérico de JS lo actualiza desde /api/status.view; sin dependencias nuevas ni endpoints nuevos. Se da por terminada cuando la tarjeta muestra lo mismo al abrir y tras refrescar en los tres casos (con datos, sin FINAL, con aviso de calidad o estabilidad) y ui.js ya no nombra campos concretos de la tarjeta."
+    },
+    {
+      "id": "RME-10",
+      "title": "Cabecera común de las páginas y arranque del sondeo por código 202",
+      "state": "proposed",
+      "group": "RME",
+      "at": "2026-11-12T15:33:46Z",
+      "by": "claude-code",
+      "desc": "Dos arreglos pequeños de la UI. 1) Las tres páginas comparten una plantilla base en lugar de repetir la cabecera. 2) Tras pulsar sincronizar, la UI decide si espera al job por el código 202 que ya devuelve el servidor, y no buscando la palabra «iniciada» en el mensaje; hoy cambiar ese texto deja la pantalla sin seguimiento del job. Se da por terminada cuando las tres páginas se ven igual que antes y ambas sincronizaciones siguen mostrando progreso y resultado."
+    },
+    {
+      "id": "RME-11",
+      "title": "Decidir si /api/status deja de publicar las claves hrv_summary_*",
+      "state": "proposed",
+      "group": "RME",
+      "at": "2026-11-12T15:33:46Z",
+      "by": "claude-code",
+      "desc": "Decisión tuya antes de tocar nada. /api/status publica el resumen HRV dos veces: en view (lo que usa la pantalla) y en diagnostics como claves planas hrv_summary_*, que se conservaron a propósito por compatibilidad y hoy solo leen los tests. Mantenerlas obliga a calcular dos veces los mismos textos, con formatos que ya difieren. Retirarlas cambia el contenido de /api/status y exige actualizar GUIA_PYTHON_SCRIPTS.md y los tests. Se da por terminada cuando queda anotada la decisión; si es retirarlas, cuando view es la única fuente y la guía lo refleja."
     }
   ]
 }

@@ -1863,7 +1863,7 @@ function layoutIn(tasks, b, { vertical, levelGap, compactLanes = true, manual = 
   // This is deliberately limited to isolated cards: moving a connected card would make the
   // left-to-right (or top-to-bottom) dependency order misleading. Connected cards reserve
   // their current grid cell; the remaining cards fill the gaps, row by row.
-  if (compactLanes) {
+  if (false && compactLanes) {
     const along = (p) => vertical ? p.y : p.x, across = (p) => vertical ? p.x : p.y;
     for (const l of lanes) {
       const cards = tasks.filter((t) => laneOfTask(t) === l).map((t) => key(t.id));
@@ -1890,6 +1890,20 @@ function layoutIn(tasks, b, { vertical, levelGap, compactLanes = true, manual = 
       }
     }
 
+    // A folded "done" stub is an actual card in the first cell of its lane.
+    // Reserve a band below it for every open task in that lane; otherwise the
+    // first packed row is rendered behind the stub.
+    for (const s of stubs) {
+      const l = lanes.find((lane) => lane.id === s.group);
+      if (!l) continue;
+      const reserve = STUB + GAP_Y;
+      for (const t of tasks) if (laneOfTask(t) === l) {
+        const p = pos.get(key(t.id));
+        if (vertical) p.x += reserve; else p.y += reserve;
+      }
+      for (const [k, lane] of laneOf) if (lane === l && k !== s.key) center.set(k, center.get(k) + reserve);
+    }
+
     // A final geometric guard uses the actual card rectangles, rather than grid
     // coordinates alone. It protects cards with no visible edges when a reserved
     // connected card sits between two packed rows.
@@ -1911,6 +1925,38 @@ function layoutIn(tasks, b, { vertical, levelGap, compactLanes = true, manual = 
             changed = true;
           }
         }
+      }
+    }
+  }
+
+  // Compact mode is a fresh per-lane grid, not a post-processing shift of the
+  // dependency layout. The folded-done stub reserves its first cell, every open
+  // task gets exactly one cell, and local dependencies are kept to the right.
+  if (compactLanes) {
+    for (const l of lanes) {
+      const cards = tasks.filter((t) => laneOfTask(t) === l).map((t) => key(t.id));
+      if (!cards.length) continue;
+      const localDepth = Math.max(0, ...cards.map((k) => {
+        const depths = up.get(k).filter((d) => laneOf.get(d) === l).map((d) => depthOf.get(d) + 1);
+        return depths.length ? Math.max(...depths) : 0;
+      }));
+      const cols = Math.max(2, localDepth + 1);
+      const occupied = new Set();
+      if (stubs.some((s) => s.group === l.id)) occupied.add("0:0");
+      const placed = new Map();
+      const ordered = [...cards].sort((a, c) => depthOf.get(a) - depthOf.get(c) || a.localeCompare(c));
+      for (const k of ordered) {
+        const deps = up.get(k).filter((d) => laneOf.get(d) === l && placed.has(d));
+        const minCol = deps.length ? Math.min(cols - 1, Math.max(...deps.map((d) => placed.get(d).col + 1))) : 0;
+        let row = 0, col = minCol;
+        while (true) {
+          col = Array.from({ length: cols - minCol }, (_, i) => minCol + i).find((c) => !occupied.has(`${c}:${row}`));
+          if (col !== undefined) break;
+          row++;
+        }
+        occupied.add(`${col}:${row}`);
+        placed.set(k, { col, row });
+        pos.set(k, P(colStart(col), l.base + row * (CA + GAP_Y)));
       }
     }
   }
@@ -1947,7 +1993,7 @@ function layoutIn(tasks, b, { vertical, levelGap, compactLanes = true, manual = 
   const height = vertical ? (lanes.length ? LANE_HEAD + depthSpan + LANE_PAD : 0) : packedStacked;
 
   const line = (a, c) => [a, { x: a.x + (c.x - a.x) / 3, y: a.y + (c.y - a.y) / 3 }, { x: a.x + (c.x - a.x) * 2 / 3, y: a.y + (c.y - a.y) * 2 / 3 }, c];
-  const edges = chains.map(({ from, to, via }) => {
+  const edges = (compactLanes ? chains.map(({ from, to }) => ({ from, to, segs: [edgeCurve(outPort(pos.get(from), vertical), inPort(pos.get(to), vertical), vertical, 36, ARROW)] })) : chains.map(({ from, to, via }) => {
     const first = via[0] || to, last = via[via.length - 1] || from;
     let prev = P(colStart(depthOf.get(from)) + CL, center.get(from) + outOff.get(from).get(first));
     const segs = [];
@@ -1958,7 +2004,7 @@ function layoutIn(tasks, b, { vertical, levelGap, compactLanes = true, manual = 
     }
     segs.push(edgeCurve(prev, P(colStart(depthOf.get(to)), center.get(to) + inOff.get(to).get(last)), vertical, 36, ARROW));
     return { from, to, segs };
-  });
+  }));
   for (const k of implied) {
     const [from, to] = k.split(">");
     edges.push({ from, to, implied: true, segs: [edgeCurve(outPort(pos.get(from), vertical), inPort(pos.get(to), vertical), vertical, 36, ARROW)] });

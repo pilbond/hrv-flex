@@ -1,5 +1,6 @@
 import json
 import unittest
+from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -9,6 +10,87 @@ import build_hrv_core as core_builder
 
 class BuildHrvCoreContractTests(unittest.TestCase):
     _GLOBAL_ATTRS = ("DATA_DIR", "OUT_CORE", "OUT_BETA_AUDIT", "OUT_CORE_MANIFEST")
+
+    def test_backup_retention_defaults_to_thirty_and_accepts_zero(self):
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(core_builder.core_backup_retention(), 30)
+        with patch.dict("os.environ", {"HRV_CORE_BACKUP_RETENTION": "0"}, clear=True):
+            self.assertEqual(core_builder.core_backup_retention(), 0)
+
+    def test_invalid_backup_retention_warns_and_uses_default(self):
+        with (
+            patch.dict("os.environ", {"HRV_CORE_BACKUP_RETENTION": "abc"}),
+            patch("sys.stderr", new_callable=StringIO) as stderr,
+        ):
+            self.assertEqual(core_builder.core_backup_retention(), 30)
+            self.assertIn("[WARN] HRV_CORE_BACKUP_RETENTION", stderr.getvalue())
+
+    def test_prune_core_backups_keeps_latest_n_per_type(self):
+        with TemporaryDirectory() as tmpdir:
+            backup_dir = Path(tmpdir)
+            for prefix in ("CORE", "BETA_AUDIT"):
+                for stamp in ("20260101_000000", "20260102_000000", "20260103_000000"):
+                    (backup_dir / f"{prefix}_backup_{stamp}.csv").write_text("x", encoding="utf-8")
+
+            core_builder.prune_core_backups(backup_dir, 2)
+
+            self.assertEqual(len(list(backup_dir.glob("CORE_backup_*.csv"))), 2)
+            self.assertEqual(len(list(backup_dir.glob("BETA_AUDIT_backup_*.csv"))), 2)
+            self.assertFalse((backup_dir / "CORE_backup_20260101_000000.csv").exists())
+            self.assertTrue((backup_dir / "CORE_backup_20260103_000000.csv").exists())
+
+    def test_prune_failure_does_not_raise(self):
+        with TemporaryDirectory() as tmpdir:
+            backup_dir = Path(tmpdir)
+            old_path = backup_dir / "CORE_backup_20260101_000000.csv"
+            old_path.write_text("x", encoding="utf-8")
+            (backup_dir / "CORE_backup_20260102_000000.csv").write_text("x", encoding="utf-8")
+            with patch.object(Path, "unlink", side_effect=OSError("locked")):
+                core_builder.prune_core_backups(backup_dir, 1)
+
+    def test_prune_skips_only_the_type_with_a_listing_error(self):
+        with TemporaryDirectory() as tmpdir:
+            backup_dir = Path(tmpdir)
+            core_old, core_new, beta_old, beta_new = (
+                backup_dir / f"{prefix}_backup_20260101_{stamp}.csv"
+                for prefix in ("CORE", "BETA_AUDIT")
+                for stamp in ("110000", "120000")
+            )
+            for path in (core_old, core_new, beta_old, beta_new):
+                path.touch()
+
+            glob = Path.glob
+            def listing_error(path, pattern):
+                if path == backup_dir and pattern.startswith("CORE_"):
+                    raise PermissionError("listing denied")
+                return glob(path, pattern)
+            with (
+                patch.object(Path, "glob", listing_error),
+                patch("sys.stderr", new_callable=StringIO) as stderr,
+            ):
+                core_builder.prune_core_backups(backup_dir, 1)
+
+            self.assertEqual(set(backup_dir.iterdir()), {core_old, core_new, beta_new})
+            self.assertIn("[WARN] No se pudo inspeccionar los backups de CORE", stderr.getvalue())
+
+    def test_prune_protects_current_copy_after_clock_rollback_and_ignores_manual_copies(self):
+        with TemporaryDirectory() as tmpdir:
+            backup_dir = Path(tmpdir)
+            current_copies = tuple(
+                backup_dir / f"{prefix}_backup_20260101_110000.csv"
+                for prefix in ("CORE", "BETA_AUDIT")
+            )
+            manual_copy = backup_dir / "CORE_backup_manual.csv"
+            prior_copies = tuple(
+                backup_dir / f"{prefix}_backup_20260101_120000.csv"
+                for prefix in ("CORE", "BETA_AUDIT")
+            )
+            for path in (*current_copies, *prior_copies, manual_copy):
+                path.touch()
+
+            core_builder.prune_core_backups(backup_dir, 1, current_copies=current_copies)
+
+            self.assertEqual(set(backup_dir.iterdir()), {*current_copies, manual_copy})
 
     def test_main_writes_core_manifest_json(self):
         rr_row = "duration,offline\n1000,0\n1010,0\n"
@@ -29,7 +111,7 @@ class BuildHrvCoreContractTests(unittest.TestCase):
             "SD1": 10.0,
             "SD2": 20.0,
             "SD1_SD2_ratio": 0.5,
-            "Notes": "",
+            "Notes": f"geom={core_builder.CONSTANTS['GEOMETRY_VERSION']}",
         }
         beta_row = {
             "Fecha": "2026-02-08",
@@ -87,6 +169,36 @@ class BuildHrvCoreContractTests(unittest.TestCase):
                 self.assertEqual(manifest["outputs"][1]["role"], "beta_audit")
                 self.assertIn("effective_config_hash", manifest)
                 self.assertEqual(manifest["effective_config"]["constants"]["TAIL_TRIM_S"], 15.0)
+
+                backup_dir = data_dir / "backup"
+                with (
+                    patch.dict("os.environ", {"HRV_CORE_BACKUP_RETENTION": "3"}),
+                    patch.object(core_builder.sys, "argv", [
+                        "build_hrv_core.py", "--data-dir", str(data_dir), "--rr-file", str(rr_path)
+                    ]),
+                    patch.object(core_builder, "compute_day_from_rr", return_value=(core_row, beta_row)),
+                    patch.object(core_builder, "prune_core_backups", wraps=core_builder.prune_core_backups) as prune,
+                ):
+                    self.assertEqual(core_builder.main(), 0)
+                self.assertEqual(len(list(backup_dir.glob("CORE_backup_*.csv"))), 1)
+                self.assertEqual(len(list(backup_dir.glob("BETA_AUDIT_backup_*.csv"))), 1)
+                kwargs = prune.call_args.kwargs
+                self.assertEqual(len(kwargs["current_copies"]), 2)
+
+                for env in (
+                    {"HRV_CORE_BACKUP_RETENTION": "0"},
+                    {"HRV_DISABLE_BACKUP": "1"},
+                ):
+                    with (
+                        patch.dict("os.environ", env, clear=True),
+                        patch.object(core_builder.sys, "argv", [
+                            "build_hrv_core.py", "--data-dir", str(data_dir), "--rr-file", str(rr_path)
+                        ]),
+                        patch.object(core_builder, "compute_day_from_rr", return_value=(core_row, beta_row)),
+                    ):
+                        self.assertEqual(core_builder.main(), 0)
+                    self.assertEqual(len(list(backup_dir.glob("CORE_backup_*.csv"))), 1)
+                    self.assertEqual(len(list(backup_dir.glob("BETA_AUDIT_backup_*.csv"))), 1)
         finally:
             for attr, value in saved.items():
                 setattr(core_builder, attr, value)

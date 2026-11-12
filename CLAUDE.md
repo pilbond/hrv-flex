@@ -222,7 +222,7 @@ Si no hay variables de entorno:
 ```
 HRV_DATA_DIR = data
 RR_DOWNLOAD_DIR = data/rr_downloads
-POLAR_TOKEN_PATH = .polar_tokens.json
+POLAR_TOKEN_PATH_V4 = .polar_tokens_v4.json   # relativo al directorio de trabajo
 ```
 
 Datos operativos:
@@ -244,7 +244,8 @@ Datos operativos:
 ### Muy recomendadas
 ```
 PUBLIC_URL=https://tu-app.up.railway.app
-POLAR_TOKEN_PATH=/data/polar_tokens.json
+POLAR_TOKEN_PATH_V4=/data/polar_tokens_v4.json    # POLAR_TOKEN_PATH es v3 y no se usa
+RAILWAY_RUN_UID=0                                 # Railway: necesario para escribir en el volumen
 HRV_DATA_DIR=/data
 RR_DOWNLOAD_DIR=/data/rr_downloads
 INTERVALS_API_KEY=<key>
@@ -254,9 +255,10 @@ INTERVALS_ATHLETE_ID=<id>
 ### Operativas
 ```
 HRV_QUIET=1                          # logs mínimos
-HRV_DISABLE_BACKUP=1                 # no respaldar CSVs
+HRV_DISABLE_BACKUP=1                 # desactivar copias locales CORE/BETA_AUDIT
+HRV_CORE_BACKUP_RETENTION=30         # copias locales por tipo (0 = desactivadas)
 HRV_SYNC_TIMEOUT_SEC=300             # timeout sync
-HRV_UI_KEY=<clave>                   # opcional: protege /api/* (header X-HRV-KEY o ?key=); sin definir = sin auth
+HRV_UI_KEY=<clave>                   # protege /api/* (header X-HRV-KEY o ?key=); sin definir = sin auth. Recomendada en Railway; PENDIENTE: aún no definida en el despliegue
 HRV_STALE_MAX_DAYS=3                 # umbral de /health?strict=1 (503 si FINAL más viejo o ausente)
 HRV_BACKUP_DROPBOX_ENABLED=1         # opcional: backup de ENDURANCE_HRV_* y data/ai_briefs a Dropbox (overwrite) tras sync exitoso
 HRV_BACKUP_DROPBOX_PATH=/hrv_backups # carpeta del backup en Dropbox
@@ -318,17 +320,23 @@ Ambos briefs son opt-in con fallback determinista garantizado: cualquier fallo d
 ### Setup de volumen Railway
 ```
 /data (montado en el contenedor)
-├── polar_tokens.json      # tokens Polar (atómicos)
+├── polar_tokens_v4.json   # tokens Polar (atómicos)
 ├── ENDURANCE_HRV_*.csv
 └── rr_downloads/
 ```
+
+Requisitos para que `/data` persista entre redeploys:
+- `RAILWAY_RUN_UID=0`: el `Dockerfile` ejecuta con un usuario sin privilegios y Railway monta el volumen como root. Sin esta variable la app no puede escribir en `/data` y pasa sin aviso a `./data` dentro del contenedor (efímero)
+- `POLAR_TOKEN_PATH_V4=/data/polar_tokens_v4.json`; sin ella el token vive en el directorio de trabajo del contenedor y se pierde en cada redeploy
+- Rutas sin comillas literales en el valor de las variables
+- Comprobación: en `/api/status`, `core_path`, `final_path`, `token_path` y `rr_download_dir` empiezan por `/data/`
 
 ### Flujo OAuth esperado
 1. Usuario abre `GET /auth`
 2. Backend redirige a Polar AccessLink
 3. Polar redirige a `/auth/callback` o `/oauth/callback`
 4. Backend intercambia `code` → tokens
-5. Persist atómico en `POLAR_TOKEN_PATH`
+5. Persist atómico en `POLAR_TOKEN_PATH_V4`
 
 **Reglas:**
 - Escribir tokens **atomicamente**
@@ -374,9 +382,9 @@ GET  /health
 ## Criterios de Aceptación
 
 1. `/auth` devuelve 302 a Polar con `redirect_uri` correcto
-2. `/auth/callback` guarda tokens en `POLAR_TOKEN_PATH` atomicamente
+2. `/auth/callback` guarda tokens en `POLAR_TOKEN_PATH_V4` atomicamente
 3. `POST /api/sync` genera o actualiza `CORE`, `BETA_AUDIT`, `sleep`, `FINAL`, `DASHBOARD`
-4. Tras redeploy, `/api/sync` sigue funcionando (volumen persistente)
+4. Tras redeploy, `/api/sync` sigue funcionando sin restaurar ni reautorizar (volumen con escritura y token en `/data`)
 5. Logs útiles, sin secretos
 6. RR se almacenan y leen desde `data/rr_downloads/`
 7. Cobertura RR: **Dropbox es la única fuente de nuevos RR matinales**; si una fecha nueva no está en Dropbox, no entra a `CORE` en ese ciclo (sin fallback Polar)

@@ -17,6 +17,7 @@ Flujo operativo normal (Railway o UI local):
 
 Importante:
 - El comando principal no cambia: `python polar_hrv_automation.py --process`.
+- `build_hrv_core.py` conserva por defecto las 30 copias locales fechadas más recientes de CORE y BETA_AUDIT por tipo (`HRV_CORE_BACKUP_RETENTION`); usa `0` para desactivarlas. `HRV_DISABLE_BACKUP=1` sigue desactivando todas las copias. Un error al podar se avisa y no interrumpe el builder.
 - `polar_hrv_automation.py` ya no concentra toda la logica operativa; hoy actua como entrypoint fino.
 - `build_sessions.py` no se ejecuta automaticamente en ese flujo.
 - `build_hrv_final_dashboard.py` usa `ENDURANCE_HRV_sessions_day.csv` solo si ya existe.
