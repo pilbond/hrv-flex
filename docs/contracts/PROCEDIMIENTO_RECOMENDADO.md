@@ -66,7 +66,7 @@ Si usas la Web UI, basta con presionar "Sincronizar".
 | `POST` | `/api/delete-latest-rr` | Elimina el último RR ingerido |
 | `GET` | `/health` | Health check (`?strict=1` para validar frescura de FINAL) |
 
-Todos los endpoints POST comparten estado y no deben ejecutarse en paralelo. Si `HRV_UI_KEY` está definida, los `/api/*` exigen la clave vía header `X-HRV-KEY` o `?key=`.
+Todos los endpoints POST comparten estado y no deben ejecutarse en paralelo. Si `HRV_UI_KEY` está definida, los `/api/*` exigen la clave vía header `X-HRV-KEY`.
 
 ## Variables recomendadas
 Local:
@@ -77,9 +77,10 @@ Railway (con Volume en `/data`):
 - `HRV_DATA_DIR=/data`
 - `RR_DOWNLOAD_DIR=/data/rr_downloads`
 - `POLAR_TOKEN_PATH_V4=/data/polar_tokens_v4.json`
-- `RAILWAY_RUN_UID=0` (el Dockerfile ejecuta sin root y el volumen se monta como root; sin ella la app escribe en `./data` dentro del contenedor y los datos y el token se pierden en cada redeploy)
+- `RAILWAY_RUN_UID=0` (el Dockerfile ejecuta sin root y el volumen se monta como root; sin ella `/data` no admite escritura y la app falla al arrancar; en producción no hay fallback a una carpeta efímera)
+- En Railway, `HRV_DATA_DIR`, `RR_DOWNLOAD_DIR` y `POLAR_TOKEN_PATH_V4` son obligatorias y deben apuntar dentro de `/data`; si falta alguna o apunta fuera, el arranque falla
 - `HRV_UI_KEY=<cadena aleatoria larga>`: recomendada, **pendiente de configurar** (sin ella `/api/*` es anónimo)
-- Rutas sin comillas dentro del valor. Comprobación: `core_path`, `final_path`, `token_path` y `rr_download_dir` de `/api/status` empiezan por `/data/`
+- Comprobación: `core_path`, `final_path`, `token_path` y `rr_download_dir` de `/api/status` empiezan por `/data/`
 - `HRV_DROPBOX_RR_ENABLED=1`
 - `HRV_DROPBOX_NO_AUX=1`
 - `HRV_DROPBOX_FOLDER_PATH=/ruta/carpeta`
@@ -125,7 +126,7 @@ Si no hay sesión en un día, el CSV simplemente no incluye esa fecha. Es normal
   - `HRV_QUIET=1` — logs mínimos
   - `HRV_DISABLE_BACKUP=1` — desactiva todas las copias locales de CORE/BETA_AUDIT
   - `HRV_CORE_BACKUP_RETENTION=30` — copias locales fechadas máximas por tipo; conserva las más recientes. `0` las desactiva. Un fallo de poda se avisa y no interrumpe el core.
-  - `HRV_UI_KEY=<clave>` — protege `/api/*` con header `X-HRV-KEY` o `?key=`
+  - `HRV_UI_KEY=<clave>` — protege `/api/*` con header `X-HRV-KEY`
   - `HRV_WARNING_MODE=adaptive90` — estrategia de warning (`adaptive90` | `healthy85` | `p20`)
 - `HRV_BACKUP_DROPBOX_ENABLED=1` — backup de artefactos a Dropbox tras sync exitoso
 - `HRV_AUTO_RESTORE_ON_EMPTY_DATA=1` — intenta restaurar `DATA_DIR` desde Dropbox cuando falta o no es utilizable cualquiera de los cinco CSV obligatorios (CORE, BETA_AUDIT, FINAL, DASHBOARD y sueño); un restore que no deje una generacion coherente bloquea el sync. Unos manifests incoherentes sobre un dataset utilizable no disparan restore

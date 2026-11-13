@@ -71,7 +71,8 @@ Importante:
 - Automatico o manual:
   - Automatico en Railway (start command).
   - `POST /api/sync`, `POST /api/sync-sessions`, `POST /api/restore-backup` y `POST /api/delete-latest-rr` comparten estado y no deben ejecutarse en paralelo.
-  - Si `HRV_UI_KEY` está definida, todos los `/api/*` exigen la clave vía header `X-HRV-KEY` o query `?key=`; sin definir, comportamiento histórico sin autenticación.
+  - Si `HRV_UI_KEY` está definida, todos los `/api/*` exigen la clave vía header `X-HRV-KEY`; sin definir, comportamiento histórico sin autenticación. Con la clave definida, `GET /` no incrusta estado ni datos del atleta: sirve solo un formulario de acceso, y `static/ui.js` valida la clave contra `/api/status`, la guarda en `sessionStorage` de la pestaña, muestra el panel y vuelve a bloquearlo ante un 401. `/` y `/auth` no están cubiertos por la clave.
+  - En Railway, `hrv_app/config.py` exige `HRV_DATA_DIR`, `RR_DOWNLOAD_DIR` y `POLAR_TOKEN_PATH_V4` dentro de `/data` y falla al arrancar si no admiten escritura (sin fallback a carpeta efímera).
 
 ## Kanvas
 - El tablero vigente es `kanvas.json` en la raiz; su workflow esta documentado en `AGENTS.MD`.

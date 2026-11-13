@@ -8,9 +8,24 @@
 </head>
 <body>
     <div class="container">
-        {% include "partials/dashboard_actions.html" %}
-        {% include "partials/hrv_summary_card.html" %}
-        {% include "partials/technical_output_card.html" %}
+        {% if ui_key_required %}
+        <section id="apiKeyCard" class="card api-key-card">
+            <h1>{{ ui_copy.dashboard_title }}</h1>
+            <form id="apiKeyForm" class="api-key-form" autocomplete="on">
+                <label for="apiKeyInput">Clave de acceso</label>
+                <div class="api-key-row">
+                    <input id="apiKeyInput" type="password" autocomplete="current-password" required>
+                    <button type="submit">Conectar</button>
+                </div>
+                <p id="apiKeyMessage" class="muted" role="status">Introduce la clave configurada para ver el panel.</p>
+            </form>
+        </section>
+        {% endif %}
+        <div id="protectedDashboard"{% if ui_key_required %} hidden{% endif %}>
+            {% include "partials/dashboard_actions.html" %}
+            {% include "partials/hrv_summary_card.html" %}
+            {% include "partials/technical_output_card.html" %}
+        </div>
     </div>
     {% include "partials/ui_runtime_config.html" %}
     <script src="{{ url_for('static', filename='ui.js') }}"></script>

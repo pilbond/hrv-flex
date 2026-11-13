@@ -355,7 +355,7 @@ def _consume_oauth_state(state: str) -> bool:
 def _require_ui_key():
     if not UI_KEY or not request.path.startswith("/api/"):
         return None
-    provided = (request.headers.get("X-HRV-KEY") or request.args.get("key") or "").strip()
+    provided = (request.headers.get("X-HRV-KEY") or "").strip()
     if provided and secrets.compare_digest(provided, UI_KEY):
         return None
     return _api_error(MSG["ui_key_missing"], 401)
@@ -1280,15 +1280,20 @@ def _render_oauth_error_fallback(context: dict):
 @app.route('/')
 def index():
     """Interfaz web principal"""
-    try:
-        initial_payload = _build_status_payload()
-    except GenerationCoherenceError as exc:
-        initial_payload = _generation_incoherent_payload(exc)
+    if UI_KEY:
+        # The page is public. Never embed private status in its HTML.
+        initial_payload = {}
+    else:
+        try:
+            initial_payload = _build_status_payload()
+        except GenerationCoherenceError as exc:
+            initial_payload = _generation_incoherent_payload(exc)
     initial_view = initial_payload.get("view") or ui_view.build_view({})
     try:
         return render_template(
             'index.html',
             ui_copy=UI_COPY,
+            ui_key_required=bool(UI_KEY),
             runtime_config={**UI_RUNTIME_CONFIG, "sync_timeout_sec": _sync_timeout_seconds()},
             show_restore_backup=env_flag('HRV_BACKUP_DROPBOX_ENABLED', False),
             view=initial_view,
@@ -1296,6 +1301,8 @@ def index():
         )
     except TemplateNotFound as exc:
         app.logger.warning("Index template fallback: %s", exc)
+        if UI_KEY:
+            return "Interfaz no disponible", 503
         return _render_index_fallback(initial_payload)
 
 

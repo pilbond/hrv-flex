@@ -1138,7 +1138,7 @@
     {
       "id": "CAF-07",
       "title": "Retención y capacidad de backups",
-      "state": "review",
+      "state": "done",
       "group": "CAF",
       "desc": "Conservar solo las últimas N copias locales de CORE y BETA_AUDIT (N configurable, p. ej. 10) para acotar el espacio en el volumen sin perder la vuelta atrás manual de las últimas ejecuciones. Terminada cuando el core poda las copias antiguas en cada ejecución, con tests y documentación. Prioridad media. Detalle en [[CORE_AUDIT_FIX_07_BACKUP_RETENTION]]",
       "notes": [
@@ -1326,7 +1326,7 @@
     {
       "id": "FLE-02",
       "title": "Verificar acceso, token y backup en Railway",
-      "state": "proposed",
+      "state": "doing",
       "group": "FLE",
       "at": "2026-11-10T11:44:40Z",
       "by": "codex",
@@ -1341,6 +1341,71 @@
           "at": "2026-11-12T12:31:09Z",
           "by": "claude-code",
           "text": "2026-11-12: HRV_UI_KEY no está definida en Railway; /api/* es anónimo en la URL pública. Definirla es el primer paso pendiente (solo configuración). Documentación operativa actualizada con RAILWAY_RUN_UID=0, POLAR_TOKEN_PATH_V4 y rutas sin comillas. Estado detallado en la nota de desarrollo, sección «Estado (2026-11-12)»."
+        },
+        {
+          "at": "2026-11-12T15:43:52Z",
+          "by": "agent",
+          "text": "Plan: verificar en este checkout las rutas de runtime y destinos de backup, corregir cualquier uso residual de configuración v3 relevante y separar los controles de Railway que requieren acceso externo."
+        },
+        {
+          "at": "2026-11-12T15:44:45Z",
+          "by": "codex",
+          "text": "Avance local (2026-11-12): hrv_app.config ahora falla explícitamente en producción si HRV_DATA_DIR/RR_DOWNLOAD_DIR no son escribibles, sin fallback efímero, y rechaza comillas literales en HRV_DATA_DIR, RR_DOWNLOAD_DIR y POLAR_TOKEN_PATH_V4. Nota docs actualizada. Pendiente verificación en Railway: configurar HRV_UI_KEY y comprobar 401 anónimo; confirmar builder efectivo y destino Dropbox por entorno. No se dispone de acceso remoto para verificar/configurar esas variables. No se ejecutaron pruebas."
+        },
+        {
+          "at": "2026-11-12T19:00:26Z",
+          "by": "codex",
+          "text": "Interfaz de clave implementada (2026-11-12): cuando HRV_UI_KEY está configurada, la portada muestra un campo de contraseña; comprueba la clave con /api/status, la envía por X-HRV-KEY y la guarda en sessionStorage de esa pestaña. Las acciones quedan ocultas hasta conectar; la query key heredada se limpia inmediatamente del historial tras cargar. Pruebas: node --check static/ui.js y 5 tests test_config_contract pasan; git diff --check limpio. test_web_ui_security no se pudo ejecutar en este Python porque falta pandas (pytest tampoco está instalado). FLE-02 sigue doing: faltan comprobar/configurar variables y builder en Railway."
+        },
+        {
+          "at": "2026-11-12T21:30:11Z",
+          "by": "codex",
+          "text": "Ajuste UX por criterio del usuario (2026-11-12): con HRV_UI_KEY configurada, la portada muestra solo la tarjeta de acceso; el panel completo (acciones, technicalOutputCard y hrvSummaryCard) queda oculto hasta validar /api/status. Tras validar, desaparece el acceso y se muestra el panel. Sin HRV_UI_KEY, el panel aparece directamente. Añadida cobertura de render en tests/test_web_ui_security.py; no ejecutable aquí porque el Python disponible no tiene pandas. Node --check y git diff --check pasan."
+        },
+        {
+          "at": "2026-11-13T10:14:51Z",
+          "by": "claude-code",
+          "text": "Revisión crítica aplicada (2026-11-13). _resolve_writable_file falla en producción en vez de caer a ephemeral (cubre el token v4). Rechazo de comillas reducido a la comilla doble. Servidor y UI aceptan la clave solo por header X-HRV-KEY (retirado ?key=); la UI se re-bloquea ante 401 y borra la clave obsoleta. Docs alineadas. Test de comillas restaura config con addCleanup. Suite: 836 tests OK en venv aislado con PYTHONUTF8=1 y HRV_UI_KEY vacía; 5 modulos research requieren pytest. Nota: con HRV_UI_KEY en .env local, 6 tests de test_web_ui_status fallan por 401 (preexistente)."
+        },
+        {
+          "at": "2026-11-13T10:56:41Z",
+          "by": "codex",
+          "text": "Revisión crítica 2026-11-13: (1) P1: GET / sigue construyendo e insertando view y detalle técnico en HTML aunque el panel esté hidden; comprobado con cliente Flask: /api/status sin clave=401 pero HTML anónimo contiene fecha FINAL y ambos paneles. El fallback HTML también expone el payload. (2) P2: config.py rechaza solo comilla doble; valores como '/data' entre comillas simples son rutas relativas en Linux y pueden volver a caer en almacenamiento efímero. Además los defaults de producción data y .polar_tokens_v4.json siguen siendo efímeros si faltan variables. (3) P3: el sondeo de /api/status continúa cada 30 s cuando la pantalla está bloqueada y genera 401; documentación aún describe fallback silencioso ya eliminado. No cerrar tarea hasta corregir/probar puntos 1 y 2."
+        },
+        {
+          "at": "2026-11-13T11:06:40Z",
+          "by": "codex",
+          "text": "Correcciones tras revisión crítica (2026-11-13): GET / con HRV_UI_KEY ya no construye ni incrusta status/view/output privados; fallback de plantilla devuelve 503 sin datos. Railway exige HRV_DATA_DIR, RR_DOWNLOAD_DIR y POLAR_TOKEN_PATH_V4 explícitos y absolutos; comillas simples o dobles envolventes se rechazan antes de resolver rutas. UI deja de consultar /api/status mientras está bloqueada. Documentación operativa y nota FLE-02 alineadas; /hrv_backups confirmado por el atleta como destino deseado. Verificación: 62 tests focalizados y 12 subtests pasan (HRV_UI_KEY vacío en proceso de pruebas), node --check y git diff --check correctos. Pendiente comprobar configuración y comportamiento en Railway; tarea sigue doing."
+        },
+        {
+          "at": "2026-11-13T11:28:32Z",
+          "by": "claude-code",
+          "text": "Revisión crítica 2026-11-13 (tarde): sin fallos funcionales. Retirado el placeholder que exponía el nombre HRV_UI_KEY en la portada anónima. Se mantiene el chequeo de comillas: la regla de ruta absoluta no cubre una comilla final (/data/rr\" empieza por /). Se mantiene el 503 del fallback: evita servir el panel sin formulario de clave. Suite 838/843; 5 módulos research requieren pytest."
+        },
+        {
+          "at": "2026-11-13T11:30:44Z",
+          "by": "codex",
+          "text": "Revisión crítica posterior (2026-11-13): sigue habiendo dos problemas verificables. (1) El chequeo de Railway solo exige que cada ruta empiece por '/'; /app/data y /app/polar_tokens_v4.json pasan y son efímeros, de modo que el arranque puede superar la nueva validación sin usar el volumen /data. No hay prueba positiva de rutas /data. (2) Con la .env local que define HRV_UI_KEY, pytest tests/test_web_ui_status.py falla: 9 failed, 12 passed (401 inesperados y fallback 503), porque las pruebas no aíslan la clave. Con HRV_UI_KEY vacío pasaban. El HTML inicial ya no filtra datos con clave; no se detectó nueva fuga. El control de rutas añade fallo de arranque pero aún no prueba persistencia; revisar su alcance antes del despliegue. FLE-02 sigue doing."
+        },
+        {
+          "at": "2026-11-13T11:35:08Z",
+          "by": "codex",
+          "text": "Corrección verificada 2026-11-13: antes del cambio, la regla startswith('/') aceptaba /app/data aunque Dockerfile da escritura a /app; posixpath confirmó fuera de /data. La suite test_web_ui_status con .env local y HRV_UI_KEY definida reprodujo 9 fallos (401/503). Ahora las tres rutas Railway deben resolverse léxicamente dentro de /data, incluidos casos que usan ..; las pruebas de estado fijan UI_KEY vacío en setUp porque prueban el modo abierto. Con .env local sin modificar: 62 tests focalizados y 18 subtests pasan; diff --check correcto. Falta verificar desplegado real, FLE-02 sigue doing."
+        },
+        {
+          "at": "2026-11-13T11:46:52Z",
+          "by": "claude-code",
+          "text": "Límite conocido (2026-11-13): el control de rutas de Railway valida prefijo /data y escritura, no que /data sea el volumen montado (mkdir como root crea /data efímero si falta el volumen). No se añade ismount por riesgo de no arrancar sin prueba en Railway. Mitigación: comprobar /api/status (rutas en /data/) y persistencia tras redeploy. Detalle en la nota de desarrollo, punto 6."
+        },
+        {
+          "at": "2026-11-13T11:49:25Z",
+          "by": "claude-code",
+          "text": "Corrección (2026-11-13): la comilla literal en RR_DOWNLOAD_DIR (nota del 11-11) fue una suposición no verificada; el atleta confirma que no tocó ninguna variable por ese motivo. La causa real de la falta de persistencia fue RAILWAY_RUN_UID. Nota de desarrollo corregida. Pendiente comprobar el valor efectivo de RR_DOWNLOAD_DIR en Railway. El chequeo de comillas del código queda sin incidente que lo justifique."
+        },
+        {
+          "at": "2026-11-13T11:51:42Z",
+          "by": "claude-code",
+          "text": "Retirado el chequeo de comillas de config.py (sin incidente confirmado), su test y las menciones en AGENTS/CLAUDE/README/PROCEDIMIENTO. Se mantiene la regla de rutas dentro de /data en Railway y el fallo de arranque si no hay escritura. Tests config/security/status OK."
         }
       ]
     },

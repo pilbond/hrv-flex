@@ -14,6 +14,11 @@ from hrv_app.run_manifest import GenerationCoherenceError, file_digest
 
 
 class WebUiStatusTests(unittest.TestCase):
+    def setUp(self):
+        key_patch = patch.object(web_ui, "UI_KEY", "")
+        key_patch.start()
+        self.addCleanup(key_patch.stop)
+
     def test_hrv_subprocess_marker_populates_pipeline_status(self):
         marker = (
             '##HRV_RESULT##{"status":"degraded","success":true,"canonical_valid":true,'

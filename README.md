@@ -127,11 +127,11 @@ PUBLIC_URL=https://<dominio-publico>
 RAILWAY_RUN_UID=0
 ```
 
-En Railway, `RAILWAY_RUN_UID=0` es necesario porque el Dockerfile ejecuta con un usuario sin privilegios y el volumen se monta como root; sin ella la app no puede escribir en `/data` y usa sin aviso `./data` dentro del contenedor, que se pierde en cada redeploy. Escribe las rutas sin comillas dentro del valor. Para comprobarlo, `core_path`, `final_path`, `token_path` y `rr_download_dir` de `/api/status` deben empezar por `/data/`.
+En Railway, `RAILWAY_RUN_UID=0` es necesario porque el Dockerfile ejecuta con un usuario sin privilegios y el volumen se monta como root; si `/data` no admite escritura, la app falla al arrancar. Railway exige definir datos, RR y token v4 dentro del volumen `/data`. Para comprobarlo, `core_path`, `final_path`, `token_path` y `rr_download_dir` de `/api/status` deben empezar por `/data/`.
 
 Añade los secretos de Polar y Dropbox como variables del servicio. Configura `PORT` si necesitas un puerto distinto de `8080`. El flujo OAuth es web: `/auth` redirige a Polar y `/auth/callback` recibe la respuesta. `/health` comprueba que el proceso responde; `/health?strict=1` también comprueba la frescura de FINAL según `HRV_STALE_MAX_DAYS`.
 
-Si defines `HRV_UI_KEY`, las rutas `/api/*` requieren la clave mediante el header `X-HRV-KEY` o el parámetro `key`; la UI la toma de `?key=` en la URL de la página. Sin ella, cualquiera que alcance la URL pública puede leer el estado y lanzar sync, restore o borrado del último RR, así que se recomienda definirla en un despliegue público (en el despliegue actual aún no está definida). No expongas esa clave, los tokens ni los archivos personales.
+Si defines `HRV_UI_KEY`, las rutas `/api/*` requieren la clave mediante el header `X-HRV-KEY`. La UI muestra un campo para introducirla y la guarda solo en la sesión de esa pestaña; sin la variable, el acceso a la API queda abierto. Configúrala en `.env` para desarrollo local y en Railway para el despliegue público. No expongas esa clave, los tokens ni los archivos personales.
 
 ## Briefs IA opcionales
 

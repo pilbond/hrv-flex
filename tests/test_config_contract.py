@@ -7,6 +7,39 @@ from unittest.mock import patch
 
 
 class ConfigContractTests(unittest.TestCase):
+    def test_railway_requires_explicit_persistent_paths(self):
+        import hrv_app.config as config
+
+        self.addCleanup(importlib.reload, config)
+        for variable in ("HRV_DATA_DIR", "RR_DOWNLOAD_DIR", "POLAR_TOKEN_PATH_V4"):
+            with self.subTest(variable=variable), patch.dict(
+                "os.environ",
+                {
+                    "HRV_DATA_DIR": "/data",
+                    "RR_DOWNLOAD_DIR": "/data/rr_downloads",
+                    "POLAR_TOKEN_PATH_V4": "/data/polar_tokens_v4.json",
+                    variable: "",
+                    "RAILWAY_ENVIRONMENT": "test",
+                },
+                clear=False,
+            ), self.assertRaisesRegex(RuntimeError, rf"{variable} must point inside the /data volume"):
+                importlib.reload(config)
+
+        for variable in ("HRV_DATA_DIR", "RR_DOWNLOAD_DIR", "POLAR_TOKEN_PATH_V4"):
+            for outside in ("/app/data", "/data/../app/data"):
+                with self.subTest(variable=variable, outside=outside), patch.dict(
+                    "os.environ",
+                    {
+                        "HRV_DATA_DIR": "/data",
+                        "RR_DOWNLOAD_DIR": "/data/rr_downloads",
+                        "POLAR_TOKEN_PATH_V4": "/data/polar_tokens_v4.json",
+                        variable: outside,
+                        "RAILWAY_ENVIRONMENT": "test",
+                    },
+                    clear=False,
+                ), self.assertRaisesRegex(RuntimeError, rf"{variable} must point inside the /data volume"):
+                    importlib.reload(config)
+
     def test_client_id_prefers_client_id2_and_normalizes_production_url(self):
         with patch.dict(
             "os.environ",

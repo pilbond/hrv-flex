@@ -258,7 +258,7 @@ HRV_QUIET=1                          # logs mínimos
 HRV_DISABLE_BACKUP=1                 # desactivar copias locales CORE/BETA_AUDIT
 HRV_CORE_BACKUP_RETENTION=30         # copias locales por tipo (0 = desactivadas)
 HRV_SYNC_TIMEOUT_SEC=300             # timeout sync
-HRV_UI_KEY=<clave>                   # protege /api/* (header X-HRV-KEY o ?key=); sin definir = sin auth. Recomendada en Railway; PENDIENTE: aún no definida en el despliegue
+HRV_UI_KEY=<clave>                   # protege /api/* (header X-HRV-KEY); sin definir = sin auth. Recomendada en Railway; PENDIENTE: aún no definida en el despliegue
 HRV_STALE_MAX_DAYS=3                 # umbral de /health?strict=1 (503 si FINAL más viejo o ausente)
 HRV_BACKUP_DROPBOX_ENABLED=1         # opcional: backup de ENDURANCE_HRV_* y data/ai_briefs a Dropbox (overwrite) tras sync exitoso
 HRV_BACKUP_DROPBOX_PATH=/hrv_backups # carpeta del backup en Dropbox
@@ -326,9 +326,8 @@ Ambos briefs son opt-in con fallback determinista garantizado: cualquier fallo d
 ```
 
 Requisitos para que `/data` persista entre redeploys:
-- `RAILWAY_RUN_UID=0`: el `Dockerfile` ejecuta con un usuario sin privilegios y Railway monta el volumen como root. Sin esta variable la app no puede escribir en `/data` y pasa sin aviso a `./data` dentro del contenedor (efímero)
-- `POLAR_TOKEN_PATH_V4=/data/polar_tokens_v4.json`; sin ella el token vive en el directorio de trabajo del contenedor y se pierde en cada redeploy
-- Rutas sin comillas literales en el valor de las variables
+- `RAILWAY_RUN_UID=0`: el `Dockerfile` ejecuta con un usuario sin privilegios y Railway monta el volumen como root. Si `/data` no admite escritura, la app falla al arrancar
+- `POLAR_TOKEN_PATH_V4=/data/polar_tokens_v4.json`; Railway exige definir la ruta del token v4 explícitamente
 - Comprobación: en `/api/status`, `core_path`, `final_path`, `token_path` y `rr_download_dir` empiezan por `/data/`
 
 ### Flujo OAuth esperado
@@ -459,7 +458,7 @@ python egc_to_rr.py --dropbox-folder /ruta/carpeta --dropbox-recursive --outdir 
 - ✅ Los jobs HRV, sesiones, restore backup y borrado del último RR comparten estado y no se ejecutan simultáneamente
 - ✅ `hrv_app/backup_dropbox.py`: backup opcional de `ENDURANCE_HRV_*` de la raíz de `DATA_DIR` y del historial IA en `data/ai_briefs/` a Dropbox (`HRV_BACKUP_DROPBOX_ENABLED`, overwrite tras cada sync); restauración vía `POST /api/restore-backup` con escritura atómica y backup previo en `data/backup/pre_restore/`
 - ✅ `/health?strict=1` devuelve 503 si el FINAL falta o su última fecha supera `HRV_STALE_MAX_DAYS` (default 3); sin `strict` sigue siendo 200 (liveness)
-- ✅ Si `HRV_UI_KEY` está definida, todos los `/api/*` exigen la clave vía header `X-HRV-KEY` o `?key=`; OAuth `state` validado con TTL y uso único
+- ✅ Si `HRV_UI_KEY` está definida, todos los `/api/*` exigen la clave vía header `X-HRV-KEY`; OAuth `state` validado con TTL y uso único
 - ✅ `build_hrv_core.py`, `build_hrv_final_dashboard.py` y `build_sessions.py` usan `hrv_app.io_utils` para escrituras atómicas (eliminadas implementaciones locales duplicadas)
 - ✅ CI en `.github/workflows/tests.yml`: pytest en push/PR, Python 3.11
 - ✅ `sessions_day.csv` incluye carga canonica, clustering reciente de intensidad y señal rolling de polarización por familia

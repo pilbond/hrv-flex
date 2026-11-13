@@ -100,7 +100,7 @@ Estado actual de implementacion observado:
   - esta capa no modifica `sessions.csv`, `sessions_day.csv`, `FINAL` ni `DASHBOARD`.
 - `hrv_app/backup_dropbox.py`: backup opcional de `ENDURANCE_HRV_*` de la raiz de `DATA_DIR` y del historial IA en `data/ai_briefs/` a Dropbox (`HRV_BACKUP_DROPBOX_ENABLED`, sobrescribe en cada sync); la restauracion descarga primero a staging dentro de `DATA_DIR`, valida CORE, BETA_AUDIT, FINAL, DASHBOARD, sleep y la coherencia de ambos manifests antes de publicar, y revierte los sustituidos si falla la publicacion, conservando su copia previa en `data/backup/pre_restore/`. Un backup sin manifests se rechaza antes de publicar. El auto-restore solo se dispara cuando el conjunto obligatorio no es utilizable: unos manifests incoherentes sobre un dataset completo se avisan por log (`generation_coherent=false`) y no provocan restauracion, para no sobrescribir un historico utilizable. El backup tampoco sube una generacion incoherente: devuelve `incoherent_generation`, deja el remoto intacto y degrada el sync,
 - `/health?strict=1` devuelve 503 si el FINAL falta o su ultima fecha supera `HRV_STALE_MAX_DAYS` (default 3); sin `strict` sigue siendo 200 (liveness),
-- si `HRV_UI_KEY` esta definida, todos los `/api/*` exigen la clave via header `X-HRV-KEY` o `?key=`; el `state` de OAuth se valida con TTL y uso unico,
+- si `HRV_UI_KEY` esta definida, todos los `/api/*` exigen la clave via header `X-HRV-KEY`; la UI la solicita y la conserva en `sessionStorage` de la pestana; el `state` de OAuth se valida con TTL y uso unico,
 - `build_hrv_core.py`, `build_hrv_final_dashboard.py` y `build_sessions.py` usan `hrv_app.io_utils` para escrituras atomicas (eliminadas las implementaciones locales duplicadas),
 - CI en `.github/workflows/tests.yml`: pytest en push/PR sobre Python 3.11.
 - v3 completamente retirado; v4 es el único runtime Polar; `polar_client.py`, `polar_oauth_local.py` y `polar_shadow.py` eliminados; `POLAR_API_VERSION` y `POLAR_V4_SESSIONS` suprimidos.
@@ -227,7 +227,7 @@ Operativas:
 - `HRV_CORE_BACKUP_RETENTION=30` (copias locales fechadas de CORE y BETA_AUDIT a conservar por tipo; `0` las desactiva. `HRV_DISABLE_BACKUP=1` sigue siendo el interruptor global)
 - `HRV_SYNC_TIMEOUT_SEC`
 - `HRV_DROPBOX_RR_TIMEOUT_SEC`
-- `HRV_UI_KEY` (si está definida, todos los `/api/*` exigen la clave vía header `X-HRV-KEY` o query `?key=`; sin definir, `/api/*` queda sin autenticación. Recomendada en Railway y **pendiente de configurar** en el despliegue actual: ver sección 13)
+- `HRV_UI_KEY` (si está definida, todos los `/api/*` exigen la clave vía header `X-HRV-KEY`; la UI muestra un campo de acceso. Sin definir, `/api/*` queda sin autenticación. Recomendada en Railway y **pendiente de configurar** en el despliegue actual: ver sección 13)
 - `HRV_STALE_MAX_DAYS` (umbral de `/health?strict=1`: devuelve 503 si el FINAL falta o su última fecha supera el umbral; default 3. `/health` sin `strict` sigue siendo 200 liveness)
 - `HRV_BACKUP_DROPBOX_ENABLED` (opcional: tras cada sync exitoso sube los `ENDURANCE_HRV_*.csv/.json` de la raiz de `DATA_DIR` y el historial `DATA_DIR/ai_briefs/**/ENDURANCE_HRV_*.json` a Dropbox, sobrescribiendo; usa las credenciales Dropbox ya configuradas; nunca rompe el sync)
 - `HRV_BACKUP_DROPBOX_PATH` (carpeta del backup; default `/hrv_backups`)
@@ -276,11 +276,11 @@ Principio no negociable de produccion:
 Persistencia Railway requerida:
 
 - volumen montado en `/data`
-- `RAILWAY_RUN_UID=0`: la imagen del `Dockerfile` se ejecuta con un usuario sin privilegios y Railway monta el volumen como root. Sin esta variable la app no puede escribir en `/data` y pasa sin aviso a `./data` dentro del contenedor, que se pierde en cada redeploy. Se comprueba en `/api/status`: `core_path`, `final_path`, `token_path` y `rr_download_dir` deben empezar por `/data/`
-- `POLAR_TOKEN_PATH_V4=/data/polar_tokens_v4.json` (sin ella el token se guarda en el directorio de trabajo del contenedor y hay que reautorizar Polar tras cada redeploy)
+- `RAILWAY_RUN_UID=0`: la imagen del `Dockerfile` se ejecuta con un usuario sin privilegios y Railway monta el volumen como root. Sin permiso de escritura en `/data`, el arranque falla de forma explícita. Se comprueba en `/api/status`: `core_path`, `final_path`, `token_path` y `rr_download_dir` deben empezar por `/data/`
+- `POLAR_TOKEN_PATH_V4=/data/polar_tokens_v4.json` (Railway exige configurar esta ruta explícitamente)
 - `HRV_DATA_DIR=/data`
 - `RR_DOWNLOAD_DIR=/data/rr_downloads`
-- los valores de las rutas se escriben sin comillas literales: el codigo no las elimina y una ruta que empieza por `"` se interpreta como relativa al contenedor
+- Railway exige que datos, RR y token v4 estén dentro de `/data`
 
 Reglas:
 
@@ -321,7 +321,7 @@ Regla operativa:
 - rotar secretos si se exponen,
 - no exponer tokens ni artefactos sensibles por HTTP,
 - tratar `research/archive/` como material historico sensible,
-- **pendiente:** `HRV_UI_KEY` aun no esta definida en Railway. Se recomienda definirla con una cadena aleatoria larga (p. ej. `python -c "import secrets; print(secrets.token_urlsafe(32))"`): sin ella cualquiera que alcance la URL publica puede leer `/api/status` y lanzar sync, restore o borrado del ultimo RR. La UI lee la clave de `?key=` en la URL de la pagina; `/` y `/auth` no quedan cubiertos.
+- **pendiente:** `HRV_UI_KEY` aún debe definirse en Railway con una cadena aleatoria larga (p. ej. `python -c "import secrets; print(secrets.token_urlsafe(32))"`): sin ella cualquiera que alcance la URL pública puede leer `/api/status` y lanzar sync, restore o borrado del último RR. La UI solicita la clave en un campo y la envía por encabezado; `/` y `/auth` no quedan cubiertos.
 
 ## 14. Criterios de aceptacion
 1. `/auth` devuelve 302 a Polar con `redirect_uri` correcto.

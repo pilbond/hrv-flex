@@ -168,7 +168,7 @@ class WebUiOauthV4Tests(unittest.TestCase):
                 "scopes": "sleep:read",
                 "provider_version": "v4",
             }), encoding="utf-8")
-            with patch.object(web_ui, "TOKEN_PATH_V4", bundle_path):
+            with patch.object(web_ui, "TOKEN_PATH_V4", bundle_path), patch.object(web_ui, "UI_KEY", ""):
                 with web_ui.app.test_client() as client:
                     response = client.get("/api/status")
 
@@ -285,6 +285,37 @@ class WebUiOauthV4Tests(unittest.TestCase):
 
 
 class WebUiApiKeyTests(unittest.TestCase):
+    def test_index_shows_key_entry_when_api_key_is_configured(self):
+        with patch.object(web_ui, "UI_KEY", "secreto"), patch.object(
+            web_ui, "_build_status_payload", side_effect=AssertionError("private status loaded")
+        ):
+            with web_ui.app.test_client() as client:
+                response = client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'id="apiKeyForm"', response.data)
+        self.assertIn(b'id="apiKeyInput"', response.data)
+        self.assertIn(b'<div id="protectedDashboard" hidden>', response.data)
+        self.assertNotIn(b"2026-11-12", response.data)
+
+    def test_index_fallback_does_not_expose_status_with_key(self):
+        from jinja2 import TemplateNotFound
+
+        with patch.object(web_ui, "UI_KEY", "secreto"), patch.object(
+            web_ui, "render_template", side_effect=TemplateNotFound("index.html")
+        ), patch.object(web_ui, "_build_status_payload", side_effect=AssertionError("private status loaded")):
+            with web_ui.app.test_client() as client:
+                response = client.get("/")
+        self.assertEqual(response.status_code, 503)
+        self.assertNotIn(b"hrvSummaryCard", response.data)
+
+    def test_index_shows_dashboard_without_key_requirement(self):
+        with patch.object(web_ui, "UI_KEY", ""):
+            with web_ui.app.test_client() as client:
+                response = client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(b'id="apiKeyForm"', response.data)
+        self.assertIn(b'<div id="protectedDashboard">', response.data)
+
     def test_api_open_when_key_not_configured(self):
         with patch.object(web_ui, "UI_KEY", ""):
             with web_ui.app.test_client() as client:
@@ -304,7 +335,7 @@ class WebUiApiKeyTests(unittest.TestCase):
         self.assertEqual(denied.status_code, 401)
         self.assertEqual(wrong.status_code, 401)
         self.assertEqual(via_header.status_code, 200)
-        self.assertEqual(via_query.status_code, 200)
+        self.assertEqual(via_query.status_code, 401)
         self.assertEqual(index_open.status_code, 200)
         self.assertEqual(health_open.status_code, 200)
 
@@ -402,7 +433,7 @@ class WebUiRestoreBackupTests(unittest.TestCase):
             "backed_up": [],
             "backup_dir": None,
         }
-        with patch("hrv_app.backup_dropbox.restore_backup", return_value=fake_result):
+        with patch.object(web_ui, "UI_KEY", ""), patch("hrv_app.backup_dropbox.restore_backup", return_value=fake_result):
             with web_ui.app.test_client() as client:
                 resp = client.post("/api/restore-backup")
         self.assertEqual(resp.status_code, 200)
@@ -411,7 +442,7 @@ class WebUiRestoreBackupTests(unittest.TestCase):
         self.assertEqual(data["restored"], ["ENDURANCE_HRV_sleep.csv"])
 
     def test_restore_backup_error_returns_400(self):
-        with patch("hrv_app.backup_dropbox.restore_backup", side_effect=RuntimeError("no creds")):
+        with patch.object(web_ui, "UI_KEY", ""), patch("hrv_app.backup_dropbox.restore_backup", side_effect=RuntimeError("no creds")):
             with web_ui.app.test_client() as client:
                 resp = client.post("/api/restore-backup")
         self.assertEqual(resp.status_code, 400)

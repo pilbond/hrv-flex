@@ -1,5 +1,6 @@
 (() => {
-    const UI_KEY = new URLSearchParams(window.location.search).get('key');
+    const KEY_STORAGE = 'hrv-ui-key';
+    let UI_KEY = sessionStorage.getItem(KEY_STORAGE) || '';
     const runtimeConfigEl = document.getElementById('ui-runtime-config');
     const UI_RUNTIME = runtimeConfigEl ? JSON.parse(runtimeConfigEl.textContent || '{}') : {};
     const UI_TEXT = UI_RUNTIME.text || {};
@@ -30,6 +31,11 @@
 
     const DOM = {
         status: el('status'),
+        apiKeyForm: el('apiKeyForm'),
+        apiKeyInput: el('apiKeyInput'),
+        apiKeyMessage: el('apiKeyMessage'),
+        apiKeyCard: el('apiKeyCard'),
+        protectedDashboard: el('protectedDashboard'),
         technicalOutput: el('rawOutput'),
         technicalToggle: el('technicalToggleBtn'),
         technicalToggleText: el('technicalToggleText'),
@@ -97,7 +103,43 @@
     function apiFetch(url, options = {}) {
         const headers = Object.assign({}, options.headers || {});
         if (UI_KEY) headers['X-HRV-KEY'] = UI_KEY;
-        return fetch(url, Object.assign({}, options, { headers }));
+        return fetch(url, Object.assign({}, options, { headers })).then(response => {
+            if (response.status === 401 && DOM.apiKeyForm) lockDashboard();
+            return response;
+        });
+    }
+
+    function lockDashboard() {
+        UI_KEY = '';
+        sessionStorage.removeItem(KEY_STORAGE);
+        DOM.apiKeyCard.hidden = false;
+        DOM.protectedDashboard.hidden = true;
+        DOM.apiKeyMessage.textContent = 'La clave ya no es válida. Introdúcela de nuevo.';
+    }
+
+    async function connectApiKey(event) {
+        event.preventDefault();
+        const candidate = DOM.apiKeyInput?.value.trim() || '';
+        if (!candidate) return;
+        DOM.apiKeyMessage.textContent = 'Comprobando la clave…';
+        try {
+            const response = await fetch('/api/status', { headers: { 'X-HRV-KEY': candidate } });
+            if (response.status === 401) {
+                sessionStorage.removeItem(KEY_STORAGE);
+                DOM.apiKeyMessage.textContent = 'La clave no coincide. Revísala e inténtalo de nuevo.';
+                return;
+            }
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            UI_KEY = candidate;
+            sessionStorage.setItem(KEY_STORAGE, UI_KEY);
+            DOM.apiKeyInput.value = '';
+            DOM.apiKeyCard.hidden = true;
+            DOM.protectedDashboard.hidden = false;
+            applyUiState(await response.json());
+            DOM.apiKeyMessage.textContent = 'Conectado. La clave queda guardada en esta pestaña.';
+        } catch (error) {
+            DOM.apiKeyMessage.textContent = `No se pudo comprobar la clave: ${error.message}`;
+        }
     }
 
     function showBanner(kind, message) {
@@ -486,9 +528,18 @@
         });
     }
 
+    if (DOM.apiKeyForm) {
+        DOM.apiKeyForm.addEventListener('submit', connectApiKey);
+        if (UI_KEY) {
+            DOM.apiKeyInput.value = UI_KEY;
+            connectApiKey({ preventDefault() {} });
+        }
+    }
     bindSyncButtons();
     bindAuxiliaryButtons();
     bindTechnicalToggle();
-    setInterval(refreshDashboard, REFRESH_INTERVAL_MS);
-    refreshDashboard();
+    setInterval(() => {
+        if (!DOM.apiKeyForm || DOM.apiKeyCard.hidden) refreshDashboard();
+    }, REFRESH_INTERVAL_MS);
+    if (!DOM.apiKeyForm) refreshDashboard();
 })();

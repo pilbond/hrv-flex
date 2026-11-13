@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import posixpath
 import tempfile
 from pathlib import Path
 
@@ -76,21 +77,28 @@ def _dir_is_writable(path: Path) -> bool:
 
 
 def _resolve_writable_dir(primary: Path, fallback: Path) -> Path:
-    for candidate in (primary, fallback):
+    # Production data must never silently fall back to an ephemeral directory.
+    candidates = (primary,) if IS_PRODUCTION else (primary, fallback)
+    for candidate in candidates:
         if _dir_is_writable(candidate):
             return candidate
+    if IS_PRODUCTION:
+        raise RuntimeError(f"Configured data directory is not writable: {primary}")
     return primary
 
 
 def _resolve_writable_file(primary: Path, fallback_dir: Path) -> Path:
+    # Same rule as directories: production never falls back to ephemeral storage.
     candidates = [primary]
     fallback_file = fallback_dir / primary.name
-    if fallback_file != primary:
+    if not IS_PRODUCTION and fallback_file != primary:
         candidates.append(fallback_file)
 
     for candidate in candidates:
         if _dir_is_writable(candidate.parent):
             return candidate
+    if IS_PRODUCTION:
+        raise RuntimeError(f"Configured file location is not writable: {primary}")
     return primary
 
 
@@ -156,6 +164,16 @@ def _build_redirect_uri() -> str:
 REDIRECT_URI = _build_redirect_uri()
 
 _data_dir = (os.environ.get("HRV_DATA_DIR") or "data").strip() or "data"
+_configured_paths = (
+    ("HRV_DATA_DIR", _data_dir),
+    ("RR_DOWNLOAD_DIR", (os.environ.get("RR_DOWNLOAD_DIR") or "").strip()),
+    ("POLAR_TOKEN_PATH_V4", (os.environ.get("POLAR_TOKEN_PATH_V4") or "").strip()),
+)
+if IS_RAILWAY:
+    for _name, _value in _configured_paths:
+        normalized = posixpath.normpath(_value)
+        if not _value or (normalized != "/data" and not normalized.startswith("/data/")):
+            raise RuntimeError(f"{_name} must point inside the /data volume on Railway")
 _data_dir_path = Path(_data_dir)
 DATA_DIR = _resolve_writable_dir(_data_dir_path, Path.cwd() / _data_dir_path.name)
 _rr_dir = (os.environ.get("RR_DOWNLOAD_DIR") or "").strip()
